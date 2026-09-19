@@ -113,7 +113,9 @@ Steps 3, 4, and 7 are unchanged: the version advisory and the (empty) changelog 
 
 ### If the sweep touched only prose
 
-When the sweep's edits are confined to prose and Markdown (`docs/`, `readme.md`, `changelog.md`, `.claude/`; no `.py`, no `pyproject.toml`, no `uv.lock`), the full step-2 gate is disproportionate: tests, mypy, ruff, the binary self-test, and fresh resolution have no new surface to check. Narrow to what step 1's docs and bundled-asset passes do not already own: `<cmd> run mdformat --verify -- <file>` over the changed Markdown, plus `<cmd> lint-changelog` when `changelog.md` changed. Run it in the **same position** as the full gate — before the step-5 commit and push, never after. A lighter gate is still a pre-push gate: verifying format only once the push is already out defeats the point.
+When the sweep's edits are confined to prose and Markdown (`docs/`, `readme.md`, `changelog.md`, `.claude/`; no `.py`, no `pyproject.toml`, no `uv.lock`), the full step-2 gate is disproportionate: mypy, ruff, the binary self-test, and fresh resolution have no new surface to check. Narrow to what step 1's docs and bundled-asset passes do not already own: `<cmd> run mdformat --verify -- <file>` over the changed Markdown, plus `<cmd> lint-changelog` when `changelog.md` changed, plus every test that reads an edited file. Find those with `git grep -l -F '<file name>' -- tests/` for each changed path: a readme roster test or a docs conformance test takes prose as its input, and CI may never run it, since a workflow `paths:` filter can omit the prose file it reads. Run it in the **same position** as the full gate — before the step-5 commit and push, never after. A lighter gate is still a pre-push gate: verifying format only once the push is already out defeats the point.
+
+Step 6 narrows too: watch the run yourself with the takeover watcher it describes, and spawn `/babysit-ci` only on a real failure, as the no-edit branch does.
 
 ### 2. Validate locally (pre-push gate)
 
