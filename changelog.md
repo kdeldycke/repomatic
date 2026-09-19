@@ -23,6 +23,9 @@
 
 ## [`7.16.0` (2026-09-18)](https://github.com/kdeldycke/repomatic/compare/v7.15.0...v7.16.0)
 
+> [!NOTE]
+> `7.16.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.16.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.16.0).
+
 - **Breaking:** `sample-metrics` drops `--backfill-wayback` and `--import-csv`, since GitHub's star-history endpoint now rebuilds every curve. Readings they already wrote stay in the store.
 - **Breaking:** `unsubscribe-threads` replaces `--batch-size` with `--max-unsubscribes`, which caps unsubscribes instead of inspections. The `unsubscribe` workflow's `batch-size` input is renamed `max-unsubscribes` to match.
 - Add `repomatic init --upgrade`, which runs as the newest release past the `minimum-release-age` cooldown, so the upstream pin and every managed file move together.
