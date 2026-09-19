@@ -113,8 +113,17 @@ SETUP_UV_PACKAGE = "uv"
 SETUP_UV_SLUG = "astral-sh/setup-uv"
 """Action slug provisioning uv, whose own pin decides what CI can verify."""
 
-SETUP_UV_CHECKSUMS_PATH = "src/download/checksum/known-checksums.ts"
-"""Path of the checksum table inside the {data}`SETUP_UV_SLUG` repository."""
+SETUP_UV_CHECKSUMS_PATHS = (
+    "src/download/checksum/known-checksums.json",
+    "src/download/checksum/known-checksums.ts",
+)
+"""Paths of the checksum table inside the {data}`SETUP_UV_SLUG` repository.
+
+Tried in order, newest layout first. `v10.1.0` moved the table into the JSON
+file and reduced the TypeScript one to an `import` of it, while every earlier
+release holds the table inline in the TypeScript file. A pin on either side of
+that move must stay readable, since a repository mid-bump intersects both.
+"""
 
 GITHUB_API_CONTENTS_URL = (
     "https://api.github.com/repos/{slug}/contents/{path}?ref={ref}"
@@ -133,6 +142,8 @@ Keys are ``{target-triple}-{version}`` (`aarch64-apple-darwin-0.12.4`). The
 triple has no fixed segment count (`arm-unknown-linux-musleabihf` against
 `x86_64-apple-darwin`), so the version anchors the match instead: the leading
 character class holds no dot, which is what stops it eating into the version.
+Both layouts in {data}`SETUP_UV_CHECKSUMS_PATHS` quote the key the same way, so
+one pattern reads either.
 """
 
 # The uv build `astral-sh/setup-uv` installs, as a `version:` input on the step.
@@ -525,30 +536,32 @@ def _checksum_table(sha: str) -> frozenset[str] | None:
     half-megabyte file.
 
     :param sha: The pinned {data}`SETUP_UV_SLUG` commit.
-    :return: Every uv version the table names, or `None` when the file could
-        not be read or yielded no key at all (a format change upstream), which
-        callers treat as "unknown" rather than as "verifies nothing".
+    :return: Every uv version the table names, or `None` when no path in
+        {data}`SETUP_UV_CHECKSUMS_PATHS` could be read or yielded a key (a
+        format change upstream), which callers treat as "unknown" rather than
+        as "verifies nothing".
     """
-    url = GITHUB_API_CONTENTS_URL.format(
-        slug=SETUP_UV_SLUG, path=SETUP_UV_CHECKSUMS_PATH, ref=sha
-    )
-    try:
-        table = get_text(
-            url, headers={**api_headers(), "Accept": "application/vnd.github.raw"}
+    headers = {**api_headers(), "Accept": "application/vnd.github.raw"}
+    failures = []
+    for path in SETUP_UV_CHECKSUMS_PATHS:
+        url = GITHUB_API_CONTENTS_URL.format(slug=SETUP_UV_SLUG, path=path, ref=sha)
+        try:
+            table = get_text(url, headers=headers)
+        except FetchError as exc:
+            failures.append(f"{path}: {exc}")
+            continue
+        versions = frozenset(
+            match.group("version")
+            for match in _SETUP_UV_CHECKSUM_KEY_RE.finditer(table)
         )
-    except FetchError as exc:
-        logging.warning(f"Could not read the {SETUP_UV_SLUG} checksum table: {exc}")
-        return None
-    versions = frozenset(
-        match.group("version") for match in _SETUP_UV_CHECKSUM_KEY_RE.finditer(table)
+        if versions:
+            return versions
+        failures.append(f"{path}: no checksum key parsed")
+    logging.warning(
+        f"Could not read the {SETUP_UV_SLUG} checksum table at {sha}"
+        f" ({'; '.join(failures)}), so the uv pin is not gated."
     )
-    if not versions:
-        logging.warning(
-            f"No checksum key parsed from {SETUP_UV_CHECKSUMS_PATH} at {sha}:"
-            " the upstream format changed, so the uv pin is no longer gated."
-        )
-        return None
-    return versions
+    return None
 
 
 def setup_uv_verified_versions(shas: Iterable[str]) -> frozenset[str] | None:

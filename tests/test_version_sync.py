@@ -1057,6 +1057,19 @@ is the only fixed part of a key: `arm-unknown-linux-musleabihf` carries one
 more segment than `aarch64-apple-darwin`.
 """
 
+CHECKSUM_TABLE_JSON = """{
+  "aarch64-apple-darwin-0.12.12": "4d66e2bf09b1f5d7a3e6c1e0b2a8f3c7",
+  "x86_64-unknown-linux-gnu-0.12.12": "5e77f3c01ac2a6e8b4f7d2f1c3b9a4d8"
+}
+"""
+"""A table in the JSON layout `setup-uv` adopted in `v10.1.0`, digests shortened."""
+
+CHECKSUM_TABLE_IMPORT = """import knownChecksums from "./known-checksums.json" with { type: "json" };
+
+export const KNOWN_CHECKSUMS: Record<string, string> = knownChecksums;
+"""
+"""What the TypeScript file holds from `v10.1.0` on: an import, and no key."""
+
 
 @pytest.fixture
 def uncached_table():
@@ -1069,6 +1082,32 @@ def uncached_table():
 def test_checksum_table_parses_every_version(uncached_table):
     """Each key yields its uv version, whatever the target triple's shape."""
     with patch("repomatic.release.version_sync.get_text", return_value=CHECKSUM_TABLE):
+        assert vs._checksum_table("deadbeef") == frozenset({"0.12.3", "0.11.30"})
+
+
+def test_checksum_table_reads_the_json_layout(uncached_table):
+    """From `v10.1.0` on, the table sits in the JSON file the TypeScript one
+    imports."""
+
+    def fake_get_text(url, **kwargs):
+        return CHECKSUM_TABLE_JSON if ".json?" in url else CHECKSUM_TABLE_IMPORT
+
+    with patch(
+        "repomatic.release.version_sync.get_text", side_effect=fake_get_text
+    ) as fetch:
+        assert vs._checksum_table("deadbeef") == frozenset({"0.12.12"})
+    assert fetch.call_count == 1
+
+
+def test_checksum_table_falls_back_to_the_typescript_layout(uncached_table):
+    """A pin older than `v10.1.0` has no JSON file, and holds the table inline."""
+
+    def fake_get_text(url, **kwargs):
+        if ".json?" in url:
+            raise vs.FetchError("HTTP Error 404: Not Found")
+        return CHECKSUM_TABLE
+
+    with patch("repomatic.release.version_sync.get_text", side_effect=fake_get_text):
         assert vs._checksum_table("deadbeef") == frozenset({"0.12.3", "0.11.30"})
 
 
