@@ -9,6 +9,9 @@
 
 ## [`7.16.2` (2026-09-20)](https://github.com/kdeldycke/repomatic/compare/v7.16.1...v7.16.2)
 
+> [!NOTE]
+> `7.16.2` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.16.2/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.16.2).
+
 - The bundled `babysit-ci` skill now recognizes a runner that died mid-step, which ignores a cancel and leaves no log, and re-runs its job.
 - The bundled `ruff.toml` now ignores `D301`, whose raw-docstring prefix breaks the `\b` marker Click reads in a command's help text.
 - Fix `verify-binary` crashing on a Linux binary linked with packed relocations, which requires the `GLIBC_ABI_DT_RELR` symbol version.
