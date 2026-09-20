@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.16.2.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.16.1...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.16.2` (2026-09-20)](https://github.com/kdeldycke/repomatic/compare/v7.16.1...v7.16.2)
 
 - The bundled `babysit-ci` skill now recognizes a runner that died mid-step, which ignores a cancel and leaves no log, and re-runs its job.
 - The bundled `ruff.toml` now ignores `D301`, whose raw-docstring prefix breaks the `\b` marker Click reads in a command's help text.
