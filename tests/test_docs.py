@@ -14,18 +14,42 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the `update-docs` orchestration."""
+"""Tests for the `update-docs` orchestration and this repository's docs wiring."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import tomlrt
 from click_extra import ClickException
 
 from repomatic.config import Config, DocsConfig
 from repomatic.docs import _run_docs_tool, update_docs, validate_docs_script_path
+
+REPO_ROOT = Path(__file__).parent.parent
+
+
+def test_docs_group_carries_the_test_group() -> None:
+    """The Sphinx environment imports the test suite it documents.
+
+    autodoc imports every module it renders a page for, `docs/tests.md`
+    documents each test module, and each of those imports pytest. Without the
+    `test` group, all of them fail to import and their pages publish empty. The
+    build reports that as a warning, so nothing else catches it.
+    """
+    groups = tomlrt.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="UTF-8"))[
+        "dependency-groups"
+    ]
+    included = {
+        entry["include-group"] for entry in groups["docs"] if not isinstance(entry, str)
+    }
+    assert "test" in included, (
+        "[dependency-groups] docs must include the test group, or every "
+        "tests.* documentation page builds empty."
+    )
 
 
 def _docs_config(update_script: str = "") -> Config:
