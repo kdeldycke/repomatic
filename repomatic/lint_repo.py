@@ -29,7 +29,8 @@ import json
 import logging
 import re
 import shlex
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from functools import cache, cached_property
 from pathlib import Path
 from typing import NamedTuple
@@ -77,9 +78,12 @@ from .pypi import (
 )
 from .pyproject import get_project_name
 from .registry import (
+    COMPONENTS,
     DEFAULT_REPO,
     INSTALL_GUIDE_PATH,
     WORKFLOW_TARGET_ROOT,
+    SyncMode,
+    ToolConfigComponent,
     package_of,
 )
 from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
@@ -89,10 +93,12 @@ from .release.version_sync import (
     self_pin_exemption_re,
     setup_uv_verified_versions,
 )
+from .tooling.bundle import get_data_content
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping
+    from collections.abc import Callable, Iterable, Iterator
+    from typing import Any
 
     from .pages_redirects import ParseResult
 
@@ -2215,6 +2221,113 @@ def check_manpages_toolchain(script: str, lock_path: Path | None = None) -> Chec
     )
 
 
+def missing_template_entries(
+    template: Mapping[str, Any],
+    local: Mapping[str, Any],
+    prefix: str = "",
+) -> Iterator[tuple[str, str | None]]:
+    """Yield the dotted paths a seeded tool section does not carry.
+
+    Absence is the only thing reported. A scalar the repository tuned is its
+    own answer, a key it added is none of the template's business, and a
+    comment it rewrote is invisible here: all three are what
+    {attr}`~repomatic.registry.SyncMode.BOOTSTRAP` hands over on the first
+    write. What that contract cannot express is a knob the template gained
+    *afterwards*, which reaches nobody because `init` never revisits the
+    section.
+
+    A list is compared by membership, not by equality. An ignore list or a
+    select list grows one entry at a time and its order carries no meaning, so
+    equality would report every local addition as drift.
+
+    :param template: The bundled template, parsed.
+    :param local: The repository's own section, parsed.
+    :param prefix: Dotted path of the table being walked, for recursion.
+    :return: `(path, None)` per missing key, `(path, member)` per missing list
+        member.
+    """
+    for key, expected in template.items():
+        path = f"{prefix}{key}"
+        if key not in local:
+            yield path, None
+            continue
+        found = local[key]
+        if isinstance(expected, Mapping) and isinstance(found, Mapping):
+            yield from missing_template_entries(expected, found, f"{path}.")
+        elif isinstance(expected, list) and isinstance(found, list):
+            for item in expected:
+                if item not in found:
+                    yield path, str(item)
+
+
+def check_bootstrap_config_drift(
+    tool_table: Mapping[str, Any],
+) -> Iterator[CheckResult]:
+    """Report bundled knobs a seeded tool section never received.
+
+    `ruff`, `pytest`, `coverage`, `mypy` and `mdformat` are
+    {attr}`~repomatic.registry.SyncMode.BOOTSTRAP` components: `init` writes
+    the template once and hands the section over, so the repository owns every
+    value from then on. That is deliberate, and this check does not argue with
+    it. The gap it closes is narrower: a template that gains a knob *after*
+    the seeding has no route into the repository and nothing that mentions the
+    difference, so the section silently stops being the configuration
+    repomatic ships.
+
+    Advisory, and deliberately so. A repository may have dropped a template
+    rule on purpose, and only its maintainer can tell that from a section left
+    behind, per `claude.md` § Defensive workflow design.
+
+    :param tool_table: The repository's `[tool]` table, parsed.
+    :return: One result per adopted BOOTSTRAP section.
+    """
+    for comp in COMPONENTS:
+        if not isinstance(comp, ToolConfigComponent):
+            continue
+        if comp.sync_mode is not SyncMode.BOOTSTRAP:
+            continue
+        local = tool_table.get(comp.tool_name)
+        if not isinstance(local, Mapping):
+            continue
+
+        try:
+            template = tomlrt.loads(get_data_content(comp.source_file))
+        except (OSError, ValueError, tomlrt.TOMLParseError):
+            yield CheckResult(
+                None,
+                f"[{comp.tool_section}] drift: skipped (bundled"
+                f" `{comp.source_file}` could not be read).",
+            )
+            continue
+
+        missing = tuple(
+            entry
+            for entry in missing_template_entries(template, local)
+            if entry not in comp.customizable_entries
+        )
+        if missing:
+            listed = ", ".join(
+                f"`{path}`" if member is None else f'`{path}` member "{member}"'
+                for path, member in missing
+            )
+            yield CheckResult(
+                False,
+                f"[{comp.tool_section}] does not carry"
+                f" {listed} from the"
+                f" bundled `{comp.source_file}`. `init` seeds this section"
+                f" once and never revisits it, so a knob the template gained"
+                f" since arrives only by hand. Copy what applies, or keep the"
+                f" difference on purpose.",
+            )
+            continue
+
+        yield CheckResult(
+            True,
+            f"[{comp.tool_section}] carries every entry of the bundled"
+            f" `{comp.source_file}`.",
+        )
+
+
 def _collect_conditions(
     workflow: dict,
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
@@ -2895,6 +3008,9 @@ class LintContext:
     keywords: list[str] | None = None
     """Keywords list from `pyproject.toml`."""
 
+    tool_table: Mapping[str, Any] = field(default_factory=dict)
+    """The `[tool]` table of `pyproject.toml`, parsed."""
+
     repo: str | None = None
     """Repository in `owner/repo` format."""
 
@@ -3036,6 +3152,7 @@ class LintContext:
             project_description=metadata.project_description,
             docs_url=documentation_url(project_table.get("urls")),
             keywords=project_table.get("keywords"),
+            tool_table=metadata.pyproject_toml.get("tool", {}),
             repo=repo or None,
             has_pat=has_pat,
             has_virustotal_key=has_virustotal_key,
@@ -3437,6 +3554,11 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         "manpages-toolchain",
         lambda ctx: check_manpages_toolchain(ctx.manpages_script),
         applies=lambda ctx: bool(ctx.manpages_script),
+    ),
+    RepoCheck(
+        "bootstrap-config-drift",
+        lambda ctx: check_bootstrap_config_drift(ctx.tool_table),
+        applies=lambda ctx: bool(ctx.tool_table),
     ),
     RepoCheck(
         "inline-pins-match-upstream",

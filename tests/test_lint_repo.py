@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import inspect
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import tomlrt
 import yaml
 
 from repomatic import lint_repo
@@ -42,6 +44,7 @@ from repomatic.lint_repo import (
     CheckResult,
     LintContext,
     _resolve_declared_labels,
+    check_bootstrap_config_drift,
     check_branch_ruleset_on_default,
     check_classic_branch_protection,
     check_description_matches,
@@ -72,12 +75,19 @@ from repomatic.lint_repo import (
     documentation_url,
     get_repo_metadata,
     literal_runners,
+    missing_template_entries,
     run_repo_lint,
 )
 from repomatic.matrix_axes import UNSTABLE_PYTHON_VERSIONS
 from repomatic.metadata.core import METADATA_VALUE_OPTIONS
 from repomatic.pypi import TrustedPublisher
-from repomatic.registry import INSTALL_GUIDE_PATH
+from repomatic.registry import (
+    COMPONENTS,
+    INSTALL_GUIDE_PATH,
+    SyncMode,
+    ToolConfigComponent,
+)
+from repomatic.tooling.bundle import get_data_content
 from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from tests.conftest import metadata_from_pyproject, pat_results
 
@@ -657,6 +667,113 @@ def test_manpages_toolchain_only_applies_to_an_opted_in_project():
     check = next(c for c in REPO_CHECKS if c.name == "manpages-toolchain")
     assert check.applies(LintContext(manpages_script="")) is False
     assert check.applies(LintContext(manpages_script="basket.cli:basket")) is True
+
+
+BOOTSTRAP_CONFIGS = tuple(
+    comp
+    for comp in COMPONENTS
+    if isinstance(comp, ToolConfigComponent) and comp.sync_mode is SyncMode.BOOTSTRAP
+)
+"""Every tool config `init` seeds once and never revisits."""
+
+
+def _template_carries(template: Mapping, path: str, member: str | None) -> bool:
+    """Whether a bundled template holds the entry a placeholder declaration names."""
+    node = template
+    for part in path.split("."):
+        if not isinstance(node, Mapping) or part not in node:
+            return False
+        node = node[part]
+    return True if member is None else member in node
+
+
+@pytest.mark.parametrize(
+    ("template", "local", "expected"),
+    (
+        pytest.param({"basket": 1}, {}, (("basket", None),), id="missing-key"),
+        pytest.param({"basket": 1}, {"basket": 2}, (), id="own-scalar-kept"),
+        pytest.param({}, {"basket": 1}, (), id="local-only-key-kept"),
+        pytest.param(
+            {"fruits": ["apple", "pear"]},
+            {"fruits": ["pear"]},
+            (("fruits", "apple"),),
+            id="missing-list-member",
+        ),
+        pytest.param(
+            {"fruits": ["apple"]},
+            {"fruits": ["apple", "plum"]},
+            (),
+            id="local-only-member-kept",
+        ),
+        pytest.param(
+            {"basket": {"fruits": ["apple"], "weight": 3}},
+            {"basket": {"fruits": []}},
+            (("basket.fruits", "apple"), ("basket.weight", None)),
+            id="nested-table",
+        ),
+    ),
+)
+def test_missing_template_entries(template, local, expected):
+    """Only absence is drift: a tuned value and a local addition are not."""
+    assert tuple(missing_template_entries(template, local)) == expected
+
+
+@pytest.mark.parametrize("comp", BOOTSTRAP_CONFIGS, ids=lambda c: c.name)
+def test_bootstrap_config_drift_passes_on_its_own_template(comp):
+    """A section holding the bundle verbatim is missing nothing."""
+    local = tomlrt.loads(get_data_content(comp.source_file))
+    results = tuple(check_bootstrap_config_drift({comp.tool_name: local}))
+    assert [result.passed for result in results] == [True]
+
+
+@pytest.mark.parametrize("comp", BOOTSTRAP_CONFIGS, ids=lambda c: c.name)
+def test_bootstrap_config_drift_reports_a_dropped_entry(comp):
+    """A knob the template gained after seeding reaches nobody on its own.
+
+    `kdeldycke/dotfiles` carried a `[tool.ruff]` seeded before the bundle
+    added `D301` to `lint.ignore`. `init` never revisits a BOOTSTRAP section,
+    so the rule stayed absent with nothing reporting it.
+    """
+    local = tomlrt.loads(get_data_content(comp.source_file))
+    dropped = next(iter(local))
+    del local[dropped]
+    results = tuple(check_bootstrap_config_drift({comp.tool_name: local}))
+    assert [result.passed for result in results] == [False]
+    assert f"`{dropped}`" in results[0].message
+
+
+def test_bootstrap_config_drift_keeps_a_customized_placeholder():
+    """`--cov=.` names the project's own package, so its absence is not drift."""
+    local = tomlrt.loads(get_data_content("pytest.toml"))
+    local["addopts"].remove("--cov=.")
+    results = tuple(check_bootstrap_config_drift({"pytest": local}))
+    assert [result.passed for result in results] == [True]
+
+
+@pytest.mark.parametrize("comp", BOOTSTRAP_CONFIGS, ids=lambda c: c.name)
+def test_customizable_entries_exist_in_their_template(comp):
+    """A placeholder declaration goes stale silently, and then hides real drift."""
+    template = tomlrt.loads(get_data_content(comp.source_file))
+    for path, member in comp.customizable_entries:
+        assert _template_carries(template, path, member), (
+            f"{comp.name}: `{path}` member {member!r} is no longer in"
+            f" {comp.source_file}, so its exemption now hides a real gap."
+        )
+
+
+@pytest.mark.parametrize(
+    "comp",
+    tuple(
+        comp
+        for comp in COMPONENTS
+        if isinstance(comp, ToolConfigComponent)
+        and comp.sync_mode is not SyncMode.BOOTSTRAP
+    ),
+    ids=lambda c: c.name,
+)
+def test_customizable_entries_are_bootstrap_only(comp):
+    """An ongoing sync re-derives the section, so it has no placeholder to keep."""
+    assert not comp.customizable_entries
 
 
 def _lint_context_in(tmp_path, monkeypatch, **kwargs) -> LintContext:

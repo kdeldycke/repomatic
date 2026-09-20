@@ -397,6 +397,20 @@ class ToolConfigComponent(Component):
     on shared scalars; `preserved_keys` flips that for named top-level keys.
     """
 
+    customizable_entries: tuple[tuple[str, str | None], ...] = ()
+    """Template entries every repository is expected to replace with its own.
+
+    Only meaningful when `sync_mode` is `BOOTSTRAP`, where
+    {func}`~repomatic.lint_repo.check_bootstrap_config_drift` reports what a
+    seeded section never received. A placeholder the template tells the reader
+    to change is absent from every *correctly* customized section, so
+    reporting it would put a permanent warning on the one knob the template
+    asked the repository to own.
+
+    Each entry is `(dotted_path, None)` for a whole key, or
+    `(dotted_path, member)` for one item of a list.
+    """
+
     preserved_keys: tuple[str, ...] = ()
     """Top-level keys whose existing values survive an ongoing sync.
 
@@ -845,6 +859,10 @@ COMPONENTS: tuple[Component, ...] = (
         init_default=InitDefault.EXPLICIT,
         source_file="pytest.toml",
         tool_section="tool.pytest",
+        # `--cov=.` names the package to measure, and the template says to
+        # change it. repomatic's own answer is a bare `--cov`, with the source
+        # named once in `[tool.coverage] run.source`.
+        customizable_entries=(("addopts", "--cov=."),),
     ),
     ToolConfigComponent(
         name="coverage",

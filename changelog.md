@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- `lint-repo` now warns when a seeded tool config (`ruff`, `pytest`, `coverage`, `mypy`, `mdformat`) lacks an entry its bundled template gained after the seeding.
 - The bundled `sphinx-docs` agent now warns that an incremental build's warning count covers only the pages it re-read.
 
 ## [`7.16.2` (2026-09-20)](https://github.com/kdeldycke/repomatic/compare/v7.16.1...v7.16.2)
