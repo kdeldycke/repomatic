@@ -111,7 +111,7 @@ def test_summarize_puts_the_slowest_median_first() -> None:
     ]
     reports = summarize(timings)
     assert [report.runner for report in reports] == ["slow-image", "fast-image"]
-    assert reports[0].median_seconds == 200.0
+    assert reports[0].median_seconds == pytest.approx(200.0)
     assert reports[0].slowest_job == "d"
     assert reports[1].job_count == 2
 

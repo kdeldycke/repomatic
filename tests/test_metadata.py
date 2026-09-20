@@ -143,7 +143,10 @@ class AnyLengthList:
         self.item_pattern = item_pattern
 
 
-class StringList(list):
+# A marker the expectation walker reads through `isinstance(x, list)`, never a
+# list this code mutates, so FURB189's pitfalls do not apply. `UserList` would
+# instead make every such check miss it.
+class StringList(list):  # noqa: FURB189
     """A list of plain strings serialized without double-quoting in GitHub Actions format.
 
     Used for metadata fields like ``cli_scripts`` that contain plain string values

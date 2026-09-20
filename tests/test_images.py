@@ -51,7 +51,7 @@ def test_optimization_result_saved_pct() -> None:
 def test_optimization_result_zero_before() -> None:
     """Zero-byte file produces 0% savings."""
     result = OptimizationResult(path=Path("test.png"), before_bytes=0, after_bytes=0)
-    assert result.saved_pct == 0.0
+    assert result.saved_pct == pytest.approx(0.0)
 
 
 def test_generate_markdown_summary_empty() -> None:

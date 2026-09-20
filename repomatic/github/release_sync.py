@@ -245,8 +245,10 @@ def render_sync_report(result: SyncResult) -> str:
         f"| \U0001f504 Drifted | {result.drifted} |",
     ]
     if not result.dry_run:
-        summary_lines.append(f"| \u2705 Updated | {result.updated} |")
-        summary_lines.append(f"| \u26a0\ufe0f Failed | {result.failed} |")
+        summary_lines.extend((
+            f"| \u2705 Updated | {result.updated} |",
+            f"| \u26a0\ufe0f Failed | {result.failed} |",
+        ))
     if result.missing_changelog:
         summary_lines.append(
             f"| \u2753 Missing changelog | {result.missing_changelog} |"

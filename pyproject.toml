@@ -191,6 +191,10 @@ docs = [
   "sphinxcontrib-mermaid>=1.2.3",
   # sphinxext-opengraph 0.13 stabilized OpenGraph metadata generation for Sphinx 8+.
   "sphinxext-opengraph>=0.13",
+  # autodoc imports every module it documents, and docs/tests.md documents the
+  # test suite, whose modules import pytest. Without the test group the whole
+  # tests package fails to import and each of its pages renders empty.
+  { include-group = "test" },
 ]
 # types-boltons: first stub release covering boltons 25.0 API (FrozenDict, unique, flatten,
 # strip_ansi). types-docutils: covers the docutils.nodes imports in docs/conf.py.
@@ -303,6 +307,12 @@ format.docstring-code-format = true
 #   PEP 597's `PYTHONWARNDEFAULTENCODING=1` remains the complete runtime net.
 #   See: https://docs.astral.sh/ruff/rules/unspecified-encoding/
 lint.extend-select = [ "PLW1514" ]
+# D301: Use `r"""` if any backslashes in a docstring.
+#   A Click command's docstring is its `--help` text, and `\b` marks a paragraph
+#   Click must not rewrap. The raw prefix this rule asks for turns that backspace
+#   character into two printable ones, so the marker stops working and shows up
+#   in the help output.
+#   See: https://docs.astral.sh/ruff/rules/escape-sequence-in-docstring/
 # D400: First line should end with a period.
 #   Allows docstrings to end up with any punctuation, not just a period.
 #   See: https://github.com/astral-sh/ruff/issues/1858#issuecomment-1382640623
@@ -312,7 +322,7 @@ lint.extend-select = [ "PLW1514" ]
 # LOG015: Root logger calls (logging.info(), etc.).
 #   The CLI configures the root logger via Click, so root logger calls are intentional.
 #   See: https://docs.astral.sh/ruff/rules/root-logger-call/
-lint.ignore = [ "D400", "ERA001", "LOG015" ]
+lint.ignore = [ "D301", "D400", "ERA001", "LOG015" ]
 lint.isort.combine-as-imports = true
 # Allow rules to add `from __future__ import annotations` in cases where
 # this would simplify a fix or enable a new diagnostic.

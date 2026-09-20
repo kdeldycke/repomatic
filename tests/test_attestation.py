@@ -172,5 +172,5 @@ def test_pack_attestation_rejects_a_missing_subject(tmp_path):
     (tmp_path / "papaya.zip").write_bytes(b"one")
     bundle = write_bundle(tmp_path / "raw.json", "papaya.zip", "mango.zip")
 
-    with pytest.raises(ValueError, match="mango.zip, missing from"):
+    with pytest.raises(ValueError, match=r"mango\.zip, missing from"):
         pack_attestation(bundle, tmp_path, "fruit-extra-assets")

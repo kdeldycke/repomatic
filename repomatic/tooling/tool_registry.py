@@ -2201,69 +2201,69 @@ def tool_reference() -> str:
         label = spec.display_name or spec.name
         name_link = f"[{label}]({spec.datasource_url})"
 
-        lines.append(f"### {name_link}")
-        lines.append("")
+        lines.extend((f"### {name_link}", ""))
 
         badges = _tool_badges(key, spec)
         if badges:
-            lines.append(badges)
-            lines.append("")
+            lines.extend((badges, ""))
 
-        lines.append(f"**Installed version:** `{spec.version}`")
-        lines.append("")
-
-        lines.append(f"**Installation method:** {spec.backend.long_label}")
-        lines.append("")
+        lines.extend((
+            f"**Installed version:** `{spec.version}`",
+            "",
+            f"**Installation method:** {spec.backend.long_label}",
+            "",
+        ))
 
         if spec.native_config_files:
             files_str = ", ".join(f"`{f}`" for f in spec.native_config_files)
             if spec.reads_pyproject:
                 files_str += f" and `[tool.{spec.name}]` in `pyproject.toml` (native)"
-            lines.append(f"**Config files:** {files_str}")
-            lines.append("")
+            lines.extend((f"**Config files:** {files_str}", ""))
         elif spec.reads_pyproject:
-            lines.append(
-                f"**Config:** `[tool.{spec.name}]` in `pyproject.toml` (native)"
-            )
-            lines.append("")
+            lines.extend((
+                f"**Config:** `[tool.{spec.name}]` in `pyproject.toml` (native)",
+                "",
+            ))
         elif spec.native_format is NativeFormat.FLAGS:
-            lines.append(
-                f"**Config:** `[tool.{spec.name}]` in `pyproject.toml`"
-                " (translated to CLI flags)"
-            )
-            lines.append("")
+            lines.extend((
+                (
+                    f"**Config:** `[tool.{spec.name}]` in `pyproject.toml`"
+                    " (translated to CLI flags)"
+                ),
+                "",
+            ))
         else:
-            lines.append("**Config:** CLI flags only")
-            lines.append("")
+            lines.extend(("**Config:** CLI flags only", ""))
 
         if spec.config_flag and not spec.reads_pyproject:
-            lines.append(
-                f"**`[tool.{spec.name}]` bridge:** repomatic translates to"
-                f" {spec.native_format.name} and passes via `{spec.config_flag}`."
-            )
-            lines.append("")
+            lines.extend((
+                (
+                    f"**`[tool.{spec.name}]` bridge:** repomatic translates to"
+                    f" {spec.native_format.name} and passes via `{spec.config_flag}`."
+                ),
+                "",
+            ))
 
         if spec.default_flags:
             flags_str = " ".join(f"`{f}`" for f in spec.default_flags)
-            lines.append(f"**Default flags:** {flags_str}")
-            lines.append("")
+            lines.extend((f"**Default flags:** {flags_str}", ""))
 
         if spec.ci_flags:
             ci_str = " ".join(f"`{f}`" for f in spec.ci_flags)
-            lines.append(f"**CI flags:** {ci_str}")
-            lines.append("")
+            lines.extend((f"**CI flags:** {ci_str}", ""))
 
         if spec.default_config:
             data_url = (
                 "https://github.com/kdeldycke/repomatic/blob/main/repomatic/data/"
                 + spec.default_config
             )
-            lines.append(f"**Bundled default:** [`{spec.default_config}`]({data_url})")
-            lines.append("")
+            lines.extend((
+                f"**Bundled default:** [`{spec.default_config}`]({data_url})",
+                "",
+            ))
 
         if spec.with_packages:
-            lines.append("**Plugins:**")
-            lines.append("")
+            lines.extend(("**Plugins:**", ""))
             for pkg in spec.with_packages:
                 display = pkg.split("==")[0].split("@")[0].strip()
                 lines.append(f"- `{display}`")
@@ -2277,11 +2277,9 @@ def tool_reference() -> str:
         if spec.cli_docs_url:
             doc_links.append(f"[CLI usage]({spec.cli_docs_url})")
         if doc_links:
-            lines.append(" | ".join(doc_links))
-            lines.append("")
+            lines.extend((" | ".join(doc_links), ""))
 
         if spec.docs_notes:
-            lines.append(spec.docs_notes)
-            lines.append("")
+            lines.extend((spec.docs_notes, ""))
 
     return "\n".join(lines)

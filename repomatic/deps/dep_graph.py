@@ -668,8 +668,7 @@ def render_mermaid(
     # Define primary dependencies in a subgraph to align them vertically.
     # Primary deps use hexagon shape to distinguish them from transitive deps.
     if primary_deps:
-        lines.append("")
-        lines.append("    subgraph primary-deps [Primary dependencies]")
+        lines.extend(("", "    subgraph primary-deps [Primary dependencies]"))
         for name in sorted(
             primary_deps,
             key=lambda n: (-subtree.get(n, 0), -degree.get(n, 0), n),
@@ -702,8 +701,7 @@ def render_mermaid(
         if not owned_names and not dup_names:
             continue
         sg_specs = lock_specs.by_subgraph.get(subgraph.name, {}) if lock_specs else {}
-        lines.append("")
-        lines.append(f"    subgraph {subgraph.mermaid_id} [{subgraph.title}]")
+        lines.extend(("", f"    subgraph {subgraph.mermaid_id} [{subgraph.title}]"))
         for pkg in sorted(owned_names, key=lambda n: (-degree.get(n, 0), n)):
             node_id = normalize_package_name(pkg)
             spec = sg_specs.get(pkg, "")

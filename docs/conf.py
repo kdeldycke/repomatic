@@ -206,6 +206,14 @@ manpages_url = "man/{page}.{section}.html"
 exclude_patterns = ["_build", "_linkcheck", "html", "Thumbs.db", ".DS_Store"]
 
 nitpicky = True
+# The test suite's fixture annotations name pytest's private modules, which its
+# published inventory does not carry: it documents the same classes as
+# `pytest.MonkeyPatch` and `pytest.TempPathFactory`. There is nothing to link
+# to, so stop nitpicky mode asking for it.
+nitpick_ignore = [
+    ("py:class", "_pytest.monkeypatch.MonkeyPatch"),
+    ("py:class", "_pytest.tmpdir.TempPathFactory"),
+]
 
 # Concatenate class and __init__ docstrings.
 autoclass_content = "both"

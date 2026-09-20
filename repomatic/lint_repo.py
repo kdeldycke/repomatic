@@ -974,11 +974,12 @@ def check_fork_pr_approval_policy(repo: str) -> CheckResult:
         endpoint="actions/permissions/fork-pr-contributor-approval",
         field="approval_policy",
         pass_message="Fork PR approval policy: {value}.",
+        # `{repo}` is filled by `_check_repo_setting`, not an f-string.
         fail_message=(
             "Fork PR approval policy is 'first_time_contributors_new_to_github',"
             " which only catches brand-new GitHub accounts."
             " Set it to 'first_time_contributors' (or stricter) under"
-            " https://github.com/{repo}/settings/actions"
+            " https://github.com/{repo}/settings/actions"  # noqa: RUF027
             " to require approval for any first-time contributor."
         ),
         passing=frozenset({"first_time_contributors", "all_external_contributors"}),
@@ -1020,10 +1021,11 @@ def check_sha_pinning_required(repo: str) -> CheckResult:
         endpoint="actions/permissions",
         field="sha_pinning_required",
         pass_message="SHA pinning required: enabled.",
+        # `{repo}` is filled by `_check_repo_setting`, not an f-string.
         fail_message=(
             "SHA pinning is not required for GitHub Actions in this repository."
             " Enable it under"
-            " https://github.com/{repo}/settings/actions"
+            " https://github.com/{repo}/settings/actions"  # noqa: RUF027
             " (Actions permissions → Require actions to be pinned to a"
             " full-length commit SHA) so GitHub rejects any unpinned action"
             " reference, not just the ones zizmor happens to catch."
@@ -1231,10 +1233,11 @@ def check_pages_deployment_source(repo: str) -> CheckResult:
         endpoint="pages",
         field="build_type",
         pass_message="GitHub Pages deployment source is set to GitHub Actions.",
+        # `{repo}` is filled by `_check_repo_setting`, not an f-string.
         fail_message=(
             "GitHub Pages deployment source is set to 'Deploy from a branch'."
             " Change it to 'GitHub Actions' under"
-            " https://github.com/{repo}/settings/pages"
+            " https://github.com/{repo}/settings/pages"  # noqa: RUF027
             " so the docs.yaml workflow can deploy."
         ),
         passing=frozenset({"workflow"}),

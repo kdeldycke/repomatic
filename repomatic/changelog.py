@@ -1187,7 +1187,11 @@ class ReleaseSources:
         )
 
     def unrecorded_gaps(
-        self, changelog: Changelog, releases: Sequence[tuple[str, str]]
+        self,
+        changelog: Changelog,
+        releases: Sequence[tuple[str, str]],
+        *,
+        github_only: bool = False,
     ) -> set[str]:
         """Versions these lookups miss where their section records no absence.
 
@@ -1196,6 +1200,10 @@ class ReleaseSources:
         postdate the snapshot: both need a live answer. A gap the section
         already records is left to the cache, so a permanent one costs no
         request per run.
+
+        :param github_only: Report only the versions whose unrecorded gap is on
+            GitHub. A PyPI-only gap needs no GitHub answer, so a failed GitHub
+            lookup still leaves it settled.
         """
         found = set()
         for candidate, _candidate_date in releases:
@@ -1203,9 +1211,11 @@ class ReleaseSources:
             if not (pypi_gap or github_gap):
                 continue
             existing = changelog.decompose_version(candidate).availability_admonition
-            if (pypi_gap and not _records_absence(existing, PYPI_LABEL)) or (
-                github_gap and not _records_absence(existing, GITHUB_LABEL)
-            ):
+            unrecorded_pypi = pypi_gap and not _records_absence(existing, PYPI_LABEL)
+            unrecorded_github = github_gap and not _records_absence(
+                existing, GITHUB_LABEL
+            )
+            if unrecorded_github or (unrecorded_pypi and not github_only):
                 found.add(candidate)
         return found
 
@@ -1567,14 +1577,21 @@ def lint_changelog_dates(
             # Keep the fresh PyPI half; the GitHub half stays as fetched.
             sources = replace(sources, pypi_data=confirmed.pypi_data)
         still_missing = sources.unrecorded_gaps(changelog, releases)
-        if still_missing and confirmed.github_fetch_failed:
-            # Only reachable without `--fix`, which refuses above: the GitHub
-            # half is still the cached answer, so nothing is confirmed.
+        # Only reachable without `--fix`, which refuses above: the GitHub half
+        # is still the cached answer, so a gap needing it stays unconfirmed. A
+        # PyPI-only gap was just confirmed against the fresh PyPI answer.
+        unconfirmable = (
+            sources.unrecorded_gaps(changelog, releases, github_only=True)
+            if confirmed.github_fetch_failed
+            else set()
+        )
+        if unconfirmable:
             logging.warning(
-                f"Could not confirm {', '.join(sorted(still_missing))} live:"
+                f"Could not confirm {', '.join(sorted(unconfirmable))} live:"
                 " the GitHub releases lookup failed."
             )
-        elif still_missing:
+        still_missing -= unconfirmable
+        if still_missing:
             # Confirmed against the live APIs: the release really is missing
             # (a failed upload, a deleted GitHub release, a removed PyPI file).
             # Recording the absence is then the correct repair, not a
@@ -1583,7 +1600,7 @@ def lint_changelog_dates(
                 f"Confirmed live: {', '.join(sorted(still_missing))} missing"
                 " from a platform the changelog does not mark."
             )
-        else:
+        elif not unconfirmable:
             logging.info(
                 "Live lookups list every release the cache missed; the cache was stale."
             )

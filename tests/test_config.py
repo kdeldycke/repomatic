@@ -245,7 +245,7 @@ def test_site_deploy_rejects_a_target_with_no_job_behind_it():
     host nobody wired up simply matches neither, and the run reports success
     having deployed nothing at all.
     """
-    with pytest.raises(ValueError, match="Unsupported site.deploy 'netlify'"):
+    with pytest.raises(ValueError, match=r"Unsupported site\.deploy 'netlify'"):
         load_repomatic_config({"tool": {"repomatic": {"site": {"deploy": "netlify"}}}})
 
 
@@ -277,7 +277,7 @@ def test_site_cloudflare_placement_rejects_unknown_modes():
     `pyproject.toml` line that caused it.
     """
     with pytest.raises(
-        ValueError, match="Unsupported site.cloudflare-placement 'clever'"
+        ValueError, match=r"Unsupported site\.cloudflare-placement 'clever'"
     ):
         load_repomatic_config({
             "tool": {"repomatic": {"site": {"cloudflare-placement": "clever"}}}

@@ -569,7 +569,7 @@ def test_run_uv_audit_rejects_old_uv(lock_with_raspberry):
     version = SimpleNamespace(stdout="uv 0.11.14 (abc1234 2026-05-10)\n", stderr="")
     with (
         patch("repomatic.deps.uv.subprocess.run", return_value=version) as run,
-        pytest.raises(RuntimeError, match="0.11.15"),
+        pytest.raises(RuntimeError, match=r"0\.11\.15"),
     ):
         _run_uv_audit(lock_with_raspberry)
 

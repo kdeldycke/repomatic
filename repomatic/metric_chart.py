@@ -458,14 +458,15 @@ def render_chart(
     )
     for value in gridlines:
         y = y_of(value)
-        parts.append(
+        gridline = (
             f'<line class="grid" x1="{left}" y1="{y:.1f}" '
             f'x2="{left + plot_w}" y2="{y:.1f}"/>'
         )
-        parts.append(
+        tick = (
             f'<text class="tick" x="{left - 10}" y="{y + 4:.1f}" '
             f'text-anchor="end">{value:,}</text>'
         )
+        parts.extend((gridline, tick))
 
     # Vertical gridlines: calendar years when absolute, years of age when
     # relative. Thinned on a long relative span so the labels stay readable.
@@ -483,14 +484,15 @@ def render_chart(
         ]
     for offset, caption in marks:
         x = x_of(offset)
-        parts.append(
+        gridline = (
             f'<line class="grid" x1="{x:.1f}" y1="{top}" '
             f'x2="{x:.1f}" y2="{top + plot_h}"/>'
         )
-        parts.append(
+        tick = (
             f'<text class="tick" x="{x:.1f}" y="{top + plot_h + 20}" '
             f'text-anchor="middle">{caption}</text>'
         )
+        parts.extend((gridline, tick))
 
     # Series, drawn in the fixed order so a name keeps its hue.
     labels: list[tuple[float, str, str]] = []

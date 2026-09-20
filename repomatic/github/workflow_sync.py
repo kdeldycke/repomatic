@@ -526,8 +526,7 @@ def _render_triggers(triggers: dict[str, Any]) -> str:
         else:
             rendered = _render_trigger_value(trigger_config, indent=4)
             if rendered:
-                lines.append(f"  {trigger_name}:")
-                lines.append(rendered)
+                lines.extend((f"  {trigger_name}:", rendered))
             else:
                 lines.append(f"  {trigger_name}:")
     return "\n".join(lines)
@@ -1355,8 +1354,7 @@ def _generate_release_caller(
     # cancel while release commits keep their unique SHA group. See the canonical
     # release.yaml and docs/workflows.md.
     if info.raw_concurrency:
-        lines.append(info.raw_concurrency)
-        lines.append("")
+        lines.extend((info.raw_concurrency, ""))
     # The publish-pypi job below runs on the downstream runner, so it needs its
     # own cooldown: a workflow-level `env:` does not cross into the reusable
     # lanes this caller invokes, nor back out of them.

@@ -166,15 +166,15 @@ def generate_markdown_report(
             else:
                 line_cell = str(result.lineno)
             table_rows.append([line_cell, result.uri, escaped_info])
-        lines.append(
+        lines.extend((
             render_table(
                 table_rows,
                 headers=["Line", "URI", "Info"],
                 table_format=TableFormat.GITHUB,
                 colalign=("right", "left", "left"),
-            )
-        )
-        lines.append("")
+            ),
+            "",
+        ))
 
     return "\n".join(lines)
 

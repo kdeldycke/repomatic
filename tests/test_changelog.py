@@ -1379,6 +1379,38 @@ def test_lint_reports_an_unconfirmed_gap_when_github_lookup_fails(
     assert "Confirmed live" not in caplog.text
 
 
+def test_lint_confirms_a_pypi_only_gap_when_github_lookup_fails(
+    tmp_path, monkeypatch, caplog
+):
+    """A gap on PyPI alone is settled by the fresh PyPI answer.
+
+    The GitHub half stays cached, but no GitHub answer is needed to tell
+    whether PyPI carries the release.
+    """
+    path = _changelog_claiming_1_1_0_available(tmp_path)
+
+    def github(repo_url, *, force_refresh=False):
+        if force_refresh:
+            raise GitHubReleasesUnavailable("API unreachable")
+        return {
+            "1.1.0": GitHubRelease(date="2026-02-10", body=""),
+            "1.0.0": GitHubRelease(date="2025-12-01", body=""),
+        }
+
+    _patch_sources(
+        monkeypatch,
+        pypi={"1.0.0": ("2025-12-01", False)},
+        github=github,
+        pypi_fresh={"1.0.0": ("2025-12-01", False)},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        lint_changelog_dates(path)
+
+    assert "Confirmed live: 1.1.0 missing" in caplog.text
+    assert "Could not confirm" not in caplog.text
+
+
 def test_extract_all_version_headings():
     """Test that all versions (released and unreleased) are extracted."""
     changelog = Changelog(MULTI_RELEASE_CHANGELOG)

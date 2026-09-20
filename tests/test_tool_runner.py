@@ -278,7 +278,7 @@ def test_tool_spec_integrity(name, spec):
 
         # Every URL must contain a {version} placeholder.
         for key, url in spec.binary.urls.items():
-            assert "{version}" in url, (
+            assert "{version}" in url, (  # noqa: RUF027  # A literal placeholder.
                 f"{name}/{key}: URL missing {{version}} placeholder"
             )
 
@@ -851,7 +851,7 @@ def test_download_and_verify_truncated(tmp_path):
             ],
         ),
         patch("repomatic.tooling.tool_runner.time.sleep"),
-        pytest.raises(OSError, match="Truncated download .* got 18 of 25 bytes"),
+        pytest.raises(OSError, match=r"Truncated download .* got 18 of 25 bytes"),
     ):
         _download_and_verify(
             "https://example.com/file",

@@ -633,7 +633,7 @@ def test_build_chart_data_rejects_colliding_css_classes():
 def test_build_chart_data_is_loud_when_a_chart_plots_nothing():
     """Check an unsampled chart names itself rather than drawing an empty box."""
     spec = ChartSpec(output=Path("chart.svg"), only=("papaya",))
-    with pytest.raises(ValueError, match="chart.svg has no stars history to plot"):
+    with pytest.raises(ValueError, match=r"chart\.svg has no stars history to plot"):
         build_chart_data({}, spec)
 
 

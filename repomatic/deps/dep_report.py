@@ -657,9 +657,7 @@ def format_release_notes(
         return ""
     lines = ["### Release notes", ""]
     for name, (repo_url, versions) in sorted(notes.items()):
-        lines.append("<details>")
-        lines.append(f"<summary><code>{name}</code></summary>")
-        lines.append("")
+        lines.extend(("<details>", f"<summary><code>{name}</code></summary>", ""))
         for tag, body in versions:
             # Upstream bodies bring their own h1/h2 sections: demote them
             # below the h4 version heading so they never collide with the
@@ -667,20 +665,20 @@ def format_release_notes(
             body = demote_markdown_headings(sanitize_markdown_mentions(body), 5)
             if tag:
                 release_url = f"{repo_url}/releases/tag/{tag}"
-                lines.append(f"#### [`{tag}`]({release_url})")
-                lines.append("")
+                lines.extend((f"#### [`{tag}`]({release_url})", ""))
                 if len(body) > RELEASE_NOTES_MAX_LENGTH:
                     truncated = body[:RELEASE_NOTES_MAX_LENGTH].rsplit("\n", 1)[0]
-                    lines.append(truncated)
-                    lines.append("")
-                    lines.append(f"... [Full release notes]({release_url})")
+                    lines.extend((
+                        truncated,
+                        "",
+                        f"... [Full release notes]({release_url})",
+                    ))
                 else:
                     lines.append(body)
             else:
                 lines.append(body)
             lines.append("")
-        lines.append("</details>")
-        lines.append("")
+        lines.extend(("</details>", ""))
     return "\n".join(lines).rstrip()
 
 
