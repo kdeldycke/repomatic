@@ -93,10 +93,13 @@ myst_fence_as_directive = ["mermaid"]
 # `[text](#anchor)` links resolve (and broken ones warn) at build time, making
 # Sphinx the authority for internal anchors. The slug function is pinned to
 # docutils' `make_id` so MyST anchors match the section IDs docutils already
-# emits (`cache.dir` → `cache-dir`), keeping existing anchor URLs stable. This
-# is also why the Lychee config skips intra-`docs/` fragment links: its
-# GitHub-style slugger strips dots (`cache.dir` → `cachedir`) and cannot see
-# these anchors, so it would false-positive links that resolve fine here.
+# emits (`cache.dir` → `cache-dir`), keeping existing anchor URLs stable. The
+# override is what puts this build at odds with `lychee`, which computes
+# GitHub's slug (`cache.dir` → `cachedir`), as does myst-parser's own default
+# slug function. That is why the `[tool.lychee]` config skips intra-`docs/`
+# fragment links: it would false-positive every dotted heading, and it cannot
+# see MyST `(target)=` anchors at all, so it reports links that resolve fine
+# here as broken.
 myst_heading_anchors = 6
 myst_heading_slug_func = "docutils.nodes.make_id"
 

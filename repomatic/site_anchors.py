@@ -25,12 +25,27 @@ build stays green because it was never asked a question.
 ```{caution}
 A Markdown link checker cannot stand in for this, because it has to guess the
 slug. Measured against `lychee` 0.24.2 on the heading `## The pages.dev
-hostname`: myst-parser builds `the-pages-dev-hostname`, lychee's GitHub-style
-slugger wants `the-pagesdev-hostname`, and each reports the other as broken.
-That disagreement is why this repository excludes intra-docs fragments from
-`lychee` altogether, which left the class with no coverage at all until a
-`#the-pagesdev-hostname` link shipped against a `the-pages-dev-hostname`
-anchor.
+hostname`: lychee computes GitHub's slug, `the-pagesdev-hostname`, while the
+build emits `the-pages-dev-hostname`, and each reports the other as broken.
+The build's spelling is this project's choice, not myst-parser's: its own
+default slug function implements the same GitHub algorithm lychee does, and
+`docs/conf.py` overrides it with docutils' `make_id`. That disagreement is why
+this repository excludes intra-docs fragments from `lychee` altogether, which
+left the class with no coverage at all until a `#the-pagesdev-hostname` link
+shipped against a `the-pages-dev-hostname` anchor.
+```
+
+```{todo}
+Once `lychee` ships `0.25.0`, the release expected to carry
+[lycheeverse/lychee#2250](https://github.com/lycheeverse/lychee/pull/2250),
+re-test the fragment exclusion and report the result back on
+[lycheeverse/lychee#2249](https://github.com/lycheeverse/lychee/issues/2249#issuecomment-5760051417),
+which commits to that follow-up. Run the ``{#id}`` reproduction from that
+issue through `repomatic run lychee`, then check whether the `file://`
+docs-fragment entry in `[tool.lychee]` can narrow. It probably cannot: the
+fix teaches `lychee` explicit ``{#id}`` IDs, and neither cause in the
+``{caution}`` above is one. What it does buy is a second anchor form `lychee`
+can see, which matters the next time a docs heading needs an explicit anchor.
 ```
 
 The built page is the only authority, so that is what this reads. Fragments

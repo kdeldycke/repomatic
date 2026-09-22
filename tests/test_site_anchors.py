@@ -90,11 +90,13 @@ def test_missing_anchor_names_file_fragment_and_page(tmp_path):
 def test_the_slugger_disagreement_this_check_exists_for(tmp_path):
     """The real archetype: a dotted heading, slugged two different ways.
 
-    `## The pages.dev hostname` becomes `the-pages-dev-hostname` under
-    myst-parser and `the-pagesdev-hostname` under a GitHub-style slugger.
-    A link written to the second spelling survives a green Sphinx build and
-    is waved through by a Markdown link checker computing the same wrong
-    slug; only the built page settles it, which is what this reads.
+    `## The pages.dev hostname` becomes `the-pages-dev-hostname` under this
+    project's `myst_heading_slug_func` override and `the-pagesdev-hostname`
+    under GitHub's slug algorithm, which `lychee` and myst-parser's own
+    default both implement. A link written to the second spelling survives a
+    green Sphinx build and is waved through by a Markdown link checker
+    computing GitHub's slug; only the built page settles it, which is what
+    this reads.
     """
     docs_dir, build_dir = build_tree(
         tmp_path,
