@@ -887,15 +887,29 @@ jobs:
         # Versioned patterns leave out the versionless alias copies, which
         # share their digest with a versioned sibling and would only submit
         # duplicate scans.
+        #
+        # Wait for the asset list first: a read landing seconds after the
+        # release is published can answer with zero assets, and `gh release
+        # download` then fails with `no assets to download` on a release
+        # holding every binary. Polling the count leaves the download its own
+        # failure for a release that really ships no binary.
         env:
           GH_TOKEN: ${{ github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
-        run: >
-          gh release download "v${CURRENT_VERSION}"
-          --repo "${{ github.repository }}"
-          --pattern "*-${CURRENT_VERSION}-*.bin"
-          --pattern "*-${CURRENT_VERSION}-*.exe"
-          --dir ./binaries
+          REPO: ${{ github.repository }}
+        run: |
+          for attempt in $(seq 1 6); do
+            count="$(gh release view "v${CURRENT_VERSION}" --repo "${REPO}" --json assets --jq '.assets | length')"
+            if [[ "${count}" -gt 0 ]]; then
+              break
+            fi
+            echo "Attempt ${attempt}: v${CURRENT_VERSION} lists no asset yet, retrying in 10 s."
+            sleep 10
+          done
+          gh release download "v${CURRENT_VERSION}" --repo "${REPO}" \
+            --pattern "*-${CURRENT_VERSION}-*.bin" \
+            --pattern "*-${CURRENT_VERSION}-*.exe" \
+            --dir ./binaries
       - name: Upload to VirusTotal and record detections
         env:
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
