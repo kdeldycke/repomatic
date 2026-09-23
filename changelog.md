@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - `lint-repo` now warns when a seeded tool config (`ruff`, `pytest`, `coverage`, `mypy`, `mdformat`) lacks an entry its bundled template gained after the seeding.
+- `lint-repo` now warns when a `[tool.lychee] exclude` entry is the bare form of one the bundled template has since anchored, which an ongoing sync grafts back beside its own replacement.
 - The bundled `lychee.toml` now excludes `medium.com`, which returns 403 to anonymous crawlers but serves the full article to a browser.
 - The bundled `sphinx-docs` agent now warns that an incremental build's warning count covers only the pages it re-read.
 - The `metrics` and `metric_chart` docstrings now state that a star gained on a repository's creation day replaces its `created` anchor, so not every series carries one.

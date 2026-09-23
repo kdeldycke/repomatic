@@ -44,6 +44,7 @@ from repomatic.lint_repo import (
     CheckResult,
     LintContext,
     _resolve_declared_labels,
+    anchored_exclude_core,
     check_bootstrap_config_drift,
     check_branch_ruleset_on_default,
     check_classic_branch_protection,
@@ -67,6 +68,7 @@ from repomatic.lint_repo import (
     check_sha_pinning_required,
     check_stale_draft_releases,
     check_stale_gh_pages_branch,
+    check_superseded_local_excludes,
     check_test_matrix_excludes,
     check_topics_subset_of_keywords,
     check_undeclared_labels,
@@ -774,6 +776,124 @@ def test_customizable_entries_exist_in_their_template(comp):
 def test_customizable_entries_are_bootstrap_only(comp):
     """An ongoing sync re-derives the section, so it has no placeholder to keep."""
     assert not comp.customizable_entries
+
+
+BUNDLED_LYCHEE_EXCLUDES = tuple(
+    str(item) for item in tomlrt.loads(get_data_content("lychee.toml"))["exclude"]
+)
+"""The canonical `[tool.lychee] exclude` list every deployed repository starts from."""
+
+
+@pytest.mark.parametrize(
+    ("pattern", "expected"),
+    (
+        pytest.param(
+            r"^https://(www\.)?x\.com(/.*)?$",
+            r"x\.com",
+            id="anchored-host",
+        ),
+        pytest.param(
+            r"^https://(www\.)?medium\.com(/.*)?$",
+            r"medium\.com",
+            id="anchored-host-optional-www",
+        ),
+        pytest.param(
+            r"^https://www\.npmjs\.com/package/.*$",
+            None,
+            id="anchored-with-path",
+        ),
+        pytest.param(r"archive\.ph", None, id="bare-has-no-form-to-supersede"),
+        pytest.param(r"x\.com", None, id="bare-is-not-anchored"),
+        pytest.param(r"^https://star-history\.com/.*$", None, id="no-optional-www"),
+    ),
+)
+def test_anchored_exclude_core(pattern, expected):
+    """Only an anchored host-only pattern replaced a bare form."""
+    assert anchored_exclude_core(pattern) == expected
+
+
+def test_superseded_local_excludes_passes_on_the_bundle():
+    """A section holding the bundle verbatim superseded nothing."""
+    results = tuple(
+        check_superseded_local_excludes({
+            "lychee": {"exclude": list(BUNDLED_LYCHEE_EXCLUDES)}
+        })
+    )
+    assert [result.passed for result in results] == [True]
+
+
+def test_superseded_local_excludes_reports_a_bare_entry_the_bundle_anchored():
+    """The graft appends a local-only item and never retires a replaced one.
+
+    Every awesome list carried a bare `x\\.com` beside the anchored form the
+    bundle replaced it with, so lychee went on excluding every domain ending
+    in `x.com` in all four of them.
+    """
+    local = [*BUNDLED_LYCHEE_EXCLUDES, r"x\.com"]
+    results = tuple(check_superseded_local_excludes({"lychee": {"exclude": local}}))
+    assert [result.passed for result in results] == [False]
+    assert r"`x\.com`" in results[0].message
+
+
+def test_superseded_local_excludes_keeps_a_local_bare_entry_with_no_twin():
+    """A repository's own bare pattern is a customization, not a leftover."""
+    local = [*BUNDLED_LYCHEE_EXCLUDES, r"cloudlinux\.com"]
+    results = tuple(check_superseded_local_excludes({"lychee": {"exclude": local}}))
+    assert [result.passed for result in results] == [True]
+
+
+def test_superseded_local_excludes_keeps_a_local_anchored_entry():
+    """An anchored local pattern narrows rather than broadens, so it is kept."""
+    local = [*BUNDLED_LYCHEE_EXCLUDES, r"^https://example\.com/feed$"]
+    results = tuple(check_superseded_local_excludes({"lychee": {"exclude": local}}))
+    assert [result.passed for result in results] == [True]
+
+
+def test_superseded_local_excludes_ignores_a_tool_with_no_patterns():
+    """Only a synced array of URL patterns has an anchored/bare distinction."""
+    assert tuple(check_superseded_local_excludes({"uv": {"exclude": ["x"]}})) == ()
+    assert tuple(check_superseded_local_excludes({})) == ()
+
+
+def test_bundled_excludes_never_carry_both_forms():
+    """Guard the bundle itself against the pair this check reports downstream.
+
+    Not retroactive coverage: the bundle anchored `x\\.com` without ever
+    shipping both forms, so the stale copies lived downstream alone. What this
+    catches is the next time an entry is anchored here, since a bare pattern
+    beside its anchored replacement is canonical in both and no downstream
+    check can report it as drift.
+    """
+    cores = {
+        core
+        for core in (anchored_exclude_core(item) for item in BUNDLED_LYCHEE_EXCLUDES)
+        if core is not None
+    }
+    both = [item for item in BUNDLED_LYCHEE_EXCLUDES if item in cores]
+    assert not both, (
+        f"lychee.toml carries {both} beside the anchored form that supersedes"
+        f" it, so every deployed repository excludes more than the anchor"
+        f" intends."
+    )
+
+
+def test_every_host_only_anchored_bundle_entry_is_readable():
+    """An anchored entry the core extractor cannot read silently narrows the check.
+
+    {func}`anchored_exclude_core` recognises one shape. A host-only entry
+    written in another answers `None`, so a bare downstream copy of it would go
+    unreported. A path-shaped entry is expected to answer `None`: no bare form
+    of one was ever bundled on its own.
+    """
+    for item in BUNDLED_LYCHEE_EXCLUDES:
+        if not item.startswith("^") or anchored_exclude_core(item) is not None:
+            continue
+        after_scheme = item.split("://", 1)[-1].rstrip("$")
+        assert "/" in after_scheme, (
+            f"lychee.toml carries the host-only anchored entry {item!r}, which"
+            f" `anchored_exclude_core` cannot read, so a bare downstream copy"
+            f" of it goes unreported. Teach the extractor the shape."
+        )
 
 
 def _lint_context_in(tmp_path, monkeypatch, **kwargs) -> LintContext:

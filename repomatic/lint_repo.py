@@ -2328,6 +2328,143 @@ def check_bootstrap_config_drift(
         )
 
 
+_ANCHORED_EXCLUDE_HEAD = re.compile(r"^\^https://\(www\\\.\)\?")
+"""The `^https://(www\\.)?` head of an anchored `[tool.lychee] exclude` entry."""
+
+_ANCHORED_EXCLUDE_TAIL = re.compile(r"\(/\.\*\)\?\$$")
+"""The `(/.*)?$` tail of an anchored `[tool.lychee] exclude` entry."""
+
+_EXCLUDE_PATTERN_TOOLS = frozenset({"lychee"})
+"""Synced tool configs whose array holds regex patterns rather than plain values.
+
+{func}`check_superseded_local_excludes` reads a bare entry as the unanchored
+form of an anchored one, which means something only for a list of patterns
+matched against URLs. Every other synced array holds values with no
+anchored/bare distinction, so the check stays out of them.
+"""
+
+
+def anchored_exclude_core(pattern: str) -> str | None:
+    """Return the bare host pattern an anchored exclude entry supersedes.
+
+    `^https://(www\\.)?x\\.com(/.*)?$` answers `x\\.com`. Anything else answers
+    `None`: an entry not anchored on both ends replaced no bare form, and one
+    carrying a path between the host and the closing anchor
+    (`^https://www\\.npmjs\\.com/package/.*$`) has no bare form that was ever
+    bundled on its own.
+
+    :param pattern: One `[tool.lychee] exclude` entry.
+    :return: The unanchored host pattern, or `None` when there is none.
+    """
+    if not _ANCHORED_EXCLUDE_HEAD.match(pattern):
+        return None
+    core = _ANCHORED_EXCLUDE_HEAD.sub("", pattern)
+    if not _ANCHORED_EXCLUDE_TAIL.search(core):
+        return None
+    return _ANCHORED_EXCLUDE_TAIL.sub("", core)
+
+
+def check_superseded_local_excludes(
+    tool_table: Mapping[str, Any],
+) -> Iterator[CheckResult]:
+    """Report a local exclude entry the bundled template has since anchored.
+
+    An ongoing sync rebuilds a section from its template and grafts local-only
+    content back on, and for an array the graft is a union by value: an item
+    the template does not carry is appended after the ones it does. That is
+    what keeps a repository's own entries alive across a sync, and it has no
+    inverse. When the template *replaces* an entry instead of adding one, the
+    old form becomes local-only by the next sync, so it is grafted back beside
+    its own replacement and nothing ever retires it.
+
+    Anchoring a bare host pattern is exactly that replacement, and the stale
+    copy is not inert: lychee reads these entries as substring matches, so a
+    bare `x\\.com` kept beside `^https://(www\\.)?x\\.com(/.*)?$` goes on
+    excluding every domain ending in `x.com`, `cloudlinux.com` among them,
+    which is what the anchored form was written to stop doing.
+
+    Advisory. Only the maintainer can separate a bare entry the template
+    superseded from one the repository narrowed on purpose, per `claude.md`
+    § Defensive workflow design.
+
+    ```{note}
+    The test is deliberately narrow: it recognises the anchored/bare pair by
+    string equality against the head and tail above, so it catches a template
+    that anchored a host pattern and nothing else. A local entry broadened in
+    some other way is not reported. Widening it means inverting a regex to
+    compare match sets, which is not worth a dependency for one signature that
+    already reached every repository the bundled `lychee.toml` deploys to.
+    ```
+
+    :param tool_table: The repository's `[tool]` table, parsed.
+    :return: One result per synced tool config holding exclude patterns.
+    """
+    for comp in COMPONENTS:
+        if not isinstance(comp, ToolConfigComponent):
+            continue
+        if comp.sync_mode is not SyncMode.ONGOING:
+            continue
+        if comp.tool_name not in _EXCLUDE_PATTERN_TOOLS:
+            continue
+        section = tool_table.get(comp.tool_name)
+        if not isinstance(section, Mapping):
+            continue
+        local = section.get("exclude")
+        if not isinstance(local, list):
+            continue
+
+        try:
+            template = tomlrt.loads(get_data_content(comp.source_file))
+        except (OSError, ValueError, tomlrt.TOMLParseError):
+            yield CheckResult(
+                None,
+                f"[{comp.tool_section}] exclude drift: skipped (bundled"
+                f" `{comp.source_file}` could not be read).",
+            )
+            continue
+
+        bundled = template.get("exclude")
+        if not isinstance(bundled, list):
+            yield CheckResult(
+                None,
+                f"[{comp.tool_section}] exclude drift: skipped (bundled"
+                f" `{comp.source_file}` declares no `exclude` array).",
+            )
+            continue
+        cores = {
+            core
+            for core in (anchored_exclude_core(str(item)) for item in bundled)
+            if core is not None
+        }
+        stale = tuple(
+            item
+            for item in local
+            if isinstance(item, str)
+            and item not in bundled
+            and not item.startswith("^")
+            and item in cores
+        )
+        if stale:
+            listed = ", ".join(f"`{item}`" for item in stale)
+            yield CheckResult(
+                False,
+                f"[{comp.tool_section}] exclude carries {listed}, which the"
+                f" bundled `{comp.source_file}` now anchors. An ongoing sync"
+                f" grafts a local-only array item back on and never retires"
+                f" one the template replaced, so the bare form survives beside"
+                f" its own replacement: lychee reads these as substring"
+                f" matches, and the bare one keeps excluding every domain"
+                f" ending in the same suffix. Drop it.",
+            )
+            continue
+
+        yield CheckResult(
+            True,
+            f"[{comp.tool_section}] exclude carries no entry the bundled"
+            f" `{comp.source_file}` superseded.",
+        )
+
+
 def _collect_conditions(
     workflow: dict,
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
@@ -3558,6 +3695,11 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "bootstrap-config-drift",
         lambda ctx: check_bootstrap_config_drift(ctx.tool_table),
+        applies=lambda ctx: bool(ctx.tool_table),
+    ),
+    RepoCheck(
+        "superseded-local-excludes",
+        lambda ctx: check_superseded_local_excludes(ctx.tool_table),
         applies=lambda ctx: bool(ctx.tool_table),
     ),
     RepoCheck(
