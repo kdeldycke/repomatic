@@ -69,7 +69,6 @@ DEFAULT_CONTENT_RULES: dict[str, tuple[str, ...]] = {
     "🐛 bug": ("bug", "error", "exception", "fix", "traceback"),
     "🆙 changelog": ("change-log", "changelog"),
     "🤖 ci": (
-        ".github",
         "actions",
         "ci-cd",
         "cicd",
@@ -100,6 +99,17 @@ Tune for precision, not recall: a missing label costs one manual click, a
 wrong one is noise on every issue that trips it. Never key a rule off a token
 the project prints in its own output, or a user pasting a trace sets every
 label at once.
+
+```{note}
+`🤖 ci` deliberately does not match `.github`, which is the case the rule
+above names. Every issue form {mod}`repomatic` bundles for an awesome list
+links its own `.github/code-of-conduct.md` and `.github/contributing.md` in
+the self-check boxes, and GitHub renders those option labels into the filed
+body verbatim, so the keyword pre-labelled every submission filed through one.
+A pull request that actually touches those paths is already covered by the
+`.github/**/*` glob in {data}`DEFAULT_FILE_RULES`, and prose about CI still
+matches `workflow`, `actions` or `ci-cd`.
+```
 
 ```{note}
 `💖 sponsor` deliberately has no rule here, nor in {data}`DEFAULT_FILE_RULES`.

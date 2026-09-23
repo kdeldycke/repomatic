@@ -31,6 +31,7 @@ from unittest.mock import patch
 
 import pytest
 import tomlrt
+import yaml
 from click.testing import CliRunner
 
 from repomatic import labels as labels_module
@@ -274,6 +275,47 @@ def test_default_rule_labels_exist_in_the_label_registry():
 def test_default_content_rules_match_as_advertised(text, expected):
     """The shipped keyword lists fire on their keyword and nothing else."""
     assert match_content_rules(resolve_content_rules(), text) == expected
+
+
+BUNDLED_ISSUE_FORMS = ("awesome_template/.github/ISSUE_TEMPLATE/new-link.yaml",)
+"""Every issue form repomatic bundles, so a keyword in one pre-labels them all."""
+
+
+def _rendered_issue_form_body(path: str) -> str:
+    """The text GitHub renders into a body filed through a bundled issue form.
+
+    Each form element's `label` becomes a heading and each checkbox option's
+    `label` becomes a line, both verbatim, so a keyword inside either reaches
+    every submission filed through the form. A dropdown's unselected options
+    and a textarea's `placeholder` do not, and are left out.
+
+    :param path: The form's path inside the bundled data directory.
+    :return: The rendered body text.
+    """
+    form = yaml.safe_load(get_data_content(path))
+    parts: list[str] = []
+    for element in form["body"]:
+        attributes = element.get("attributes", {})
+        if "label" in attributes:
+            parts.append(f"### {attributes['label']}")
+        for option in attributes.get("options") or ():
+            if isinstance(option, dict) and "label" in option:
+                parts.append(f"- [ ] {option['label']}")
+    return "\n".join(parts)
+
+
+@pytest.mark.parametrize("form_path", BUNDLED_ISSUE_FORMS)
+def test_a_bundled_issue_form_pre_labels_nothing(form_path):
+    """A form's own boilerplate must not label every submission filed through it.
+
+    `.github` among the `🤖 ci` content rules matched the `.github/...` URLs
+    this form embeds in its self-check boxes, so all four awesome lists
+    labelled every new-link issue as CI. Read from the bundle rather than a
+    copied string, so a keyword a later form edit introduces fails here.
+    """
+    body = _rendered_issue_form_body(form_path)
+    assert body, f"{form_path} rendered no body text"
+    assert match_content_rules(resolve_content_rules(), body) == set()
 
 
 @pytest.mark.parametrize(
