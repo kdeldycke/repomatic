@@ -65,11 +65,17 @@ CHART_SCALES = ("linear", "logarithmic")
 chart with a peer of 25,000 without flattening it onto the axis: equal slopes
 mean equal growth in percentage terms, whatever the counts.
 
-A count of zero has no logarithm, and every series carries one, since the day a
+A count of zero has no logarithm, and most series carry one, since the day a
 repository was created is the only date its count is known exactly. So the
 bottom {data}`LOG_ZERO_BAND` of the plot is kept linear, spanning nothing but
 the step from zero to one. The curve then leaves the axis where the first star
 landed rather than beginning in mid-air or being silently dropped.
+
+A repository starred on its creation day carries no zero: that day's
+measurement outranks the anchor and takes its place, per
+{data}`repomatic.metrics.SOURCE_RANK`, so its curve starts at one. Its by-age
+origin is still right, since the reading that displaced the anchor is dated the
+creation day and so is the series' first point.
 """
 
 LABEL_CHAR_WIDTH = 7.6
@@ -373,7 +379,8 @@ def render_chart(
         first point rather than from the calendar.
     :param logarithmic: Measure the vertical axis by powers of ten, so series
         orders of magnitude apart stay legible on one chart. See
-        {data}`CHART_SCALES` for how the zero every series carries is placed.
+        {data}`CHART_SCALES` for how a series' zero is placed, and for the
+        series that carries none.
     :param title: Accessible name for the chart. Derived from the metric and
         the mode when empty.
     :param label: What the vertical axis counts, from the plotted metric's

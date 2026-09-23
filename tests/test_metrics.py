@@ -807,11 +807,14 @@ def test_render_chart_logarithmic_lifts_a_series_off_the_axis():
 
 
 def test_render_chart_logarithmic_keeps_a_zero_on_the_floor():
-    """Check the created origin every series carries is drawn, not dropped.
+    """Check a series carrying the created origin draws it, not drops it.
 
     A count of zero has no logarithm, so it is placed on the floor the band at
     the bottom of the plot reserves. Dropping it instead would start each curve
-    at its first star, which is a different and unstated claim.
+    at its first star, which is a different and unstated claim. Not every
+    series carries one: a repository starred on its creation day loses the
+    anchor to that day's measurement, per
+    {data}`repomatic.metrics.SOURCE_RANK`.
     """
     data = build_chart_data(LOPSIDED, ChartSpec(output=Path("chart.svg")))
     svg = render_chart(data, logarithmic=True, stamp="2026-08-16")

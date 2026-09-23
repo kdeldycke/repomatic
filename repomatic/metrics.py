@@ -134,6 +134,22 @@ that a repository cannot be starred before it exists, which stops being true on
 the creation day itself. A repository starred within hours of being published
 has a real reading for that day, and any measurement of it beats the
 assumption.
+
+The store holds one row per day, so that measurement *replaces* the anchor
+instead of sitting beside it, and the anchor does not come back: every later
+sample re-asserts it and this same rule refuses it. The creation day survives,
+since the reading that displaced the anchor carries its date. The zero does
+not, and with it goes the marker saying that a series' first point is day zero
+rather than merely its first measurement.
+
+```{todo}
+Carry the creation day as a non-accruing attribute beside `commit` and
+`release`, so no star reading can collide with it, and let
+{func}`repomatic.metric_chart.render_chart` read a by-age origin from it.
+This is a store schema change: it adds a `metric` value that every consumer's
+own store-shape test enumerates, so it lands with a note to downstream
+repositories rather than silently.
+```
 """
 
 SOURCES: dict[str, str] = {
@@ -149,11 +165,12 @@ A chart may mix methodologies it cannot reconcile, so it records which one each
 point came from rather than presenting a uniform curve it cannot honestly
 claim.
 
-`created` is the outlier: not a measurement but a fact, and the only origin
-every series shares. A repository whose earliest reading already shows a
-count, like one only ever sampled forward, has no knowable first star, so its
-curve would otherwise begin in mid-air. It is also what a by-age chart aligns
-on.
+`created` is the outlier: not a measurement but a fact. A repository whose
+earliest reading already shows a count, like one only ever sampled forward, has
+no knowable first star, so its curve would otherwise begin in mid-air. The row
+is also what a by-age chart aligns on, though a repository starred on its
+creation day keeps no anchor: that day's measurement outranks it and takes its
+place, per {data}`SOURCE_RANK`.
 
 `star-history` and `wayback` are retired: nothing writes them since GitHub
 reopened a public star history, and they stay in the vocabulary because a store

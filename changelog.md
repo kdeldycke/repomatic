@@ -7,6 +7,8 @@
 
 - `lint-repo` now warns when a seeded tool config (`ruff`, `pytest`, `coverage`, `mypy`, `mdformat`) lacks an entry its bundled template gained after the seeding.
 - The bundled `sphinx-docs` agent now warns that an incremental build's warning count covers only the pages it re-read.
+- The `metrics` and `metric_chart` docstrings now state that a star gained on a repository's creation day replaces its `created` anchor, so not every series carries one.
+- The bundled `repomatic-ship` skill now names the transient empty run page a watcher must poll through rather than read as a finished suite.
 
 ## [`7.16.2` (2026-09-20)](https://github.com/kdeldycke/repomatic/compare/v7.16.1...v7.16.2)
 
