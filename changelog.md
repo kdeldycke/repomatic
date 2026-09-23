@@ -12,6 +12,7 @@
 - The bundled `sphinx-docs` agent now warns that an incremental build's warning count covers only the pages it re-read.
 - The `metrics` and `metric_chart` docstrings now state that a star gained on a repository's creation day replaces its `created` anchor, so not every series carries one.
 - The bundled `repomatic-ship` skill now names the transient empty run page a watcher must poll through rather than read as a finished suite.
+- The bundled `repomatic-ship` skill now classifies a version derived from a checked-in spec, whose bump breaks the recipe invoking it, and points a reading agent at `git show HEAD:<path>` instead of `git stash`.
 
 ## [`7.16.2` (2026-09-20)](https://github.com/kdeldycke/repomatic/compare/v7.16.1...v7.16.2)
 
