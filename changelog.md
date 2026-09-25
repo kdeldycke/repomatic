@@ -1,5 +1,10 @@
 # Changelog
 
+## [`7.16.4.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.16.3...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`7.16.3` (2026-09-25)](https://github.com/kdeldycke/repomatic/compare/v7.16.2...v7.16.3)
 
 - `lint-repo` now warns when a seeded tool config (`ruff`, `pytest`, `coverage`, `mypy`, `mdformat`) lacks an entry its bundled template gained after the seeding.
