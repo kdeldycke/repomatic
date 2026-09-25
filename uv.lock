@@ -1570,7 +1570,7 @@ wheels = [
 
 [[package]]
 name = "repomatic"
-version = "7.16.3.dev0"
+version = "8.0.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "arrow" },
