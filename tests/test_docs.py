@@ -25,9 +25,13 @@ from unittest.mock import patch
 import pytest
 import tomlrt
 from click_extra import ClickException
-
 from repomatic.config import Config, DocsConfig
-from repomatic.docs import _run_docs_tool, update_docs, validate_docs_script_path
+from repomatic.docs import (
+    _run_docs_tool,
+    update_docs,
+    validate_docs_script_path,
+    wire_api_pages_into_toctrees,
+)
 
 REPO_ROOT = Path(__file__).parent.parent
 
@@ -208,3 +212,99 @@ def test_update_docs_check_raises_on_drift(tmp_path, monkeypatch):
         pytest.raises(ClickException, match="out of date"),
     ):
         update_docs(_docs_config("docs/docs_update.py"), check=True)
+
+
+def _write_index(
+    docs: Path, package: str, section: str, entries: tuple[str, ...]
+) -> None:
+    """Write an index page whose `section` toctree lists `entries`."""
+    listed = "".join(f"   {entry}\n" for entry in entries)
+    (docs / f"{package}.md").write_text(
+        f"# `{package}` package\n"
+        f"\n"
+        f"## {section}\n"
+        f"\n"
+        f"```{{eval-rst}}\n"
+        f".. toctree::\n"
+        f"   :maxdepth: 4\n"
+        f"\n"
+        f"{listed}"
+        f"```\n",
+        encoding="UTF-8",
+    )
+
+
+def test_wire_api_pages_inserts_a_missing_entry(tmp_path):
+    """A generated page absent from its parent toctree is listed, in order.
+
+    `sphinx-apidoc --no-toc` writes the page and no index entry, so a module
+    added after the index was last written builds while Sphinx only warns
+    `document isn't included in any toctree`. meta-package-manager hit this
+    when `tests.test_sbom_base` landed: its page shipped orphaned and the
+    conformance test guarding the roster turned every cell of its test matrix
+    red.
+    """
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    _write_index(docs, "basket", "Submodules", ("basket.apple", "basket.cherry"))
+    for module in ("basket.apple", "basket.banana", "basket.cherry"):
+        (docs / f"{module}.md").write_text(f"# `{module}` module\n", encoding="UTF-8")
+
+    assert wire_api_pages_into_toctrees(docs) == [
+        "basket.banana -> basket.md (Submodules)"
+    ]
+    assert "   basket.apple\n   basket.banana\n   basket.cherry\n" in (
+        docs / "basket.md"
+    ).read_text(encoding="UTF-8")
+
+
+def test_wire_api_pages_is_idempotent(tmp_path):
+    """A second pass over a wired tree rewrites nothing."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    _write_index(docs, "basket", "Submodules", ("basket.apple",))
+    for module in ("basket.apple", "basket.banana"):
+        (docs / f"{module}.md").write_text(f"# `{module}` module\n", encoding="UTF-8")
+
+    wire_api_pages_into_toctrees(docs)
+    wired = (docs / "basket.md").read_text(encoding="UTF-8")
+    assert wire_api_pages_into_toctrees(docs) == []
+    assert (docs / "basket.md").read_text(encoding="UTF-8") == wired
+
+
+def test_wire_api_pages_sorts_a_subpackage_into_its_own_toctree(tmp_path):
+    """An index page joins `Subpackages`, a plain module joins `Submodules`."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    _write_index(docs, "basket", "Subpackages", ("basket.citrus",))
+    (docs / "basket.md").write_text(
+        (docs / "basket.md").read_text(encoding="UTF-8")
+        + "\n## Submodules\n"
+        + "\n```{eval-rst}\n.. toctree::\n   :maxdepth: 4\n\n   basket.apple\n```\n",
+        encoding="UTF-8",
+    )
+    _write_index(docs, "basket.citrus", "Submodules", ("basket.citrus.lemon",))
+    _write_index(docs, "basket.berry", "Submodules", ("basket.berry.fig",))
+    for module in ("basket.apple", "basket.citrus.lemon", "basket.berry.fig"):
+        (docs / f"{module}.md").write_text(f"# `{module}` module\n", encoding="UTF-8")
+
+    assert wire_api_pages_into_toctrees(docs) == [
+        "basket.berry -> basket.md (Subpackages)"
+    ]
+    body = (docs / "basket.md").read_text(encoding="UTF-8")
+    assert "   basket.berry\n   basket.citrus\n" in body
+    # The plain module stays where it was, in the other toctree.
+    assert "   basket.apple\n" in body
+
+
+def test_wire_api_pages_reports_an_index_missing_its_section(tmp_path):
+    """A page is left alone, and named, when its index carries no such toctree."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "basket.md").write_text("# `basket` package\n", encoding="UTF-8")
+    (docs / "basket.apple.md").write_text("# `basket.apple` module\n", encoding="UTF-8")
+
+    assert wire_api_pages_into_toctrees(docs) == [
+        "basket.apple: basket.md carries no Submodules toctree"
+    ]
+    assert (docs / "basket.md").read_text(encoding="UTF-8") == "# `basket` package\n"

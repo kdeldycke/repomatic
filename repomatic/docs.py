@@ -24,6 +24,7 @@ directive-block refresh. Configuration is read from `[tool.repomatic.docs]`.
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 from pathlib import Path
 
@@ -115,6 +116,114 @@ def _run_docs_tool(label: str, *args: str, check: bool = False) -> int:
     return result.returncode
 
 
+def line_indent(line: str) -> str:
+    """Return the leading whitespace of `line`."""
+    return line[: len(line) - len(line.lstrip())]
+
+
+def _toctree_entries(page: Path) -> set[str]:
+    """Return the dotted names listed in every `toctree` of an index page."""
+    return set(
+        re.findall(
+            r"^\s+(\w+(?:\.\w+)+)\s*$",
+            page.read_text(encoding="UTF-8"),
+            re.MULTILINE,
+        )
+    )
+
+
+def _insert_into_toctree(page: Path, section: str, entry: str) -> bool:
+    """Add `entry` to the `toctree` under `section` of `page`, sorted.
+
+    :param page: The index page to rewrite.
+    :param section: Heading whose `toctree` receives the entry, like
+        `Submodules`.
+    :param entry: Dotted module name to insert.
+    :return: `True` when the page was rewritten, `False` when it carries no
+        such section.
+    """
+    lines = page.read_text(encoding="UTF-8").splitlines(keepends=True)
+    try:
+        start = lines.index(f"## {section}\n")
+    except ValueError:
+        return False
+
+    # The entries are the indented dotted names of the first toctree below the
+    # heading. Collect that one run, then splice the new name into it.
+    run: list[int] = []
+    for offset, line in enumerate(lines[start:], start=start):
+        if re.fullmatch(r"\s+\w+(?:\.\w+)+\s*", line):
+            run.append(offset)
+        elif run:
+            break
+    if not run:
+        return False
+
+    indent = line_indent(lines[run[0]])
+    block = sorted([*lines[run[0] : run[-1] + 1], f"{indent}{entry}\n"])
+    lines[run[0] : run[-1] + 1] = block
+    page.write_text("".join(lines), encoding="UTF-8")
+    return True
+
+
+def wire_api_pages_into_toctrees(docs_dir: Path) -> list[str]:
+    """List every generated API page in the `toctree` of its parent index.
+
+    `sphinx-apidoc --no-toc` writes one page per module and no package index,
+    so a module added after an index was last written stays orphaned: the page
+    exists, nothing points at it, and Sphinx reports
+    `document isn't included in any toctree` as a warning the build survives.
+    Wiring it here is what keeps the roster whole without a hand edit per
+    module, and it is the half {func}`click_extra.convert_rst_files_in_directory`
+    cannot do, since that one only declines to overwrite an existing page.
+
+    A page goes under `Subpackages` when it is itself an index, and under
+    `Submodules` otherwise. An index missing the section it needs is left
+    alone and named in the return value, since inventing a heading would
+    guess at a page layout this function does not own.
+
+    :param docs_dir: The `docs/` directory holding the generated pages.
+    :return: One `<page> -> <index>` line per entry inserted, plus a
+        `<page>: <reason>` line per page that could not be wired.
+    """
+    stems = {path.stem for path in docs_dir.glob("*.md")}
+    # An index is any page some other page's dotted name sits below.
+    indexes = {
+        stem
+        for stem in stems
+        if any(o.startswith(f"{stem}.") for o in stems if o != stem)
+    }
+
+    report: list[str] = []
+    for stem in sorted(stems):
+        if "." not in stem:
+            continue
+        parts = stem.split(".")
+        parent = next(
+            (
+                ".".join(parts[:cut])
+                for cut in range(len(parts) - 1, 0, -1)
+                if ".".join(parts[:cut]) in indexes
+            ),
+            None,
+        )
+        if parent is None:
+            report.append(f"{stem}: no parent index page")
+            continue
+
+        index = docs_dir / f"{parent}.md"
+        if stem in _toctree_entries(index):
+            continue
+
+        section = "Subpackages" if stem in indexes else "Submodules"
+        if _insert_into_toctree(index, section, stem):
+            report.append(f"{stem} -> {parent}.md ({section})")
+        else:
+            report.append(f"{stem}: {parent}.md carries no {section} toctree")
+
+    return report
+
+
 def update_docs(config: Config, *, check: bool = False) -> None:
     """Regenerate Sphinx autodoc stubs and run the project's update script.
 
@@ -122,7 +231,8 @@ def update_docs(config: Config, *, check: bool = False) -> None:
 
     1. Run `sphinx-apidoc` to generate RST stubs for all modules.
     2. If MyST-Parser is detected, convert the RST stubs to MyST markdown
-       with ``{eval-rst}`` blocks.
+       with ``{eval-rst}`` blocks, then list every page in the ``toctree`` of
+       its parent index.
     3. Run the project-specific `docs/docs_update.py` script (if present)
        to generate dynamic content.
     4. Refresh self-updating blocks (``{matrix}`` compatibility tables and
@@ -180,6 +290,14 @@ def update_docs(config: Config, *, check: bool = False) -> None:
                 logging.info("No RST files to convert.")
         elif not meta.uses_myst:
             logging.info("MyST-Parser not detected. Skipping RST conversion.")
+
+        # Phase 2.5: wire freshly generated pages into their parent toctree.
+        if meta.active_autodoc and docs_dir.is_dir():
+            wired = wire_api_pages_into_toctrees(docs_dir)
+            if wired:
+                echo("Wired API pages into their toctree:")
+                for line in wired:
+                    echo(f"  {line}")
 
     # Phase 3: docs update script.
     script_path = validate_docs_script_path(config.docs.update_script, repo_root)
