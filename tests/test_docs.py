@@ -25,6 +25,7 @@ from unittest.mock import patch
 import pytest
 import tomlrt
 from click_extra import ClickException
+
 from repomatic.config import Config, DocsConfig
 from repomatic.docs import (
     _run_docs_tool,
