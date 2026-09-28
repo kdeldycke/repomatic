@@ -89,8 +89,8 @@ from repomatic.registry import (
     SyncMode,
     ToolConfigComponent,
 )
-from repomatic.tooling.bundle import get_data_content
 from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from repomatic.tooling.bundle import get_data_content
 from tests.conftest import metadata_from_pyproject, pat_results
 
 
