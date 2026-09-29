@@ -67,29 +67,6 @@ Three installs deliberately bypass the window. The first two are per-package and
 - **A security fix still inside the window.** `audit --fix` reaches a CVE fix through an `exclude-newer-package` entry rather than lifting `exclude-newer` for everything.
 - **The `test-package-install` job.** Its subject *is* the freshly published artifact, so a cooldown would make the question it exists to answer unanswerable. Scoping the opt-out to one job is what keeps it honest: it holds no secrets, inherits `permissions: {}`, and only runs `--version` on a throwaway runner.
 
-### Where the window comes from
-
-`[tool.repomatic] minimum-release-age` (default `1 week`) is the single source of truth. Never hard-code a duration next to an install command: read it from config, or from the `npm_min_release_age_days` output `repomatic show-metadata` derives from it.
-
-Two files carry the duration as a literal instead, and both are pinned back to that source by a conformance test rather than trusted:
-
-- **Every workflow**, because YAML cannot read Python: each sets `UV_EXCLUDE_NEWER` and `NPM_CONFIG_MIN_RELEASE_AGE` in a **workflow-level `env:` block**, rendered by `cooldown_env_block()` and asserted verbatim by `tests/test_workflows.py`. Job-level `env:` would let the value come from the `metadata` job, but it cannot cover the bootstrap: `metadata` resolves packages before any other job's output exists, and a workflow-level `env:` block cannot reference `needs`. The literal covers every job, including that bootstrap and any step added later by someone who never read this section.
-- **`[tool.uv] exclude-newer`**, in this repo's `pyproject.toml` and in the bundled `repomatic/data/uv.toml`, because uv reads its own config and knows nothing of `[tool.repomatic]`. `tests/test_uv.py` asserts both equal `minimum-release-age`. They must not merely be *close*: a lock window wider than the install window resolves versions those installs then refuse, leaving a package pinned in `uv.lock` that CI cannot install.
-
-That makes the cooldown the one place an environment variable beats an explicit flag, inverting the generic preference for explicit uv flags over environment variables: a flag only protects the command someone remembered to write it on, and the commands that most need protecting are the ones nobody thought about.
-
-A command that resolves against a checked-in lockfile is the exception that needs the flag *back*. `uv lock` and `uv sync` are governed by the project's own `[tool.uv] exclude-newer`, and an ambient `UV_EXCLUDE_NEWER` silently overrides it, so CI would lock to a different window than a developer running the same command. `sync-uv-lock` therefore passes `--exclude-newer` explicitly, sourced from `[tool.uv]`: a CLI flag outranks the environment.
-
-### Per-package cooldown exemptions are command-line only
-
-uv takes a per-package cooldown exemption as a command-line flag only, and that is what forces every per-package bypass in this repository onto a command line ({data}`repomatic.release.prepare_release.SELF_PIN_COOLDOWN_EXEMPTION`) rather than into one central declaration. Verified against uv `0.12.3`: under an ambient `UV_EXCLUDE_NEWER`, a `uvx` resolution fails byte-identically whether the exemption sits in `[tool.uv]`, in an adjacent `uv.toml`, or nowhere at all. The one knob that does reach it is `--config-file` / `UV_CONFIG_FILE`, rejected here because it **replaces** discovered configuration instead of merging with it: setting it for a whole CI environment silently drops `required-version`, `exclude-newer`, `dependency-groups` and `build-backend` from every *other* uv command in that environment, so making it safe means maintaining a complete mirror of `[tool.uv]` where a newly added key nobody remembers to mirror fails silently. Upstream: the `UV_EXCLUDE_NEWER_PACKAGE` ask is [astral-sh/uv#20995](https://github.com/astral-sh/uv/issues/20995), glob exemptions are [astral-sh/uv#20788](https://github.com/astral-sh/uv/issues/20788), and pin-based bypasses are [astral-sh/uv#19864](https://github.com/astral-sh/uv/issues/19864) with [astral-sh/uv#18921](https://github.com/astral-sh/uv/pull/18921).
-
-### Shippable dependency sources
-
-Nothing in this repository can feel a stray `[tool.uv.sources]` override, because every workflow here installs from `uv.lock` and resolves straight through it: `repomatic lint-deps` is the only thing that sees one, and it blocks everything off-index, `[dependency-groups]` included. Adding a rule to it means adding it to {func}`repomatic.deps.dep_sources.scan_pyproject` or {func}`~repomatic.deps.dep_sources.scan_lock`, never to a call site.
-
-The gate runs in four places, and the release lane's copy is the backstop, not the mechanism: by the time it fires the freeze commit is already on `main` and the recovery is to burn the version per the generic skip-and-move-forward rule. The layer that prevents that is the `prepare-release` PR banner, which is regenerated on every push. See [`docs/dependencies.md` § Shippable sources](https://repomatic.net/dependencies#shippable-sources) for the rules and the failure classes.
-
 ### Commit messages: the `[changelog]` prefix invariant
 
 A `[bracketed]` commit-subject prefix is reserved for a load-bearing mechanism that parses it back.
@@ -124,14 +101,6 @@ A config field also surfaces in serialized command output (a non-string default 
 ```{note}
 Release-specific design rationale for `kdeldycke/repomatic` (the `workflow_run` checkout pitfall, immutable releases, concurrency, freeze/unfreeze structure) lives in `docs/upstream-development.md` § Release checklist. Downstream repos with their own release flow can borrow it but aren't bound by it.
 ```
-
-### A published release freezes what is missing from it
-
-Publishing flips [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) on, locking the asset list along with the tag. A binary the matrix never produced is then not a gap to fill later: it is a permanent property of that version. `v6.30.0` shipped without `windows-arm64`, `v7.5.0` without either Windows build, and `v7.7.0` without any binary at all. None of the three can be repaired, only superseded.
-
-**Shipping short is the intended behavior, not a failure to prevent.** `publish-release` publishes through a partial matrix on purpose: a release carrying five platforms beats one held hostage by the sixth, and the recovery is the next release, exactly as the generic skip-and-move-forward rule prescribes for every other release mishap. A fast cycle makes a burned platform cheap. So never hold a release, or sit on a draft, waiting for a red build cell: fix the cause and let the next version carry it.
-
-A short ship does leave three artifacts still advertising binaries that are not there: the version's changelog section, the GitHub release body, and `docs/install.md`. Repairing them is a post-publication procedure rather than a rule, so it lives in the `repomatic-ship` skill (§ Repairing a short ship) with the rest of the release lane.
 
 ### Pin uv: enforcement internals
 
@@ -173,42 +142,17 @@ CLI commands, workflow job IDs, PR branch names, and PR body template names must
 
 Every automated operation follows the [naming conventions](#naming-conventions-for-automated-operations) and is idempotent. For the detailed checklists of required properties, invariants, and optional elements for each operation type (sync, update, format/fix, lint, pack, scan, PR body templates), see [`docs/operation-contracts.md`](https://repomatic.net/operation-contracts).
 
-### Labeller rules are precision-first conveniences
-
-The issue and PR labeller (content keyword rules, file glob rules) pre-labels a freshly filed issue or PR to save the maintainer a first pass. It never replaces their review and classification, and nothing downstream treats its labels as complete or authoritative. Tune it for **precision, not recall**: a missing label costs one manual click; a wrong label is noise on every item that trips it. Encode a rule only when the signal is unambiguous, and none when it is not.
-
-- **Content rules** match issue/PR prose: key them off terms that unambiguously name the subject (a distro, language, ecosystem or brand) and that the tool never prints in its own output. Never key off a token the tool emits for *every* item it handles, like an ID, sub-command or status-table entry a CLI lists for all its back-ends: a user who pastes such a trace makes every one of those labels fire at once.
-- **File rules** match a PR's changed paths: key them off a path owned by exactly one label. A glob broad enough to catch unrelated changes is worse than none.
-
-Both rule families match in-process (`repomatic/labels.py`) rather than through the retired `github/issue-labeler` and `actions/labeler` actions, and a label's pattern list is **OR-joined**: any one pattern matching earns the label. A bare content pattern is a keyword, matched case-insensitively and anchored on each edge that is itself a word character, so `fix` does not fire inside `prefix`. Wrap a pattern in slashes (`/body/flags`) to pass a regex through verbatim instead, case-sensitive unless a flag says otherwise. A label's file globs are evaluated as one set, so a `!`-negated entry subtracts from its siblings the way a `.gitignore` line would (`["docs/**", "!docs/generated/**"]`), with no separate exclude rule to write.
-
-### Agents
+### Bundled agents and skills
 
 This repository uses three Claude Code agents in `.claude/agents/`. Definitions stay lean: if a rule belongs in `CLAUDE.md`, put it there and reference it. Do not duplicate.
 
 **Agents must be self-contained for downstream portability.** Agents deploy downstream via `repomatic init subagents` as standalone files; Claude auto-invokes them from their `description:` frontmatter. All knowledge must be inline or reference `claude.md` sections, not upstream `docs/` URLs or upstream-only paths. When mining session history, default to local `claude.md` updates; file an upstream proposal only when the pattern is generic across repos.
 
+**Skills are self-contained the same way.** `repomatic init skills` deploys each one as a standalone folder into repositories that have no `docs/` tree, and skills typically lack `WebFetch`, so a skill keeps its domain knowledge inline or in its own `references/`. Duplication between a skill and a docs page is intentional: `docs/` serves humans, the skill serves Claude at runtime.
+
 - Agent definitions reference `CLAUDE.md` sections, not restate them.
 - qa-engineer is the gatekeeper for agent definition changes.
-
-### Skills
-
-Skills in `.claude/skills/` follow agent conventions: lean, no duplication with `CLAUDE.md`, reference sections instead of restating rules. Run `repomatic list-skills` to list them.
-
-**A skill is a plain folder of static files, copied verbatim.** `repomatic init skills` places the folder at its destination and does nothing else: no rendering, no per-target variants, no flavor flags. Optional `scripts/`, `references/` and `assets/` subdirectories travel with it. Anything that would otherwise vary per destination belongs in the skill body as prose, never in a code path.
-
-**Frontmatter carries [Agent Skills spec](https://agentskills.io/specification) fields, plus `argument-hint`.** That single deviation is settled; every other Claude Code extension stays out. Notably there is no `model:` (the recommended model rides in the spec's `compatibility` field) and no `disable-model-invocation:`, so **every skill is model-invocable by design**: skills exist to augment the parent agent, and what they may actually do is gated by the permission layer, not by frontmatter. `tests/test_skills.py` enforces this, so argue a new field there before adding it to a skill.
-
-**Skills must be self-contained for downstream portability.** Skills deploy downstream via `repomatic init skills` as standalone folders; downstream repos have no `docs/` and skills typically lack `WebFetch`, so all domain knowledge must be inline or in the skill's own `references/`. Duplication between a skill and a docs page is intentional: `docs/` serves humans, the skill serves Claude at runtime.
-
-**Cross-references between skills and agents must degrade gracefully.** A "Next steps" line suggesting `/other-skill` is informational; a *programmatic* call is the same: a skill invoking another through the `Skill` tool must fall back to a subagent or inline work when the target is excluded (via `[tool.repomatic] exclude` or scope filtering), never letting a missing skill abort the caller. Write prose so a missing cross-reference is a no-op, not a blocker.
 
 ### Mechanical vs analytical work
 
 The `repomatic` ecosystem has a **mechanical layer** (CLI commands and CI workflows that deterministically sync, lint, format, and fix files on every push to `main`) and an **analytical layer** (judgment-based tasks needing context comparison and trade-offs). Skills focus on the analytical gaps (custom job content analysis, cross-repo pattern comparison, judgment on intentional vs stale divergence); don't duplicate what CI handles mechanically: see [§ Automated operation contracts](#automated-operation-contracts).
-
-### Common maintenance pitfalls
-
-- **Generator/formatter ping-pong is recurrent.** Any code that writes a checked-in Markdown file competes with `format-markdown` for the canonical layout. After touching such code, run the generator, then `repomatic run mdformat -- {file}`, then the generator again, confirming `git diff` stays empty across all three states; if not, align the generator with mdformat. Grep for the pattern in sibling generators and mirror the check in `tests/`. Checked-in JSON has the same trap with `format-json`, in a worse form. The indent is whatever the target repository's Biome config asks for, so a generator hardcoding one fights `format-json` forever wherever the repository is configured the other way. Read it from that repository instead: `_biome_json_indent` in `repomatic/tooling/plugin.py` resolves it, and `render_plugin_settings` writes with it.
-- **`repomatic run {tool} --check` is unreliable for tools with a post-process fixup.** A few tools (currently `mdformat`) get a Python post-processing pass that only runs in write mode, so `--check` can report drift the write path would reconcile (false positive) or pass on files it would still rewrite (false negative). To verify or gate formatting, run the write path and inspect `git diff`, never `--check`. The write path is also the default where you might expect a report: `repomatic run typos -- {file}` fixes misspellings in place and prints nothing, so a clean file and a corrected one produce the same empty output. A hand-reconstructed invocation misses the bundled config as well as the post-process: mdformat's sets `number = true` and `validate = false`, so a bare `uvx mdformat` renumbers every ordered list to `1.` and rewrites the `mdformat-toc` block, and that churn reads as your own edit. Copy the config out of `repomatic/data/` first, or run the write path on a scratch copy and diff against it.
-- **Removing a bundled asset leaves downstream orphans.** Dropping a skill, agent, or workflow from `COMPONENTS` stops shipping it, but copies already in downstream repos are invisible to stale-file detection. Add a `RemovedAsset` tombstone to `REMOVED_ASSETS` in `repomatic/registry.py` so `repomatic init` prunes the orphan (the `RemovedAsset` docstring has the content- vs fingerprint-gating recipe); a CI test fails otherwise. A rename is a drop plus an add: tombstone the old name.

@@ -29,7 +29,10 @@ key, which is why {func}`test_skill_compatibility_carries_the_model_hint`
 exists. Pinning the extension set to exactly one entry is what stops that
 budget creeping back, and it catches a misspelled field name
 (`user_invocable` for `user-invocable`) that would otherwise parse as valid
-YAML and be silently ignored.
+YAML and be silently ignored. The same pin keeps `disable-model-invocation:`
+out: every skill is model-invocable by design, and the permission layer, not
+frontmatter, decides what it may do. Argue a new field here before adding it
+to a skill.
 ```
 """
 

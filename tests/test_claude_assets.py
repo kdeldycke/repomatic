@@ -152,8 +152,8 @@ bundled_asset = pytest.mark.parametrize(
 def test_cooldown_window_matches_config(asset_id: str, body: str) -> None:
     """A quoted cooldown window equals `[tool.repomatic] minimum-release-age`.
 
-    `claude.md` § Where the window comes from names two files allowed to
-    carry the duration as a literal, both pinned by a test. Skills that
+    Two files may carry the duration as a literal, each pinned by a test
+    named in the module docstring. Skills that
     hand a maintainer a `uvx` command are a third carrier, and the one
     nothing regenerates: raising the window in config would leave four
     skills quoting the old span at anyone who reads them.

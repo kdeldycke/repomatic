@@ -508,8 +508,7 @@ def cancel_superseded_runs(branch: str, current_run_id: str) -> int:
     concurrency group, so nothing else would stop it from killing the
     matrix that publishes a release. Cancelling a release run mid-flight
     costs the version its binaries permanently, since publishing locks the
-    asset list (`claude.md` § A published release freezes what is missing
-    from it).
+    asset list (see the `publish-release` job of `_release-engine.yaml`).
     ```
 
     :param branch: Head branch whose runs to cancel.

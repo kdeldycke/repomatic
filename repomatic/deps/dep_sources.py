@@ -50,7 +50,9 @@ The `lint-deps` gate is the other half, and it covers what the swap does not.
 A dependency is **shippable** when whoever installs the published artifact from
 an index gets the same code the release was tested against. {func}`scan_project`
 reports every way that breaks, and the release lane refuses to build a package
-while one stands. See {class}`DepFinding` for the failure classes, and
+while one stands. A new rule goes into {func}`scan_pyproject` or
+{func}`scan_lock`, never into a call site, so every place that runs the gate
+enforces it. See {class}`DepFinding` for the failure classes, and
 `docs/dependencies.md` § Shippable sources for the worked example.
 """
 

@@ -137,8 +137,7 @@ def cooldown_env_block() -> str:
     A workflow-level `env:` block cannot reference `needs`, which is why the
     window is a literal here instead of a `metadata` job output: the `metadata`
     job runs `uvx` to compute its own outputs, so anything sourced from it would
-    leave that bootstrap install ungated. See `claude.md` § Where the window
-    comes from.
+    leave that bootstrap install ungated.
     ```
 
     :return: The comment and `env:` mapping, newline-terminated, ready to splice

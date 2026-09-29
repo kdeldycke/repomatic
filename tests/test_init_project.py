@@ -2668,7 +2668,6 @@ def test_bumpversion_template_is_pyproject_fmt_fixed_point(tmp_path: Path) -> No
     freshly merged template equals it textually (modulo `current_version`, the only
     preserved key) locks the order. Unlike `test_template_matches_own_pyproject`,
     which compares parsed dicts, this compares text, so it catches key-order drift.
-    See `claude.md` § "Generator/formatter ping-pong is recurrent".
     """
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
@@ -2717,8 +2716,7 @@ def test_ongoing_sync_template_survives_pyproject_fmt(
     pyproject-fmt over it, and asserts the `[tool.X]` block is unchanged. It is the
     category guard for the bumpversion ↔ format-pyproject loop, and also covers
     scope-specific templates (lychee, opted into a Python project) that have no
-    in-tree section to compare against. See `claude.md` § "Generator/formatter
-    ping-pong is recurrent".
+    in-tree section to compare against.
 
     Marked `once`: it shells out to pyproject-fmt via uvx, so a single runner
     suffices. Skipped when pyproject-fmt cannot be fetched (offline local dev);

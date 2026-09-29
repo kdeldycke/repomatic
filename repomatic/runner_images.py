@@ -436,8 +436,8 @@ def apply_upgrade(change: RunnerChange, pyproject_path: Path) -> bool:
     # holding dots, which is a different key. So the formatter gets the last
     # word on layout, and the invariant that matters is not the shape written
     # but that re-reading the formatter's shape finds the label already there.
-    # It does, so the two converge instead of ping-ponging, per `claude.md`
-    # § Common maintenance pitfalls. `tests/test_runner_sync.py` pins that.
+    # It does, so the two converge instead of ping-ponging, and
+    # `tests/test_runner_sync.py` pins that.
     node: Any = doc
     for key in ("tool", "repomatic", "test-matrix"):
         if key not in node:
