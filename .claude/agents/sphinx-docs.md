@@ -590,7 +590,7 @@ Agent tooling toctree, in this order. Drop the whole block when the project ship
 
 Maintainer-facing pages, and when a project carries one:
 
-01. `contributing` — Setup, dev loop, code-style pointers (or `{include} ../contributing.md` if the root file already exists).
+01. `contributing` — Setup, dev loop, code-style pointers (or `{include} ../contributing.md` if the root file already exists). The one home of developer setup: `readme.md` and `claude.md` link to it.
 02. `commit-messages` — Only when automation reads or writes the project's commit subjects, which makes the subject a shared namespace rather than free text: the reserved-prefix rules, who else parses a message, and how to write a subject and body.
 03. `upstream-development` — Project-internal release process. Mark `(upstream maintainers only)` in the page heading so readers know this is not for consumers.
 04. `operation-contracts` — Optional, for projects with formal automated-operation contracts.
@@ -882,7 +882,7 @@ Watch for these every pass:
 - A `{toctree}` that outgrew the ~12-entry threshold and is still flat, or a captioned section left holding a single entry after pages moved around it. See § Grouping pages into sidebar sections.
 - An `automodule` block on a narrative page, repeating what the module's own API page already documents. Every such pair costs a duplicate object description per member and buries the guide's message; see § Guide pages carry the prose, API pages carry the API.
 - Stale `.rst` files in `docs/` left over from package renames or earlier `sphinx-apidoc` runs that reference modules or packages no longer in the source tree. They build silently (autodoc skips missing modules with a warning, not an error) but pollute search results and the modindex. Sweep with `git status` after `update-docs`; delete orphans in the same PR.
-- A `## Development` section in `readme.md` that should have been removed when the project added a `claude.md`. Once `claude.md` exists, the developer-facing setup goes there; keeping a duplicated section in the readme creates two places to update.
+- Developer setup held in `readme.md` (a `## Development` section) or in `claude.md`. Setup, dev loop and test commands belong on the `contributing` page of the roster, where a contributor looks for them. `claude.md` loads into every agent session, so it keeps conventions and links to that page. A second copy creates two places to update.
 - A `dependencies.md` page whose embedded Mermaid graph hasn't been regenerated since the last `uv lock` change. The graph stays in sync only if `repomatic update-dep-graph` is wired into a workflow job; manual regeneration drifts. Upstream that job lives in `_release-engine.yaml` and fires on release commits only, so a graph lagging `pyproject.toml` mid-cycle is expected rather than drift.
 - `pyproject.toml` declaring a docs dependency that's no longer imported by `conf.py` (or vice-versa: importing one not declared). The mismatch passes Sphinx but trips a fresh `uv sync --group docs` run on a CI runner.
 - `click_extra.sphinx.myst_docstrings` listed in `extensions` without `click-extra[sphinx]` declared in `[dependency-groups] docs`. Builds work on the maintainer's machine if the package is installed globally, then break in CI.
