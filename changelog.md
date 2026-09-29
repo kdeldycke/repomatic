@@ -15,6 +15,8 @@
 - The `metrics` and `metric_chart` docstrings now state that a star gained on a repository's creation day replaces its `created` anchor, so not every series carries one.
 - The bundled `repomatic-ship` skill now names the transient empty run page a watcher must poll through rather than read as a finished suite.
 - The bundled `repomatic-ship` skill now classifies a version derived from a checked-in spec, whose bump breaks the recipe invoking it, and points a reading agent at `git show HEAD:<path>` instead of `git stash`.
+- The bundled `file-bug-report` skill now carries the evidence rules for an upstream report and the numbering behind a GitHub Actions log anchor.
+- The bundled `babysit-ci` skill now warns that `gh run rerun --failed` never reaches a job skipped behind a failed dependency.
 - Fix `scan-virustotal` failing when the freshly published release still lists no asset, which skipped the whole scan for that version.
 - The plugin page now warns that an account-enabled plugin also loads in the CLI, so pairing it with `init skills` registers every skill twice.
 - The plugin page now names the Desktop panel that takes the archive, the supported marketplace hosts, and where the off-by-default `Sync automatically` switch lives.
