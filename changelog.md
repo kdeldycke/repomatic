@@ -18,6 +18,7 @@
 - The plugin page now warns that an account-enabled plugin also loads in the CLI, so pairing it with `init skills` registers every skill twice.
 - The plugin page now names the Desktop panel that takes the archive, the supported marketplace hosts, and where the off-by-default `Sync automatically` switch lives.
 - The plugin page now records that the CLI compares `plugin.json` rather than the catalog entry to detect an update, measured instead of assumed.
+- The contributing page now carries the conventions for developing `repomatic` itself: operation naming, the labeller, the release engine, bundled agents and skills, and the cooldown internals.
 
 ## [`7.16.2` (2026-09-20)](https://github.com/kdeldycke/repomatic/compare/v7.16.1...v7.16.2)
 

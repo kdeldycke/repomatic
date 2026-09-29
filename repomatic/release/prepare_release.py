@@ -115,7 +115,8 @@ beside the pin instead of the workflows declaring it once.
 ```{note}
 A `uvx` resolution reads no project configuration at all, so moving the
 exemption into `[tool.uv]` or an adjacent `uv.toml` would not work either:
-both are ignored. See `claude.md` § Per-ecosystem knobs.
+both are ignored. See `claude.md` § Per-package cooldown exemptions are
+command-line only.
 ```
 
 ```{todo}
