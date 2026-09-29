@@ -11,6 +11,12 @@ Both distribution paths are supported and neither replaces the other:
 
 The plugin also reaches further than the files do. Claude Code discovers skills in `~/.claude/skills/` and a repository's `.claude/skills/`, but [Cowork and cloud sessions do not read either](https://code.claude.com/docs/en/skills#skills-in-cowork-and-cloud-sessions): they load what is enabled for your account. A plugin is the only form those surfaces accept, so `init skills` cannot reach them by design. See [§ Install in Claude Desktop](#install-in-claude-desktop).
 
+```{note}
+That reach now runs both ways. A plugin enabled for your claude.ai account is cached into `~/.claude/plugins/synced/` and loaded by the CLI on its own, with no local install: `claude plugin list` groups those entries under `Synced from claude.ai`, and names this catalog's own plugin `repomatic@synced`. Verified against Claude Code 2.1.274 on 2026-09-29.
+
+So the two paths above overlap, where they used to be disjoint. Take both for the same assets, by enabling the plugin for your account *and* running `init skills`, and every skill is registered twice: once bare from the skill directory, once namespaced by the plugin. Both copies then sit in the context of every session. Pick one route per machine.
+```
+
 ## Install
 
 Register the marketplace, then install the plugin:
@@ -54,7 +60,15 @@ Do not add an `agents` path to the manifest to publish the assets from somewhere
 The entry's two halves move differently, and the difference is the point:
 
 - **`ref` round-trips.** A release commit's freeze writes `vX.Y.Z`; the post-release unfreeze walks it back to `main`. So `/plugin marketplace add kdeldycke/repomatic` tracks the default branch and gets each skill fix as it lands, while `/plugin marketplace add kdeldycke/repomatic@vX.Y.Z` installs exactly that release. Tags older than the release that introduced the plugin carry no marketplace entry.
-- **`version` ratchets forward.** It names the last published release and is never walked back, because it is the string update detection compares. Left on a `.devN` value it would advertise a release nobody can install.
+- **`version` ratchets forward.** It names the last published release and is never walked back. Left on a `.devN` value it would advertise a release nobody can install.
+
+```{note}
+The CLI does not read that catalog `version` to decide whether an update is due. It compares the plugin's own `.claude-plugin/plugin.json`, which is why the release freeze stamps both and why they must never disagree.
+
+Measured against Claude Code 2.1.274 on 2026-09-29, on a scratch marketplace carrying one plugin, for a `path` source and a `git-subdir` source alike. Bumping `plugin.json` alone made `claude plugin update` report `updated`, `1.0.0` to `9.9.9`. Bumping the catalog entry alone left it `up_to_date`. The two controls held: bumping neither reported `up_to_date`, bumping both reported `updated`.
+
+The Desktop app appears to decide the other way, its `Update` button staying greyed out until the catalog entry moves ([anthropics/claude-code#20697](https://github.com/anthropics/claude-code/issues/20697#issuecomment-5330840382)). I have not measured that one. Keeping both manifests on the same string is what makes the disagreement moot.
+```
 
 Pinning the tag everywhere would be the tidier-looking choice and is the wrong one twice over. A tag never moves, so an entry frozen to one makes the app's `Sync automatically` a no-op between releases. And a pin naming the last release breaks outright whenever the plugin's own layout changes, which is what happened when the manifest moved into `.claude/`: the previous tag's tree has no manifest for the catalog to find.
 
@@ -70,7 +84,7 @@ $ gh attestation verify repomatic-claude-plugin.zip \
     --repo kdeldycke/repomatic --signer-repo kdeldycke/repomatic
 ```
 
-The version Claude Code compares against your installed copy is stamped into the archive's manifest at pack time, so it always matches the release the archive came from. The checked-in manifest carries one too, written by the same freeze that moves the catalog pin, because a `git-subdir` install reads that file rather than a packed copy. Keep the version out of the archive's filename as well: the app-side upload path derives the plugin name from the uploaded filename, so a versioned name like `repomatic-claude-plugin-v7.13.0.zip` installs as a duplicate plugin instead of updating the existing one (reported for Cowork in [anthropics/claude-code#20697](https://github.com/anthropics/claude-code/issues/20697)). The release asset is version-free for this reason, with the version carried by the release tag and the manifest instead.
+The plugin manifest carries the version the CLI compares against your installed copy (see [§ How the pin moves](#how-the-pin-moves)), and `pack_plugin` stamps it into the archive's copy at pack time, so it always matches the release the archive came from. The checked-in manifest is written by the same freeze that moves the catalog pin, because a `git-subdir` install reads that file rather than a packed one. Keep the version out of the archive's filename as well: the app-side upload path derives the plugin name from the uploaded filename, so a versioned name like `repomatic-claude-plugin-v7.13.0.zip` installs as a duplicate plugin instead of updating the existing one (reported for Cowork in [anthropics/claude-code#20697](https://github.com/anthropics/claude-code/issues/20697)). The release asset is version-free for this reason, with the version carried by the release tag and the manifest instead.
 
 ## Install without a marketplace
 
@@ -127,6 +141,8 @@ Grab the asset from a release, then in the app open **Customize > Plugins** and 
 $ gh release download --repo kdeldycke/repomatic --pattern repomatic-claude-plugin.zip
 ```
 
+That is the only panel the archive goes through. The **Customize > Skills** uploader beside it refuses any zip holding a `.claude-plugin/plugin.json`, and wants a bare skill folder at the archive root instead, so it cannot take a plugin at all ([anthropics/claude-code#20697](https://github.com/anthropics/claude-code/issues/20697#issuecomment-5879859052), measured on Desktop `2.9939.2`).
+
 Every skill and agent arrives in that single upload, listed under the plugin's **Skills** and **Agents** tabs and invocable by typing `/` in chat. The marketplace route below populates the same two tabs:
 
 ![The Skills tab listing seventeen slash commands](assets/desktop-plugin-skills.png)
@@ -139,7 +155,9 @@ An uploaded plugin carries no update channel: its `⋮` menu offers `Disable` an
 
 The app's **Add > Add marketplace** flow takes the same `kdeldycke/repomatic` catalog, and is the better route: it carries the version, the update check and the source listing an upload has none of. It rejects an `archive` source outright, with `External plugin source type 'archive' is not supported. Supported types: git-subdir, github, url` in `~/Library/Logs/Claude/main.log` behind a bare "Marketplace sync failed" in the dialog, which is why this catalog publishes a `git-subdir` source.
 
-Adding and installing needs no GitHub App, on a public repository. Keeping the plugin current on every push does:
+The host has to be GitHub, GitLab, Bitbucket or GitHub Enterprise. A self-hosted forge is refused with `This host isn't supported` ([anthropics/claude-code#20697](https://github.com/anthropics/claude-code/issues/20697#issuecomment-5330840382), reported against a Gitea instance).
+
+Adding and installing needs no GitHub App, on a public repository. Keeping the plugin current on every push does, and that switch starts off: `Sync automatically` sits in the `...` menu beside the marketplace name, next to `Synced commit` and `Check for updates`. Without the app it refuses:
 
 ![A warning reading "Auto-sync requires the Claude GitHub App to have access to this repository", with a Grant access link](assets/desktop-autosync-warning.png)
 

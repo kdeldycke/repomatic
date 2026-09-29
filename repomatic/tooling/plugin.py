@@ -60,9 +60,16 @@ both stamped by the release freeze
 ({meth}`.PrepareRelease.freeze_plugin_manifest_version` and
 {meth}`.PrepareRelease.freeze_marketplace_pin`).
 
-Claude Code compares that string against a user's installed copy to decide
-whether an update is due, so a value that went stale would silently strand
-everyone on the plugin they already had. Deriving each one keeps the single
+The CLI compares the **plugin manifest's** string against a user's installed
+copy to decide whether an update is due, so a value that went stale would
+silently strand everyone on the plugin they already had. Measured against Claude
+Code 2.1.274: on a scratch catalog, bumping only `plugin.json` made `claude
+plugin update` report `updated`, while bumping only the catalog entry left it
+`up_to_date`, for a `path` source and a `git-subdir` source alike. The Desktop
+app is reported to decide the other way round
+([anthropics/claude-code#20697](https://github.com/anthropics/claude-code/issues/20697#issuecomment-5330840382)),
+which is one more reason to keep all three copies on the same string rather than
+picking the one that happens to matter to a single client. Deriving each one keeps the single
 repomatic-specific `[[tool.bumpversion.files]]` entry out of a
 `[tool.bumpversion]` block that `sync-bumpversion` regenerates from a bundled
 template shared with every downstream repository, and keeps the post-release
