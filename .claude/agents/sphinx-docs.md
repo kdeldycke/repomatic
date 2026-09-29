@@ -267,6 +267,7 @@ Cross-references that survive renames:
 
 - Always cross-reference external projects through `intersphinx_mapping` and a `{role}` ref, not a bare URL. A renamed function in click-extra surfaces as a Sphinx build error; a bare URL silently 404s in the rendered HTML.
 - For headings, prefer the auto-generated docutils anchor (e.g., `### option.name` → `option-name`). Add an explicit `(my-anchor)=` only when the natural anchor isn't unique or the target isn't a heading.
+- **Qualify a reference that sits in a base-class docstring.** autodoc repeats the docstring of a base-class attribute on each subclass that overrides the attribute. A short `` {attr}`name` `` then resolves against the subclass, and fails for a member the subclass does not define itself. Write the full dotted target.
 
 ## Inline syntax highlighting in prose
 
@@ -763,6 +764,7 @@ Default-pruning rule:
 - On every Sphinx or extension upgrade, run `sphinx-build -W -b html docs docs/_build/html`. Treat every `RemovedInSphinxX.YWarning`, `DeprecationWarning`, and `application.ExtensionError` as cleanup work, not noise. Fix them in the same PR as the upgrade.
 - **Match the deployed builder, which is not always `html`.** `[tool.repomatic] sphinx.builder` is what the Docs workflow passes to `sphinx-build -b`, and a project serving extension-less URLs sets it to `dirhtml` (`page/index.html` instead of `page.html`). Read it before assuming a local `-b html` reproduces CI. The builder is chosen on the command line, so it is the one Sphinx setting `conf.py` cannot carry: never "fix" its absence there.
 - **A warning count only covers the pages that build re-read.** Sphinx reuses cached doctrees, so an incremental rebuild reports the warnings of the changed pages alone, and reading that number against a cold build's count shows a drop nothing caused. A `conf.py` edit invalidates the whole cache, which is why the build right after one reports many more. Build into a clean `_build/` before comparing two counts.
+- **Compare two builds only when both hold the same dependency groups.** autodoc imports each module it documents. A build that lacks one group fails those imports, like the test group for a `tests` API page, and each reference into such a module then reports as unresolved. Build the baseline from an export of `HEAD` and the candidate from the working tree, both with `uv run --isolated --frozen --all-extras --all-groups`: neither touches the shared virtual environment.
 - Periodically diff against a fresh `sphinx-quickstart` output in a tmpdir to spot defaults that have shifted under you.
 - Drop conditional import shims once the project's minimum Python no longer needs them. The `try: import tomllib / except: import tomli` pattern is dead code on `requires-python = ">=3.11"`. Same for any `if sys.version_info < (3, X):` branch where `X` is now below the floor. The deps group should lose the corresponding fallback dependency in the same PR.
 - Always pass `encoding="utf-8"` to `Path.read_text()` calls in `conf.py`. Bare `read_text()` picks up the locale, which on minimal CI runners has bitten many projects.
