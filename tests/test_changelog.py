@@ -41,7 +41,10 @@ from repomatic.github.pr_body import render_template
 from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
 from repomatic.pypi import PyPIRelease
 from repomatic.tooling.tool_runner import verify_via_write_path
-from tests.conftest import skip_unless_tool_runs
+from tests.conftest import (
+    assert_shipped_text_reads_true_downstream,
+    skip_unless_tool_runs,
+)
 
 SAMPLE_CHANGELOG = dedent(
     """\
@@ -905,6 +908,31 @@ def test_warn_on_empty_sections_counts_an_admonition_as_empty(caplog):
     with caplog.at_level(logging.WARNING):
         warn_on_empty_sections(changelog)
     assert "1.2.2: released section holds no entry" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("warn", "content"),
+    (
+        pytest.param(
+            lambda changelog: warn_on_long_bullets(changelog, threshold=5),
+            _unreleased_changelog(_LONG_BULLET),
+            id="long-bullet",
+        ),
+        pytest.param(
+            warn_on_empty_sections, _released_changelog(""), id="empty-section"
+        ),
+    ),
+)
+def test_annotation_reads_true_downstream(warn, content, capsys):
+    """A lint annotation cites a section the published documentation declares.
+
+    The annotation shows in the checks of a downstream repository, which holds
+    no copy of this project's `claude.md`.
+    """
+    warn(Changelog(content))
+    annotation = capsys.readouterr().out
+    assert annotation.startswith("::warning::")
+    assert_shipped_text_reads_true_downstream("The changelog annotation", annotation)
 
 
 def test_lint_changelog_dates_warns_long_unreleased_bullet(tmp_path, caplog):
@@ -1981,8 +2009,7 @@ def test_rendered_sections_are_an_mdformat_fixed_point(tmp_path, monkeypatch):
     `fix-changelog` writes `changelog.md` and `format-markdown` reformats the
     same file on the same push. When the two disagree on the canonical layout
     they ping-pong: one job rewrites the section, the next reformats it, each
-    opening its own PR, and neither converges. See `claude.md` §
-    "Generator/formatter ping-pong is recurrent".
+    opening its own PR, and neither converges.
 
     Both renderings are exercised, because they fail differently. The inserted
     placeholder leaves every optional admonition slot of the `release-notes`

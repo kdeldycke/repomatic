@@ -29,6 +29,9 @@ A second family of checks holds the same assets to the prose rule in
 directive a rule opens with stays short enough to read once, while the
 rationale following it is left alone.
 
+One check reaches past the assets: {func}`test_repository_citations_resolve`
+holds every text of the repository to the citation rule the assets follow.
+
 Each drift check below pins one copy to its source, the way
 `test_workflows.py::test_workflow_declares_cooldown_env` pins the
 workflow-level cooldown block and `test_uv.py` pins `[tool.uv]
@@ -51,7 +54,9 @@ config that parsed, warned about unknown keys, and silently did nothing.
 from __future__ import annotations
 
 import ast
+import os
 import re
+from pathlib import Path
 
 import pytest
 import yaml
@@ -481,25 +486,60 @@ def test_directives_are_short(asset_id: str, body: str) -> None:
         )
 
 
+CLAUDE_ANCHOR_RE = re.compile(r"claude\.md#(?P<anchor>[\w-]+)", re.IGNORECASE)
+"""A link to one section of `claude.md`, as the URL of a forge or a site spells it."""
+
 CLAUDE_MD = PROJECT_ROOT / "claude.md"
-"""The instructions file every asset citation points into.
+"""The instructions file every citation points into.
 
 Spelled lowercase because that is the tracked name. A case-insensitive
 filesystem resolves `CLAUDE.md` just the same, so the wrong spelling here
 passes locally and raises `FileNotFoundError` on a Linux runner.
 """
 
-CLAUDE_SECTION_RE = re.compile(r"`?claude\.md`?\s+§\s+(?P<tail>[^\n]+)", re.IGNORECASE)
-"""A `claude.md § <section>` citation, plus the rest of the line it opens.
+CLAUDE_SECTION_RE = re.compile(
+    r"`?claude\.md`?\s+§\s+(?=(?P<tail>[^\n]{1,160}))", re.IGNORECASE
+)
+"""A `claude.md § <section>` citation, plus the text that follows it.
 
 Where the name ends is not something the citation reliably marks: the corpus
 holds `§ Documentation sync (upstream maintainers).`, which closes on
 punctuation the name itself contains, beside `§ Changelog and docs updates
 for style rules`, which runs into prose with no punctuation at all. So the
-tail runs to the end of the line and
-{func}`test_cited_claude_sections_resolve` matches the headings against it,
-rather than guessing a boundary and looking up whatever it captured.
+tail runs well past the longest heading and {func}`unresolved_citations`
+matches the headings against it, rather than guessing a boundary and looking
+up whatever it captured.
+
+The tail sits in a lookahead, which reads it and consumes none of it: a
+second citation on the same line is then still there to find.
 """
+
+LITERAL_SEAM_RE = re.compile(r"""["']\s*\n\s*[fFrR]{0,2}["']""")
+"""The seam between two adjacent string literals of one Python expression.
+
+A URL too long for one line is split over two literals, which hides its
+anchor from {data}`CLAUDE_ANCHOR_RE` until the seam is closed.
+"""
+
+PROSE_WRAP_RE = re.compile(r"\n[ \t]*(?:#+[ \t]?)?")
+"""A line break inside prose, with the indent and the comment marker behind it.
+
+A citation wraps like the rest of a docstring or a comment, which leaves the
+first words of a section name on one line and the others on the next.
+"""
+
+REPOSITORY_FILES = ("pyproject.toml", "readme.md")
+"""Top-level files a citation can sit in, read beside {data}`REPOSITORY_ROOTS`."""
+
+REPOSITORY_ROOTS = (".github", "docs", "repomatic", "tests")
+"""Directories a citation can sit in, relative to the project root.
+
+`.claude/` is left out: the bundled assets it holds are read in the form they
+ship, by {func}`bundled_assets`.
+"""
+
+TEXT_SUFFIXES = frozenset({".md", ".py", ".toml", ".yaml", ".yml"})
+"""Suffixes of the files that hold prose: docstrings, comments and pages."""
 
 
 def claude_headings() -> list[str]:
@@ -519,9 +559,90 @@ def claude_headings() -> list[str]:
     return headings
 
 
+def claude_anchors() -> set[str]:
+    """Every anchor the headings of `claude.md` answer to.
+
+    A forge and the documentation site each derive an anchor from a heading
+    in their own way, and a link can aim at the file on either one, so both
+    slugs count.
+    """
+    anchors = set()
+    for heading in claude_headings():
+        title = heading.lower()
+        anchors.add(re.sub(r"[^a-z0-9]+", "-", title).strip("-"))
+        anchors.add(re.sub(r"[^\w\- ]", "", title).replace(" ", "-"))
+    return anchors
+
+
+def repository_texts() -> list[tuple[str, str]]:
+    """Every text of the repository a citation can sit in, as `(path, text)`.
+
+    Walks {data}`REPOSITORY_ROOTS` rather than asking git for the tracked
+    files, so the list is the same in a checkout and in an unpacked source
+    distribution. A build folder, a cache and a hidden directory are skipped.
+    So is a symbolic link: the bundled workflows are links, and each one is
+    read where its target lives.
+    """
+    paths = [PROJECT_ROOT / name for name in REPOSITORY_FILES]
+    for root in REPOSITORY_ROOTS:
+        for folder, folders, files in os.walk(PROJECT_ROOT / root):
+            folders[:] = sorted(
+                name
+                for name in folders
+                if not name.startswith((".", "_build")) and name != "__pycache__"
+            )
+            paths.extend(Path(folder) / name for name in files)
+    return [
+        (
+            path.relative_to(PROJECT_ROOT).as_posix(),
+            path.read_text(encoding="UTF-8"),
+        )
+        for path in sorted(paths)
+        if path.suffix in TEXT_SUFFIXES and not path.is_symlink()
+    ]
+
+
+def unresolved_citations(text: str) -> list[str]:
+    """Each citation of a `claude.md` section which that file does not declare.
+
+    Reads both forms a citation takes: the `claude.md § <section>` of prose
+    and the `claude.md#<anchor>` of a link. The text is unwrapped first, per
+    {data}`PROSE_WRAP_RE` and {data}`LITERAL_SEAM_RE`.
+
+    A heading is matched as a prefix of the citation, which keeps the check as
+    under-inclusive as its siblings: a name that merely opens on a real heading
+    passes. The boundary that follows it must be a non-word character, so a
+    heading cannot satisfy a citation that only starts with its letters.
+
+    :param text: Content of one file, or of one bundled asset.
+    :return: One entry per dead citation, in the form the text spells it.
+    """
+    headings = claude_headings()
+    anchors = claude_anchors()
+    flat = PROSE_WRAP_RE.sub(" ", LITERAL_SEAM_RE.sub("", text))
+    unresolved = []
+    for match in CLAUDE_SECTION_RE.finditer(flat):
+        tail = match.group("tail").lstrip('"')
+        # A tail opening on a bracket is a placeholder, in a text that
+        # describes the citation form itself.
+        if not re.match(r"[\w`]", tail):
+            continue
+        if not any(
+            re.match(rf"{re.escape(heading)}(?![\w-])", tail, re.IGNORECASE)
+            for heading in headings
+        ):
+            unresolved.append(f"§ {tail[:60]}")
+    unresolved.extend(
+        f"#{match.group('anchor')}"
+        for match in CLAUDE_ANCHOR_RE.finditer(flat)
+        if match.group("anchor").lower() not in anchors
+    )
+    return unresolved
+
+
 @bundled_asset
 def test_cited_claude_sections_resolve(asset_id: str, body: str) -> None:
-    """Every `claude.md § <section>` citation names a section that file declares.
+    """Every citation of a `claude.md` section names one that file declares.
 
     Retiring the `agent` component in `7.14.0` moved the generic conventions
     out of this repository's `claude.md`, and 32 citations reaching into them
@@ -530,22 +651,38 @@ def test_cited_claude_sections_resolve(asset_id: str, body: str) -> None:
     missing, so a citation either names something or gives way to the rule
     itself, stated inline.
 
-    A heading is matched as a prefix of the citation, which keeps the check as
-    under-inclusive as its siblings: a name that merely opens on a real heading
-    passes. The boundary that follows it must be a non-word character, so a
-    heading cannot satisfy a citation that only starts with its letters.
-
     :param asset_id: Bundled asset the citation was read from.
     :param body: Full asset text, frontmatter included.
     """
-    headings = claude_headings()
-    for match in CLAUDE_SECTION_RE.finditer(body):
-        tail = match.group("tail")
-        assert any(
-            re.match(rf"{re.escape(heading)}(?![\w-])", tail, re.IGNORECASE)
-            for heading in headings
-        ), (
-            f"{asset_id} cites claude.md § {tail[:60]!r}, which claude.md does "
-            "not declare. Drop the pointer and state the rule inline, or aim "
-            "it at a section that exists."
-        )
+    unresolved = unresolved_citations(body)
+    assert not unresolved, (
+        f"{asset_id} cites claude.md {unresolved[0]!r}, which claude.md does "
+        "not declare. Drop the pointer and state the rule inline, or aim "
+        "it at a section that exists."
+    )
+
+
+def test_repository_citations_resolve() -> None:
+    """Every citation of a `claude.md` section, in any text here, resolves.
+
+    {func}`test_cited_claude_sections_resolve` reads the bundled assets alone,
+    and the same drift reaches every docstring, comment, workflow and page: a
+    section that leaves `claude.md` strands each citation of it, and nothing
+    fails. A citation in a workflow or in a field docstring of `Config` also
+    travels, to a repository or to a reader of the published site, where
+    `claude.md` is not this file.
+
+    So a citation names a section this file declares, or gives way to one of
+    three things: the rule stated inline, a section of `docs/`, or a
+    cross-reference to the code that holds the rule.
+    """
+    violations = [
+        f"{path}: {citation}"
+        for path, text in repository_texts()
+        for citation in unresolved_citations(text)
+    ]
+    assert not violations, (
+        f"{len(violations)} citations name a section that claude.md does not "
+        "declare. State the rule inline, or aim each one at a section of "
+        "docs/ or at the code that holds the rule:\n" + "\n".join(violations)
+    )

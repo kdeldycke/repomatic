@@ -35,7 +35,7 @@ when GitHub's immutable releases setting is enabled. Immutability
 only blocks **asset uploads** on published releases — deletion still
 works. But because the workflow needs to upload binaries *after*
 creation, the release must stay as a draft throughout its lifetime
-to allow asset uploads. See `CLAUDE.md` § Immutable releases.
+to allow asset uploads. See `docs/workflows.md` § Immutable releases.
 ```
 """
 

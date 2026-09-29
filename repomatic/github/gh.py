@@ -132,10 +132,9 @@ def gh_executable() -> str:
     """Resolve the `gh` binary every call in this package shells out to.
 
     Prefers the registry-pinned build over whatever `$PATH` offers, which is
-    the rule `claude.md` § "A cooldown is not a hash" states for any tool
-    repomatic shells out to: the registry pin carries a version, a checksum
-    and a cooldown, while `$PATH` carries none of the three and hands each
-    runner image (and each developer laptop) a different `gh`.
+    the rule for any tool repomatic shells out to: the registry pin carries a
+    version, a checksum and a cooldown, while `$PATH` carries none of the three
+    and hands each runner image (and each developer laptop) a different `gh`.
 
     ```{caution}
     Falls back to bare `gh` on `$PATH` when the registry build cannot be

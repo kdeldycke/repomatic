@@ -10,7 +10,7 @@
 - The bundled `lychee.toml` now excludes `medium.com`, which returns 403 to anonymous crawlers but serves the full article to a browser.
 - The bundled `awesome-template` contributing guide now separates a crawler-blocked `403`, which keeps its live URL behind a `[tool.lychee]` exclude, from a `404`, which gets archived.
 - The bundled `🤖 ci` content rules no longer match `.github`, which pre-labelled every issue filed through an awesome list's own new-link form.
-- Generated workflows and the bundled `typos`, `uv` and `zizmor` configurations now cite the published documentation in place of `claude.md`, which downstream repositories no longer receive.
+- Generated workflows, the `lint-changelog` annotations and the bundled `typos`, `uv` and `zizmor` configurations now cite the published documentation in place of `claude.md`, which downstream repositories no longer receive.
 - The bundled `sphinx-docs` agent now warns that an incremental build's warning count covers only the pages it re-read.
 - The bundled `sphinx-docs` agent and `sphinx-docs-sync` skill now place developer setup on the `contributing` page, and flag a copy kept in `readme.md` or `claude.md`.
 - The bundled `sphinx-docs` agent now compares two builds only under equal dependency groups, and requires a fully qualified reference in a base-class docstring.

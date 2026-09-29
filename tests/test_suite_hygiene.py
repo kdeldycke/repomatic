@@ -313,9 +313,8 @@ def test_text_io_always_names_its_encoding(test_file) -> None:
 def test_no_function_local_imports(test_file) -> None:
     """Imports live at module level, never inside test or helper bodies.
 
-    Function-local imports hide dependencies and bypass ruff's import sorting
-    (see `claude.md` § Imports); nothing in the suite needs one to break an
-    import cycle.
+    Function-local imports hide dependencies and bypass ruff's import sorting;
+    nothing in the suite needs one to break an import cycle.
     """
     tree = ast.parse(test_file.read_text(encoding=FILE_ENCODING))
     violations = [

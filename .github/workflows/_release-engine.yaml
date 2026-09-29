@@ -203,7 +203,7 @@ jobs:
       # The manylinux containers ship no ccache (Nuitka warns and compiles
       # cold), so the canary target pays full C compilation on every push.
       # EPEL is a distro archive, exempt from the install cooldown (see
-      # claude.md § Distro archives are out of scope). Non-fatal on mirror
+      # https://repomatic.net/workflows#install-time-cooldown). Non-fatal on mirror
       # hiccups: a release build must not die for a missing cache helper.
       - name: Install ccache in container
         if: matrix.container

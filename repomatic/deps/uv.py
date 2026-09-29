@@ -204,7 +204,7 @@ def project_exclude_newer(pyproject_path: Path) -> str:
     Always pass this back to `uv lock` and `uv sync` as an explicit
     `--exclude-newer` flag rather than letting uv pick the value up from
     `pyproject.toml` on its own. CI exports a `UV_EXCLUDE_NEWER` covering every
-    ad-hoc install (see `claude.md` § Cooldown on every install), and that
+    ad-hoc install (see `docs/workflows.md` § Install-time cooldown), and that
     environment variable *outranks* `[tool.uv]`: left implicit, a CI lock would
     resolve against the ambient window while a developer running the same
     command locally resolves against this one, and `sync-uv-lock` would churn

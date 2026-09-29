@@ -163,7 +163,7 @@ which leaves the tool that enforces every other cooldown installed without one.
 The two knobs are deliberately different: `required-version` stays a lower bound,
 so contributors and downstream repos are never capped, while this pin fixes what
 CI downloads and `sync-workflow-pins` walks it forward once a uv release clears
-`minimum-release-age`. See `claude.md` § Pin uv with `required-version`.
+`minimum-release-age`.
 ```
 
 Every `setup-uv` step must carry the input, which `tests/test_workflows.py`

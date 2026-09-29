@@ -1388,10 +1388,10 @@ def build_release_readiness(
 
     This is the layer that matters, even though the release lane carries a
     hard gate of its own. By the time that gate fires the freeze commit is
-    already on `main`, and the recovery is to burn the version per
-    `claude.md` § Skip and move forward. This body is regenerated on every
-    push to `main`, so it carries the same answer days earlier, in the one
-    place a maintainer reads before deciding to merge.
+    already on `main`, and the recovery is to burn the version and release
+    the next one. This body is regenerated on every push to `main`, so it
+    carries the same answer days earlier, in the one place a maintainer reads
+    before deciding to merge.
 
     ```{note}
     Lives here rather than beside the other `pr-body` template-argument

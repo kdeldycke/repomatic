@@ -484,7 +484,8 @@ def upsert_scan_records(path: Path, new_records: list[ScanRecord]) -> bool:
     CSV also keeps the store out of the autofix lane: nothing there rewrites a
     `.csv`, where a committed JSON file has to match whatever layout Biome is
     configured for or `format-json` reformats it right back. See `claude.md`
-    § Naming conventions rule 8 for the rest of that reasoning.
+    § Naming conventions for automated operations, rule 8, for the rest of that
+    reasoning.
 
     :param path: Path to the CSV history.
     :param new_records: Records to merge in.

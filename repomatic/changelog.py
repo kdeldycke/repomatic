@@ -223,6 +223,14 @@ GITHUB_LABEL = "🐙 GitHub"
 GITHUB_RELEASE_URL = "{repo_url}/releases/tag/v{version}"
 """GitHub release page URL for a specific version."""
 
+LINT_DOCS_URL = "https://repomatic.net/workflows#fix-changelog-fix-changelog"
+"""Section of the published documentation on the two lint warnings.
+
+{func}`warn_on_long_bullets` and {func}`warn_on_empty_sections` end their
+annotation on it. An annotation is read in a downstream repository, which
+holds no copy of this project's `claude.md`, so the link aims at the site.
+"""
+
 NOT_AVAILABLE_VERB = "is **not available** on"
 """Verb phrase for versions missing from a platform."""
 
@@ -970,11 +978,9 @@ def warn_on_long_bullets(changelog: Changelog, threshold: int) -> None:
     """Warn about over-long bullets in the unreleased section, non-fatally.
 
     A changelog entry is a release note, not a commit message: one short
-    sentence stating what changed. Canonical guideline:
-    https://github.com/kdeldycke/repomatic/blob/main/claude.md#changelog-entry-length
-    Each unreleased bullet longer than `threshold` words emits a
-    {data}`logging.WARNING` and a GitHub Actions warning annotation, without
-    affecting the lint exit code.
+    sentence of 10 to 25 words stating what changed. Each unreleased bullet
+    longer than `threshold` words emits a {data}`logging.WARNING` and a GitHub
+    Actions warning annotation, without affecting the lint exit code.
 
     Only the unreleased section is inspected. Released sections are immutable,
     so re-flagging historical entries on every run would be noise.
@@ -1001,9 +1007,8 @@ def warn_on_long_bullets(changelog: Changelog, threshold: int) -> None:
                     f"Changelog entry {index} for {version} runs {words} words, "
                     f"over the {threshold}-word guideline. A changelog entry is "
                     f"a release note, not a commit message: keep it to one short "
-                    f"sentence, per the canonical guideline "
-                    f"https://github.com/kdeldycke/repomatic/blob/main/claude.md"
-                    f"#changelog-entry-length",
+                    f"sentence, and move mechanism and rationale to the commit "
+                    f"or the pull request. See {LINT_DOCS_URL}",
                 )
 
 
@@ -1013,9 +1018,8 @@ def warn_on_empty_sections(changelog: Changelog) -> None:
     A published heading with nothing under it reads as broken to anyone
     scanning release notes, and it is not merely cosmetic: the GitHub
     release body is rebuilt from this section, so an empty one publishes an
-    empty release. `claude.md` § Changelog and docs updates gives the fix,
-    which is to name what actually moved rather than to leave the section
-    blank.
+    empty release. The fix is to name what actually moved rather than to
+    leave the section blank.
 
     Only *released* sections are inspected. The unreleased section is
     legitimately empty for most of a cycle, since the post-release bump
@@ -1046,9 +1050,8 @@ def warn_on_empty_sections(changelog: Changelog) -> None:
             AnnotationLevel.WARNING,
             f"Changelog section for {version} is empty. A published release "
             f"heading with no entries reads as broken, and the GitHub release "
-            f"body is rebuilt from it. Name what moved, per "
-            f"https://github.com/kdeldycke/repomatic/blob/main/claude.md"
-            f"#changelog-and-docs-updates",
+            f"body is rebuilt from it. Name what moved, even on a purely "
+            f"mechanical cycle. See {LINT_DOCS_URL}",
         )
 
 

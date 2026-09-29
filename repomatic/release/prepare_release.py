@@ -101,7 +101,7 @@ SELF_PIN_COOLDOWN_EXEMPTION = f"--exclude-newer-package {UPSTREAM_PACKAGE}=P0D"
 """uv escape hatch letting a just-published repomatic install under the cooldown.
 
 Every workflow exports a `UV_EXCLUDE_NEWER` covering all package resolution (see
-`claude.md` § Cooldown on every install), and it applies to the frozen
+`docs/workflows.md` § Install-time cooldown), and it applies to the frozen
 `'repomatic==X.Y.Z'` self-pin like any other requirement. That pin moves in
 lockstep with the `uses:` refs pointing at the same tag, so the version it names
 is always minutes old: without an exemption every downstream repo would fail to

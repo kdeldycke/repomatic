@@ -618,8 +618,7 @@ def check_install_guide_downloads(repo: str) -> CheckResult:
     resolve. Hence a lint check against the API rather than a conformance
     test.
 
-    Reports rather than repairs, per `claude.md` § Skip and move forward:
-    the fix is a one-liner
+    Reports rather than repairs: the fix is a one-liner
     ({meth}`~repomatic.release.prepare_release.PrepareRelease.freeze_install_download_urls`
     re-pointed at the last release that carries binaries), while an automated
     rewrite driven by one API read could downgrade a healthy install page on
@@ -1140,8 +1139,7 @@ def check_classic_branch_protection(repo: str) -> CheckResult:
     ```{note}
 
     Advisory, not fatal. A leftover rule protects the branch rather than
-    exposing it, so the finding is a cleanup, per `claude.md` § Defensive
-    workflow design.
+    exposing it, so the finding is a cleanup.
     ```
 
     :param repo: Repository in 'owner/repo' format.
@@ -2276,7 +2274,7 @@ def check_bootstrap_config_drift(
 
     Advisory, and deliberately so. A repository may have dropped a template
     rule on purpose, and only its maintainer can tell that from a section left
-    behind, per `claude.md` § Defensive workflow design.
+    behind.
 
     :param tool_table: The repository's `[tool]` table, parsed.
     :return: One result per adopted BOOTSTRAP section.
@@ -2384,8 +2382,7 @@ def check_superseded_local_excludes(
     which is what the anchored form was written to stop doing.
 
     Advisory. Only the maintainer can separate a bare entry the template
-    superseded from one the repository narrowed on purpose, per `claude.md`
-    § Defensive workflow design.
+    superseded from one the repository narrowed on purpose.
 
     ```{note}
     The test is deliberately narrow: it recognises the anchored/bare pair by
@@ -3327,8 +3324,9 @@ class RepoCheck:
     """Whether a failure fails the command.
 
     A fatal check reports at {attr}`~repomatic.github.actions.AnnotationLevel.ERROR`
-    and sets the non-zero exit code; every other check is advisory, per
-    `claude.md` § Defensive workflow design.
+    and sets the non-zero exit code; every other check is advisory. A red run
+    for an advisory finding teaches its readers to ignore red runs, and that
+    hides the failures that count.
     """
 
     def results(self, ctx: LintContext) -> tuple[CheckResult, ...]:
@@ -3726,8 +3724,7 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     ),
     # The second half of the same pin: which uv CI runs, then whether it can
     # tell it got that uv. Non-fatal on the same reasoning, and indeterminate
-    # rather than red when the table cannot be read, per `claude.md` § PAT-gated
-    # checks degrade.
+    # rather than red when the table cannot be read.
     RepoCheck(
         "setup-uv-checksum-coverage",
         lambda ctx: check_setup_uv_checksum_coverage(workflows=ctx.workflows),

@@ -1813,8 +1813,8 @@ COOLDOWN_EXEMPT_JOBS: dict[str, frozenset[str]] = {
 """Jobs allowed to override the workflow-wide cooldown, and why.
 
 `test-package-install` installs the freshly published artifact on purpose, so a
-cooldown makes the question it exists to answer unanswerable. See `claude.md`
-§ Cooldown on every install for the full exemption roster.
+cooldown makes the question it exists to answer unanswerable. See
+`docs/workflows.md` § Install-time cooldown for the full exemption roster.
 """
 
 

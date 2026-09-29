@@ -92,9 +92,9 @@ Handles both HTTPS (`https://github.com/owner/repo.git`) and SSH
 CHANGELOG_COMMIT_PREFIX = "[changelog] "
 """Marker prefix carried by every machine-authored version-machinery commit.
 
-The one bracketed prefix commit messages may carry (see `claude.md` § Commit
-messages): release freezes, post-release bumps and manual version bumps all
-start with it, so a workflow can skip machinery pushes with a single
+The one bracketed prefix commit messages may carry: release freezes,
+post-release bumps and manual version bumps all start with it, so a workflow
+can skip machinery pushes with a single
 `startsWith(github.event.head_commit.message, '[changelog] ')` clause instead
 of enumerating each message shape. Conformance tests in
 `tests/test_workflows.py` hold every member of

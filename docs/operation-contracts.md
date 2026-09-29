@@ -150,7 +150,7 @@ The property that separates it from a `sync-*` is that it never converges. A syn
 3. **Workflow job.** A job in a schedule-only workflow, never triggered on push: sampling the same value twice in one day writes the same point, so a per-push run costs API calls and produces nothing. It publishes through one long-lived pull request (see below).
 4. **PR branch and body template.** Named after the operation, like any other publishing job: `repomatic/templates/sample-*.md`, rendered by `pr-sync --template`. The branch carries the accrual between merges, so the template tells a reader what leaving it open costs.
 5. **Documentation.** Config reference in `docs/configuration.md`. Job description with its "Skipped if" clause in `docs/workflows.md`. Changelog entry.
-6. **Store format.** One CSV, through {mod}`repomatic.tabular`, one row per reading. Never JSON: see `claude.md` § Naming conventions rule 8.
+6. **Store format.** One CSV, through {mod}`repomatic.tabular`, one row per reading. Never JSON: see `claude.md` § Naming conventions for automated operations, rule 8.
 7. **Tests.** A conformance test over the committed store: known provenances, no duplicate key, sorted, no date in the future, and no attribute holding two rows. The store is written unattended by a scheduled job, so nothing else would catch a malformed append.
 
 **Invariants:**

@@ -324,8 +324,7 @@ def test_freeze_unfreeze_round_trip_per_action(tmp_path: Path) -> None:
 
     Parametrize-style conformance check: enumerate the population of
     discovered composite actions, run freeze then unfreeze, and assert each
-    action's `@main` ↔ `@v{version}` substitution round-trips. Mirrors the
-    "enumerate the population" pattern called out in `claude.md` § Testing.
+    action's `@main` ↔ `@v{version}` substitution round-trips.
     """
     workflow_dir = tmp_path / ".github" / "workflows"
     workflow_dir.mkdir(parents=True)

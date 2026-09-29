@@ -904,8 +904,8 @@ class Config:
     """Versions documented in the changelog but never published.
 
     A version reached only its `[changelog] Release vX.Y.Z` freeze and was then
-    skipped per `CLAUDE.md` § Skip and move forward (botched build, broken
-    artifact, bad metadata) without rewriting history. List those versions here
+    skipped (botched build, broken artifact, bad metadata) without rewriting
+    history: the next release took its place. List those versions here
     so `lint-changelog` reports them as skipped (an info log line) instead of
     flagging them every run as `⚠ X.Y.Z: not found on PyPI`. Applies to both
     PyPI lookups and the git-tag fallback.
@@ -988,11 +988,11 @@ class Config:
     """Word count above which `lint-changelog` warns about a changelog bullet.
 
     A changelog entry is a release note, not a commit message: ideally one
-    short sentence stating what changed (see `CLAUDE.md` § Changelog entry
-    length). `lint-changelog` emits a non-fatal warning for every bullet in
-    the *unreleased* section longer than this many words, nudging verbose,
-    implementation-heavy entries back toward a user-facing summary. Released
-    sections are immutable and never flagged. Set to `0` to disable the check.
+    short sentence of 10 to 25 words stating what changed. `lint-changelog`
+    emits a non-fatal warning for every bullet in the *unreleased* section
+    longer than this many words, nudging verbose, implementation-heavy entries
+    back toward a user-facing summary. Released sections are immutable and
+    never flagged. Set to `0` to disable the check.
     """
 
     changelog_location: str = field(
