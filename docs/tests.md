@@ -59,6 +59,7 @@
    tests.test_pages_redirects
    tests.test_platform_keys
    tests.test_plugin
+   tests.test_plugin_update_detection
    tests.test_pr
    tests.test_pr_body
    tests.test_prepare_release

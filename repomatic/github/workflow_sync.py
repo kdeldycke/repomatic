@@ -107,10 +107,9 @@ configurable input churns no existing caller.
 COOLDOWN_DOCS_URL: Final[str] = "https://repomatic.net/workflows#install-time-cooldown"
 """Published section holding the rationale of the workflow-level cooldown.
 
-Cited by {func}`cooldown_env_block` in place of a file of the repository. A
-downstream repository has no `claude.md` that carries that rationale, where
-the published page reads the same from every repository.
-`tests/test_workflows.py` holds the anchor to a heading of `docs/workflows.md`.
+Cited by {func}`cooldown_env_block`, whose caution says why a page rather than
+a file. `tests/test_workflows.py` holds the anchor to a heading of
+`docs/workflows.md`.
 """
 
 

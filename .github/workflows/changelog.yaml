@@ -148,7 +148,7 @@ jobs:
     # The condition must be repeated on each gated step because:
     # 1. Job-level `if:` is evaluated before matrix expansion, so `matrix.*` isn't available there
     # 2. GitHub Actions lacks conditional step groups to skip multiple steps with one condition
-    # Checkout and setup-uv always run so the cleanup step can use `uvx --from .`
+    # Checkout and setup-uv always run so the cleanup step can run the `repomatic` CLI
     # on the inverse path (when the bump is no longer allowed).
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

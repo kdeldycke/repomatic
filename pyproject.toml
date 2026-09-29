@@ -92,11 +92,10 @@ dependencies = [
   "backports-strenum>=1; python_version<'3.11'",
   # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
   "boltons>=25",
-  # click-extra 9.1 is what docs/docs_update.py records the readme animation
-  # with: record_command decodes the pty stream incrementally and defers a
-  # carriage return, AUTO_HOLD scales the closing pause, and every capture hides
-  # TERM_PROGRAM from the command it runs.
-  "click-extra>=9.1",
+  # click-extra 9.3 split click_extra.screenshot: docs/docs_update.py imports
+  # AUTO_HOLD from click_extra.screenshot_svg and CaptureBackground from
+  # click_extra.screenshot_presets, the modules that release introduced.
+  "click-extra>=9.3",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
   # under patched subprocess in tests and triggered a CPython 3.10.x bug.
@@ -633,7 +632,7 @@ site.deploy = "cloudflare-pages"
 # invocation. `**` matches dot-directories, so `.github/workflows/` is covered.
 paths."**/workflows/*".ignore = [ 'property "job_workflow_sha" is not defined' ]
 # actionlint validates a literal `runs-on:` against a built-in label list that
-# does not yet carry GitHub's Ubuntu 26.04 preview images, so it rejects them as
+# does not yet carry GitHub's Ubuntu 26.04 images, so it rejects them as
 # unknown. Declaring them here is the mechanism actionlint's own error message
 # points to. They are ordinary GitHub-hosted images, not self-hosted runners:
 # that key is simply where actionlint accepts a label it does not ship. Drop

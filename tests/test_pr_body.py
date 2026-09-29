@@ -918,14 +918,6 @@ WORKFLOWS_DOCS_URL = "https://repomatic.net/workflows"
 """Hosted workflows reference that template ``docs:`` fields deep-link into."""
 
 
-def _workflows_heading_anchors() -> set[str]:
-    """Anchors available in ``docs/workflows.md``: heading slugs and explicit targets.
-
-    See {func}`tests.conftest.docs_heading_anchors` for the slug algorithm.
-    """
-    return docs_heading_anchors("workflows")
-
-
 def _collect_template_references() -> set[str]:
     """Scan reference workflows for all ``--template <name>`` arguments."""
     repo_root = Path(__file__).resolve().parent.parent
@@ -1023,7 +1015,7 @@ def test_template_file_policy(filename, name):
         f"Template {name!r} must declare a 'docs' deep link into {WORKFLOWS_DOCS_URL}"
     )
     anchor = docs.partition("#")[2]
-    assert anchor in _workflows_heading_anchors(), (
+    assert anchor in docs_heading_anchors("workflows"), (
         f"Template {name!r} docs anchor {anchor!r} matches no docs/workflows.md heading"
     )
 

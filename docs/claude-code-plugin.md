@@ -6,7 +6,7 @@ Both distribution paths are supported and neither replaces the other:
 
 | Path       | Command                               | What lands on disk                                      |
 | :--------- | :------------------------------------ | :------------------------------------------------------ |
-| **Files**  | `repomatic init skills agents`        | A copy of every skill and agent, committed to your repo |
+| **Files**  | `repomatic init skills subagents`     | A copy of every skill and agent, committed to your repo |
 | **Plugin** | `/plugin install repomatic@kdeldycke` | Nothing: Claude Code caches the plugin outside the repo |
 
 The plugin also reaches further than the files do. Claude Code discovers skills in `~/.claude/skills/` and a repository's `.claude/skills/`, but [Cowork and cloud sessions do not read either](https://code.claude.com/docs/en/skills#skills-in-cowork-and-cloud-sessions): they load what is enabled for your account. A plugin is the only form those surfaces accept, so `init skills` cannot reach them by design. See [§ Install in Claude Desktop](#install-in-claude-desktop).

@@ -80,12 +80,22 @@ WORKFLOWS_DIR = PROJECT_ROOT / ".github" / "workflows"
 """Directory holding this repository's own workflow files."""
 
 
+def docs_heading_slug(title: str) -> str:
+    """The anchor the published Sphinx site derives from a heading.
+
+    Follows the docutils section-id algorithm (lowercase, every non-alphanumeric
+    run collapsed to one hyphen, trimmed), which is what the published page
+    exposes as `id=` attributes.
+
+    :param title: Heading text, without its leading `#` marks.
+    """
+    return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+
+
 def docs_heading_anchors(page: str) -> set[str]:
     """Anchors a page of `docs/` exposes: heading slugs and explicit targets.
 
-    Heading slugs follow the docutils section-id algorithm (lowercase, every
-    non-alphanumeric run collapsed to one hyphen, trimmed), which is what the
-    published Sphinx page exposes as `id=` attributes.
+    Heading slugs follow {func}`docs_heading_slug`.
 
     :param page: Name of the page, without its `.md` extension.
     """
@@ -96,7 +106,7 @@ def docs_heading_anchors(page: str) -> set[str]:
             title = line.lstrip("#").strip()
             # Keep the text of markdown links, drop their targets.
             title = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", title)
-            anchors.add(re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-"))
+            anchors.add(docs_heading_slug(title))
         else:
             explicit = re.fullmatch(r"\(([\w-]+)\)=", line.strip())
             if explicit:

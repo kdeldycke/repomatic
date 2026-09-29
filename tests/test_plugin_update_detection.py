@@ -23,9 +23,7 @@ and this is what keeps that statement honest.
 
 Measured against Claude Code 2.1.274: the CLI compares `plugin.json` and ignores
 the catalog entry, for a `path` source and a `git-subdir` source alike. The
-Desktop app is reported to decide the other way
-([anthropics/claude-code#20697](https://github.com/anthropics/claude-code/issues/20697#issuecomment-5330840382)),
-which no test here can reach.
+Desktop app, which the docs also cover, is out of reach of any test here.
 
 ```{caution}
 This measures a behavior Anthropic can change without a version bump, so a
@@ -132,9 +130,10 @@ def _update_outcome(config: Path) -> str | None:
     result = _claude(config, "plugin", "update", PLUGIN_NAME, "--json", "-y")
     for line in reversed(result.stdout.strip().splitlines()):
         try:
-            return json.loads(line).get("updateOutcome")
+            report: dict[str, str] = json.loads(line)
         except json.JSONDecodeError:
             continue
+        return report.get("updateOutcome")
     return None
 
 

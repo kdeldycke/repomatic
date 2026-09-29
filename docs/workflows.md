@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.16.1
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.16.2
 ```
 
 > [!IMPORTANT]
@@ -195,7 +195,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 #### 🔄 Sync repomatic (`sync-repomatic`)
 
 - Runs [`repomatic init --upgrade --delete-unmodified --delete-excluded`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/init_project.py) to sync all repomatic-managed files: thin-caller workflows, configuration files, and skill definitions
-- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v7.16.1`
+- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v7.16.2`
 - The upgrade pull request lists the `**Breaking:**` and `**Deprecated:**` entries of every release it crosses, the warnings the new release printed (like a `[tool.repomatic]` key it no longer knows), the release notes, and the newer releases the cooldown still holds back
 - Never moves the upstream pin back: a release pinned by hand inside the cooldown stays, and the job only regenerates its files. Set `upstream-pin.sync = false` in `[tool.repomatic]` to keep syncing at the pinned release
 - Removes unmodified config files identical to bundled defaults and cleans up excluded or stale files (disabled opt-in workflows, auto-excluded skills)
@@ -275,6 +275,7 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 #### 📚 Update docs (`update-docs`)
 
 - Regenerates Sphinx autodoc files using [`sphinx-apidoc`](https://github.com/sphinx-doc/sphinx), converting the generated RST stubs to [MyST markdown](https://myst-parser.readthedocs.io/) when the docs tree uses it
+- Lists every generated page in the `toctree` of its parent index page (`Subpackages` for a package, `Submodules` for a module), so a module added later never sits orphaned. An index page lacking the section a new page needs is left alone and named in the job log
 - Runs `docs/docs_update.py` if present to generate dynamic content (tables, diagrams, Sphinx directives)
 - Refreshes self-updating directive blocks (like [`{matrix}` compatibility tables](https://kdeldycke.github.io/click-extra/sphinx.html#matrix-directives)) in `docs/` and `readme.md` with `click-extra refresh-directives`
 - Re-formats the `pyproject.toml` files with [`pyproject-fmt`](https://github.com/tox-dev/pyproject-fmt) afterwards, so a `docs/docs_update.py` rewriting some of their sections cannot make this job's pull request ping-pong with the `format-pyproject` job
@@ -341,7 +342,9 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 #### 📋 Fix changelog (`fix-changelog`)
 
-- Checks and fixes changelog dates, availability admonitions, and orphaned versions using [`repomatic lint-changelog --fix`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/changelog.py). Warns without failing about over-long entries and released sections holding no entry
+- Checks and fixes changelog dates, availability admonitions, and orphaned versions using [`repomatic lint-changelog --fix`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/changelog.py)
+- Warns without failing about each unreleased entry longer than [`changelog.bullet-word-threshold`](configuration.md#changelog-bullet-word-threshold) words (`40` by default, and `0` disables the check). An entry is a release note, not a commit message. Write one sentence of 10 to 25 words that names what changed for a reader. Add a second sentence only for a breaking change or a migration step. Mechanism, rationale and history belong in the commit, the pull request, a code comment or `docs/`. Released sections are immutable and never flagged
+- Warns without failing about each released section holding no entry. The GitHub release body is rebuilt from that section, so an empty one publishes an empty release. Add one bullet that names what moved, even when the whole cycle was mechanical (a pin bump or a regenerated file). An availability or editorial admonition does not count as an entry. The unreleased section is never flagged, since the post-release bump creates it empty
 - A sanity gate exits the job with status `2` (no file written, no PR opened) when the GitHub Releases or PyPI lookup looks unhealthy: a network error from GitHub combined with any existing GitHub coverage, or an empty PyPI response combined with three or more existing PyPI links. Without the gate, a transient API hiccup would silently strip every affected link from the changelog ([pypi/warehouse#1388](https://github.com/pypi/warehouse/issues/1388) and [pypi/warehouse#9536](https://github.com/pypi/warehouse/issues/9536) explain why a 404 or empty result from PyPI is not authoritative).
 - **Runs on**:
   - Push to `main` (when `changelog.md`, `pyproject.toml`, or workflow files change). Skipped during release cycles.
@@ -694,7 +697,7 @@ flowchart TD
 
 - Creates a GitHub release **draft** with the Python package attached using `gh release create`
 - The draft notes carry the PyPI availability admonition from the start (baked in via [`repomatic show-metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py)'s `release_notes_with_admonition`), so it never depends on a later cross-lane edit; non-PyPI projects fall back to the plain release notes
-- Binaries are attached independently by each `compile-binaries` matrix entry as they complete (uploading to drafts is allowed)
+- Attaches no binary: [`publish-release`](#publish-release-publish-release) uploads them, with their attestation bundles, from the [`compile-binaries`](#compile-binaries-compile-binaries) run artifacts while the release is still a draft (uploading to drafts is allowed)
 - **Requires**:
   - Successful `create-tag` job
 
@@ -933,7 +936,7 @@ For how to *choose* what the matrix tests (covering the shipped config broadly w
 
 Whether a matrix job overrides the default `fail-fast: true` depends on what the cells produce, not on which workflow they live in. Three categories:
 
-1. **Asset-producing matrices that feed an immutable downstream artifact.** Each cell builds something the next job ships and cannot retroactively fix. Override to `fail-fast: false` so a transient runner crash on one cell does not cancel siblings whose output was already valid: shipping partial coverage is strictly better than shipping nothing. Downstream gates must accept `result != 'skipped'` (not `== 'success'`) so partial-success runs still flow through. **Applies to:** `compile-binaries` (binaries attached to the draft release before [§ Immutable releases](#immutable-releases) locks them).
+1. **Asset-producing matrices that feed an immutable downstream artifact.** Each cell builds something the next job ships and cannot retroactively fix. Override to `fail-fast: false` so a transient runner crash on one cell does not cancel siblings whose output was already valid: shipping partial coverage is strictly better than shipping nothing. Downstream gates must accept `result != 'skipped'` (not `== 'success'`) so partial-success runs still flow through. **Applies to:** `compile-binaries` (binaries that `publish-release` attaches to the draft release before [§ Immutable releases](#immutable-releases) locks them).
 2. **Info-gathering matrices.** Each cell collects diagnostic data and the value of the run scales with how many cells reported. Override to `fail-fast: false` so a single failure does not erase the rest of the snapshot. **Applies to:** `tests` (per-cell `continue-on-error` already decides what fails the workflow), `dump-context`, and `test-binaries` (gated with `always()` besides, so one failed build cell neither skips nor cancels the healthy targets' tests: its own cell fails on the missing artifact, which the advisory nature tolerates).
 3. **Advisory or single-cell matrices.** Tests that do not gate publication, validations, or matrices that typically run with one cell. Keep the default `fail-fast: true`: cancelling siblings on the first failure saves runner minutes, and a real regression is resolved by fixing the underlying code (then re-running) or, for already-published releases, by skipping that version (see [§ Immutable releases](#immutable-releases)) rather than by exhaustively diagnosing every platform up front. **Applies to:** `validate-arch` and the single-cell publish-pipeline matrices (`build-package`, `create-tag`, `publish-pypi`, `create-release`, `publish-release`, `scan-virustotal`).
 
@@ -1045,7 +1048,7 @@ The [`prepare-release`](#github-workflows-changelog-yaml-jobs) job creates a PR 
 1. **Freeze commit** (`[changelog] Release vX.Y.Z`): finalizes the changelog date and comparison URL, removes the "unreleased" warning, freezes workflow action references to `@vX.Y.Z`, freezes CLI invocations to a PyPI version, and re-locks `uv.lock` so the tag carries a lock entry matching its own version.
 2. **Unfreeze commit** (`[changelog] Post-release bump`): reverts action references back to `@main`, reverts CLI invocations to local source, adds a new unreleased changelog section, bumps the version to the next patch, and re-locks again.
 
-Not everything the freeze pins is reverted. Release pins (the binary download URLs in `docs/install.md`, the plugin marketplace entry's `version` in `.claude-plugin/marketplace.json`) **ratchet forward** instead: the freeze moves them to the new tag and the unfreeze leaves them there, so `main` names the newest published release rather than a tag that does not exist yet. That marketplace entry's `ref` beside it round-trips like a workflow reference, since a tag pin would freeze the plugin's content for a whole cycle.
+Not everything the freeze pins is reverted. Three release pins **ratchet forward** instead: the binary download URLs in `docs/install.md`, the plugin marketplace entry's `version` in `.claude-plugin/marketplace.json`, and the `version` of the plugin manifest in `.claude/.claude-plugin/plugin.json`. The freeze moves them to the new tag and the unfreeze leaves them there, so `main` names the newest published release rather than a tag that does not exist yet. That marketplace entry's `ref` beside it round-trips like a workflow reference, since a tag pin would freeze the plugin's content for a whole cycle.
 
 The auto-tagging job depends on these being **separate commits**: it uses `release_commits_matrix` to identify and tag only the freeze commit. Squashing would merge both into one, breaking the tagging logic.
 

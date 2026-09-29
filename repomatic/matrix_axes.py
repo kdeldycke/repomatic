@@ -42,19 +42,15 @@ Two variants per platform (one per architecture). See
 [available images](https://github.com/actions/runner-images#available-images).
 
 ```{note} Preview images are adopted on measurement, not on GitHub's label
-GitHub still marks the Ubuntu 26.04 pair *preview*, which gates their
-eligibility to sit behind the `-latest` aliases. This project never uses those
-aliases (a floating alias re-points with no commit to review, which
-{func}`~repomatic.lint_repo.check_runner_images` rejects outright), so that
-distinction does not reach it. An image is treated as stable here once it has
-been validated against this suite, not once a vendor relabels it. Measured over
-consecutive runs before the swap, `ubuntu-26.04-arm` beat `ubuntu-24.04-arm` by
-16% on Python 3.10 and 28% on 3.14, tied on 3.15, and failed nothing.
-
-The residual risk is capacity rather than correctness: GitHub warns a preview
-image's capacity "will be balanced only throughout the next weeks", so queue
-time may be worse than the runtimes above suggest. Release binaries are built
-on GA images for that reason, see {data}`~repomatic.release.binary.NUITKA_BUILD_TARGETS`.
+An image counts as stable here once it has been validated against this suite,
+not once a vendor relabels it. GitHub's *preview* label gates whether an image
+can sit behind the `-latest` aliases, and this project never uses those aliases:
+a floating alias re-points with no commit to review, and
+{func}`~repomatic.lint_repo.check_runner_images` rejects one outright. The
+Ubuntu 26.04 pair was adopted that way while still in preview, before GitHub
+declared it generally available on 2026-09-17. Measured over consecutive runs
+before the swap, `ubuntu-26.04-arm` beat `ubuntu-24.04-arm` by 16% on Python
+3.10 and 28% on 3.14, tied on 3.15, and failed nothing.
 ```
 
 ```{note} Architecture speed is not uniform across platforms

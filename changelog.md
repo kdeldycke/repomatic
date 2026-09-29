@@ -7,24 +7,32 @@
 
 - `lint-repo` now warns when a seeded tool config (`ruff`, `pytest`, `coverage`, `mypy`, `mdformat`) lacks an entry its bundled template gained after the seeding.
 - `lint-repo` now warns when a `[tool.lychee] exclude` entry is the bare form of one the bundled template has since anchored, which an ongoing sync grafts back beside its own replacement.
+- `update-docs` now lists each generated API page in its parent `toctree`, so a new module no longer needs a hand edit.
 - The bundled `lychee.toml` now excludes `medium.com`, which returns 403 to anonymous crawlers but serves the full article to a browser.
-- The bundled `awesome-template` contributing guide now separates a crawler-blocked `403`, which keeps its live URL behind a `[tool.lychee]` exclude, from a `404`, which gets archived.
-- The bundled `🤖 ci` content rules no longer match `.github`, which pre-labelled every issue filed through an awesome list's own new-link form.
-- Generated workflows, the `lint-changelog` annotations and the bundled `typos`, `uv` and `zizmor` configurations now cite the published documentation in place of `claude.md`, which downstream repositories no longer receive.
+- The bundled `awesome-template` contributing guide and `awesome-triage` skill now separate a crawler-blocked `403`, which keeps its live URL behind a `[tool.lychee]` exclude, from a `404`, which gets archived.
 - The bundled `sphinx-docs` agent now warns that an incremental build's warning count covers only the pages it re-read.
 - The bundled `sphinx-docs` agent and `sphinx-docs-sync` skill now place developer setup on the `contributing` page, and flag a copy kept in `readme.md` or `claude.md`.
 - The bundled `sphinx-docs` agent now compares two builds only under equal dependency groups, and requires a fully qualified reference in a base-class docstring.
 - The bundled `qa-engineer` agent now moves a `CLAUDE.md` rule about one function, test or page beside that code.
-- The `metrics` and `metric_chart` docstrings now state that a star gained on a repository's creation day replaces its `created` anchor, so not every series carries one.
 - The bundled `repomatic-ship` skill now names the transient empty run page a watcher must poll through rather than read as a finished suite.
 - The bundled `repomatic-ship` skill now classifies a version derived from a checked-in spec, whose bump breaks the recipe invoking it, and points a reading agent at `git show HEAD:<path>` instead of `git stash`.
+- The bundled `repomatic-ship` skill now re-reads the tree after the last gate command, which can re-create a mutation already reverted.
 - The bundled `file-bug-report` skill now carries the evidence rules for an upstream report and the numbering behind a GitHub Actions log anchor.
 - The bundled `babysit-ci` skill now warns that `gh run rerun --failed` never reaches a job skipped behind a failed dependency.
+- Generated workflows, the `lint-changelog` annotations and the bundled `typos`, `uv` and `zizmor` configurations now cite the published documentation in place of `claude.md`, which downstream repositories no longer receive.
+- Raise the `click-extra` floor to `9.3`.
 - Fix `scan-virustotal` failing when the freshly published release still lists no asset, which skipped the whole scan for that version.
+- The bundled `🤖 ci` content rules no longer match `.github`, which pre-labelled every issue filed through an awesome list's own new-link form.
+- Fix the bundled `repomatic-audit` skill claiming `init` refreshes a seeded `mypy`, `pytest` or `coverage` section, which it never revisits.
+- Fix the bundled `repomatic-ship` skill claiming CI resolves the project's dependencies fresh, when its jobs install from `uv.lock`.
+- The `metrics` and `metric_chart` docstrings now state that a star gained on a repository's creation day replaces its `created` anchor, so not every series carries one.
 - The plugin page now warns that an account-enabled plugin also loads in the CLI, so pairing it with `init skills` registers every skill twice.
 - The plugin page now names the Desktop panel that takes the archive, the supported marketplace hosts, and where the off-by-default `Sync automatically` switch lives.
 - The plugin page now records that the CLI compares `plugin.json` rather than the catalog entry to detect an update, and that the Desktop app updates with no version change, both measured.
 - The contributing page now carries the conventions for developing `repomatic` itself: operation naming and contracts, and the rules for bundled agents and skills.
+- The workflows page now explains the over-long entry and empty release warnings that the `lint-changelog` annotations link to.
+- Fix the plugin page's file-install command, which named an `agents` component instead of `subagents`.
+- Fix stale statements on the workflows, security, test matrix, operation contracts and upstream development pages.
 
 ## [`7.16.2` (2026-09-20)](https://github.com/kdeldycke/repomatic/compare/v7.16.1...v7.16.2)
 

@@ -116,20 +116,13 @@ def _run_docs_tool(label: str, *args: str, check: bool = False) -> int:
     return result.returncode
 
 
-def line_indent(line: str) -> str:
-    """Return the leading whitespace of `line`."""
-    return line[: len(line) - len(line.lstrip())]
+TOCTREE_ENTRY_RE = re.compile(r"^\s+(\w+(?:\.\w+)+)\s*$", re.MULTILINE)
+"""A `toctree` entry of a generated index page: an indented dotted module name."""
 
 
 def _toctree_entries(page: Path) -> set[str]:
     """Return the dotted names listed in every `toctree` of an index page."""
-    return set(
-        re.findall(
-            r"^\s+(\w+(?:\.\w+)+)\s*$",
-            page.read_text(encoding="UTF-8"),
-            re.MULTILINE,
-        )
-    )
+    return set(TOCTREE_ENTRY_RE.findall(page.read_text(encoding="UTF-8")))
 
 
 def _insert_into_toctree(page: Path, section: str, entry: str) -> bool:
@@ -152,14 +145,15 @@ def _insert_into_toctree(page: Path, section: str, entry: str) -> bool:
     # heading. Collect that one run, then splice the new name into it.
     run: list[int] = []
     for offset, line in enumerate(lines[start:], start=start):
-        if re.fullmatch(r"\s+\w+(?:\.\w+)+\s*", line):
+        if TOCTREE_ENTRY_RE.fullmatch(line):
             run.append(offset)
         elif run:
             break
     if not run:
         return False
 
-    indent = line_indent(lines[run[0]])
+    first = lines[run[0]]
+    indent = first[: len(first) - len(first.lstrip())]
     block = sorted([*lines[run[0] : run[-1] + 1], f"{indent}{entry}\n"])
     lines[run[0] : run[-1] + 1] = block
     page.write_text("".join(lines), encoding="UTF-8")

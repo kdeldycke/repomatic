@@ -160,7 +160,7 @@ The same spirit covers the matrix's other invariants: its lowest Python should e
 | Runner                                                                                                            | OS      | Architecture          | In PR set | Notes                                                                                                                                |
 | :---------------------------------------------------------------------------------------------------------------- | :------ | :-------------------- | :-------- | :----------------------------------------------------------------------------------------------------------------------------------- |
 | [`ubuntu-26.04-arm`](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2604-Arm64-Readme.md) | Linux   | ARM64                 | yes       | Fastest measured on the parallel suite, cheapest tier; default single-runner pick (PR Linux slot, flavor smoke tests, pinned cells). |
-| [`ubuntu-26.04`](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2604-Readme.md)           | Linux   | x86-64                | no        | x86 Linux coverage in the full matrix. Still labelled preview by GitHub, see below.                                                  |
+| [`ubuntu-26.04`](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2604-Readme.md)           | Linux   | x86-64                | no        | x86 Linux coverage in the full matrix. Adopted while GitHub labelled it preview, see below.                                          |
 | [`macos-26`](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md)            | macOS   | ARM64 (Apple silicon) | yes       | Faster macOS image, fast overall, but billed at ~10x Linux minutes; use only when macOS coverage is needed.                          |
 | [`macos-26-intel`](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md)            | macOS   | x86-64                | no        | Legacy Intel; ~2x slower than `macos-26`.                                                                                            |
 | [`windows-11-arm`](https://github.com/actions/runner-images/blob/main/images/windows/Windows11-Arm64-Readme.md)   | Windows | ARM64                 | no        | Compute ties `windows-2025`; full-matrix only, for native ARM64 execution coverage.                                                  |
@@ -170,22 +170,22 @@ The same spirit covers the matrix's other invariants: its lowest Python should e
 
 ### Preview images and what "stable" means here
 
-GitHub still labels the Ubuntu 26.04 pair **preview**, and `repomatic` ships them as stable test axes anyway. That is a deliberate reading of what the label governs, worth stating because it is the one place this project overrides a vendor's own classification.
+`repomatic` moved onto the Ubuntu 26.04 pair while GitHub still labelled it **preview**, and shipped it as stable test axes anyway. GitHub [declared the pair generally available on 2026-09-17](https://github.com/actions/runner-images/issues/14747), so the label is gone. The reasoning behind that move still applies to the next image that ships as a preview. It is the one place this project overrides a vendor's own classification.
 
 An image is treated as stable here once it has been validated against this suite, not once GitHub relabels it. The preview flag primarily gates whether an image is eligible to sit behind `ubuntu-latest` and the other `-latest` aliases. This project never uses those aliases: a floating alias re-points to a new image with no commit to review, so a breakage arrives detached from any change, which is why `lint-repo` rejects a `-latest` runner outright. With the alias question off the table, what remains is whether the image runs the suite correctly and quickly, and that is measurable.
 
 It was measured before the swap. Both images ran the full matrix as `continue-on-error` cells over consecutive pushes, alongside the GA runners they would replace:
 
-| Python | `ubuntu-24.04-arm` (GA) | `ubuntu-26.04-arm` (preview) |
-| :----- | ----------------------: | ---------------------------: |
-| 3.10   |                     66s |                          56s |
-| 3.14   |                    114s |                          82s |
-| 3.15   |                    120s |                         118s |
+| Python | `ubuntu-24.04-arm` (GA) | `ubuntu-26.04-arm` (then preview) |
+| :----- | ----------------------: | --------------------------------: |
+| 3.10   |                     66s |                               56s |
+| 3.14   |                    114s |                               82s |
+| 3.15   |                    120s |                              118s |
 
 Faster at two of three versions, tied at the third, with nothing failing. That is the evidence the swap rests on, and the [§ Measuring your own](#measuring-your-own) recipe is how to reproduce it.
 
 ```{caution}
-The residual risk is capacity, not correctness. GitHub warns that a preview image's capacity "will be balanced only throughout the next weeks", so queue time can be worse than the runtimes above suggest, and queue time already dominates this project's CI. That risk was weighed against fleet homogeneity and lost: keeping the release binaries on their own GA images meant maintaining a second Linux pair purely to hedge a queue, and every extra image is one more to track, pin and migrate. The Linux Nuitka builds therefore run on the same axes as the suite. A project that would rather wait for GA can pin the old images back with one line: `test-matrix.replace.os = { "ubuntu-26.04-arm" = "ubuntu-24.04-arm" }`.
+While the pair was in preview, the residual risk was capacity, not correctness. GitHub warns that a preview image's capacity "will be balanced only throughout the next weeks", so queue time could be worse than the runtimes above suggest, and queue time already dominates this project's CI. That risk was weighed against fleet homogeneity and lost: keeping the release binaries on their own GA images meant maintaining a second Linux pair purely to hedge a queue, and every extra image is one more to track, pin and migrate. The Linux Nuitka builds therefore run on the same axes as the suite. A project that would rather stay on the previous images can pin them back with one line: `test-matrix.replace.os = { "ubuntu-26.04-arm" = "ubuntu-24.04-arm" }`.
 ```
 
 The same reasoning is what keeps `3.15` flagged `unstable` while these runners are not: a prerelease Python can still change before its final release, so its cells are an early-warning signal rather than a verdict. A runner image that passes the suite today is simply passing the suite.

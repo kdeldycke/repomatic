@@ -12,7 +12,7 @@ Every `sync-*` operation modifies or overwrites user-controlled files or resourc
 2. **CLI command.** A `repomatic sync-*` command that loads config, checks the toggle, and exits cleanly (`ctx.exit(0)`) when disabled. Uses `@pass_context` to receive `ctx`.
 3. **Toggle enforcement.** For CLI-based syncs: the toggle field goes in `SUBCOMMAND_CONFIG_FIELDS` (checked in the CLI, not exposed as metadata). For workflow-only syncs (no CLI command): the toggle is exposed as a metadata output and checked in the job's `if:` condition. For syncs whose workflow also gates other steps on the toggle (like `sync-binaries`, whose output a separate `git-commit-push` step commits): both at once, a CLI check plus a metadata output kept out of `SUBCOMMAND_CONFIG_FIELDS`.
 4. **Workflow job.** A `sync-*` job in the appropriate workflow file (usually `autofix.yaml`, but lifecycle-specific syncs may live elsewhere — e.g., `sync-dev-release` in `_release-engine.yaml`, `sync-labels` in `labels.yaml`). Requires: metadata `needs:` when applicable, prerequisite `if:` conditions, PR creation via `repomatic pr-sync --template sync-*` (branch, body, labels and commit message all derive from the template and its frontmatter). Exceptions: syncs targeting API resources (e.g., labels) rather than repo files apply changes directly, and `sync-binaries` shares the pull request of the `scan-virustotal` job it runs inside, rather than opening one of its own (see [§ Scanning accumulates in one pull request](#scanning-accumulates-in-one-pull-request)).
-5. **Documentation.** Config table row and TOML example in `docs/configuration.md`. Job description with "Skipped if" clause in `docs/workflows.md`. Changelog entry.
+5. **Documentation.** The `Config` field docstring, which `docs/configuration.md` renders as the option's table row and TOML example. Job description with "Skipped if" clause in `docs/workflows.md`. Changelog entry.
 6. **Tests.** Default and custom value assertions in `test_repomatic_config_defaults` and `test_repomatic_config_custom_values`.
 
 **Invariants:**
@@ -37,7 +37,7 @@ Every `update-*` operation computes derived artifacts from project state (lockfi
 
 ## Format and fix job contract
 
-Every `format-*` and `fix-*` operation rewrites files using a pinned external tool. `format-*` enforces canonical style (semantics-preserving); `fix-*` corrects content errors such as typos (semantics-altering). The naming convention table in `CLAUDE.md` § Naming conventions for automated operations defines when to use each prefix.
+Every `format-*` and `fix-*` operation rewrites files using a pinned external tool. `format-*` enforces canonical style (semantics-preserving); `fix-*` corrects content errors such as typos (semantics-altering). The naming convention table in `claude.md` § Naming conventions for automated operations defines when to use each prefix.
 
 **Required properties:**
 
@@ -149,7 +149,7 @@ The property that separates it from a `sync-*` is that it never converges. A syn
 2. **Config toggle, opt-in.** A `sync: bool = False` field on the operation's nested config (`[tool.repomatic.metrics] sync`). Opt-in rather than opt-out, unlike a `sync-*`: an accumulating store is a commitment a maintainer makes deliberately, and most repositories track nothing. The same key gates the workflow component, so a repository that never enables it is never handed the file.
 3. **Workflow job.** A job in a schedule-only workflow, never triggered on push: sampling the same value twice in one day writes the same point, so a per-push run costs API calls and produces nothing. It publishes through one long-lived pull request (see below).
 4. **PR branch and body template.** Named after the operation, like any other publishing job: `repomatic/templates/sample-*.md`, rendered by `pr-sync --template`. The branch carries the accrual between merges, so the template tells a reader what leaving it open costs.
-5. **Documentation.** Config reference in `docs/configuration.md`. Job description with its "Skipped if" clause in `docs/workflows.md`. Changelog entry.
+5. **Documentation.** The `Config` field docstring, which `docs/configuration.md` renders as the option's reference. Job description with its "Skipped if" clause in `docs/workflows.md`. Changelog entry.
 6. **Store format.** One CSV, through {mod}`repomatic.tabular`, one row per reading. Never JSON: see `claude.md` § Naming conventions for automated operations, rule 8.
 7. **Tests.** A conformance test over the committed store: known provenances, no duplicate key, sorted, no date in the future, and no attribute holding two rows. The store is written unattended by a scheduled job, so nothing else would catch a malformed append.
 

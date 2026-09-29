@@ -880,10 +880,10 @@ def test_bundled_excludes_never_carry_both_forms():
 def test_every_host_only_anchored_bundle_entry_is_readable():
     """An anchored entry the core extractor cannot read silently narrows the check.
 
-    {func}`anchored_exclude_core` recognises one shape. A host-only entry
-    written in another answers `None`, so a bare downstream copy of it would go
-    unreported. A path-shaped entry is expected to answer `None`: no bare form
-    of one was ever bundled on its own.
+    {func}`~repomatic.lint_repo.anchored_exclude_core` recognises one shape. A
+    host-only entry written in another answers `None`, so a bare downstream copy
+    of it would go unreported. A path-shaped entry is expected to answer `None`:
+    no bare form of one was ever bundled on its own.
     """
     for item in BUNDLED_LYCHEE_EXCLUDES:
         if not item.startswith("^") or anchored_exclude_core(item) is not None:

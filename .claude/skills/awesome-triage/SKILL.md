@@ -151,7 +151,7 @@ When drafting a rejection or request-for-changes comment:
 
 For issues reporting broken links (typically automated by the lychee link checker):
 
-- **403 from Medium/Substack**: Bot-blocking responses, not genuine dead links. Ignore unless the content is confirmed gone.
+- **403 from a crawler-blocked domain** (Medium, Substack): not a dead link when a browser still gets the full article. Keep the URL and add the domain to `[tool.lychee] exclude` in `pyproject.toml`, per `contributing.md` § URL. The `[tool.lychee]` template that repomatic syncs already excludes `medium.com`.
 - **404 confirmed dead**: Replace with archive.org/archive.ph/sci-hub.st per `contributing.md` § URL. Replacing a broken URL is maintenance; removing the entry is a curation decision.
 - **Archived GitHub repos**: Check for forks or reboots. If none exist and the section has other entries covering the same ground, the entry can be removed. Leave the door open for re-inclusion if the project revives.
 

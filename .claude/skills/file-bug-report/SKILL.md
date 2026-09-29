@@ -196,7 +196,7 @@ The maintainer of the code is the authority on it. Hand over observations they c
 
 A `…/actions/runs/{run}/job/{job}#step:{N}:{line}` link follows non-obvious numbering, verified against live runs:
 
-- **Fetch the raw log** with `gh api repos/{owner}/{repo}/actions/jobs/{id}/logs --allow-escape-sequences`. Without the flag, `gh` refuses the escape sequences and writes an empty file. The job's numeric ID comes from `gh api repos/{owner}/{repo}/actions/runs/{run}/jobs` (`gh run view --json jobs` reports it as `null`).
+- **Fetch the raw log** with `gh api repos/{owner}/{repo}/actions/jobs/{id}/logs --allow-escape-sequences`. Without the flag, `gh` refuses the escape sequences and writes an empty file. The job's numeric ID is `id` in `gh api repos/{owner}/{repo}/actions/runs/{run}/jobs`, and `databaseId` in `gh run view {run} --json jobs`, which has no `id` field: reading `.id` there returns `null`.
 - **The step number counts "Set up job" as 1**, so a workflow's sixth step is `step:7`.
 - **Read that number from the API, never by counting log sections.** The raw log omits a skipped step while the fragment still counts it, so one `if:`-guarded step shifts every anchor below it by one, and only on the runs where it was skipped. `gh api repos/{owner}/{repo}/actions/jobs/{id}` returns `steps[].number` and `steps[].conclusion`: line the non-skipped steps up against the log's `##[group]Run ` markers in order, then take the number off the step. Its `name` is also the cheapest check that an anchor landed where intended.
 - **The line number starts at the step's `##[group]Run …` marker**, which is line 1, and includes the echoed script plus the `shell:`/`env:` preamble before any output.

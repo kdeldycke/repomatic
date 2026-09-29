@@ -52,7 +52,9 @@ from pathlib import Path
 from click_extra import format_cli_prompt
 from click_extra.color import forced_color
 from click_extra.recording import quantize, record_command
-from click_extra.screenshot import AUTO_HOLD, CaptureBackground, render
+from click_extra.screenshot import render
+from click_extra.screenshot_presets import CaptureBackground
+from click_extra.screenshot_svg import AUTO_HOLD
 from extra_platforms import is_unix
 
 ASSETS_DIR = Path(__file__).parent / "assets"

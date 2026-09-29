@@ -68,7 +68,7 @@ from repomatic.registry import COMPONENTS_BY_NAME, SKILL_FILENAME
 from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from repomatic.tooling.bundle import get_data_content
 
-from .conftest import PROJECT_ROOT, WORKFLOWS_DIR
+from .conftest import PROJECT_ROOT, WORKFLOWS_DIR, docs_heading_slug
 
 CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
 """Inline code span, the only context these checks read.
@@ -158,10 +158,10 @@ def test_cooldown_window_matches_config(asset_id: str, body: str) -> None:
     """A quoted cooldown window equals `[tool.repomatic] minimum-release-age`.
 
     Two files may carry the duration as a literal, each pinned by a test
-    named in the module docstring. Skills that
-    hand a maintainer a `uvx` command are a third carrier, and the one
-    nothing regenerates: raising the window in config would leave four
-    skills quoting the old span at anyone who reads them.
+    named in the module docstring. Skills that hand a maintainer a `uvx`
+    command are a third carrier, and the one nothing regenerates: raising the
+    window in config would leave four skills quoting the old span at anyone
+    who reads them.
     """
     for window in COOLDOWN_WINDOW_RE.findall(body):
         assert window == Config.minimum_release_age, (
@@ -564,13 +564,12 @@ def claude_anchors() -> set[str]:
 
     A forge and the documentation site each derive an anchor from a heading
     in their own way, and a link can aim at the file on either one, so both
-    slugs count.
+    slugs count: the forge's, and the site's {func}`~tests.conftest.docs_heading_slug`.
     """
     anchors = set()
     for heading in claude_headings():
-        title = heading.lower()
-        anchors.add(re.sub(r"[^a-z0-9]+", "-", title).strip("-"))
-        anchors.add(re.sub(r"[^\w\- ]", "", title).replace(" ", "-"))
+        anchors.add(docs_heading_slug(heading))
+        anchors.add(re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-"))
     return anchors
 
 
