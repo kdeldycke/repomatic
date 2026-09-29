@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
@@ -70,8 +71,63 @@ Sorted because `@pytest.mark.parametrize` derives test IDs from iteration
 order, and `pytest-xdist` aborts a run whose workers disagree on them.
 """
 
+SITE_ANCHOR_RE = re.compile(
+    r"https://repomatic\.net/(?P<page>[\w-]+)#(?P<anchor>[\w-]+)"
+)
+"""A link into one section of the published documentation."""
+
 WORKFLOWS_DIR = PROJECT_ROOT / ".github" / "workflows"
 """Directory holding this repository's own workflow files."""
+
+
+def docs_heading_anchors(page: str) -> set[str]:
+    """Anchors a page of `docs/` exposes: heading slugs and explicit targets.
+
+    Heading slugs follow the docutils section-id algorithm (lowercase, every
+    non-alphanumeric run collapsed to one hyphen, trimmed), which is what the
+    published Sphinx page exposes as `id=` attributes.
+
+    :param page: Name of the page, without its `.md` extension.
+    """
+    text = (PROJECT_ROOT / "docs" / f"{page}.md").read_text(encoding="UTF-8")
+    anchors = set()
+    for line in text.splitlines():
+        if re.match(r"#{1,6} ", line):
+            title = line.lstrip("#").strip()
+            # Keep the text of markdown links, drop their targets.
+            title = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", title)
+            anchors.add(re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-"))
+        else:
+            explicit = re.fullmatch(r"\(([\w-]+)\)=", line.strip())
+            if explicit:
+                anchors.add(explicit.group(1))
+    return anchors
+
+
+def assert_shipped_text_reads_true_downstream(origin: str, text: str) -> None:
+    """Check a text that travels downstream cites nothing a repository lacks.
+
+    A bundled configuration and a generated workflow comment both land in
+    repositories that hold no copy of this project's `claude.md`: the `agent`
+    component that shipped its sections retired in `7.14.0`. A pointer to that
+    file is a dead end there. So such a text states its rationale inline, or
+    cites a section of the published documentation, whose anchor is held here
+    to a heading that exists.
+
+    :param origin: Name of the text under test, for the failure message.
+    :param text: Content as it ships.
+    """
+    assert not re.search(r"claude\.md", text, re.IGNORECASE), (
+        f"{origin} sends its reader to claude.md, which no downstream repository "
+        "holds. State the rationale inline, or cite a page of "
+        "https://repomatic.net instead."
+    )
+    for match in SITE_ANCHOR_RE.finditer(text):
+        page, anchor = match.group("page", "anchor")
+        assert anchor in docs_heading_anchors(page), (
+            f"{origin} cites {match.group()}, but docs/{page}.md declares no "
+            f"heading that renders to #{anchor}."
+        )
 
 
 def pytest_configure(config: pytest.Config) -> None:

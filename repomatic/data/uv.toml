@@ -5,7 +5,7 @@
 # prefix is added automatically. Only the two policy keys below are owned by
 # repomatic and kept in sync; every other [tool.uv] key a project defines
 # (sources, exclude-newer-package, build-backend, dependency-groups) is left
-# untouched. See claude.md for the rationale behind both pins.
+# untouched. The comment above each pin gives its rationale.
 
 # Floor uv at the minimum resolver relied on, with no upper bound: setup-uv
 # installs the newest uv satisfying it, and sync-uv-lock absorbs cross-minor

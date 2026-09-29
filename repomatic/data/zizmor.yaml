@@ -4,7 +4,8 @@ rules:
     disable: true
 
   # workflow_run in changelog.yaml is safe by design: it provides timing (ensuring tags exist after
-  # the release workflow), not code execution from untrusted sources. See CLAUDE.md § workflow_run.
+  # the release workflow), not code execution from untrusted sources. See
+  # https://repomatic.net/workflows#workflow-run-checkout-pitfall
   dangerous-triggers:
     ignore:
       - changelog.yaml

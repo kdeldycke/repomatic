@@ -104,6 +104,15 @@ A repository leaving the default alone gets the plain passthrough, so adding a
 configurable input churns no existing caller.
 """
 
+COOLDOWN_DOCS_URL: Final[str] = "https://repomatic.net/workflows#install-time-cooldown"
+"""Published section holding the rationale of the workflow-level cooldown.
+
+Cited by {func}`cooldown_env_block` in place of a file of the repository. A
+downstream repository has no `claude.md` that carries that rationale, where
+the published page reads the same from every repository.
+`tests/test_workflows.py` holds the anchor to a heading of `docs/workflows.md`.
+"""
+
 
 def cooldown_env_block() -> str:
     """Render the supply-chain cooldown `env:` block every workflow carries.
@@ -119,15 +128,17 @@ def cooldown_env_block() -> str:
     there too. It deliberately does **not** name `tests/test_workflows.py`: that
     file exists only here, and a synced copy would point its readers at a path
     they do not have. Keep any wording added below equally context-free, and
-    name a repomatic-private path only in a comment that never ships.
+    name a repomatic-private path only in a comment that never ships. For the
+    same reason the rationale is cited by {data}`COOLDOWN_DOCS_URL` and not by
+    `claude.md`: a downstream repository holds no copy of that file.
     ```
 
     ```{note}
     A workflow-level `env:` block cannot reference `needs`, which is why the
     window is a literal here instead of a `metadata` job output: the `metadata`
     job runs `uvx` to compute its own outputs, so anything sourced from it would
-    leave that bootstrap install ungated. See `claude.md` § Cooldown on every
-    install.
+    leave that bootstrap install ungated. See `claude.md` § Where the window
+    comes from.
     ```
 
     :return: The comment and `env:` mapping, newline-terminated, ready to splice
@@ -148,7 +159,7 @@ def cooldown_env_block() -> str:
         "# synced copy is kept in step by hand. Deliberate bypasses are"
         " per-package CLI\n"
         "# flags (`--exclude-newer-package`, `--min-release-age-exclude`).\n"
-        "# See claude.md for the rationale.\n"
+        f"# See {COOLDOWN_DOCS_URL} for the rationale.\n"
         "env:\n"
         f"  NPM_CONFIG_MIN_RELEASE_AGE: {min_release_age_days(window)}\n"
         f'  UV_EXCLUDE_NEWER: "{window}"\n'

@@ -38,7 +38,11 @@ from repomatic.git_ops import (
     VERSION_BUMP_COMMIT_PREFIXES,
 )
 from repomatic.github.pr_body import template_labels
-from repomatic.github.workflow_sync import cooldown_env_block, workflow_triggers
+from repomatic.github.workflow_sync import (
+    COOLDOWN_DOCS_URL,
+    cooldown_env_block,
+    workflow_triggers,
+)
 from repomatic.lint_repo import KNOWN_RUNNERS
 from repomatic.registry import (
     ALL_WORKFLOW_FILES,
@@ -55,6 +59,7 @@ from repomatic.versions import BUMP_PARTS
 from tests.conftest import (
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,
     WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK,
+    assert_shipped_text_reads_true_downstream,
     load_workflow,
 )
 
@@ -1829,6 +1834,17 @@ def test_workflow_declares_cooldown_env(workflow: str) -> None:
         f"{workflow} is missing the cooldown env block. Re-render it from "
         "repomatic.github.workflow_sync.cooldown_env_block()."
     )
+
+
+def test_cooldown_block_reads_true_downstream() -> None:
+    """The cooldown comment cites the published page, never a repository file.
+
+    The block lands above the `jobs:` line of every generated workflow, in
+    repositories that hold none of this project's files.
+    """
+    block = cooldown_env_block()
+    assert COOLDOWN_DOCS_URL in block
+    assert_shipped_text_reads_true_downstream("cooldown_env_block()", block)
 
 
 def _render_arch_aliases() -> str:

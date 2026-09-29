@@ -35,7 +35,7 @@ concurrency:
 # minimum-release-age`. repomatic's own test suite enforces that upstream; a
 # synced copy is kept in step by hand. Deliberate bypasses are per-package CLI
 # flags (`--exclude-newer-package`, `--min-release-age-exclude`).
-# See claude.md for the rationale.
+# See https://repomatic.net/workflows#install-time-cooldown for the rationale.
 env:
   NPM_CONFIG_MIN_RELEASE_AGE: 7
   UV_EXCLUDE_NEWER: "1 week"

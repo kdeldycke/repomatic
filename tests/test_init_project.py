@@ -85,7 +85,10 @@ from repomatic.registry import (
 from repomatic.release.version_sync import Candidate, UpstreamRefPin
 from repomatic.tooling.tool_registry import TOOL_REGISTRY
 from repomatic.tooling.tool_runner import get_data_file_path, run_tool
-from tests.conftest import skip_unless_tool_runs
+from tests.conftest import (
+    assert_shipped_text_reads_true_downstream,
+    skip_unless_tool_runs,
+)
 
 # Convenience set for tests that check opt-in workflow membership.
 _OPT_IN_IDS = frozenset(
@@ -4852,6 +4855,29 @@ def test_every_data_file_maps_to_a_component() -> None:
     assert not uncovered, (
         f"EXPORTABLE_FILES entries not mapped to any component: {sorted(uncovered)}"
     )
+
+
+def bundled_configurations() -> list[str]:
+    """File names of every tool configuration the package ships.
+
+    The templates `repomatic init` merges into a repository, and the defaults the
+    tool runner reads when a repository declares no configuration of its own.
+    Sorted, because `pytest-xdist` aborts a run whose workers disagree on the
+    order of the test IDs.
+    """
+    templates = {
+        comp.source_file for comp in COMPONENTS if isinstance(comp, ToolConfigComponent)
+    }
+    defaults = {
+        spec.default_config for spec in TOOL_REGISTRY.values() if spec.default_config
+    }
+    return sorted(templates | defaults)
+
+
+@pytest.mark.parametrize("filename", bundled_configurations())
+def test_bundled_configuration_reads_true_downstream(filename: str) -> None:
+    """A bundled tool configuration cites nothing a downstream repository lacks."""
+    assert_shipped_text_reads_true_downstream(filename, get_data_content(filename))
 
 
 def test_no_data_file_claimed_by_multiple_components() -> None:

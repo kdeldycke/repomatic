@@ -56,6 +56,7 @@ from repomatic.github.pr_body import (
 )
 from repomatic.metadata.core import Metadata
 from repomatic.versions import strip_dev_suffix
+from tests.conftest import docs_heading_anchors
 
 # Full set of GITHUB_* environment variables for testing.
 GITHUB_ENV_VARS = {
@@ -920,24 +921,9 @@ WORKFLOWS_DOCS_URL = "https://repomatic.net/workflows"
 def _workflows_heading_anchors() -> set[str]:
     """Anchors available in ``docs/workflows.md``: heading slugs and explicit targets.
 
-    Heading slugs follow the docutils section-id algorithm (lowercase, every
-    non-alphanumeric run collapsed to one hyphen, trimmed), which is what the
-    published Sphinx page exposes as ``id=`` attributes.
+    See {func}`tests.conftest.docs_heading_anchors` for the slug algorithm.
     """
-    repo_root = Path(__file__).resolve().parent.parent
-    text = (repo_root / "docs" / "workflows.md").read_text(encoding="UTF-8")
-    anchors = set()
-    for line in text.splitlines():
-        if re.match(r"#{1,6} ", line):
-            title = line.lstrip("#").strip()
-            # Keep the text of markdown links, drop their targets.
-            title = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", title)
-            anchors.add(re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-"))
-        else:
-            explicit = re.fullmatch(r"\(([\w-]+)\)=", line.strip())
-            if explicit:
-                anchors.add(explicit.group(1))
-    return anchors
+    return docs_heading_anchors("workflows")
 
 
 def _collect_template_references() -> set[str]:

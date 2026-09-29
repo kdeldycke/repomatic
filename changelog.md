@@ -10,6 +10,7 @@
 - The bundled `lychee.toml` now excludes `medium.com`, which returns 403 to anonymous crawlers but serves the full article to a browser.
 - The bundled `awesome-template` contributing guide now separates a crawler-blocked `403`, which keeps its live URL behind a `[tool.lychee]` exclude, from a `404`, which gets archived.
 - The bundled `🤖 ci` content rules no longer match `.github`, which pre-labelled every issue filed through an awesome list's own new-link form.
+- Generated workflows and the bundled `typos`, `uv` and `zizmor` configurations now cite the published documentation in place of `claude.md`, which downstream repositories no longer receive.
 - The bundled `sphinx-docs` agent now warns that an incremental build's warning count covers only the pages it re-read.
 - The `metrics` and `metric_chart` docstrings now state that a star gained on a repository's creation day replaces its `created` anchor, so not every series carries one.
 - The bundled `repomatic-ship` skill now names the transient empty run page a watcher must poll through rather than read as a finished suite.
