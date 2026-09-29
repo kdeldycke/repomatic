@@ -14,6 +14,7 @@
 - The bundled `sphinx-docs` agent now warns that an incremental build's warning count covers only the pages it re-read.
 - The bundled `sphinx-docs` agent and `sphinx-docs-sync` skill now place developer setup on the `contributing` page, and flag a copy kept in `readme.md` or `claude.md`.
 - The bundled `sphinx-docs` agent now compares two builds only under equal dependency groups, and requires a fully qualified reference in a base-class docstring.
+- The bundled `qa-engineer` agent now moves a `CLAUDE.md` rule about one function, test or page beside that code.
 - The `metrics` and `metric_chart` docstrings now state that a star gained on a repository's creation day replaces its `created` anchor, so not every series carries one.
 - The bundled `repomatic-ship` skill now names the transient empty run page a watcher must poll through rather than read as a finished suite.
 - The bundled `repomatic-ship` skill now classifies a version derived from a checked-in spec, whose bump breaks the recipe invoking it, and points a reading agent at `git show HEAD:<path>` instead of `git stash`.
