@@ -269,11 +269,13 @@ def test_operation_order_follows_the_registry() -> None:
     assert operation_order(shuffled) == list(SYNC_OPERATIONS)
 
 
-def test_sync_deps_reports_nothing_to_do_in_an_empty_tree() -> None:
+def test_sync_deps_reports_nothing_to_do_in_an_empty_tree(
+    tmp_path, monkeypatch
+) -> None:
     """With no lockfile, workflows, or source, no updater applies."""
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        result = runner.invoke(repomatic, ["sync-deps", "--dry-run"])
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(repomatic, ["sync-deps", "--dry-run"])
     assert result.exit_code == 0, result.output
     assert "No dependency updaters are enabled" in result.output
 

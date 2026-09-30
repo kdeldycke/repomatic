@@ -532,7 +532,7 @@ def test_github_candidates_graceful_when_unavailable():
 # ---------------------------------------------------------------------------
 
 
-def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes():
+def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes(tmp_path, monkeypatch):
     """The sync-action-pins PR body carries the cutoff, held-back, and notes.
 
     Locks the gap PR 2827 surfaced: the three version-sync updaters must render
@@ -556,34 +556,33 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes():
         ),
     }
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        workflow = Path(".github/workflows/ci.yaml")
-        workflow.parent.mkdir(parents=True)
-        workflow.write_text(
-            "jobs:\n  build:\n    steps:\n"
-            f"      - uses: owner/repo@{'a' * 40} # v1.0.0\n",
-            encoding="UTF-8",
+    monkeypatch.chdir(tmp_path)
+    workflow = Path(".github/workflows/ci.yaml")
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        f"jobs:\n  build:\n    steps:\n      - uses: owner/repo@{'a' * 40} # v1.0.0\n",
+        encoding="UTF-8",
+    )
+    with (
+        # github_candidates resolves get_release_tags in version_sync's
+        # namespace; fetch_github_release_notes resolves it in releases'.
+        patch("repomatic.release.version_sync.get_release_tags", return_value=tags),
+        patch("repomatic.github.releases.get_release_tags", return_value=tags),
+        patch("repomatic.sync_ops.resolve_tag_to_sha", return_value="b" * 40),
+    ):
+        result = runner.invoke(
+            repomatic,
+            [
+                "sync-action-pins",
+                "--release-notes",
+                "--output",
+                "out.md",
+                "--output-format",
+                "markdown",
+            ],
         )
-        with (
-            # github_candidates resolves get_release_tags in version_sync's
-            # namespace; fetch_github_release_notes resolves it in releases'.
-            patch("repomatic.release.version_sync.get_release_tags", return_value=tags),
-            patch("repomatic.github.releases.get_release_tags", return_value=tags),
-            patch("repomatic.sync_ops.resolve_tag_to_sha", return_value="b" * 40),
-        ):
-            result = runner.invoke(
-                repomatic,
-                [
-                    "sync-action-pins",
-                    "--release-notes",
-                    "--output",
-                    "out.md",
-                    "--output-format",
-                    "markdown",
-                ],
-            )
-        assert result.exit_code == 0, result.output
-        body = Path("out.md").read_text(encoding="UTF-8")
+    assert result.exit_code == 0, result.output
+    body = Path("out.md").read_text(encoding="UTF-8")
 
     # The action is bumped to the eligible v2.0.0.
     assert "## 🆙 Updated actions" in body
@@ -605,7 +604,9 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes():
     )
 
 
-def test_sync_action_pins_converges_mixed_pins_without_eligible_upgrade():
+def test_sync_action_pins_converges_mixed_pins_without_eligible_upgrade(
+    tmp_path, monkeypatch
+):
     """Stragglers converge onto the highest pin when no upgrade qualifies.
 
     Locks the gap kdeldycke/extra-platforms#600 surfaced: with one action
@@ -627,35 +628,35 @@ def test_sync_action_pins_converges_mixed_pins_without_eligible_upgrade():
         ),
     }
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        workflow = Path(".github/workflows/ci.yaml")
-        workflow.parent.mkdir(parents=True)
-        workflow.write_text(
-            "jobs:\n  build:\n    steps:\n"
-            f"      - uses: owner/repo@{'a' * 40} # v1.0.0\n"
-            f"      - uses: owner/repo@{'c' * 40} # v2.0.0\n",
-            encoding="UTF-8",
+    monkeypatch.chdir(tmp_path)
+    workflow = Path(".github/workflows/ci.yaml")
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  build:\n    steps:\n"
+        f"      - uses: owner/repo@{'a' * 40} # v1.0.0\n"
+        f"      - uses: owner/repo@{'c' * 40} # v2.0.0\n",
+        encoding="UTF-8",
+    )
+    with (
+        patch("repomatic.release.version_sync.get_release_tags", return_value=tags),
+        patch(
+            "repomatic.sync_ops.resolve_tag_to_sha",
+            side_effect=AssertionError("convergence must not resolve tags"),
+        ),
+    ):
+        result = runner.invoke(
+            repomatic,
+            [
+                "sync-action-pins",
+                "--output",
+                "out.md",
+                "--output-format",
+                "markdown",
+            ],
         )
-        with (
-            patch("repomatic.release.version_sync.get_release_tags", return_value=tags),
-            patch(
-                "repomatic.sync_ops.resolve_tag_to_sha",
-                side_effect=AssertionError("convergence must not resolve tags"),
-            ),
-        ):
-            result = runner.invoke(
-                repomatic,
-                [
-                    "sync-action-pins",
-                    "--output",
-                    "out.md",
-                    "--output-format",
-                    "markdown",
-                ],
-            )
-        assert result.exit_code == 0, result.output
-        content = workflow.read_text(encoding="UTF-8")
-        body = Path("out.md").read_text(encoding="UTF-8")
+    assert result.exit_code == 0, result.output
+    content = workflow.read_text(encoding="UTF-8")
+    body = Path("out.md").read_text(encoding="UTF-8")
 
     # The straggler now pins the winning SHA and version comment.
     assert content.count(f"owner/repo@{'c' * 40} # v2.0.0") == 2
@@ -667,7 +668,7 @@ def test_sync_action_pins_converges_mixed_pins_without_eligible_upgrade():
     assert "`3.0.0`" in body
 
 
-def test_sync_action_pins_merges_mixed_pins_onto_widest_range():
+def test_sync_action_pins_merges_mixed_pins_onto_widest_range(tmp_path, monkeypatch):
     """Mixed pins bumping to one release report a single widest-range row.
 
     With one action pinned at two versions and an eligible release above
@@ -692,34 +693,34 @@ def test_sync_action_pins_merges_mixed_pins_onto_widest_range():
         ),
     }
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        workflow = Path(".github/workflows/ci.yaml")
-        workflow.parent.mkdir(parents=True)
-        workflow.write_text(
-            "jobs:\n  build:\n    steps:\n"
-            f"      - uses: owner/repo@{'a' * 40} # v1.0.0\n"
-            f"      - uses: owner/repo@{'c' * 40} # v2.0.0\n",
-            encoding="UTF-8",
+    monkeypatch.chdir(tmp_path)
+    workflow = Path(".github/workflows/ci.yaml")
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  build:\n    steps:\n"
+        f"      - uses: owner/repo@{'a' * 40} # v1.0.0\n"
+        f"      - uses: owner/repo@{'c' * 40} # v2.0.0\n",
+        encoding="UTF-8",
+    )
+    with (
+        patch("repomatic.release.version_sync.get_release_tags", return_value=tags),
+        patch("repomatic.github.releases.get_release_tags", return_value=tags),
+        patch("repomatic.sync_ops.resolve_tag_to_sha", return_value="b" * 40),
+    ):
+        result = runner.invoke(
+            repomatic,
+            [
+                "sync-action-pins",
+                "--release-notes",
+                "--output",
+                "out.md",
+                "--output-format",
+                "markdown",
+            ],
         )
-        with (
-            patch("repomatic.release.version_sync.get_release_tags", return_value=tags),
-            patch("repomatic.github.releases.get_release_tags", return_value=tags),
-            patch("repomatic.sync_ops.resolve_tag_to_sha", return_value="b" * 40),
-        ):
-            result = runner.invoke(
-                repomatic,
-                [
-                    "sync-action-pins",
-                    "--release-notes",
-                    "--output",
-                    "out.md",
-                    "--output-format",
-                    "markdown",
-                ],
-            )
-        assert result.exit_code == 0, result.output
-        content = workflow.read_text(encoding="UTF-8")
-        body = Path("out.md").read_text(encoding="UTF-8")
+    assert result.exit_code == 0, result.output
+    content = workflow.read_text(encoding="UTF-8")
+    body = Path("out.md").read_text(encoding="UTF-8")
 
     # Both pins converge onto the eligible v3.0.0.
     assert content.count(f"owner/repo@{'b' * 40} # v3.0.0") == 2
@@ -737,7 +738,9 @@ def test_sync_action_pins_merges_mixed_pins_onto_widest_range():
     assert "release one notes" not in body
 
 
-def test_sync_workflow_pins_release_notes_cover_pypi_literals_only():
+def test_sync_workflow_pins_release_notes_cover_pypi_literals_only(
+    tmp_path, monkeypatch
+):
     """`sync-workflow-pins --release-notes` fetches notes for PyPI pins only.
 
     npm literals have no source-discovery path, so they are excluded from the
@@ -753,43 +756,39 @@ def test_sync_workflow_pins_release_notes_cover_pypi_literals_only():
         return {"mango": ("https://github.com/owner/mango", [("v2.0.0", "the notes")])}
 
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        workflow = Path(".github/workflows/ci.yaml")
-        workflow.parent.mkdir(parents=True)
-        workflow.write_text(
-            "jobs:\n  build:\n    steps:\n"
-            "      - run: npm install grape@1.0.0\n"
-            "      - run: uvx 'mango==1.0.0'\n",
-            encoding="UTF-8",
+    monkeypatch.chdir(tmp_path)
+    workflow = Path(".github/workflows/ci.yaml")
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  build:\n    steps:\n"
+        "      - run: npm install grape@1.0.0\n"
+        "      - run: uvx 'mango==1.0.0'\n",
+        encoding="UTF-8",
+    )
+    with (
+        patch(
+            "repomatic.sync_ops.npm_candidates",
+            return_value=[vs.Candidate(version="9.0.0", date=eligible, ref="9.0.0")],
+        ),
+        patch(
+            "repomatic.sync_ops.pypi_candidates",
+            return_value=[vs.Candidate(version="2.0.0", date=eligible, ref="2.0.0")],
+        ),
+        patch("repomatic.sync_ops.fetch_release_notes", side_effect=fake_fetch),
+    ):
+        result = runner.invoke(
+            repomatic,
+            [
+                "sync-workflow-pins",
+                "--release-notes",
+                "--output",
+                "out.md",
+                "--output-format",
+                "markdown",
+            ],
         )
-        with (
-            patch(
-                "repomatic.sync_ops.npm_candidates",
-                return_value=[
-                    vs.Candidate(version="9.0.0", date=eligible, ref="9.0.0")
-                ],
-            ),
-            patch(
-                "repomatic.sync_ops.pypi_candidates",
-                return_value=[
-                    vs.Candidate(version="2.0.0", date=eligible, ref="2.0.0")
-                ],
-            ),
-            patch("repomatic.sync_ops.fetch_release_notes", side_effect=fake_fetch),
-        ):
-            result = runner.invoke(
-                repomatic,
-                [
-                    "sync-workflow-pins",
-                    "--release-notes",
-                    "--output",
-                    "out.md",
-                    "--output-format",
-                    "markdown",
-                ],
-            )
-        assert result.exit_code == 0, result.output
-        body = Path("out.md").read_text(encoding="UTF-8")
+    assert result.exit_code == 0, result.output
+    body = Path("out.md").read_text(encoding="UTF-8")
 
     # Both literals were bumped in the file.
     assert "grape" in body
@@ -801,14 +800,16 @@ def test_sync_workflow_pins_release_notes_cover_pypi_literals_only():
 
 
 def _write_workflow_at(path: str, content: str) -> Path:
-    """Create a workflow file with parents inside the isolated filesystem."""
+    """Create a workflow file and its parents under the working directory."""
     workflow = Path(path)
     workflow.parent.mkdir(parents=True, exist_ok=True)
     workflow.write_text(content, encoding="UTF-8")
     return workflow
 
 
-def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown():
+def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown(
+    tmp_path, monkeypatch
+):
     """The upstream toolkit pin aligns to the `uses:` ref despite the cooldown.
 
     A fresh upstream release is normally withheld by `minimum-release-age`,
@@ -820,29 +821,29 @@ def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown():
     fresh = today.isoformat()
 
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        workflow = _write_workflow_at(
-            ".github/workflows/ci.yaml",
-            "jobs:\n"
-            "  lint:\n"
-            "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@"
-            "36523e5a56f287e814210042ca7b852147a95498 # v7.0.0\n"
-            "  build:\n"
-            "    steps:\n"
-            "      - run: uvx 'repomatic==6.31.0' metadata\n"
-            "      - run: uvx 'mango==1.0.0'\n",
+    monkeypatch.chdir(tmp_path)
+    workflow = _write_workflow_at(
+        ".github/workflows/ci.yaml",
+        "jobs:\n"
+        "  lint:\n"
+        "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@"
+        "36523e5a56f287e814210042ca7b852147a95498 # v7.0.0\n"
+        "  build:\n"
+        "    steps:\n"
+        "      - run: uvx 'repomatic==6.31.0' metadata\n"
+        "      - run: uvx 'mango==1.0.0'\n",
+    )
+    with patch(
+        "repomatic.sync_ops.pypi_candidates",
+        return_value=[vs.Candidate(version="9.0.0", date=fresh, ref="9.0.0")],
+    ):
+        result = runner.invoke(
+            repomatic,
+            ["sync-workflow-pins", "--output", "out.md"],
         )
-        with patch(
-            "repomatic.sync_ops.pypi_candidates",
-            return_value=[vs.Candidate(version="9.0.0", date=fresh, ref="9.0.0")],
-        ):
-            result = runner.invoke(
-                repomatic,
-                ["sync-workflow-pins", "--output", "out.md"],
-            )
-        assert result.exit_code == 0, result.output
-        content = workflow.read_text(encoding="UTF-8")
-        body = Path("out.md").read_text(encoding="UTF-8")
+    assert result.exit_code == 0, result.output
+    content = workflow.read_text(encoding="UTF-8")
+    body = Path("out.md").read_text(encoding="UTF-8")
 
     # The upstream pin aligned to the ref version, not to PyPI's fresh 9.0.0,
     # and carries the exemption that lets `uvx` resolve a version the workflow's
@@ -867,97 +868,97 @@ def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown():
     ) in body
 
 
-def test_sync_workflow_pins_upstream_pin_cooldown_without_refs():
+def test_sync_workflow_pins_upstream_pin_cooldown_without_refs(tmp_path, monkeypatch):
     """Without upstream `uses:` refs, the toolkit pin stays cooldown-governed."""
     today = datetime.now(timezone.utc).date()
     fresh = today.isoformat()
 
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        workflow = _write_workflow_at(
-            ".github/workflows/ci.yaml",
-            "jobs:\n  build:\n    steps:\n"
-            "      - run: uvx 'repomatic==6.31.0' metadata\n",
+    monkeypatch.chdir(tmp_path)
+    workflow = _write_workflow_at(
+        ".github/workflows/ci.yaml",
+        "jobs:\n  build:\n    steps:\n      - run: uvx 'repomatic==6.31.0' metadata\n",
+    )
+    with patch(
+        "repomatic.sync_ops.pypi_candidates",
+        return_value=[vs.Candidate(version="7.0.0", date=fresh, ref="7.0.0")],
+    ):
+        result = runner.invoke(
+            repomatic,
+            ["sync-workflow-pins", "--output", "out.md"],
         )
-        with patch(
-            "repomatic.sync_ops.pypi_candidates",
-            return_value=[vs.Candidate(version="7.0.0", date=fresh, ref="7.0.0")],
-        ):
-            result = runner.invoke(
-                repomatic,
-                ["sync-workflow-pins", "--output", "out.md"],
-            )
-        assert result.exit_code == 0, result.output
-        content = workflow.read_text(encoding="UTF-8")
+    assert result.exit_code == 0, result.output
+    content = workflow.read_text(encoding="UTF-8")
 
     assert "repomatic==6.31.0" in content
 
 
-def test_sync_workflow_pins_upstream_pin_already_aligned():
+def test_sync_workflow_pins_upstream_pin_already_aligned(tmp_path, monkeypatch):
     """A pin equal to the `uses:` ref version ignores newer PyPI releases."""
     today = datetime.now(timezone.utc).date()
     eligible = (today - timedelta(days=30)).isoformat()
 
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        workflow = _write_workflow_at(
-            ".github/workflows/ci.yaml",
-            "jobs:\n"
-            "  lint:\n"
-            "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@"
-            "36523e5a56f287e814210042ca7b852147a95498 # v7.0.0\n"
-            "  build:\n"
-            "    steps:\n"
-            "      - run: uvx 'repomatic==7.0.0' metadata\n",
+    monkeypatch.chdir(tmp_path)
+    workflow = _write_workflow_at(
+        ".github/workflows/ci.yaml",
+        "jobs:\n"
+        "  lint:\n"
+        "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@"
+        "36523e5a56f287e814210042ca7b852147a95498 # v7.0.0\n"
+        "  build:\n"
+        "    steps:\n"
+        "      - run: uvx 'repomatic==7.0.0' metadata\n",
+    )
+    with patch(
+        "repomatic.sync_ops.pypi_candidates",
+        return_value=[vs.Candidate(version="9.0.0", date=eligible, ref="9.0.0")],
+    ):
+        result = runner.invoke(
+            repomatic,
+            ["sync-workflow-pins", "--output", "out.md"],
         )
-        with patch(
-            "repomatic.sync_ops.pypi_candidates",
-            return_value=[vs.Candidate(version="9.0.0", date=eligible, ref="9.0.0")],
-        ):
-            result = runner.invoke(
-                repomatic,
-                ["sync-workflow-pins", "--output", "out.md"],
-            )
-        assert result.exit_code == 0, result.output
-        content = workflow.read_text(encoding="UTF-8")
+    assert result.exit_code == 0, result.output
+    content = workflow.read_text(encoding="UTF-8")
 
     # The eligible 9.0.0 release does not override the ref-locked version.
     assert "repomatic==7.0.0" in content
 
 
-def test_sync_workflow_pins_upstream_pin_realigns_stragglers_both_ways():
+def test_sync_workflow_pins_upstream_pin_realigns_stragglers_both_ways(
+    tmp_path, monkeypatch
+):
     """Every literal realigns to the refs, lagging or ahead, across files."""
     today = datetime.now(timezone.utc).date()
     fresh = today.isoformat()
 
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        behind = _write_workflow_at(
-            ".github/workflows/tests.yaml",
-            "jobs:\n"
-            "  lint:\n"
-            "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@"
-            "36523e5a56f287e814210042ca7b852147a95498 # v7.0.0\n"
-            "  build:\n"
-            "    steps:\n"
-            "      - run: uvx 'repomatic==6.31.0' metadata\n",
+    monkeypatch.chdir(tmp_path)
+    behind = _write_workflow_at(
+        ".github/workflows/tests.yaml",
+        "jobs:\n"
+        "  lint:\n"
+        "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@"
+        "36523e5a56f287e814210042ca7b852147a95498 # v7.0.0\n"
+        "  build:\n"
+        "    steps:\n"
+        "      - run: uvx 'repomatic==6.31.0' metadata\n",
+    )
+    ahead = _write_workflow_at(
+        ".github/workflows/docs.yaml",
+        "jobs:\n  build:\n    steps:\n      - run: uvx 'repomatic==7.1.0' changelog\n",
+    )
+    with patch(
+        "repomatic.sync_ops.pypi_candidates",
+        return_value=[vs.Candidate(version="9.0.0", date=fresh, ref="9.0.0")],
+    ):
+        result = runner.invoke(
+            repomatic,
+            ["sync-workflow-pins", "--output", "out.md"],
         )
-        ahead = _write_workflow_at(
-            ".github/workflows/docs.yaml",
-            "jobs:\n  build:\n    steps:\n"
-            "      - run: uvx 'repomatic==7.1.0' changelog\n",
-        )
-        with patch(
-            "repomatic.sync_ops.pypi_candidates",
-            return_value=[vs.Candidate(version="9.0.0", date=fresh, ref="9.0.0")],
-        ):
-            result = runner.invoke(
-                repomatic,
-                ["sync-workflow-pins", "--output", "out.md"],
-            )
-        assert result.exit_code == 0, result.output
-        behind_content = behind.read_text(encoding="UTF-8")
-        ahead_content = ahead.read_text(encoding="UTF-8")
+    assert result.exit_code == 0, result.output
+    behind_content = behind.read_text(encoding="UTF-8")
+    ahead_content = ahead.read_text(encoding="UTF-8")
 
     assert "repomatic==7.0.0" in behind_content
     assert "repomatic==7.0.0" in ahead_content
