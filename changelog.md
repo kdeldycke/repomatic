@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.17.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.17.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.17.1` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.17.0...v7.17.1)
 
 - `fix-typos` now checks hidden files and directories like `.github/` and `.claude/`, through the bundled `[tool.typos]` config.
 - `lint-repo --help` now lists every check the command runs, rendered from the check roster.
