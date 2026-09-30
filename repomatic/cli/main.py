@@ -779,19 +779,6 @@ The same two glyphs the workflow templates stamp onto each matrix job's name,
 and that {meth}`repomatic.github.ci_status.JobStatus.required` reads back off
 it, so the grid and the CI verdict cannot come to disagree about which mark
 means "allowed to fail".
-
-```{caution}
-{data}`~repomatic.github.ci_status.UNSTABLE_GLYPH` is an emoji-presentation
-sequence (U+2049 followed by the U+FE0F selector), and that is the one class
-of glyph terminals measure differently: `wcwidth` counts it as two columns and
-the table renderer pads to that, while a terminal allocating a single cell for
-it (Apple Terminal does, painting the glyph over the space that follows) draws
-the row a column short of its own separators. Carrying the mark CI stamps is
-worth that, by decision: do not "fix" the alignment by dropping the selector
-here, which would leave the grid and the job names spelling the mark
-differently. `--no-emoji` sidesteps the whole question for a reader who wants
-a square grid, and a terminal on Unicode 9 widths never sees it.
-```
 """
 
 

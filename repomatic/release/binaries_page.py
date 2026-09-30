@@ -53,7 +53,7 @@ import json
 import logging
 from pathlib import Path
 
-from click_extra.blocks import replace_region
+from click_extra.blocks import region_markers, replace_region
 
 from ..github.releases import parse_release_version
 from ..tabular import render_csv, write_csv
@@ -126,16 +126,16 @@ PAGE_REGION = "binaries-chart"
 """Region name spliced by {func}`click_extra.blocks.replace_region`.
 
 The generated chart lives between the `<!-- binaries-chart -->` and
-`<!-- binaries-chart-end -->` markers that {data}`PAGE_START_MARKER` and
-{data}`PAGE_END_MARKER` spell out, following click-extra's
-`<!-- name --> / <!-- name-end -->` marker grammar with `name` = this value.
+`<!-- binaries-chart-end -->` markers of {data}`PAGE_START_MARKER` and
+{data}`PAGE_END_MARKER`.
 """
 
-PAGE_END_MARKER = f"<!-- {PAGE_REGION}-end -->"
-"""Closing marker of the generated chart region in the binaries page."""
+PAGE_START_MARKER, PAGE_END_MARKER = region_markers(PAGE_REGION)
+"""Opening and closing markers of the generated chart region in the binaries page.
 
-PAGE_START_MARKER = f"<!-- {PAGE_REGION} -->"
-"""Opening marker of the generated chart region in the binaries page."""
+Spelled by {func}`click_extra.blocks.region_markers`, so they cannot drift from
+the grammar {func}`~click_extra.blocks.replace_region` matches.
+"""
 
 PAGE_TEMPLATE = """\
 ---

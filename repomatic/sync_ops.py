@@ -1801,10 +1801,10 @@ def run_sync_operations(
     :param operations: The operations to run (already filtered by the caller).
     :param rc: Shared resolve inputs.
     :param spinner_label: Present-tense label for the resolve trail (like
-        `"Resolving dependency updates"`). When set and attached to a TTY, the
-        trail shows a `✓`/`✘` line per operation and a running tally; unset
-        (programmatic and test calls) forces it silent, so CI and tests show
-        nothing.
+        `"Resolving dependency updates"`). When set, the trail prints a
+        `✓`/`✘` line per operation on any stream, CI logs included, and a TTY
+        also gets a running tally. Unset (programmatic and test calls), the
+        trail is silent.
     :return: Each operation paired with its plan (or `None` if its resolve
         failed), in {data}`SYNC_OPERATIONS` order.
     """
@@ -1818,13 +1818,13 @@ def run_sync_operations(
     jobs = resolve_jobs(ctx, len(operations), serial_at_debug=True)
 
     # A trail is opt-in: without a label (programmatic and test calls) it stays
-    # forced-silent, so only the CLI's `spinner_label` lights it up.
+    # silent, so only the CLI's `spinner_label` lights it up.
     trail = OperationTrail(
         label=spinner_label or "",
         unit="operations",
         total=len(operations),
         jobs=jobs,
-        enabled=None if spinner_label else False,
+        visible=bool(spinner_label),
     )
 
     def resolve_and_mark(op: SyncOperation) -> SyncPlan | None:
