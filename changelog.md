@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - `ci-status` now reads runs back from the branch tip, commit by commit, so a stale run listing no longer reports months-old runs as the latest.
+- `lint-repo` no longer flags a PR template that opts out of the footer with the quoted `footer: 'false'`, which `pr-body` honors.
 
 ## [`7.17.0` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.16.3...v7.17.0)
 

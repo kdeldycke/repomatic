@@ -57,7 +57,7 @@ from .releases import dev_release_url_and_previous_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
 
     from ..metadata.core import Metadata
 
@@ -344,13 +344,25 @@ def _substitute(text: str, kwargs: dict[str, str | None]) -> str:
     return text
 
 
+def footer_opted_out(meta: Mapping[str, object]) -> bool:
+    """Whether a template's frontmatter opts out of the attribution footer.
+
+    A template opts out with `footer: false`. Both the boolean and the quoted
+    string are honored: the frontmatter is YAML, so a bare `false` parses as a
+    boolean, but a template may well have quoted it, and the two spellings mean
+    the same thing to whoever wrote them. An absent field keeps the footer.
+    {func}`repomatic.lint_repo.check_pr_templates` applies the same rule, so it
+    never flags a spelling the renderer honors.
+
+    :param meta: Parsed frontmatter of one template.
+    """
+    return meta.get("footer", True) in (False, "false")
+
+
 def _render_single(name: str | Path, kwargs: dict[str, str | None]) -> tuple[str, bool]:
     """Render a single template and return its body with footer preference.
 
-    A template opts out of the attribution footer with `footer: false`. Both the
-    boolean and the quoted string are honored: the frontmatter is YAML, so a bare
-    `false` parses as a boolean, but a downstream template may well have quoted
-    it, and the two spellings mean the same thing to whoever wrote them.
+    See {func}`footer_opted_out` for the frontmatter that drops the footer.
 
     :param name: Template name without `.md` extension, or a
         {class}`~pathlib.Path` pointing to a template file.
@@ -359,8 +371,7 @@ def _render_single(name: str | Path, kwargs: dict[str, str | None]) -> tuple[str
     """
     meta, body = load_template(name)
     result = _substitute(body, kwargs).strip()
-    opted_out = meta.get("footer", True) in (False, "false")
-    wants_footer = not opted_out and name != "generated-footer"
+    wants_footer = not footer_opted_out(meta) and name != "generated-footer"
     return result, wants_footer
 
 

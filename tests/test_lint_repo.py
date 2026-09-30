@@ -1482,14 +1482,15 @@ def _write_template_case(root, arg_path, file_path, body):
             CANONICAL_TEMPLATE_PATH,
             CANONICAL_TEMPLATE_PATH,
             "---\ntitle: Sync fruit basket\nfooter: 'false'\n---\n\nBody.\n",
-            "bare boolean",
+            # The renderer honors the quoted spelling, so the check must too.
+            None,
             id="quoted-footer",
         ),
         pytest.param(
             CANONICAL_TEMPLATE_PATH,
             CANONICAL_TEMPLATE_PATH,
             "---\ntitle: Sync fruit basket\nfooter: 'False'\n---\n\nBody.\n",
-            "bare boolean",
+            "keeps the attribution footer",
             id="capitalized-footer",
         ),
         pytest.param(

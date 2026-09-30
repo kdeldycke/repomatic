@@ -50,6 +50,7 @@ from .frontmatter import split_frontmatter
 from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
 from .github.gh import gh_api_json, gh_graphql, run_gh_command
 from .github.matrix import PYTHON_VERSION_AXIS
+from .github.pr_body import footer_opted_out
 from .github.token import check_all_pat_permissions
 from .http import FetchError
 from .humanize import format_file_size
@@ -2963,10 +2964,10 @@ def check_pr_templates(
     1. The file sits outside *template_dir*. See {data}`PR_TEMPLATE_DIR`.
     2. A workflow references a path that does not exist, which the job only
        discovers when it runs and `pr-body` rejects the missing file.
-    3. The frontmatter lacks a `title`, or does not set `footer` to the bare
-       boolean `false`. Both `false` and the quoted `'false'` opt out, but an
-       absent field, `'False'`, and every other value do not, and the failure
-       is silent: the rendered body carries the attribution footer twice.
+    3. The frontmatter lacks a `title`, or does not opt out of the attribution
+       footer the way {func}`~repomatic.github.pr_body.footer_opted_out` reads
+       it. An absent field, `'False'`, and every other value keep the footer,
+       and the failure is silent: the rendered body carries it twice.
 
     A `docs` field is not required. It deep-links the hosted workflows
     reference, which documents upstream jobs only.
@@ -3043,13 +3044,11 @@ def check_pr_templates(
                     f" it opts in to an attribution footer the metadata block"
                     f" already appends. Add `footer: false`."
                 )
-            elif meta["footer"] is not False:
+            elif not footer_opted_out(meta):
                 failures.append(
                     f"PR template `{raw_path}` sets `footer:"
-                    f" {meta['footer']!r}` instead of the bare boolean"
-                    f" `false`. Only `false` and the quoted `'false'` opt out;"
-                    f" every other value silently duplicates the attribution"
-                    f" footer."
+                    f" {meta['footer']!r}`, which keeps the attribution footer"
+                    f" the metadata block already appends. Set `footer: false`."
                 )
 
         if failures:

@@ -236,6 +236,6 @@ A repository with a PR-opening job of its own ships the body as a file and passe
 2. **Basename: the job ID**, which is also the PR branch. One exception: a template parametrized with `--template-arg` can serve several jobs, and is then named for what it renders rather than for any one of them (`update-package-spec.md`, feeding a job per packaging channel).
 3. **No `docs` field.** It deep-links the hosted workflows reference, which documents upstream jobs only.
 
-Write `footer: false` as a bare boolean, and never leave it out. Both `false` and the quoted `'false'` opt out, but an absent field, `'False'` and every other value do not, and the failure is silent: the body carries the attribution footer twice.
+Never leave `footer: false` out. Both `false` and the quoted `'false'` opt out, but an absent field, `'False'` and every other value do not, and the failure is silent: the body carries the attribution footer twice.
 
 `repomatic lint-repo` checks the location, the frontmatter, and that every referenced path exists.
