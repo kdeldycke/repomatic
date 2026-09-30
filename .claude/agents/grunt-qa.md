@@ -37,7 +37,7 @@ These issues recur across sessions — check them every pass:
 
 - CLI help output in `readme.md` stale after new subcommands or option changes
 - Version references (`@vX.Y.Z`, `--version` examples) not bumped after releases
-- `GitHub Actions` miscapitalized as "GitHub actions" or "Github Actions"
+- `GitHub Actions` miscapitalized, with a lowercase `h` or `a`
 - Workflow job descriptions missing or outdated after job renames/additions
 - Grammar errors in CLI help strings (`"does not exists"`, missing periods)
 - Verbose "why" explanations in YAML workflow comments that belong in Python docstrings

@@ -530,6 +530,8 @@ def _lookup(parsed: dict, key: str):
         ("coverage.toml", "report.precision", 2),
         # The ratchet ships disabled: a downstream repo opts in by raising it.
         ("coverage.toml", "report.fail_under", 0),
+        # Workflows, agents and skills all live under hidden directories.
+        ("typos.toml", "files.ignore-hidden", False),
     ),
 )
 def test_template_setting(template: str, key: str, expected) -> None:
@@ -547,6 +549,9 @@ def test_template_setting(template: str, key: str, expected) -> None:
         ("pytest.toml", "addopts", "--numprocesses=auto"),
         ("pytest.toml", "addopts", "--import-mode=importlib"),
         ("bumpversion.toml", "current_version", "0"),
+        # Walking hidden files reaches `.git`, which `--write-changes` must
+        # never touch.
+        ("typos.toml", "files.extend-exclude", ".git"),
     ),
 )
 def test_template_list_contains(template: str, key: str, member: str) -> None:
@@ -3129,8 +3134,8 @@ def test_typos_preserves_local_inline_table_keys(tmp_path: Path) -> None:
     assert default["extend-ignore-re"]
 
 
-def test_typos_preserves_local_only_table(tmp_path: Path) -> None:
-    """A table the template omits (`files`) survives the sync untouched."""
+def test_typos_appends_local_excludes_after_template_ones(tmp_path: Path) -> None:
+    """A local `files.extend-exclude` entry survives after the canonical ones."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(PYPROJECT_WITH_TYPOS, encoding="UTF-8")
 
@@ -3138,7 +3143,12 @@ def test_typos_preserves_local_only_table(tmp_path: Path) -> None:
 
     assert result is not None
     files = tomlrt.loads(result)["tool"]["typos"]["files"]
-    assert files["extend-exclude"] == ["assets/Monokai Soda.terminal"]
+    canonical = tomlrt.loads(get_data_content("typos.toml"))["files"]
+    assert files["extend-exclude"] == [
+        *canonical["extend-exclude"],
+        "assets/Monokai Soda.terminal",
+    ]
+    assert files["ignore-hidden"] is False
 
 
 def test_typos_canonical_value_wins_on_conflict(tmp_path: Path) -> None:

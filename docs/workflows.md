@@ -150,6 +150,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 #### ✏️ Fix typos (`fix-typos`)
 
 - Automatically fixes typos in the codebase using [`typos`](https://github.com/crate-ci/typos)
+- Checks hidden files and directories too (`.github/`, `.claude/`) in a repository that [adopted](configuration.md#adopting-a-tool-config) the bundled `[tool.typos]` config. It skips `.git`, and the `.gitignore` and `.mailmap` files that sync jobs maintain.
 
 #### 🛡️ Fix vulnerable dependencies (`fix-vulnerable-deps`)
 

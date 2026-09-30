@@ -290,7 +290,7 @@ def _graft_local_additions(
     carry:
 
     - **Keys the template does not define** are grafted verbatim, so a
-      project-specific table like `[tool.typos.files]` survives untouched.
+      project-specific table like `[tool.typos.type.po]` survives untouched.
     - **Tables present in both** are merged recursively, so local keys inside a
       table the template also defines are kept (like a downstream entry in
       `[tool.typos.default.extend-identifiers]` next to the canonical ones).

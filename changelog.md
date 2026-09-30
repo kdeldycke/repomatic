@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- `fix-typos` now checks hidden files and directories like `.github/` and `.claude/`, through the bundled `[tool.typos]` config.
 - `ci-status` now reads runs back from the branch tip, commit by commit, so a stale run listing no longer reports months-old runs as the latest.
 - `lint-repo` no longer flags a PR template that opts out of the footer with the quoted `footer: 'false'`, which `pr-body` honors.
 - `lint-repo --help` now lists every check the command runs, rendered from the check roster.
