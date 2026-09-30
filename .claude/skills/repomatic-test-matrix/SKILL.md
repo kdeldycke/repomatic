@@ -81,11 +81,11 @@ That table is the only source read, and it badges an image `deprecated` when dep
 
 GitHub's *preview* label chiefly gates `-latest` alias eligibility, and no workflow here uses a floating alias, so it says nothing about whether the image runs the suite green.
 
-Never introduce a `-latest` alias to sidestep the question: GitHub repoints those with no commit to review, and `lint-repo` rejects them.
+Never introduce a `-latest` alias to sidestep the question: GitHub repoints those with no commit to review, and `lint-repo` warns about them.
 
 ### Every job runs on a test axis
 
-The images a job may run on are exactly those the test matrices use, and `lint-repo` rejects any other `runs-on:`. Read the effective set from `repomatic show-metadata` rather than from the package source, which a repository consuming repomatic does not have checked out. That keeps "where is the suite exercised" and "what may a job run on" a single question, because each extra image is one more to track, pin and migrate.
+The images a job may run on are exactly those the test matrices use, and `lint-repo` warns about any other `runs-on:`. Read the effective set from `repomatic show-metadata` rather than from the package source, which a repository consuming repomatic does not have checked out. That keeps "where is the suite exercised" and "what may a job run on" a single question, because each extra image is one more to track, pin and migrate.
 
 A job that genuinely needs something else widens the axes rather than naming a one-off image. This covers the Linux Nuitka hosts (a published binary is built on the image the suite is validated against, and its toolchain comes from a digest-pinned manylinux container regardless) and the light mechanical jobs.
 

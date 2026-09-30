@@ -93,9 +93,9 @@ LATEST_TOKEN = "latest"
 
 Tested per part rather than as a suffix, because the alias is not always
 trailing: the x64 macOS row offers `macos-latest-large` beside `macos-26-intel`,
-and a `-latest$` test keeps the very label `lint-repo` rejects. GitHub repoints
-these with no commit to review, so filtering here means no caller can propose
-one by accident.
+and a `-latest$` test keeps the very label `lint-repo` warns about. GitHub
+repoints these with no commit to review, so filtering here means no caller can
+propose one by accident.
 """
 
 SIZED_SUFFIXES = ("-large", "-xlarge")

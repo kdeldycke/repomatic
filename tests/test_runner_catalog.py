@@ -85,7 +85,7 @@ def test_no_floating_alias_survives(catalog) -> None:
 
     `macos-latest-large` is the one that matters: a suffix test keeps it, and a
     caller writing it into a `runs-on:` would introduce the exact floating
-    alias `lint-repo` rejects.
+    alias `lint-repo` warns about.
     """
     leaked = [
         label

@@ -166,13 +166,13 @@ The same spirit covers the matrix's other invariants: its lowest Python should e
 | [`windows-11-arm`](https://github.com/actions/runner-images/blob/main/images/windows/Windows11-Arm64-Readme.md)   | Windows | ARM64                 | no        | Compute ties `windows-2025`; full-matrix only, for native ARM64 execution coverage.                                                  |
 | [`windows-2025`](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)         | Windows | x86-64                | yes       | Compute tied with `windows-11-arm`; the PR-set Windows pick.                                                                         |
 
-**Every job runs on one of these six.** The light mechanical jobs and the Linux Nuitka build hosts included: "where is the suite exercised" and "what may a job run on" are one question, so `lint-repo` fails any `runs-on:` naming something else. Each extra image is one more to track, pin and migrate, and the one that used to sit outside the axes lost the measurement that justified it (see [§ The lean-image question, settled](#the-lean-image-question-settled)).
+**Every job runs on one of these six.** The light mechanical jobs and the Linux Nuitka build hosts included: "where is the suite exercised" and "what may a job run on" are one question, so `lint-repo` warns about any `runs-on:` naming something else. Each extra image is one more to track, pin and migrate, and the one that used to sit outside the axes lost the measurement that justified it (see [§ The lean-image question, settled](#the-lean-image-question-settled)).
 
 ### Preview images and what "stable" means here
 
 `repomatic` moved onto the Ubuntu 26.04 pair while GitHub still labelled it **preview**, and shipped it as stable test axes anyway. GitHub [declared the pair generally available on 2026-09-17](https://github.com/actions/runner-images/issues/14747), so the label is gone. The reasoning behind that move still applies to the next image that ships as a preview. It is the one place this project overrides a vendor's own classification.
 
-An image is treated as stable here once it has been validated against this suite, not once GitHub relabels it. The preview flag primarily gates whether an image is eligible to sit behind `ubuntu-latest` and the other `-latest` aliases. This project never uses those aliases: a floating alias re-points to a new image with no commit to review, so a breakage arrives detached from any change, which is why `lint-repo` rejects a `-latest` runner outright. With the alias question off the table, what remains is whether the image runs the suite correctly and quickly, and that is measurable.
+An image is treated as stable here once it has been validated against this suite, not once GitHub relabels it. The preview flag primarily gates whether an image is eligible to sit behind `ubuntu-latest` and the other `-latest` aliases. This project never uses those aliases: a floating alias re-points to a new image with no commit to review, so a breakage arrives detached from any change, which is why `lint-repo` warns about every `-latest` runner. With the alias question off the table, what remains is whether the image runs the suite correctly and quickly, and that is measurable.
 
 It was measured before the swap. Both images ran the full matrix as `continue-on-error` cells over consecutive pushes, alongside the GA runners they would replace:
 
@@ -247,7 +247,7 @@ Measuring it settled the question in one pass. Every `runs-on: ubuntu-slim` move
 
 Twenty of twenty-two jobs improved, by 20-56%. One tied and one was 5% slower, both inside the noise. `Format Markdown`, the only compute-bound job, went from 151s to 101s, far past the 1.13x that timing the tool pass alone had predicted.
 
-The lean image was never faster; it was slower almost everywhere, and most of the gap sits in exactly the setup phase the earlier measurement could not see. So `ubuntu-slim` is retired, and `lint-repo` now rejects it like any other untracked image.
+The lean image was never faster; it was slower almost everywhere, and most of the gap sits in exactly the setup phase the earlier measurement could not see. So `ubuntu-slim` is retired, and `lint-repo` now warns about it like any other untracked image.
 
 ```{caution}
 The `ubuntu-26.04` column is a single run against a seven-to-nine run baseline, so treat the *magnitude* as provisional. What makes the direction trustworthy is that twenty of twenty-two independent jobs moved the same way at once, which noise does not usually do. Re-confirm against your own timings before copying the conclusion: a project whose light jobs are dominated by something else may still find the lean image wins.
