@@ -93,8 +93,7 @@ def _wrap_setup_step(title: str, content: str, *, passed: bool | None) -> str:
 
 
 CANNOT_VERIFY = (
-    "\n\n> [!NOTE]\n"
-    "> This setting could not be verified: `REPOMATIC_PAT` is missing the"
+    "\n\n> ℹ️ **Note**: This setting could not be verified: `REPOMATIC_PAT` is missing the"
     " **Administration: Read-only** permission. Update the token with the"
     " pre-filled link in the first step. The setting may well be correct"
     " already, but nothing here can confirm it."

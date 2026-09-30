@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - The setup guide's R2 keys step now mirrors the Cloudflare Pages step, with the wrangler and dashboard routes and a dated token name.
+- Fix the setup guide's notes showing a literal `[!NOTE]` marker: GitHub renders no alert inside a step's collapsible block.
 - `fix-typos` now checks hidden files and directories like `.github/` and `.claude/`, through the bundled `[tool.typos]` config.
 - `ci-status` now reads runs back from the branch tip, commit by commit, so a stale run listing no longer reports months-old runs as the latest.
 - `lint-repo` no longer flags a PR template that opts out of the footer with the quoted `footer: 'false'`, which `pr-body` honors.

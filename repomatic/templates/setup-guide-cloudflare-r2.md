@@ -13,8 +13,7 @@ footer: 'false'
 
    Or `wrangler r2 bucket create $bucket` then `wrangler r2 bucket domain add $bucket --domain $domain --zone-id {zone-id} --min-tls 1.2`, or the dashboard: **[R2 object storage](https://dash.cloudflare.com/?to=/:account/r2/overview)** to create the bucket, then its **Settings** → **Custom Domains** → **Add**.
 
-   > [!WARNING]
-   > The dashboard cannot set the TLS floor. Run `repomatic cloudflare-r2 --create` once afterwards to raise it to 1.2.
+   > ⚠️ **Warning**: The dashboard cannot set the TLS floor. Run `repomatic cloudflare-r2 --create` once afterwards to raise it to 1.2.
 
 2. Create the API token from **[R2 object storage](https://dash.cloudflare.com/?to=/:account/r2/overview)** → **Account Details** → **Manage** next to **API Tokens** → **Create Account API token**: named `$token_name`, carrying **Object Read & Write**, applied to the `$bucket` bucket only. Give it a **one-year** TTL. The generic **[account API tokens](https://dash.cloudflare.com/?to=/:account/api-tokens)** form works too, where that permission reads **Workers R2 Storage Bucket Item Read** and **Write**.
 
@@ -27,5 +26,4 @@ footer: 'false'
 
    When the form shows only a token value, the Access Key ID is the token's ID and the Secret Access Key is the SHA-256 of the value. No other secret is needed: the account is derived from `CLOUDFLARE_API_TOKEN`.
 
-> [!NOTE]
-> To go back, remove `site.cloudflare-r2-bucket` and `site.cloudflare-r2-domain`. The R2 secrets go unread and this step disappears, but the deploy then fails on any file over 25 MiB.
+> ℹ️ **Note**: To go back, remove `site.cloudflare-r2-bucket` and `site.cloudflare-r2-domain`. The R2 secrets go unread and this step disappears, but the deploy then fails on any file over 25 MiB.

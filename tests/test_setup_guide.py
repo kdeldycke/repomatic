@@ -37,7 +37,7 @@ from repomatic.cli.main import repomatic as repomatic_cli
 from repomatic.github.pr_body import load_template
 from repomatic.github.token import PatPermissionResults
 from repomatic.lint_repo import CheckResult
-from repomatic.setup_guide import SETUP_STEPS
+from repomatic.setup_guide import CANNOT_VERIFY, SETUP_STEPS
 from tests.conftest import pat_results
 
 TYPE_CHECKING = False
@@ -755,6 +755,36 @@ def test_every_setup_step_feeds_the_close_gate():
     # Keep the exemptions honest: a title that no longer renders must not
     # linger here, silently excusing a future step that reuses the name.
     assert GATE_EXEMPT_STEPS <= {step.title for step in SETUP_STEPS}
+
+
+GITHUB_ALERT = re.compile(
+    r"^\s*> \[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]", re.MULTILINE
+)
+"""A GitHub alert marker, which renders as literal text inside `<details>`."""
+
+
+@pytest.mark.parametrize(
+    ("name", "body"),
+    (
+        *(
+            pytest.param(
+                step.template, load_template(step.template)[1], id=step.template
+            )
+            for step in SETUP_STEPS
+        ),
+        pytest.param("CANNOT_VERIFY", CANNOT_VERIFY, id="CANNOT_VERIFY"),
+    ),
+)
+def test_setup_steps_carry_no_github_alert(name, body):
+    """Every step renders inside a `<details>` block, where GitHub renders no alert.
+
+    A `> [!NOTE]` there shows its marker as plain text in the issue. A step
+    writes its notes as emoji-labelled quotes instead, like the organization tip.
+    """
+    assert not GITHUB_ALERT.search(body), (
+        f"{name} uses GitHub alert syntax, which the setup guide's <details>"
+        " blocks render as plain text. Write `> ⚠️ **Warning**: …` instead."
+    )
 
 
 def test_setup_step_placeholders_match_the_template():

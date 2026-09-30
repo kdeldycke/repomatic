@@ -17,5 +17,4 @@ Optional. Submitting release binaries to VirusTotal seeds AV vendor databases an
 
    Or by hand: **[Settings → Secrets → Actions]($repo_url/settings/secrets/actions)** → **New repository secret** → `VIRUSTOTAL_API_KEY`.
 
-> [!IMPORTANT]
-> With the key set, each release also appends its scan results and the refreshed `docs/binaries.md` to one long-lived pull request you merge when it suits you: see the [rationale](https://repomatic.net/operation-contracts#scanning-accumulates-in-one-pull-request). Keep the scan without the recording by setting `binaries.sync = false` in `[tool.repomatic]`.
+> ❗ **Important**: With the key set, each release also appends its scan results and the refreshed `docs/binaries.md` to one long-lived pull request you merge when it suits you: see the [rationale](https://repomatic.net/operation-contracts#scanning-accumulates-in-one-pull-request). Keep the scan without the recording by setting `binaries.sync = false` in `[tool.repomatic]`.

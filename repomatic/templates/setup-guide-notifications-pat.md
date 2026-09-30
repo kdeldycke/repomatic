@@ -17,5 +17,4 @@ The [unsubscribe workflow]($repo_url/actions/workflows/unsubscribe.yaml) needs i
 
    Or by hand: **[Settings → Secrets → Actions]($repo_url/settings/secrets/actions)** → **New repository secret** → `REPOMATIC_NOTIFICATIONS_PAT`.
 
-> [!NOTE]
-> Notifications are account-wide, so one repository holding this secret cleans the whole inbox. There is no need to repeat it everywhere the workflow is enabled.
+> ℹ️ **Note**: Notifications are account-wide, so one repository holding this secret cleans the whole inbox. There is no need to repeat it everywhere the workflow is enabled.
