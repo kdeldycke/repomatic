@@ -3182,6 +3182,37 @@ def test_typos_update_idempotent(tmp_path: Path) -> None:
     assert init_config("typos", pyproject) is None
 
 
+def test_typos_carries_comments_on_local_array_items(tmp_path: Path) -> None:
+    """A local `extend-ignore-re` item keeps its comments through a rebuild.
+
+    A local array lacking a canonical item is rebuilt from the template, and
+    each local item is appended to it as a decoded value: the comment block
+    above the item and the comment after it have to be copied across.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        """\
+[tool.typos]
+default.extend-ignore-re = [
+  # Quoted from a storm forecast.
+  "hail-warning",
+  "rainbow",  # Seen after the rain.
+]
+""",
+        encoding="UTF-8",
+    )
+
+    result = init_config("typos", pyproject)
+
+    assert result is not None
+    ignore = tomlrt.loads(result)["tool"]["typos"]["default"]["extend-ignore-re"]
+    canonical = tomlrt.loads(get_data_content("typos.toml"))["default"]
+    offset = len(canonical["extend-ignore-re"])
+    assert ignore == [*canonical["extend-ignore-re"], "hail-warning", "rainbow"]
+    assert ignore.leading_block[offset] == ("Quoted from a storm forecast.",)
+    assert ignore.comments[offset + 1] == "Seen after the rain."
+
+
 def test_typos_merged_inline_tables_use_pyproject_fmt_spacing(tmp_path: Path) -> None:
     """Merged inline tables render `{ ... }`, matching pyproject-fmt.
 

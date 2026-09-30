@@ -276,6 +276,25 @@ def _entry_identity(
     return tuple((key, entry[key]) for key in identity_keys if key in entry)
 
 
+def _carry_item_comments(
+    source: tomlrt.Array, index: int, target: tomlrt.Array
+) -> None:
+    """Copy the comments of *source*'s item *index* onto *target*'s last item.
+
+    Iterating a tomlrt array yields decoded values, so an item appended from
+    one arrives bare: the comment block above it and the comment after it stay
+    behind. tomlrt keeps both in views keyed by item position. Writing one
+    turns a single-line *target* into one item per line, since a comment needs
+    a line of its own.
+    """
+    block = source.leading_block.get(index)
+    if block:
+        target.leading_block[len(target) - 1] = block
+    trailing = source.comments.get(index)
+    if trailing:
+        target.comments[len(target) - 1] = trailing
+
+
 def _graft_local_additions(
     target: Any,
     template: Mapping[str, Any],
@@ -304,8 +323,11 @@ def _graft_local_additions(
     - **Scalars present in both** are left as the template defines them: the
       canonical value wins, which is the point of an ongoing sync.
 
-    Grafted nodes are copied from *existing*, so comments and inline
-    formatting on local additions carry over.
+    Grafted keys are copied from *existing* as nodes, so their comments and
+    inline formatting carry over. A local-only array item is appended as a
+    value instead: its comments are copied across by
+    {func}`_carry_item_comments`, but its lexeme is re-emitted in tomlrt's own
+    style.
 
     :param target: tomlrt table built from the bundled template, mutated in
         place.
@@ -344,8 +366,8 @@ def _graft_local_additions(
             )
             # Array in both: append local-only items, preserving their order.
             grafted = [
-                item
-                for item in existing_value
+                (index, item)
+                for index, item in enumerate(existing_value)
                 # Same slot as a canonical entry: superseded by the template.
                 if not (
                     isinstance(item, dict)
@@ -353,7 +375,7 @@ def _graft_local_additions(
                 )
                 and item not in template_value
             ]
-            if list(existing_value) == list(template_value) + grafted:
+            if list(existing_value) == [*template_value, *(i for _, i in grafted)]:
                 # The merge changes nothing, so keep the array the project
                 # wrote instead of rebuilding an equal one. Rebuilding re-emits
                 # every item in tomlrt's own style, because iterating an array
@@ -362,12 +384,15 @@ def _graft_local_additions(
                 # as an escaped `"base32 \"[0-9a-z]{52}\""`. Same content, and
                 # `pyproject-fmt` rewrites it straight back, so the unattended
                 # `sync-repomatic` and `format-pyproject` jobs each open a pull
-                # request undoing the other's, forever. Keeping the node also
-                # spares the per-entry comments a rebuild would drop.
+                # request undoing the other's, forever.
                 target[key] = existing_value
                 continue
-            for item in grafted:
+            for index, item in grafted:
                 target[key].append(item)
+                if isinstance(existing_value, tomlrt.Array) and isinstance(
+                    target[key], tomlrt.Array
+                ):
+                    _carry_item_comments(existing_value, index, target[key])
         # Scalar in both: the canonical template value wins, nothing to graft.
 
 
