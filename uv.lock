@@ -465,7 +465,7 @@ wheels = [
 
 [[package]]
 name = "click-extra"
-version = "9.3.3"
+version = "9.3.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boltons" },
@@ -478,9 +478,9 @@ dependencies = [
     { name = "wcmatch" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/87/0c/728a88e0d35562f4751d7aa7cee8f6a41ab2425c5e6cf03cc1164a3de381/click_extra-9.3.3.tar.gz", hash = "sha256:6d81750fd943c44b9dd578c5cbb3955244666b404453baf3d1137c632761ffb5", size = 1680747, upload-time = "2026-09-19T15:49:43.487Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0d/55/0df59ddb83d4873d3db6e1056f296496a05f7030637a5f0ab77aba43952e/click_extra-9.3.4.tar.gz", hash = "sha256:4d01b9d11a5ba1aeec13af5e2ec340e27a912ffb9e5fc25faf925a5b84175f9a", size = 1695320, upload-time = "2026-09-23T14:32:43.043Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a0/71/fb7a241a9285cf509285bff776dcecedb2402635bda5a05f2eb9f54e9248/click_extra-9.3.3-py3-none-any.whl", hash = "sha256:11c7d1459ffa746d62e477643919de1b8331fa78fe185fdf442d3fb44bc10872", size = 647592, upload-time = "2026-09-19T15:49:41.287Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/ea/4f51c58b0e716cd4f674d96c98d06476e867f565370e031313f7db580097/click_extra-9.3.4-py3-none-any.whl", hash = "sha256:6ce6c347a69d34b4aaa786538042a590a69f97c201f9231e65b7d20602409cf0", size = 648895, upload-time = "2026-09-23T14:32:41.194Z" },
 ]
 
 [package.optional-dependencies]
