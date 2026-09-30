@@ -33,7 +33,7 @@ When working inside `kdeldycke/repomatic`, see [`docs/upstream-development.md` Â
 
 ### Changelog: what counts as breaking here
 
-`repomatic` is invoked rather than imported, so `**Breaking:**` here covers the surfaces a user touches: CLI commands and options, `[tool.repomatic]` config keys, reusable-workflow inputs and job names, `repomatic show-metadata` output keys, and bundled assets.
+`repomatic` is invoked rather than imported, so `**Breaking:**` here covers the surfaces a user touches: CLI commands and options, `[tool.repomatic]` config keys, reusable-workflow inputs, job names and outcomes, `repomatic show-metadata` output keys, and bundled assets.
 
 ### CLI and configuration as primary abstractions
 

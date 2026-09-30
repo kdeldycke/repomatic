@@ -135,7 +135,7 @@ class GuideContext:
     has_cloudflare_api_token: bool
     """Whether `CLOUDFLARE_API_TOKEN` is configured."""
 
-    has_cloudflare_r2_keys: bool = False
+    has_cloudflare_r2_keys: bool
     """Whether `CLOUDFLARE_R2_ACCESS_KEY_ID` and `CLOUDFLARE_R2_SECRET_ACCESS_KEY`
     are both configured."""
 

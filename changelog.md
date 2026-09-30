@@ -6,17 +6,17 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** The Docs workflow's Cloudflare deploy now fails when it has to drop a file over 25 MiB, once the rest of the site is published. Declare `site.cloudflare-r2-bucket` to serve such files instead.
-- Add `cloudflare-r2`, which serves site files over the 25 MiB Cloudflare Pages limit from the R2 bucket that `site.cloudflare-r2-bucket` and `site.cloudflare-r2-domain` declare.
-- The Docs workflow's Cloudflare deploy now moves files over 25 MiB to that bucket.
+- Add `cloudflare-r2` and the `site.cloudflare-r2-bucket` and `site.cloudflare-r2-domain` keys: the Docs workflow's Cloudflare deploy now serves files over 25 MiB from that R2 bucket.
 - `lint-repo` now warns about a tracked file over the 25 MiB Cloudflare Pages limit when no R2 bucket is declared.
 - `lint-repo` and the setup guide now ask for `CLOUDFLARE_R2_ACCESS_KEY_ID` and `CLOUDFLARE_R2_SECRET_ACCESS_KEY` when `site.cloudflare-r2-bucket` is declared.
-- Raise the `tomlrt` floor to `2.2.4`.
 - The bundled `repomatic-deps` skill now bisects a floor that rests on a behavior rather than an API, and reads deprecated calls off the test suite's warnings summary.
 - The bundled `awesome-triage` skill now closes a declined commercial submission with one fixed sponsorship phrase, and orders draft comments shortest first.
 - The bundled `awesome-triage` skill now traces a candidate to its primary source, and verifies every row of a small factual table.
 - The bundled `repomatic-ship` skill now keeps signed commits inside the sandbox when the sandbox settings allow the signing agent's socket and files.
 - The bundled `babysit-ci` skill now fetches run logs inside the sandbox first, and leaves it only when the `gh` cache write fails.
+- The bundled `babysit-ci` skill now reports a Cloudflare deploy that dropped a file over 25 MiB, and re-runs it only when the upload failed.
 - The bundled `babysit-ci` and `repomatic-ship` skills now keep their failure catalog and two rare procedures in `references/` pages, read on demand.
+- Raise the `tomlrt` floor to `2.2.4`.
 
 ## [`7.16.3` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.16.2...v7.16.3)
 

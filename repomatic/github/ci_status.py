@@ -77,7 +77,7 @@ UNSTABLE_GLYPH = "⁉️"
 
 A red one never gates a merge, which is exactly why it has to be told apart
 from a required cell rather than counted with it. A release still fixes what
-it can: see `claude.md` on the genuinely-green goal.
+it can: see the `repomatic-ship` skill on the genuinely-green goal.
 """
 
 TERMINAL_STATUSES = frozenset({"completed"})

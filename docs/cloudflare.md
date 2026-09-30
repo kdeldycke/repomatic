@@ -127,7 +127,7 @@ The diff is honest about its own confidence. Each stock default is tagged `docum
 Direct Upload rejects any file over 25 MiB, and `wrangler` fails the whole deploy on the first one it meets. So the deploy job first runs `repomatic cloudflare-r2 --offload` on the built tree, which does one of two things with each such file:
 
 - With an R2 bucket declared, it uploads the file to the bucket. Then it adds a rule to the built `_redirects` that sends the file's old path there. The site's sources and links do not change.
-- Without a bucket, or when the file cannot move, it deletes the file from the tree and emits an error annotation that explains how to serve it from R2. Everything else still publishes, then the job fails: the dropped file's links are dead, and a green run would hide that.
+- Without a bucket, or when the file cannot move, it deletes the file from the tree and emits an error annotation that names the file and the reason, with a pointer to this section when the bucket or its keys are missing. Everything else still publishes, then the job fails: the dropped file's links are dead, and a green run would hide that.
 
 Each file gets a row in the run's step summary. `lint-repo` also warns about a tracked file over the limit when no bucket is declared, before a deploy drops it. Once a bucket is declared, `lint-repo` and the setup guide issue both report whether its two upload secrets exist.
 
@@ -202,7 +202,7 @@ Three things keep it working:
 
 A `sphinx.builder` switch from `html` to `dirhtml` can ride along without adding a single rule. Cloudflare Pages resolves `/page.html` to the `page/index.html` that `dirhtml` writes and `301`s to `/page/` on its own, so an old `…github.io/<repo>/install.html` link lands on `<domain>/install/` in two hops, each a permanent redirect. Neither hop is anything you maintain.
 
-What is left is the repository advertising the old host itself: the GitHub homepage field, `[project.urls]`, badges, and every absolute self-link in the docs and in the PR and issue templates that render into other repositories. `lint-repo`'s website check catches a half-finished job by comparing the homepage field against the declared documentation URL. Once traffic lives on Cloudflare, any *further* URL move is the [redirects engine's](#the-redirects-engine-as-it-actually-is) job: GitHub's redirect answers for the old host, `_redirects` for the new one, and neither can do the other's work.
+What is left is the repository advertising the old host itself: the GitHub homepage field, `[project.urls]`, badges, and every absolute self-link in the docs and in the PR and issue templates that render into other repositories. `lint-repo` catches a half-finished job twice: its website check compares the homepage field against the declared documentation URL, and its Pages redirect check warns when `[project.urls]` still names the `github.io` host, GitHub Pages is disabled, or its custom domain is unset or names another host. Once traffic lives on Cloudflare, any *further* URL move is the [redirects engine's](#the-redirects-engine-as-it-actually-is) job: GitHub's redirect answers for the old host, `_redirects` for the new one, and neither can do the other's work.
 
 ## Headers and content types
 

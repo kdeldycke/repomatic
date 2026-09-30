@@ -92,8 +92,10 @@ from .cloudflare import (
     _zone_for,
 )
 from .github.actions import AnnotationLevel, ReportAction, emit_annotation
+from .hashing import compute_file_sha256
 from .humanize import format_file_size
 from .pages_redirects import parse_redirects
+from .tabular import render_markdown_table
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -124,7 +126,8 @@ MIN_TLS: Final = "1.2"
 """TLS floor of the bucket's custom domain. R2 defaults to `1.0`."""
 
 OFFLOAD_DOCS_URL: Final = "https://repomatic.net/cloudflare#files-over-25-mib"
-"""Where the error for a dropped file sends the reader to set up R2."""
+"""Where a message about a dropped file or a missing key sends the reader to set
+up R2."""
 
 PAGE_SUFFIXES: Final = frozenset((".htm", ".html"))
 """Extensions of pages, which stay out of the bucket. See the module
@@ -238,8 +241,8 @@ def _send(request: urllib.request.Request, label: str) -> None:
         raise CloudflareHTTPError(msg, error.code) from error
     # `URLError` covers a refused connection, but a timeout or a reset in the
     # middle of a long upload arrives as a bare `OSError` or `HTTPException`.
-    # Converting all of them keeps the offload's promise never to fail the
-    # deploy.
+    # Converting all of them keeps the offload's promise to leave the tree
+    # ready to deploy.
     except (OSError, http.client.HTTPException) as error:
         msg = f"{label} failed: {getattr(error, 'reason', error)}"
         raise CloudflareError(msg) from error
@@ -363,14 +366,6 @@ def oversized_files(root: Path) -> list[Path]:
     )
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _refusal(path: Path, size: int, bucket: R2Bucket | None, unavailable: str) -> str:
     """Why *path* cannot move to *bucket*, or an empty string when it can."""
     if path.suffix.lower() in PAGE_SUFFIXES:
@@ -431,7 +426,7 @@ def offload(
     :param files: Files under *root* over the Pages limit.
     :param bucket: Where the files go. `None` drops them all.
     :param domain: Host that serves *bucket*.
-    :param unavailable: Why *bucket* is `None`, repeated in each warning.
+    :param unavailable: Why *bucket* is `None`, repeated as each file's reason.
     :return: One entry per file, in the order of *files*.
     """
     results: list[Offload] = []
@@ -447,7 +442,7 @@ def offload(
             path.unlink()
             continue
         try:
-            digest = _sha256(path)
+            digest = compute_file_sha256(path)
             key = f"{digest}/{path.name}"
             if bucket.exists(key):
                 action = ReportAction.SKIPPED
@@ -499,20 +494,21 @@ def _report(results: Sequence[Offload]) -> None:
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary:
         return
-    lines = [
-        "### Files over the Cloudflare Pages size limit",
-        "",
-        "| File | Size | Result | Served from |",
-        "| :--- | ---: | :--- | :--- |",
-    ]
-    for entry in results:
-        where = entry.url or f"Nowhere: {entry.reason}"
-        lines.append(
-            f"| `{entry.path}` | {format_file_size(entry.size)}"
-            f" | {entry.action.value} | {where} |"
-        )
+    table = render_markdown_table(
+        ("File", "Size", "Result", "Served from"),
+        (
+            (
+                f"`{entry.path}`",
+                format_file_size(entry.size),
+                entry.action.value,
+                entry.url or f"Nowhere: {entry.reason}",
+            )
+            for entry in results
+        ),
+        align=("left", "right", "left", "left"),
+    )
     with open(summary, "a", encoding="UTF-8") as stream:
-        stream.write("\n".join(lines) + "\n")
+        stream.write(f"### Files over the Cloudflare Pages size limit\n\n{table}\n")
 
 
 def _bucket_from_environment(bucket: str, project: str) -> tuple[R2Bucket | None, str]:
@@ -708,10 +704,10 @@ def run_cloudflare_r2(
 
     if create:
         echo(
-            "\nUploads from CI need a key pair limited to this bucket. In the"
-            " dashboard, open R2, then Manage API tokens, and create an account"
-            f" API token with Object Read & Write on {bucket!r} only. Store its"
-            f" Access Key ID as {ACCESS_KEY_ID_ENV} and its Secret Access Key"
-            f" as {SECRET_ACCESS_KEY_ENV}, in the repository secrets."
+            "\nUploads from CI need a key pair limited to this bucket. Create an"
+            f" account API token with Object Read & Write on {bucket!r} only."
+            f" Store its Access Key ID as {ACCESS_KEY_ID_ENV} and its Secret"
+            f" Access Key as {SECRET_ACCESS_KEY_ENV}, in the repository secrets:"
+            f" see {OFFLOAD_DOCS_URL}"
         )
     return 1 if drift else 0

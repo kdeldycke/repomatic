@@ -209,7 +209,7 @@ ride the regular sync.
 is strictly one-to-one, renaming only when the target is absent and exactly one
 listed source exists. It therefore cannot merge several labels into one, and is
 useless once a sync has already created the target. See "Retiring a label is a
-migration, not a deletion" in `claude.md`."""
+migration, not a deletion" in the `github-housekeeping` skill."""
 
 
 def _resolve_rules(

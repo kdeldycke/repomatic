@@ -3115,17 +3115,17 @@ class LintContext:
     would.
     """
 
-    site_cloudflare_project: str = ""
+    site_cloudflare_project: str = Config.site_cloudflare_project
     """Cloudflare Pages project name override, per `site.cloudflare-project`.
 
     Empty means the project is named after the repository, the deploy job's
     own fallback.
     """
 
-    site_cloudflare_compatibility_date: str = ""
+    site_cloudflare_compatibility_date: str = Config.site_cloudflare_compatibility_date
     """Declared Workers runtime date, per `site.cloudflare-compatibility-date`."""
 
-    site_cloudflare_r2_bucket: str = ""
+    site_cloudflare_r2_bucket: str = Config.site_cloudflare_r2_bucket
     """R2 bucket serving the files over the Pages limit, per
     `site.cloudflare-r2-bucket`. Empty means the deploy drops them."""
 
@@ -3400,10 +3400,10 @@ def _cloudflare_r2_secrets(ctx: LintContext) -> CheckResult:
         "CLOUDFLARE_R2_ACCESS_KEY_ID and CLOUDFLARE_R2_SECRET_ACCESS_KEY are not"
         " both configured, while site.cloudflare-r2-bucket declares"
         f" {ctx.site_cloudflare_r2_bucket!r}: the deploy drops every file over"
-        " 25 MiB instead of serving it from R2. In the dashboard's R2 section,"
-        " create an account API token with Object Read & Write, limited to that"
-        " bucket, and store its Access Key ID and Secret Access Key as those two"
-        " repository secrets.",
+        " 25 MiB instead of serving it from R2. Create an account API token with"
+        " Object Read & Write, limited to that bucket, and store its Access Key"
+        " ID and Secret Access Key as those two repository secrets: see"
+        f" {OFFLOAD_DOCS_URL}",
     )
 
 
