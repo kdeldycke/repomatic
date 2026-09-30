@@ -15,6 +15,9 @@
 
 ## [`7.16.3` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.16.2...v7.16.3)
 
+> [!NOTE]
+> `7.16.3` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.16.3/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.16.3).
+
 - `lint-repo` now warns when a seeded tool config (`ruff`, `pytest`, `coverage`, `mypy`, `mdformat`) lacks an entry its bundled template gained after the seeding.
 - `lint-repo` now warns when a `[tool.lychee] exclude` entry is the bare form of one the bundled template has since anchored, which an ongoing sync grafts back beside its own replacement.
 - `update-docs` now lists each generated API page in its parent `toctree`, so a new module no longer needs a hand edit.
