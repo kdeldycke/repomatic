@@ -34,10 +34,13 @@ A *released* free-threaded build (`3.14t`) is a different case and runs **stable
 A cell justifies itself by having failed while its siblings passed. Anything less is a hypothesis, and the repository already holds the evidence to test it: walk recent runs of the workflow and, for every failing cell, check whether the *same OS* passed at its other Python version in that same run. A cell that never fails alone has never repaid its cost.
 
 ```shell-session
-$ gh run list --workflow tests.yaml --branch main --limit 40 --json databaseId
+$ gh api 'repos/{owner}/{repo}/actions/workflows/tests.yaml/runs?branch=main&created=>={date}&per_page=40' \
+    --jq '.workflow_runs[].id'
 $ gh run view {run-id} --json jobs \
     --jq '.jobs[] | select(.name | test("py")) | "\(.name): \(.conclusion)"'
 ```
+
+Keep the `created` filter, and do not use `gh run list` instead. Both an unfiltered page and that command can show runs weeks old as the newest ones.
 
 Count cancelled runs too. A busy default branch cancels most of its runs through `cancel-in-progress`, and the cells that had already reported a verdict inside them are where most of the failure history lives; filtering to conclusive runs alone can shrink a real sample to nothing.
 

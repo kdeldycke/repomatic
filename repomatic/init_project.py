@@ -323,11 +323,12 @@ def _graft_local_additions(
     - **Scalars present in both** are left as the template defines them: the
       canonical value wins, which is the point of an ongoing sync.
 
-    Grafted keys are copied from *existing* as nodes, so their comments and
-    inline formatting carry over. A local-only array item is appended as a
-    value instead: its comments are copied across by
-    {func}`_carry_item_comments`, but its lexeme is re-emitted in tomlrt's own
-    style.
+    Grafted keys are copied from *existing* as nodes, so the comments and
+    inline formatting inside them carry over. A comment beside the grafted key
+    itself belongs to the parent table's layout, not to the node, and is lost.
+    A local-only array item is appended as a value instead: its comments are
+    copied across by {func}`_carry_item_comments`, but its lexeme is re-emitted
+    in tomlrt's own style.
 
     :param target: tomlrt table built from the bundled template, mutated in
         place.
@@ -365,8 +366,8 @@ def _graft_local_additions(
                 else set()
             )
             # Array in both: append local-only items, preserving their order.
-            grafted = [
-                (index, item)
+            grafted = {
+                index: item
                 for index, item in enumerate(existing_value)
                 # Same slot as a canonical entry: superseded by the template.
                 if not (
@@ -374,8 +375,8 @@ def _graft_local_additions(
                     and _entry_identity(item, identity_keys) in template_slots
                 )
                 and item not in template_value
-            ]
-            if list(existing_value) == [*template_value, *(i for _, i in grafted)]:
+            }
+            if list(existing_value) == [*template_value, *grafted.values()]:
                 # The merge changes nothing, so keep the array the project
                 # wrote instead of rebuilding an equal one. Rebuilding re-emits
                 # every item in tomlrt's own style, because iterating an array
@@ -387,7 +388,7 @@ def _graft_local_additions(
                 # request undoing the other's, forever.
                 target[key] = existing_value
                 continue
-            for index, item in grafted:
+            for index, item in grafted.items():
                 target[key].append(item)
                 if isinstance(existing_value, tomlrt.Array) and isinstance(
                     target[key], tomlrt.Array

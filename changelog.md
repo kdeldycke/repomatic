@@ -5,14 +5,15 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- The setup guide's R2 keys step now mirrors the Cloudflare Pages step, with the wrangler and dashboard routes and a dated token name.
-- Fix the setup guide's notes showing a literal `[!NOTE]` marker: GitHub renders no alert inside a step's collapsible block.
 - `fix-typos` now checks hidden files and directories like `.github/` and `.claude/`, through the bundled `[tool.typos]` config.
-- `ci-status` now reads runs back from the branch tip, commit by commit, so a stale run listing no longer reports months-old runs as the latest.
-- `lint-repo` no longer flags a PR template that opts out of the footer with the quoted `footer: 'false'`, which `pr-body` honors.
 - `lint-repo --help` now lists every check the command runs, rendered from the check roster.
+- The setup guide's R2 keys step now mirrors the Cloudflare Pages step, with the wrangler and dashboard routes and a dated token name.
+- `ci-status` now reads runs back from the branch tip, commit by commit, so a stale run listing no longer reports months-old runs as the latest.
+- Fix the setup guide's notes showing a literal `[!NOTE]` or `[!IMPORTANT]` marker: GitHub renders no alert inside a step's collapsible block.
+- `lint-repo` no longer flags a PR template that opts out of the footer with the quoted `footer: 'false'`, which `pr-body` honors.
 - Fix `repomatic init` dropping the comments on the local array items it keeps when re-syncing a tool config, like each `[tool.typos] extend-ignore-re` entry's.
 - The bundled `repomatic-test-matrix` skill now says `lint-repo` warns about a runner outside the test matrices, rather than rejecting it.
+- The bundled `babysit-ci` and `repomatic-test-matrix` skills and the `grunt-qa` agent no longer read runs through `gh run list`, which can list weeks-old runs as the newest.
 
 ## [`7.17.0` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.16.3...v7.17.0)
 

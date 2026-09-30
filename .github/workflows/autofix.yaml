@@ -383,7 +383,7 @@ jobs:
         run: uv --no-progress run --frozen -- repomatic run typos
       - name: Sync pull request
         env:
-          # We need custom PAT with workflows permissions to fix typos in .github/workflows/*.yaml` files.
+          # We need custom PAT with workflows permissions to fix typos in .github/workflows/*.yaml files.
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
           uv --no-progress run --frozen -- repomatic

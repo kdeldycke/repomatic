@@ -93,9 +93,9 @@ def _wrap_setup_step(title: str, content: str, *, passed: bool | None) -> str:
 
 
 CANNOT_VERIFY = (
-    "\n\n> ℹ️ **Note**: This setting could not be verified: `REPOMATIC_PAT` is missing the"
-    " **Administration: Read-only** permission. Update the token with the"
-    " pre-filled link in the first step. The setting may well be correct"
+    "\n\n> ℹ️ **Note**: This setting could not be verified: `REPOMATIC_PAT` is"
+    " missing the **Administration: Read-only** permission. Update the token with"
+    " the pre-filled link in the first step. The setting may well be correct"
     " already, but nothing here can confirm it."
 )
 """Note appended to a step whose probe could not run.
@@ -462,9 +462,9 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
         title="Configure the Cloudflare Pages credentials",
         template="setup-guide-cloudflare-pages",
         # Unlike the VirusTotal key below, this is a prerequisite rather than
-        # an enhancement: `wrangler` cannot authenticate without both values,
-        # so the deploy job fails outright instead of skipping. The step holds
-        # the issue open until each one is set.
+        # an enhancement: `wrangler` cannot authenticate without the token, so
+        # the deploy job fails outright instead of skipping. The step holds the
+        # issue open until it is set.
         probe=lambda ctx: ctx.cloudflare_secrets_ok,
         applies=lambda ctx: ctx.deploys_to("cloudflare-pages"),
         args=lambda ctx: {

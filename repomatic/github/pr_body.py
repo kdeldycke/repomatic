@@ -355,6 +355,7 @@ def footer_opted_out(meta: Mapping[str, object]) -> bool:
     never flags a spelling the renderer honors.
 
     :param meta: Parsed frontmatter of one template.
+    :return: `True` when the template drops the footer.
     """
     return meta.get("footer", True) in (False, "false")
 

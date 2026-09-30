@@ -3361,13 +3361,17 @@ class RepoCheck:
         return tuple(produced)
 
     @property
+    def level(self) -> AnnotationLevel:
+        """The severity a failure reports at, which {attr}`fatal` selects."""
+        return AnnotationLevel.ERROR if self.fatal else AnnotationLevel.WARNING
+
+    @property
     def help_entry(self) -> str:
         """This check's item in the `lint-repo --help` list, wrapped for a terminal."""
-        severity = "error" if self.fatal else "warning"
         # Neither break may split a token: `--exclude-newer-package` and
         # `astral-sh/setup-uv` must stay whole to stay searchable.
         return textwrap.fill(
-            f"{self.summary} ({severity}).",
+            f"{self.summary} ({self.level.value}).",
             width=76,
             initial_indent="  - ",
             subsequent_indent="    ",
@@ -3978,7 +3982,7 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "pat-stale-statuses-permission",
         lambda ctx: check_pat_stale_statuses_permission(ctx.repo or ""),
-        summary=("With a PAT, a REPOMATIC_PAT without the Commit statuses permission"),
+        summary="With a PAT, a REPOMATIC_PAT without the Commit statuses permission",
         applies=lambda ctx: bool(ctx.has_pat and ctx.repo),
     ),
 )
@@ -4014,9 +4018,8 @@ def run_repo_lint(ctx: LintContext) -> int:
     for check in REPO_CHECKS:
         if not check.applies(ctx):
             continue
-        level = AnnotationLevel.ERROR if check.fatal else AnnotationLevel.WARNING
         for result in check.results(ctx):
-            if _report_result(result, level) and check.fatal:
+            if _report_result(result, check.level) and check.fatal:
                 fatal_error = True
 
     return 1 if fatal_error else 0
