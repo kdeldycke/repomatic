@@ -11,9 +11,9 @@ footer: 'false'
    repomatic cloudflare-r2 --create
    ```
 
-2. In the dashboard's **R2** section, create an account API token with the **Object Read & Write** permission, limited to the `$bucket` bucket.
+2. Create an account API token with the **Object Read & Write** permission, limited to the `$bucket` bucket. The account token form lists that permission as **Workers R2 Storage Bucket Item Read** and **Write**.
 
-3. Store the two S3 values it shows as repository secrets:
+3. Store the token's two S3 values, the Access Key ID and the Secret Access Key, as repository secrets. When the form shows only a token value, the Access Key ID is the token's ID and the Secret Access Key is the SHA-256 of the value:
 
    ```shell
    gh secret set CLOUDFLARE_R2_ACCESS_KEY_ID --repo $repo_slug

@@ -149,7 +149,7 @@ Each file gets a row in the run's step summary. `lint-repo` also warns about a t
 
    It creates the bucket if it is missing, attaches the domain with TLS 1.2 at least (R2 accepts 1.0 by default), and turns the bucket's `r2.dev` URL off. It is idempotent: a re-run brings an existing bucket to the same state. The `wrangler login` session needs two scopes. `workers:write` covers R2, although no OAuth scope has R2 in its name, and `zone:read` finds the domain's zone. Later, `repomatic cloudflare-r2 --check` compares the live bucket against the declaration, and changes nothing.
 
-3. **Create the upload key pair and store it.** In the dashboard's R2 section, create an account API token with the **Object Read & Write** permission, limited to the one bucket. Store the two S3 values it shows, the Access Key ID and the Secret Access Key:
+3. **Create the upload key pair and store it.** Create an account API token with the **Object Read & Write** permission, limited to the one bucket. The account token form lists that permission as **Workers R2 Storage Bucket Item Read** and **Write**. Store the token's two S3 values, the Access Key ID and the Secret Access Key. When the form shows only a token value, derive them: the Access Key ID is the token's ID, and the Secret Access Key is the SHA-256 of the value.
 
    ```shell
    gh secret set CLOUDFLARE_R2_ACCESS_KEY_ID --repo {owner}/{repo}
