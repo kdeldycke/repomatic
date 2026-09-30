@@ -15,6 +15,7 @@
 - The bundled `awesome-triage` skill now closes a declined commercial submission with one fixed sponsorship phrase, and orders draft comments shortest first.
 - The bundled `awesome-triage` skill now traces a candidate to its primary source, and verifies every row of a small factual table.
 - The bundled `repomatic-ship` skill now keeps signed commits inside the sandbox when the sandbox settings allow the signing agent's socket and files.
+- The bundled `babysit-ci` skill now fetches run logs inside the sandbox first, and leaves it only when the `gh` cache write fails.
 
 ## [`7.16.3` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.16.2...v7.16.3)
 
