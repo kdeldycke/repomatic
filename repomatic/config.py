@@ -391,8 +391,9 @@ class GitignoreConfig:
     unless the override repeats them. {func}`repomatic.gitignore.orphaned_rules`
     catches that for any rule an earlier sync already wrote to disk, but not for
     one this repository never materialized, so copy the default and extend it
-    rather than writing only the new lines. Reach for {attr}`extra_categories`
-    instead when adding whole gitignore.io templates: that one is additive.
+    rather than writing only the new lines. Reach for
+    {attr}`~repomatic.config.GitignoreConfig.extra_categories` instead when adding
+    whole gitignore.io templates: that one is additive.
 
     The `.cc-writes` entry is the one carrying a `**/` prefix, because it is the
     one Claude Code does not place at the repository root: the directory is
