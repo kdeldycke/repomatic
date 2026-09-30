@@ -214,12 +214,15 @@ jobs:
           uv --no-progress run --frozen -- repomatic lint-anchors
           --docs-dir ./docs --build-dir ./docs/_build
       - name: Offload files over the Pages upload limit
+        id: offload
         # Direct Upload rejects any file over 25 MiB, and `wrangler` fails the
         # whole deploy on the first one it meets. Each such file moves to the R2
         # bucket `site.cloudflare-r2-bucket` declares, with a redirect from its
-        # old path; without a bucket it is dropped with a warning annotation.
-        # Either way everything else publishes, and the step never fails.
+        # old path. A file that cannot move is dropped with an error annotation,
+        # and the step fails; `continue-on-error` lets the deploy below publish
+        # everything else first, and the last step then fails the job.
         # See repomatic/cloudflare_r2.py for rationale.
+        continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
@@ -254,6 +257,12 @@ jobs:
           --project-name "$PROJECT_NAME"
           --branch "$REF_NAME"
           --commit-hash "$COMMIT_SHA"
+      - name: Fail on files the deploy dropped
+        # The site went live without them, so every link to them is dead: the
+        # same reason `lint-repo` fails on a `_redirects` rule the engine drops.
+        # The offload step's annotations name each file and how to fix it.
+        if: steps.offload.outcome == 'failure'
+        run: exit 1
 
   cloudflare-config-drift:
     name: 🌩️ Check Cloudflare config drift

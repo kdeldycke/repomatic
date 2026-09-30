@@ -60,10 +60,12 @@ run on a maintainer's machine with the `wrangler login` session: its
 `workers:write` scope covers R2 (verified on 2026-09-30 with wrangler
 `4.128.0`).
 
-The offload never fails the deploy. A file it cannot move (no bucket declared,
-credentials missing, an upload error, an HTML page) is deleted from the tree
-with a warning annotation, so everything else still publishes. A silent trim
-once hid such a 404 for three years.
+The offload leaves the tree ready to deploy, whatever happens. A file it
+cannot move (no bucket declared, credentials missing, an upload error, an HTML
+page) is deleted from the tree with an error annotation that says how to serve
+it from R2, and the command exits `1`. The Docs workflow publishes everything
+else first, then fails the job: the dropped file's links are dead, and a green
+run would hide that. A silent trim once hid such a 404 for three years.
 """
 
 from __future__ import annotations
@@ -120,6 +122,9 @@ EMPTY_PAYLOAD_SHA256: Final = hashlib.sha256(b"").hexdigest()
 
 MIN_TLS: Final = "1.2"
 """TLS floor of the bucket's custom domain. R2 defaults to `1.0`."""
+
+OFFLOAD_DOCS_URL: Final = "https://repomatic.net/cloudflare#files-over-25-mib"
+"""Where the error for a dropped file sends the reader to set up R2."""
 
 PAGE_SUFFIXES: Final = frozenset((".htm", ".html"))
 """Extensions of pages, which stay out of the bucket. See the module
@@ -369,7 +374,10 @@ def _sha256(path: Path) -> str:
 def _refusal(path: Path, size: int, bucket: R2Bucket | None, unavailable: str) -> str:
     """Why *path* cannot move to *bucket*, or an empty string when it can."""
     if path.suffix.lower() in PAGE_SUFFIXES:
-        return "it is a page, and its relative links would resolve against the R2 host"
+        return (
+            "it is a page, and its relative links would resolve against the R2"
+            " host. Shrink the page or split it"
+        )
     if bucket is None:
         return unavailable
     if size > S3_MAX_OBJECT_SIZE:
@@ -480,9 +488,10 @@ def _report(results: Sequence[Offload]) -> None:
         size = format_file_size(entry.size)
         if entry.action is ReportAction.DROPPED:
             emit_annotation(
-                AnnotationLevel.WARNING,
+                AnnotationLevel.ERROR,
                 f"{entry.path} ({size}) is over the 25 MiB Cloudflare Pages"
-                f" limit and was dropped from the deploy: {entry.reason}.",
+                " limit, so this deploy dropped it and its links are dead:"
+                f" {entry.reason}",
             )
         else:
             echo(f"ok    {entry.path} ({size}) now redirects to {entry.url}")
@@ -497,7 +506,7 @@ def _report(results: Sequence[Offload]) -> None:
         "| :--- | ---: | :--- | :--- |",
     ]
     for entry in results:
-        where = entry.url or f"Nowhere: {entry.reason}."
+        where = entry.url or f"Nowhere: {entry.reason}"
         lines.append(
             f"| `{entry.path}` | {format_file_size(entry.size)}"
             f" | {entry.action.value} | {where} |"
@@ -510,7 +519,9 @@ def _bucket_from_environment(bucket: str, project: str) -> tuple[R2Bucket | None
     """The bucket to upload to, or `None` and the reason it is out of reach."""
     if not bucket:
         return None, (
-            "no R2 bucket is declared in [tool.repomatic] site.cloudflare-r2-bucket"
+            "no R2 bucket is declared. Declare [tool.repomatic]"
+            " site.cloudflare-r2-bucket and site.cloudflare-r2-domain to serve it"
+            f" from R2: see {OFFLOAD_DOCS_URL}"
         )
     missing = [
         name
@@ -518,7 +529,10 @@ def _bucket_from_environment(bucket: str, project: str) -> tuple[R2Bucket | None
         if not os.getenv(name)
     ]
     if missing:
-        return None, f"{' and '.join(missing)} not set"
+        return None, (
+            f"{' and '.join(missing)} not set. Store the bucket's key pair as"
+            f" repository secrets: see {OFFLOAD_DOCS_URL}"
+        )
     try:
         account = _account(_token(), project)
     except (CloudflareError, OSError) as error:
@@ -535,7 +549,7 @@ def _bucket_from_environment(bucket: str, project: str) -> tuple[R2Bucket | None
 
 
 def run_offload(root: Path, *, bucket: str, domain: str, project: str) -> int:
-    """Move every file over the Pages limit out of *root*. Always answers `0`.
+    """Move every file over the Pages limit out of *root*.
 
     Credentials and the account resolve only when a file needs them, so a site
     with nothing oversized makes no network call.
@@ -544,13 +558,22 @@ def run_offload(root: Path, *, bucket: str, domain: str, project: str) -> int:
     :param bucket: `site.cloudflare-r2-bucket`, empty to drop every file.
     :param domain: `site.cloudflare-r2-domain`.
     :param project: Pages project, which resolves the account.
+    :return: `1` when a file was dropped, else `0`. The tree is ready to deploy
+        either way.
     """
     files = oversized_files(root)
     if not files:
         echo(f"ok    no file in {root} is over the 25 MiB Cloudflare Pages limit.")
         return 0
     target, unavailable = _bucket_from_environment(bucket, project)
-    _report(offload(root, files, bucket=target, domain=domain, unavailable=unavailable))
+    results = offload(
+        root, files, bucket=target, domain=domain, unavailable=unavailable
+    )
+    _report(results)
+    dropped = sum(entry.action is ReportAction.DROPPED for entry in results)
+    if dropped:
+        echo(f"\n{dropped} file(s) dropped. The rest of {root} is ready to deploy.")
+        return 1
     return 0
 
 

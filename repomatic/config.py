@@ -1383,8 +1383,8 @@ class Config:
     Direct Upload rejects any file over 25 MiB. With a bucket declared, the
     deploy moves each such file there and redirects its path to the copy,
     through `repomatic cloudflare-r2 --offload`. Empty (the default) drops the
-    file instead, with a warning annotation, so everything else still
-    publishes. Goes with `site.cloudflare-r2-domain`.
+    file instead: everything else still publishes, then the deploy job fails
+    with an error pointing here. Goes with `site.cloudflare-r2-domain`.
     """
 
     site_cloudflare_r2_domain: str = field(

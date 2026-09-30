@@ -517,7 +517,9 @@ def test_cloudflare_r2_secrets(has_keys, passed, fragment):
     ("big", "bucket", "passed", "fragment"),
     (
         pytest.param(False, "", True, "No tracked file", id="nothing-oversized"),
-        pytest.param(True, "", False, "The deploy drops any", id="no-bucket-warns"),
+        pytest.param(
+            True, "", False, "The Cloudflare deploy drops any", id="no-bucket-warns"
+        ),
         pytest.param(True, "papaya-files", True, "move to R2", id="bucket-serves"),
     ),
 )

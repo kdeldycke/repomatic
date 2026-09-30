@@ -37,6 +37,7 @@ from repomatic.cloudflare import CloudflareError, CloudflareHTTPError
 from repomatic.cloudflare_r2 import (
     ACCESS_KEY_ID_ENV,
     CACHE_CONTROL,
+    OFFLOAD_DOCS_URL,
     PAGES_MAX_FILE_SIZE,
     REDIRECTS_HEADER,
     SECRET_ACCESS_KEY_ENV,
@@ -388,6 +389,7 @@ def test_bucket_from_environment_needs_a_declared_bucket():
     bucket, reason = _bucket_from_environment("", "papaya-site")
     assert bucket is None
     assert "site.cloudflare-r2-bucket" in reason
+    assert OFFLOAD_DOCS_URL in reason
 
 
 def test_bucket_from_environment_names_the_missing_secrets(monkeypatch):
@@ -395,7 +397,8 @@ def test_bucket_from_environment_names_the_missing_secrets(monkeypatch):
     monkeypatch.setenv(SECRET_ACCESS_KEY_ENV, "secret-under-test")
     bucket, reason = _bucket_from_environment("papaya-files", "papaya-site")
     assert bucket is None
-    assert reason == f"{ACCESS_KEY_ID_ENV} not set"
+    assert reason.startswith(f"{ACCESS_KEY_ID_ENV} not set.")
+    assert OFFLOAD_DOCS_URL in reason
 
 
 def test_bucket_from_environment_resolves_the_account(monkeypatch):
@@ -421,18 +424,35 @@ def test_run_offload_touches_no_credential_when_nothing_is_oversized(tmp_path):
         )
 
 
-def test_run_offload_writes_the_step_summary(tmp_path, monkeypatch, capsys):
+def test_run_offload_fails_loudly_on_a_dropped_file(tmp_path, monkeypatch, capsys):
+    """The tree is still deployable, but the run must end red: a dead link is
+    already broken, and a green run with a warning is how one hid for years."""
     site = tmp_path / "site"
     _sparse(site / "atlas.zip")
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
 
-    assert run_offload(site, bucket="", domain="", project="papaya-site") == 0
+    assert run_offload(site, bucket="", domain="", project="papaya-site") == 1
 
-    assert "::warning::/atlas.zip (" in capsys.readouterr().out
+    assert not (site / "atlas.zip").exists()
+    output = capsys.readouterr().out
+    assert "::error::/atlas.zip (" in output
+    assert OFFLOAD_DOCS_URL in output
     table = summary.read_text(encoding="UTF-8")
     assert "| `/atlas.zip` |" in table
     assert ReportAction.DROPPED.value in table
+
+
+def test_run_offload_succeeds_when_every_file_reaches_the_bucket(tmp_path, capsys):
+    site = tmp_path / "site"
+    _sparse(site / "atlas.zip")
+    with patch.object(
+        cloudflare_r2,
+        "_bucket_from_environment",
+        return_value=(cast("R2Bucket", FakeBucket()), ""),
+    ):
+        assert run_offload(site, bucket="papaya-files", domain=DOMAIN, project="p") == 0
+    assert "::error::" not in capsys.readouterr().out
 
 
 # ----- The REST half: creating and checking the bucket
@@ -587,6 +607,6 @@ def test_cli_offload_drops_without_a_bucket(project_dir):
     result = CliRunner().invoke(
         repomatic, ["cloudflare-r2", "--offload", str(site), "--project", "papaya"]
     )
-    assert result.exit_code == 0
-    assert "was dropped from the deploy" in result.output
+    assert result.exit_code == 1
+    assert "this deploy dropped it" in result.output
     assert not (site / "atlas.zip").exists()

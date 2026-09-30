@@ -127,7 +127,7 @@ The diff is honest about its own confidence. Each stock default is tagged `docum
 Direct Upload rejects any file over 25 MiB, and `wrangler` fails the whole deploy on the first one it meets. So the deploy job first runs `repomatic cloudflare-r2 --offload` on the built tree, which does one of two things with each such file:
 
 - With an R2 bucket declared, it uploads the file to the bucket. Then it adds a rule to the built `_redirects` that sends the file's old path there. The site's sources and links do not change.
-- Without a bucket, or when the file cannot move, it deletes the file from the tree and emits a warning annotation. Everything else still publishes, and the step never fails.
+- Without a bucket, or when the file cannot move, it deletes the file from the tree and emits an error annotation that explains how to serve it from R2. Everything else still publishes, then the job fails: the dropped file's links are dead, and a green run would hide that.
 
 Each file gets a row in the run's step summary. `lint-repo` also warns about a tracked file over the limit when no bucket is declared, before a deploy drops it. Once a bucket is declared, `lint-repo` and the setup guide issue both report whether its two upload secrets exist.
 

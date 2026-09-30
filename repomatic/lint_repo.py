@@ -42,7 +42,7 @@ from click_extra import echo
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
-from .cloudflare_r2 import PAGES_MAX_FILE_SIZE
+from .cloudflare_r2 import OFFLOAD_DOCS_URL, PAGES_MAX_FILE_SIZE
 from .config import Config, deploys_to
 from .deps.uv import LockFile
 from .file_inventory import FileInventory
@@ -3568,10 +3568,10 @@ def _oversized_site_files(ctx: LintContext) -> CheckResult:
     return CheckResult(
         False,
         f"{len(files)} tracked file(s) over the 25 MiB Cloudflare Pages limit:"
-        f" {listed}. The deploy drops any the site ships, which leaves a dead"
-        " link. Declare [tool.repomatic] site.cloudflare-r2-bucket and"
+        f" {listed}. The Cloudflare deploy drops any the site ships, then"
+        " fails. Declare [tool.repomatic] site.cloudflare-r2-bucket and"
         " site.cloudflare-r2-domain to serve them from R2 instead: see"
-        " https://repomatic.net/cloudflare#files-over-25-mib.",
+        f" {OFFLOAD_DOCS_URL}",
     )
 
 

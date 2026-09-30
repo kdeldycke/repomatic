@@ -865,7 +865,8 @@ def cloudflare_pages(
     help=(
         "Move every file over 25 MiB out of the built site in DIRECTORY, to the"
         " bucket, and redirect its path there in DIRECTORY/_redirects. Without"
-        " a bucket, drop the file with a warning. Never fails the deploy."
+        " a bucket, drop the file with an error. Exits 1 when it drops a file,"
+        " with the rest of DIRECTORY still ready to deploy."
     ),
 )
 @option(
@@ -894,8 +895,9 @@ def cloudflare_r2(
     Cloudflare Pages Direct Upload rejects any file over 25 MiB. --offload
     moves each such file from the built site to the bucket that [tool.repomatic]
     site.cloudflare-r2-bucket declares, and redirects its path to the copy.
-    Without a bucket, or when a file cannot move, the file is dropped with a
-    warning annotation, and everything else still publishes.
+    Without a bucket, or when a file cannot move, the file is dropped with an
+    error annotation and the command exits 1. The rest of the tree stays ready
+    to deploy, so everything else can still publish.
 
     Uploads use a key pair limited to the bucket, from
     CLOUDFLARE_R2_ACCESS_KEY_ID and CLOUDFLARE_R2_SECRET_ACCESS_KEY. --create

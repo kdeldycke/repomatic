@@ -1157,6 +1157,29 @@ def test_docs_trigger_covers_translated_readmes() -> None:
     )
 
 
+def test_cloudflare_deploy_fails_after_publishing_a_dropped_file() -> None:
+    """A dropped file is a dead link, so the job must end red, after the deploy.
+
+    The offload exits 1 when it drops a file, and `continue-on-error` lets the
+    deploy publish everything else first. Only the last step, keyed on the
+    offload's outcome, turns the run red: without it, a dead link would sit
+    behind a green run with a warning, which is how one stayed for years.
+    """
+    steps = load_workflow("docs.yaml")["jobs"]["deploy-docs-cloudflare"]["steps"]
+    offload = next(step for step in steps if step.get("id") == "offload")
+    assert offload["continue-on-error"] is True
+    names = [step.get("name") for step in steps]
+    failing = [
+        index
+        for index, step in enumerate(steps)
+        if step.get("if") == "steps.offload.outcome == 'failure'"
+    ]
+    assert failing, "No step fails the job when the offload dropped a file."
+    assert failing[0] > names.index("Deploy to Cloudflare Pages"), (
+        "The failing step must run after the deploy, so the rest still publishes."
+    )
+
+
 # --- Action version pinning tests ---
 
 

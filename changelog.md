@@ -5,8 +5,9 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** The Docs workflow's Cloudflare deploy now fails when it has to drop a file over 25 MiB, once the rest of the site is published. Declare `site.cloudflare-r2-bucket` to serve such files instead.
 - Add `cloudflare-r2`, which serves site files over the 25 MiB Cloudflare Pages limit from the R2 bucket that `site.cloudflare-r2-bucket` and `site.cloudflare-r2-domain` declare.
-- The Docs workflow's Cloudflare deploy now moves files over 25 MiB to that bucket, and flags each file it drops with a warning annotation.
+- The Docs workflow's Cloudflare deploy now moves files over 25 MiB to that bucket.
 - `lint-repo` now warns about a tracked file over the 25 MiB Cloudflare Pages limit when no R2 bucket is declared.
 - `lint-repo` and the setup guide now ask for `CLOUDFLARE_R2_ACCESS_KEY_ID` and `CLOUDFLARE_R2_SECRET_ACCESS_KEY` when `site.cloudflare-r2-bucket` is declared.
 - Raise the `tomlrt` floor to `2.2.4`.
