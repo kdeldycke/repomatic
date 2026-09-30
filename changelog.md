@@ -7,6 +7,9 @@
 
 ## [`7.17.0` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.16.3...v7.17.0)
 
+> [!NOTE]
+> `7.17.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.17.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.17.0).
+
 - **Breaking:** The Docs workflow's Cloudflare deploy now fails when it has to drop a file over 25 MiB, once the rest of the site is published. Declare `site.cloudflare-r2-bucket` to serve such files instead.
 - Add `cloudflare-r2` and the `site.cloudflare-r2-bucket` and `site.cloudflare-r2-domain` keys: the Docs workflow's Cloudflare deploy now serves files over 25 MiB from that R2 bucket.
 - `lint-repo` now warns about a tracked file over the 25 MiB Cloudflare Pages limit when no R2 bucket is declared.
