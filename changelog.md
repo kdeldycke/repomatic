@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - Raise the `tomlrt` floor to `2.2.4`.
+- The bundled `repomatic-deps` skill now bisects a floor that rests on a behavior rather than an API, and reads deprecated calls off the test suite's warnings summary.
 
 ## [`7.16.3` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.16.2...v7.16.3)
 
