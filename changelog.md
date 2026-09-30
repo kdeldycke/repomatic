@@ -14,6 +14,7 @@
 - Fix `repomatic init` dropping the comments on the local array items it keeps when re-syncing a tool config, like each `[tool.typos] extend-ignore-re` entry's.
 - The bundled `repomatic-test-matrix` skill now says `lint-repo` warns about a runner outside the test matrices, rather than rejecting it.
 - The bundled `babysit-ci` and `repomatic-test-matrix` skills and the `grunt-qa` agent no longer read runs through `gh run list`, which can list weeks-old runs as the newest.
+- The bundled `repomatic-ship` skill now keeps a parallel session's edits out of its release commit, and runs its checks on that exact commit.
 
 ## [`7.17.0` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.16.3...v7.17.0)
 
