@@ -337,6 +337,18 @@ def _isolate_user_config(isolated_app_dir):
     the override does not propagate to subprocesses; tests exercising config
     loading pass an explicit path, which bypasses the default search and is
     unaffected.
+
+    ```{caution}
+    The isolation stops at the application folder: nothing hides this
+    repository's own `[tool.repomatic]`. Discovery is CWD-first, walking up to
+    the VCS root, so a call that resolves config itself (`run_init(config=None)`,
+    anything reaching `load_repomatic_config()` with no argument) reads this
+    checkout's `pyproject.toml` under pytest exactly as it does in a shell.
+    Enabling a feature here can therefore fail a test elsewhere: a component's
+    config gate switched on makes `test_init_only_workflows` see a workflow it
+    asserts absent. A test asserting on default behaviour passes an explicit
+    `Config()`.
+    ```
     """
     return isolated_app_dir
 

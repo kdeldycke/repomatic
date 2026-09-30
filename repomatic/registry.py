@@ -145,6 +145,13 @@ class RepoScope(Enum):
     ships a release. Collapsing the pair would hand every blog and docs site a
     PyPI publish action and a release workflow it can never run.
 
+    The workflow layer mirrors the same split.
+    {func}`repomatic.pyproject.is_python_project` is the default gate, since
+    `sync-uv-lock` and `sync-dep-sources` apply to a virtual project too.
+    {func}`repomatic.pyproject.is_python_package` narrows a job to what has
+    something to publish or version: `sync-bumpversion` is the one that needs
+    it.
+
     Scope restrictions are defaults: they apply during bare `repomatic init`
     but are bypassed when components are explicitly named on the CLI or
     covered by `[tool.repomatic] include`.

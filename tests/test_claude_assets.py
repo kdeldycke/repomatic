@@ -29,6 +29,11 @@ A second family of checks holds the same assets to the prose rule in
 directive a rule opens with stays short enough to read once, while the
 rationale following it is left alone.
 
+The approved-word dictionary of ASD-STE100 stays out of scope. It is a
+controlled ASD specification rather than something to vendor as a data file,
+and the words it would rule on here (`run`, `sync`, `pin`, `release`) are the
+ones that must keep matching the code identifiers they name.
+
 One check reaches past the assets: {func}`test_repository_citations_resolve`
 holds every text of the repository to the citation rule the assets follow.
 
@@ -454,6 +459,14 @@ def test_description_is_short_sentences(asset_id: str, body: str) -> None:
     it is what the router matches against to decide whether to load the rest.
     A 56-word run-on there costs matching accuracy on every session, which is
     why this is the one place the limit binds unconditionally.
+
+    The limit binds each sentence and never the whole field. Four or five
+    short sentences are the right shape, because the router matches against
+    the field's whole vocabulary: trimming trigger nouns to reach a total
+    costs matching accuracy and buys nothing. The only total is the Agent
+    Skills spec's 1024-character ceiling, which `tests/test_skills.py` holds.
+    So a description made of short sentences passes however long it grows, and
+    review is what catches one that rambles.
     """
     meta, _body = split_frontmatter(body)
     description = meta.get("description", "")

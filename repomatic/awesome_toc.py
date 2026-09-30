@@ -21,7 +21,7 @@ right after `repomatic run mdformat` regenerates the ToC of every readme.
 
 ```{note}
 This is the one operation that has no job, PR branch or template of its own,
-against the rule in `claude.md` § Naming conventions for automated operations.
+against rule 3 of `docs/operation-contracts.md` § Naming rules.
 It corrects what `format-markdown` just wrote, so it has to share that job's
 working tree: given its own job, the two would land in separate PRs and undo
 each other on every push, `format-markdown` re-adding the entries this command
