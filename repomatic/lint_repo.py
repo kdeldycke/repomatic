@@ -29,6 +29,7 @@ import json
 import logging
 import re
 import shlex
+import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import cache, cached_property
@@ -3334,6 +3335,12 @@ class RepoCheck:
     run: Callable[[LintContext], CheckResult | Iterable[CheckResult]]
     """Perform the check. May answer one result or a stream of them."""
 
+    summary: str
+    """What a passing repository looks like, as one clause for `lint-repo --help`.
+
+    Leave out the severity: {attr}`help_entry` derives it from {attr}`fatal`.
+    """
+
     applies: Callable[[LintContext], bool] = lambda ctx: True
     """Whether this repository has anything for the check to look at."""
 
@@ -3352,6 +3359,21 @@ class RepoCheck:
         if isinstance(produced, CheckResult):
             return (produced,)
         return tuple(produced)
+
+    @property
+    def help_entry(self) -> str:
+        """This check's item in the `lint-repo --help` list, wrapped for a terminal."""
+        severity = "error" if self.fatal else "warning"
+        # Neither break may split a token: `--exclude-newer-package` and
+        # `astral-sh/setup-uv` must stay whole to stay searchable.
+        return textwrap.fill(
+            f"{self.summary} ({severity}).",
+            width=76,
+            initial_indent="  - ",
+            subsequent_indent="    ",
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
 
 
 def _cloudflare_secrets(ctx: LintContext) -> CheckResult:
@@ -3619,6 +3641,7 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         lambda ctx: check_package_name_vs_repo(
             ctx.package_name or "", ctx.repo_name or ""
         ),
+        summary="Package name matches the repository name",
         applies=lambda ctx: bool(ctx.package_name and ctx.repo_name),
     ),
     RepoCheck(
@@ -3629,11 +3652,19 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             ctx.repo_metadata.get("homepageUrl"),
             ctx.docs_url,
         ),
+        summary=(
+            "A Sphinx project's website field names the documentation URL"
+            " declared in [project.urls]"
+        ),
         applies=lambda ctx: ctx.is_sphinx,
     ),
     RepoCheck(
         "pages-deployment-source",
         lambda ctx: check_pages_deployment_source(ctx.repo or ""),
+        summary=(
+            "GitHub Pages publishes from GitHub Actions, when site.deploy"
+            " targets GitHub Pages"
+        ),
         applies=lambda ctx: bool(ctx.repo and ctx.deploys_to("github-pages")),
     ),
     RepoCheck(
@@ -3643,6 +3674,9 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         # own workflow needs the same credential.
         "cloudflare-pages-secrets",
         _cloudflare_secrets,
+        summary=(
+            "CLOUDFLARE_API_TOKEN secret set, when site.deploy targets Cloudflare Pages"
+        ),
         applies=lambda ctx: ctx.deploys_to("cloudflare-pages"),
     ),
     RepoCheck(
@@ -3650,6 +3684,11 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         # one, the deploy drops oversized files by design and reads no key.
         "cloudflare-r2-secrets",
         _cloudflare_r2_secrets,
+        summary=(
+            "CLOUDFLARE_R2_ACCESS_KEY_ID and"
+            " CLOUDFLARE_R2_SECRET_ACCESS_KEY secrets set, when"
+            " site.cloudflare-r2-bucket is declared"
+        ),
         applies=lambda ctx: bool(
             ctx.deploys_to("cloudflare-pages") and ctx.site_cloudflare_r2_bucket
         ),
@@ -3660,6 +3699,9 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         # a repository that moved away needs the second question answered.
         "pages-redirect-preserved",
         lambda ctx: check_pages_redirect_preserved(ctx.repo or "", ctx.docs_url),
+        summary=(
+            "Legacy github.io URLs still redirect, for a site moved to Cloudflare Pages"
+        ),
         applies=lambda ctx: bool(ctx.repo and ctx.deploys_to("cloudflare-pages")),
     ),
     RepoCheck(
@@ -3669,12 +3711,20 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         # `_redirects` only means anything to Cloudflare Pages anyway.
         "pages-redirects",
         _pages_redirects,
+        summary=(
+            "Committed _redirects files survive the Cloudflare Pages"
+            " engine: no dropped rules, no silent budget abort"
+        ),
         applies=lambda ctx: bool(ctx.redirects_files),
         fatal=True,
     ),
     RepoCheck(
         "wrangler-toml",
         _wrangler_config,
+        summary=(
+            "wrangler.toml agrees with the declared Cloudflare project"
+            " name and compatibility date"
+        ),
         applies=lambda ctx: bool(
             ctx.deploys_to("cloudflare-pages") and ctx.has_wrangler_toml
         ),
@@ -3682,11 +3732,16 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "oversized-site-files",
         _oversized_site_files,
+        summary=(
+            "No tracked file over the 25 MiB Cloudflare Pages limit,"
+            " unless an R2 bucket is declared to serve it"
+        ),
         applies=lambda ctx: ctx.deploys_to("cloudflare-pages"),
     ),
     RepoCheck(
         "stale-gh-pages-branch",
         lambda ctx: check_stale_gh_pages_branch(ctx.repo or ""),
+        summary="No leftover gh-pages branch in a Sphinx project",
         applies=lambda ctx: bool(ctx.is_sphinx and ctx.repo),
     ),
     RepoCheck(
@@ -3696,63 +3751,75 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             ctx.project_description or "",
             ctx.repo_metadata.get("description"),
         ),
+        summary="Repository description matches the project description",
         applies=lambda ctx: bool(ctx.project_description),
         fatal=True,
     ),
     RepoCheck(
         "topics-subset-of-keywords",
         lambda ctx: check_topics_subset_of_keywords(ctx.repo or "", ctx.keywords or []),
+        summary="GitHub topics are a subset of the pyproject.toml keywords",
         applies=lambda ctx: bool(ctx.keywords and ctx.repo),
     ),
     RepoCheck(
         "funding-file",
         lambda ctx: check_funding_file(ctx.repo or ""),
+        summary="Funding file present when the owner has GitHub Sponsors",
         applies=lambda ctx: bool(ctx.repo),
     ),
     RepoCheck(
         "stale-draft-releases",
         lambda ctx: check_stale_draft_releases(ctx.repo or ""),
+        summary="No stale draft release, whose tag is not a .dev0",
         applies=lambda ctx: bool(ctx.repo),
     ),
     RepoCheck(
         "undeclared-labels",
         lambda ctx: check_undeclared_labels(ctx.repo or "", ctx.declared_labels),
+        summary="Every repository label is declared by a configured label source",
         # An unknown set (`None`) still applies, so the run reports it skipped.
         applies=lambda ctx: bool(ctx.repo) and ctx.declared_labels != frozenset(),
     ),
     RepoCheck(
         "install-guide-downloads",
         lambda ctx: check_install_guide_downloads(ctx.repo or ""),
+        summary="Install guide download URLs resolve to real release assets",
         applies=lambda ctx: bool(ctx.repo),
     ),
     RepoCheck(
         "tag-protection-rules",
         lambda ctx: check_tag_protection_rules(ctx.repo or ""),
+        summary="No active tag ruleset that can block a release tag push",
         applies=lambda ctx: bool(ctx.repo),
     ),
     RepoCheck(
         "branch-ruleset-on-default",
         lambda ctx: check_branch_ruleset_on_default(ctx.repo or ""),
+        summary="At least one active branch ruleset",
         applies=lambda ctx: bool(ctx.repo),
     ),
     RepoCheck(
         "classic-branch-protection",
         lambda ctx: check_classic_branch_protection(ctx.repo or ""),
+        summary="No classic branch protection rule beside the rulesets",
         applies=lambda ctx: bool(ctx.repo),
     ),
     RepoCheck(
         "immutable-releases",
         lambda ctx: check_immutable_releases(ctx.repo or ""),
+        summary="Immutable releases enabled, for a package",
         applies=lambda ctx: bool(ctx.repo and ctx.is_package),
     ),
     RepoCheck(
         "fork-pr-approval-policy",
         lambda ctx: check_fork_pr_approval_policy(ctx.repo or ""),
+        summary="Fork PR workflow approval policy strict enough",
         applies=lambda ctx: bool(ctx.repo),
     ),
     RepoCheck(
         "sha-pinning-required",
         lambda ctx: check_sha_pinning_required(ctx.repo or ""),
+        summary="Actions required to be pinned to a full-length commit SHA",
         applies=lambda ctx: bool(ctx.repo),
     ),
     RepoCheck(
@@ -3764,36 +3831,71 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         lambda ctx: check_pypi_trusted_publisher(
             ctx.repo or "", ctx.package_name or ""
         ),
+        summary=(
+            "The latest PyPI release's provenance names this repository's release.yaml"
+        ),
         applies=lambda ctx: bool(ctx.repo and ctx.package_name and ctx.is_package),
     ),
     RepoCheck(
-        "workflow-permissions", lambda ctx: check_workflow_permissions(ctx.workflows)
+        "workflow-permissions",
+        lambda ctx: check_workflow_permissions(ctx.workflows),
+        summary="Workflows and reusable-workflow callers declare their permissions",
     ),
-    RepoCheck("test-matrix-excludes", lambda ctx: check_test_matrix_excludes()),
+    RepoCheck(
+        "test-matrix-excludes",
+        lambda ctx: check_test_matrix_excludes(),
+        summary="Every test-matrix exclude entry names a value on some matrix axis",
+    ),
     RepoCheck(
         "python-version-consistency",
         lambda ctx: check_python_version_consistency(ctx.workflows),
+        summary=(
+            "Python classifiers, requires-python and the workflow test matrices agree"
+        ),
     ),
-    RepoCheck("runner-images", lambda ctx: check_runner_images(ctx.workflows)),
-    RepoCheck("release-path", lambda ctx: check_release_path(ctx.workflows)),
+    RepoCheck(
+        "runner-images",
+        lambda ctx: check_runner_images(ctx.workflows),
+        summary=(
+            "No job runs on a -latest alias or on an image outside the test matrices"
+        ),
+    ),
+    RepoCheck(
+        "release-path",
+        lambda ctx: check_release_path(ctx.workflows),
+        summary=(
+            "Each release-only step tests the capability it needs, and"
+            " runs on a release commit"
+        ),
+    ),
     RepoCheck(
         "manpages-toolchain",
         lambda ctx: check_manpages_toolchain(ctx.manpages_script),
+        summary=(
+            "The manpages.script lockfile pins a click-extra able to render man pages"
+        ),
         applies=lambda ctx: bool(ctx.manpages_script),
     ),
     RepoCheck(
         "bootstrap-config-drift",
         lambda ctx: check_bootstrap_config_drift(ctx.tool_table),
+        summary=(
+            "Seeded tool configs carry every entry their bundled template gained since"
+        ),
         applies=lambda ctx: bool(ctx.tool_table),
     ),
     RepoCheck(
         "superseded-local-excludes",
         lambda ctx: check_superseded_local_excludes(ctx.tool_table),
+        summary=(
+            "No [tool.lychee] exclude entry beside the anchored form that replaced it"
+        ),
         applies=lambda ctx: bool(ctx.tool_table),
     ),
     RepoCheck(
         "inline-pins-match-upstream",
         lambda ctx: check_inline_pins_match_upstream(texts=ctx.workflow_texts),
+        summary="Inline upstream pins match the version the uses: refs name",
         fatal=True,
     ),
     # Fatal for the same reason as the pin check above: both describe a
@@ -3803,6 +3905,10 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "self-pin-cooldown-exemption",
         lambda ctx: check_self_pin_cooldown_exemption(texts=ctx.workflow_texts),
+        summary=(
+            "Inline upstream pins resolving under a cooldown carry their"
+            " --exclude-newer-package exemption"
+        ),
         fatal=True,
     ),
     # The odd one out in this run of checks, and deliberately not fatal: an
@@ -3812,6 +3918,7 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "setup-uv-version-pin",
         lambda ctx: check_setup_uv_version_pin(workflows=ctx.workflows),
+        summary="Every astral-sh/setup-uv step pins one uv version",
     ),
     # The second half of the same pin: which uv CI runs, then whether it can
     # tell it got that uv. Non-fatal on the same reasoning, and indeterminate
@@ -3819,34 +3926,59 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "setup-uv-checksum-coverage",
         lambda ctx: check_setup_uv_checksum_coverage(workflows=ctx.workflows),
+        summary="The pinned uv carries a checksum in the pinned astral-sh/setup-uv",
     ),
     # Fatal for the same reason again: a retired key fails the `metadata` job,
     # and every other job is `needs: metadata`.
     RepoCheck(
         "metadata-keys",
         lambda ctx: check_metadata_keys(workflows=ctx.workflows),
+        summary="Workflows only ask repomatic show-metadata for keys it still emits",
         fatal=True,
     ),
-    RepoCheck("pr-templates", lambda ctx: check_pr_templates(texts=ctx.workflow_texts)),
+    RepoCheck(
+        "pr-templates",
+        lambda ctx: check_pr_templates(texts=ctx.workflow_texts),
+        summary=(
+            "Repository-local PR body templates sit in .github/pr-templates/ and"
+            " carry valid frontmatter"
+        ),
+    ),
     RepoCheck(
         "virustotal-secret",
         _virustotal_secret,
+        summary="VIRUSTOTAL_API_KEY secret set, when Nuitka is active",
         applies=lambda ctx: ctx.nuitka_active,
     ),
     RepoCheck(
         "notifications-pat-secret",
         _notifications_secret,
+        summary=(
+            "REPOMATIC_NOTIFICATIONS_PAT secret set, when the unsubscribe"
+            " workflow is enabled"
+        ),
         applies=lambda ctx: ctx.unsubscribe_active,
     ),
-    RepoCheck("pat-permissions", _pat_permissions, fatal=True),
+    RepoCheck(
+        "pat-permissions",
+        _pat_permissions,
+        summary=(
+            "With a PAT, the administration, contents, issues, pull"
+            " requests, Dependabot alerts and workflows permissions of"
+            " REPOMATIC_PAT"
+        ),
+        fatal=True,
+    ),
     RepoCheck(
         "pat-repository-scope",
         lambda ctx: check_pat_repository_scope(ctx.repo or ""),
+        summary="With a PAT, a REPOMATIC_PAT limited to this repository",
         applies=lambda ctx: bool(ctx.has_pat and ctx.repo),
     ),
     RepoCheck(
         "pat-stale-statuses-permission",
         lambda ctx: check_pat_stale_statuses_permission(ctx.repo or ""),
+        summary=("With a PAT, a REPOMATIC_PAT without the Commit statuses permission"),
         applies=lambda ctx: bool(ctx.has_pat and ctx.repo),
     ),
 )
@@ -3855,6 +3987,13 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
 Two of these (`branch-ruleset-on-default`, `immutable-releases`) were defined
 in this module but reached only from {mod}`repomatic.setup_guide`, so
 `lint-repo` silently skipped them until the roster made the omission visible.
+"""
+
+REPO_CHECK_HELP_LIST: str = "\n".join(check.help_entry for check in REPO_CHECKS)
+"""The `lint-repo --help` check list, one item per {data}`REPO_CHECKS` entry.
+
+Rendered from the roster, so the help cannot name fewer checks than the command
+runs.
 """
 
 

@@ -27,8 +27,10 @@ from unittest.mock import patch
 import pytest
 import tomlrt
 import yaml
+from click_extra.testing import CliRunner
 
 from repomatic import lint_repo
+from repomatic.cli.main import repomatic
 from repomatic.cli.setup import show_metadata
 from repomatic.cloudflare_r2 import PAGES_MAX_FILE_SIZE
 from repomatic.config import Config, LabelsConfig
@@ -2804,6 +2806,24 @@ def test_repo_check_names_are_unique():
     """Two checks sharing a name would make the roster ambiguous to read."""
     names = [check.name for check in REPO_CHECKS]
     assert len(set(names)) == len(names), "duplicate RepoCheck names"
+
+
+def test_help_lists_every_check():
+    """`lint-repo --help` names every check the command runs, with its severity.
+
+    The list renders from `REPO_CHECKS`, so this guards the wiring: a placeholder
+    left unfilled, or a check the rendering drops, fails here.
+    """
+    result = CliRunner().invoke(repomatic, ["lint-repo", "--help"])
+    assert result.exit_code == 0, result.output
+    text = " ".join(result.output.split())
+    assert "{checks}" not in text
+    missing = [
+        check.name
+        for check in REPO_CHECKS
+        if f"{check.summary} ({'error' if check.fatal else 'warning'})." not in text
+    ]
+    assert not missing, f"Checks absent from `lint-repo --help`: {missing}"
 
 
 # ---------------------------------------------------------------------------

@@ -66,6 +66,7 @@ from ..github.actions import (
     emit_report,
 )
 from ..lint_repo import (
+    REPO_CHECK_HELP_LIST,
     LintContext,
     run_repo_lint,
 )
@@ -643,49 +644,8 @@ def lint_repo(
     pyproject.toml in the current directory.
 
     \b
-    Checks:
-      - Package name vs repository name (warning).
-      - Website field set for Sphinx projects, and matching the documentation
-        URL declared in [project.urls] (warning).
-      - Repository description matches project description (error).
-      - Inline upstream pins match the version the uses: refs name (error).
-      - Inline upstream pins resolving under a cooldown carry their
-        --exclude-newer-package exemption (error).
-      - Workflows only ask repomatic show-metadata for keys it still emits (error).
-      - Every astral-sh/setup-uv step pins one uv version (warning).
-      - The pinned uv carries a checksum in the pinned astral-sh/setup-uv
-        (warning).
-      - GitHub topics subset of pyproject.toml keywords (warning).
-      - Funding file present when owner has GitHub Sponsors (warning).
-      - Stale draft releases (non-.dev0 drafts) (warning).
-      - Install guide download URLs resolve to real release assets (warning).
-      - Repository-local PR body templates sit in .github/pr-templates/
-        and carry valid frontmatter (warning).
-      - Fork PR workflow approval policy strict enough (warning).
-      - VIRUSTOTAL_API_KEY secret missing when Nuitka is active (warning).
-      - REPOMATIC_NOTIFICATIONS_PAT secret missing when the unsubscribe
-        workflow is enabled (warning).
-      - CLOUDFLARE_API_TOKEN secret missing when site.deploy targets
-        Cloudflare Pages (warning).
-      - CLOUDFLARE_R2_ACCESS_KEY_ID or CLOUDFLARE_R2_SECRET_ACCESS_KEY secret
-        missing when site.cloudflare-r2-bucket is declared (warning).
-      - Legacy github.io URLs still redirect, for a project that moved its
-        site to Cloudflare Pages (warning).
-      - Committed _redirects files survive the Cloudflare Pages engine:
-        no dropped rules, no silent budget abort (error).
-      - wrangler.toml agrees with the declared Cloudflare project name and
-        compatibility date (warning).
-      - No tracked file is over the 25 MiB Cloudflare Pages limit, unless an
-        R2 bucket is declared to serve it (warning).
-
-    \b
-    When a PAT is detected, additional capability checks are run:
-      - Administration permission (error).
-      - Contents permission (error).
-      - Issues permission (error).
-      - Pull requests permission (error).
-      - Dependabot alerts permission and alerts enabled (error).
-      - Workflows permission (error).
+    Checks, in report order. An error fails the command, a warning never does:
+    {checks}
     """
 
     # Everything the checkout can answer is derived inside the context
@@ -703,6 +663,10 @@ def lint_repo(
         )
     )
     ctx.exit(exit_code)
+
+
+assert lint_repo.help is not None
+lint_repo.help = lint_repo.help.format(checks=REPO_CHECK_HELP_LIST)
 
 
 @repomatic.command(
