@@ -30,6 +30,8 @@ site.deploy = "cloudflare-pages"
 site.cloudflare-project = "my-legacy-project-name"
 site.cloudflare-compatibility-date = "2026-06-16"
 site.cloudflare-placement = "smart"
+site.cloudflare-r2-bucket = "my-site-files"
+site.cloudflare-r2-domain = "files.example.com"
 uv-lock.sync = false
 
 dependency-graph.output = "./docs/assets/dependencies.mmd"

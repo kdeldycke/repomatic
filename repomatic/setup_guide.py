@@ -135,6 +135,10 @@ class GuideContext:
     has_cloudflare_api_token: bool
     """Whether `CLOUDFLARE_API_TOKEN` is configured."""
 
+    has_cloudflare_r2_keys: bool = False
+    """Whether `CLOUDFLARE_R2_ACCESS_KEY_ID` and `CLOUDFLARE_R2_SECRET_ACCESS_KEY`
+    are both configured."""
+
     @cached_property
     def md(self) -> Metadata:
         """CI and project context, for the repository identity fields."""
@@ -467,6 +471,22 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
         },
     ),
     SetupStep(
+        placeholder="step_cloudflare_r2",
+        title="Configure the R2 upload keys",
+        template="setup-guide-cloudflare-r2",
+        # The deploy still publishes without the keys, but it drops every file
+        # over 25 MiB, the very files the declared bucket exists to serve. So
+        # the step holds the issue open until both keys are set.
+        probe=lambda ctx: ctx.has_cloudflare_r2_keys,
+        applies=lambda ctx: bool(
+            ctx.deploys_to("cloudflare-pages") and ctx.config.site_cloudflare_r2_bucket
+        ),
+        args=lambda ctx: {
+            "bucket": ctx.config.site_cloudflare_r2_bucket,
+            "repo_slug": ctx.md.repo_slug,
+        },
+    ),
+    SetupStep(
         placeholder="step_virustotal",
         title="Configure VirusTotal scanning (optional)",
         template="setup-guide-virustotal",
@@ -521,6 +541,7 @@ def manage_setup_guide(
     has_notifications_pat: bool,
     has_virustotal_key: bool,
     has_cloudflare_api_token: bool = False,
+    has_cloudflare_r2_keys: bool = False,
     repo: str | None,
 ) -> None:
     """Render the setup guide issue body and drive the issue lifecycle.
@@ -536,6 +557,8 @@ def manage_setup_guide(
     :param has_virustotal_key: Whether `VIRUSTOTAL_API_KEY` is configured.
     :param has_cloudflare_api_token: Whether `CLOUDFLARE_API_TOKEN` is
         configured.
+    :param has_cloudflare_r2_keys: Whether both R2 upload secrets are
+        configured.
     :param repo: Repository in `owner/repo` format; permission and settings
         checks are skipped when `None`.
     """
@@ -546,6 +569,7 @@ def manage_setup_guide(
         has_notifications_pat=has_notifications_pat,
         has_virustotal_key=has_virustotal_key,
         has_cloudflare_api_token=has_cloudflare_api_token,
+        has_cloudflare_r2_keys=has_cloudflare_r2_keys,
     )
 
     sections: dict[str, str | None] = {

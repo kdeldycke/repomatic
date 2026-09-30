@@ -2,12 +2,18 @@
 name: 📚 Docs
 "on":
   workflow_call:
-    # Only the Cloudflare deploy target reads this, and only a repository that
-    # selected it will have it set: an unset optional secret arrives empty and
-    # the job that would use it never runs. Declared rather than inherited, so a
-    # caller forwards it by name instead of handing over everything it holds.
+    # Only the Cloudflare deploy target reads these, and only a repository that
+    # selected it will have them set: an unset optional secret arrives empty and
+    # the job that would use it never runs. The R2 key pair is optional even
+    # there, for a site with nothing over the Pages size limit. Declared rather
+    # than inherited, so a caller forwards each by name instead of handing over
+    # everything it holds.
     secrets:
       CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_R2_ACCESS_KEY_ID:
+        required: false
+      CLOUDFLARE_R2_SECRET_ACCESS_KEY:
         required: false
   workflow_dispatch:
   push:
@@ -203,18 +209,27 @@ jobs:
           ./docs ./docs/_build
       - name: Check same-page doc links
         # Same check as the GitHub Pages job above, and for the same reason.
-        # Ahead of the size trim below, so it reads the tree as Sphinx wrote it.
+        # Ahead of the offload below, so it reads the tree as Sphinx wrote it.
         run: >
           uv --no-progress run --frozen -- repomatic lint-anchors
           --docs-dir ./docs --build-dir ./docs/_build
-      - name: Drop files over the Pages upload limit
+      - name: Offload files over the Pages upload limit
         # Direct Upload rejects any file over 25 MiB, and `wrangler` fails the
-        # whole deploy on the first one it meets. Dropping the stragglers
-        # publishes everything else instead of nothing, and `-print` names
-        # each dropped file in the log so the trim is never silent.
-        # See: https://developers.cloudflare.com/pages/get-started/direct-upload/#limits
+        # whole deploy on the first one it meets. Each such file moves to the R2
+        # bucket `site.cloudflare-r2-bucket` declares, with a redirect from its
+        # old path; without a bucket it is dropped with a warning annotation.
+        # Either way everything else publishes, and the step never fails.
+        # See repomatic/cloudflare_r2.py for rationale.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          PROJECT_NAME: >-
+            ${{ fromJSON(needs.metadata.outputs.metadata).site_cloudflare_project
+            || github.event.repository.name }}
         run: >
-          find ./docs/_build -type f -size +25M -print -delete
+          uv --no-progress run --frozen -- repomatic cloudflare-r2
+          --offload ./docs/_build --project "$PROJECT_NAME"
       - name: Deploy to Cloudflare Pages
         # Direct Upload: the tree built above is what reaches the edge, so
         # Cloudflare never builds anything and needs no access to this

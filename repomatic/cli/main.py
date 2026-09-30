@@ -238,6 +238,16 @@ has_cloudflare_api_token_option = option(
     envvar="HAS_CLOUDFLARE_API_TOKEN",
     help="Whether CLOUDFLARE_API_TOKEN is configured.",
 )
+has_cloudflare_r2_keys_option = option(
+    "--has-cloudflare-r2-keys",
+    is_flag=True,
+    default=False,
+    envvar="HAS_CLOUDFLARE_R2_KEYS",
+    help=(
+        "Whether CLOUDFLARE_R2_ACCESS_KEY_ID and CLOUDFLARE_R2_SECRET_ACCESS_KEY"
+        " are both configured."
+    ),
+)
 has_notifications_pat_option = option(
     "--has-notifications-pat",
     is_flag=True,

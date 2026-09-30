@@ -559,14 +559,20 @@ PAGES_STEP = "Set GitHub Pages deployment source to GitHub Actions"
 CLOUDFLARE_STEP = "Configure the Cloudflare Pages credentials"
 """Title of the step only a Cloudflare Pages project is asked to perform."""
 
+R2_STEP = "Configure the R2 upload keys"
+"""Title of the step only a site declaring an R2 bucket is asked to perform."""
 
-def _site_project(tmp_path, monkeypatch, target: str, *, sphinx: bool = True) -> None:
+
+def _site_project(
+    tmp_path, monkeypatch, target: str, *, sphinx: bool = True, r2: bool = False
+) -> None:
     """Materialize a project deploying its site to *target*, and enter it.
 
     The `docs/conf.py` is what `Metadata.is_sphinx` looks for. The GitHub
     Pages step is gated on it; the Cloudflare step follows the declared
     target alone, so *sphinx* can be turned off to model a repository whose
-    site is built by its own workflow.
+    site is built by its own workflow. *r2* declares the bucket that serves
+    the site's oversized files.
     """
     if sphinx:
         (tmp_path / "docs").mkdir()
@@ -575,7 +581,13 @@ def _site_project(tmp_path, monkeypatch, target: str, *, sphinx: bool = True) ->
         )
     (tmp_path / "pyproject.toml").write_text(
         "[project]\nname = 'papaya'\nversion = '1.0'\n\n"
-        f"[tool.repomatic]\nsite.deploy = '{target}'\n",
+        f"[tool.repomatic]\nsite.deploy = '{target}'\n"
+        + (
+            "site.cloudflare-r2-bucket = 'papaya-files'\n"
+            "site.cloudflare-r2-domain = 'files.example.com'\n"
+            if r2
+            else ""
+        ),
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -649,6 +661,39 @@ def test_setup_guide_holds_open_until_the_cloudflare_token_lands(
     assert lifecycle.call_args_list[0][1]["has_issues"] is expected_has_issues
 
 
+@pytest.mark.parametrize("r2", (False, True))
+def test_setup_guide_asks_for_r2_keys_only_with_a_bucket(tmp_path, monkeypatch, r2):
+    """Without a declared bucket, the deploy drops oversized files by design."""
+    _site_project(tmp_path, monkeypatch, "cloudflare-pages", r2=r2)
+    with _offline_setup_guide() as (_lifecycle, bodies):
+        result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
+    assert result.exit_code == 0
+    assert (R2_STEP in bodies[0]) is r2
+
+
+@pytest.mark.parametrize(
+    ("env", "expected_has_issues"),
+    (
+        pytest.param({"HAS_CLOUDFLARE_API_TOKEN": "true"}, True, id="no-keys"),
+        pytest.param(
+            {"HAS_CLOUDFLARE_API_TOKEN": "true", "HAS_CLOUDFLARE_R2_KEYS": "true"},
+            False,
+            id="keys-close",
+        ),
+    ),
+)
+def test_setup_guide_holds_open_until_the_r2_keys_land(
+    tmp_path, monkeypatch, env, expected_has_issues
+):
+    """A declared bucket without its keys drops the files it exists to serve."""
+    _site_project(tmp_path, monkeypatch, "cloudflare-pages", r2=True)
+    with _offline_setup_guide() as (lifecycle, bodies):
+        result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG], env=env)
+    assert result.exit_code == 0
+    assert "gh secret set CLOUDFLARE_R2_ACCESS_KEY_ID" in bodies[0]
+    assert lifecycle.call_args_list[0][1]["has_issues"] is expected_has_issues
+
+
 def test_setup_guide_asks_a_non_sphinx_site_for_its_cloudflare_credentials(
     tmp_path, monkeypatch
 ):
@@ -718,7 +763,7 @@ def test_setup_step_placeholders_match_the_template():
     fills, so the two rosters have to agree exactly.
     """
     _meta, body = load_template("setup-guide")
-    declared = set(re.findall(r"\$([a-z_]+)", body))
+    declared = set(re.findall(r"\$([_a-z][_a-z0-9]*)", body))
     filled = {step.placeholder for step in SETUP_STEPS}
     assert filled <= declared, f"steps fill unknown placeholders: {filled - declared}"
     # The template's remaining placeholders are the ones the driver fills.

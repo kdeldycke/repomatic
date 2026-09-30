@@ -5,6 +5,10 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Add `cloudflare-r2`, which serves site files over the 25 MiB Cloudflare Pages limit from the R2 bucket that `site.cloudflare-r2-bucket` and `site.cloudflare-r2-domain` declare.
+- The Docs workflow's Cloudflare deploy now moves files over 25 MiB to that bucket, and flags each file it drops with a warning annotation.
+- `lint-repo` now warns about a tracked file over the 25 MiB Cloudflare Pages limit when no R2 bucket is declared.
+- `lint-repo` and the setup guide now ask for `CLOUDFLARE_R2_ACCESS_KEY_ID` and `CLOUDFLARE_R2_SECRET_ACCESS_KEY` when `site.cloudflare-r2-bucket` is declared.
 - Raise the `tomlrt` floor to `2.2.4`.
 - The bundled `repomatic-deps` skill now bisects a floor that rests on a behavior rather than an API, and reads deprecated calls off the test suite's warnings summary.
 

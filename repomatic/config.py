@@ -1374,6 +1374,31 @@ class Config:
     through.
     """
 
+    site_cloudflare_r2_bucket: str = field(
+        default="",
+        metadata={CONFIG_PATH_METADATA_KEY: "site.cloudflare-r2-bucket"},
+    )
+    """R2 bucket that serves the site's files over the Cloudflare Pages limit.
+
+    Direct Upload rejects any file over 25 MiB. With a bucket declared, the
+    deploy moves each such file there and redirects its path to the copy,
+    through `repomatic cloudflare-r2 --offload`. Empty (the default) drops the
+    file instead, with a warning annotation, so everything else still
+    publishes. Goes with `site.cloudflare-r2-domain`.
+    """
+
+    site_cloudflare_r2_domain: str = field(
+        default="",
+        metadata={CONFIG_PATH_METADATA_KEY: "site.cloudflare-r2-domain"},
+    )
+    """Hostname that serves `site.cloudflare-r2-bucket`, like `files.example.com`.
+
+    A custom domain on a zone of the same Cloudflare account, attached by
+    `repomatic cloudflare-r2 --create`. The redirects the offload writes point
+    there. The bucket's `r2.dev` URL cannot replace it: Cloudflare rate-limits
+    that URL and meant it for development only.
+    """
+
     site_deploy: str = field(
         default="github-pages",
         metadata={CONFIG_PATH_METADATA_KEY: "site.deploy"},
@@ -1537,7 +1562,9 @@ class Config:
         `site.deploy` target nothing implements, which would otherwise read as
         a workflow that runs and publishes nowhere, and a
         `site.cloudflare-placement` value the Pages API would bounce far from
-        the line that caused it.
+        the line that caused it. An R2 bucket and its domain must come as a
+        pair, and the domain must be a bare hostname: the offload builds
+        ``https://{domain}/{key}`` URLs from it.
         """
         default = AGENT_LAYOUTS[DEFAULT_AGENT]
         layout = self.flavor.layout
@@ -1560,6 +1587,19 @@ class Config:
             msg = (
                 f"Unsupported site.cloudflare-placement"
                 f" {self.site_cloudflare_placement!r}. Pick one of: {modes}."
+            )
+            raise ValueError(msg)
+        if bool(self.site_cloudflare_r2_bucket) != bool(self.site_cloudflare_r2_domain):
+            msg = (
+                "site.cloudflare-r2-bucket and site.cloudflare-r2-domain go"
+                " together: the offload needs a bucket to upload to and a host"
+                " to redirect to."
+            )
+            raise ValueError(msg)
+        if "/" in self.site_cloudflare_r2_domain:
+            msg = (
+                f"site.cloudflare-r2-domain {self.site_cloudflare_r2_domain!r}"
+                " must be a bare hostname, like files.example.com."
             )
             raise ValueError(msg)
 
@@ -1597,6 +1637,8 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "setup_guide",
     "site_cloudflare_compatibility_date",
     "site_cloudflare_placement",
+    "site_cloudflare_r2_bucket",
+    "site_cloudflare_r2_domain",
     "skills_location",
     "subagents_location",
     "sync_runner_images",

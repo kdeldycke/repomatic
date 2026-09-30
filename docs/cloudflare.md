@@ -1,6 +1,6 @@
 # {octicon}`cloud` Cloudflare Pages
 
-Setting `[tool.repomatic] site.deploy = "cloudflare-pages"` moves a repository's published site from GitHub Pages to a [Cloudflare Pages](https://developers.cloudflare.com/pages/) project. The reason to do it is the edge rather than the upload: a Cloudflare Pages custom domain carries its own certificate, so a zone's apex can stay proxied, which is what a `_redirects` file, a real `404.html` and any edge rule on the apex all depend on. This page is the operating manual for that hosting model: how a deploy works, how the credential is scoped and rotated, what drifts server-side, and how the `_redirects` engine really reads its file.
+Setting `[tool.repomatic] site.deploy = "cloudflare-pages"` moves a repository's published site from GitHub Pages to a [Cloudflare Pages](https://developers.cloudflare.com/pages/) project. The reason to do it is the edge rather than the upload: a Cloudflare Pages custom domain carries its own certificate, so a zone's apex can stay proxied, which is what a `_redirects` file, a real `404.html` and any edge rule on the apex all depend on. This page is the operating manual for that hosting model: how a deploy works, how the credential is scoped and rotated, what drifts server-side, where files over the size limit go, and how the `_redirects` engine really reads its file.
 
 Everything here was learned by operating real Pages projects, the expensive way where noted. The negative results are kept on purpose: an endpoint that refuses a token type or a setting that looked alarming and was not are exactly the findings most likely to be rediscovered at full price.
 
@@ -67,7 +67,7 @@ Attaching a custom domain has the same shape of gap, one step further along. The
 
 The project's `source` must read `null`, and must stay that way. Attaching a git repository reintroduces a second, competing publisher for the same project, one with no build configuration capable of producing a usable site. The [drift check](#the-drift-check) fails when a source block appears, which is the guard against it coming back through a well-meaning dashboard visit.
 
-Two platform limits shape the upload. Direct Upload rejects any file over 25 MiB, and `wrangler` fails the whole deploy on the first one it meets, so the deploy job drops oversized files first and names each one in the log: everything else publishes instead of nothing. And each project keeps its `<project>.pages.dev` hostname for life; see [below](#the-pages-dev-hostname) for why that is fine.
+Two platform limits shape the upload. Direct Upload rejects any file over 25 MiB, and `wrangler` fails the whole deploy on the first one it meets: [files over 25 MiB](#files-over-25-mib) describes how the deploy moves them to R2, or drops them. And each project keeps its `<project>.pages.dev` hostname for life; see [below](#the-pages-dev-hostname) for why that is fine.
 
 ## The token
 
@@ -121,6 +121,56 @@ The diff is honest about its own confidence. Each stock default is tagged `docum
 `wrangler.toml` is not part of the server-side state, and that is precisely its hazard: Cloudflare honours the project's own configuration, while the file only matters to local `wrangler` commands on a project that is never built remotely. It can therefore lie for years. `lint-repo` compares its `name` and `compatibility_date` against the declared values, so the repository states each fact once.
 
 `--create` covers the rebuild-from-nothing case: the Pages API creates the Direct Upload project (something `wrangler pages deploy` refuses to do non-interactively), then the declared settings are applied to it. It is idempotent: an existing project is reused and reconciled through the same path, because the API answers `409` on a duplicate name rather than converging, so a re-run validates the live state instead of failing on it. With the token restored and a push to the default branch, the whole hosting side reconstructs from what is committed.
+
+## Files over 25 MiB
+
+Direct Upload rejects any file over 25 MiB, and `wrangler` fails the whole deploy on the first one it meets. So the deploy job first runs `repomatic cloudflare-r2 --offload` on the built tree, which does one of two things with each such file:
+
+- With an R2 bucket declared, it uploads the file to the bucket. Then it adds a rule to the built `_redirects` that sends the file's old path there. The site's sources and links do not change.
+- Without a bucket, or when the file cannot move, it deletes the file from the tree and emits a warning annotation. Everything else still publishes, and the step never fails.
+
+Each file gets a row in the run's step summary. `lint-repo` also warns about a tracked file over the limit when no bucket is declared, before a deploy drops it. Once a bucket is declared, `lint-repo` and the setup guide issue both report whether its two upload secrets exist.
+
+### Setting up the bucket
+
+1. **Declare the bucket and the host that serves it**, in `pyproject.toml`. The host must be a custom domain on a zone of the same Cloudflare account:
+
+   ```toml
+   [tool.repomatic]
+   site.cloudflare-r2-bucket = "my-site-files"
+   site.cloudflare-r2-domain = "files.example.com"
+   ```
+
+2. **Create the bucket and attach the domain**, from a machine logged in with `wrangler login`:
+
+   ```shell
+   repomatic cloudflare-r2 --create
+   ```
+
+   It creates the bucket if it is missing, attaches the domain with TLS 1.2 at least (R2 accepts 1.0 by default), and turns the bucket's `r2.dev` URL off. It is idempotent: a re-run brings an existing bucket to the same state. The `wrangler login` session needs two scopes. `workers:write` covers R2, although no OAuth scope has R2 in its name, and `zone:read` finds the domain's zone. Later, `repomatic cloudflare-r2 --check` compares the live bucket against the declaration, and changes nothing.
+
+3. **Create the upload key pair and store it.** In the dashboard's R2 section, create an account API token with the **Object Read & Write** permission, limited to the one bucket. Store the two S3 values it shows, the Access Key ID and the Secret Access Key:
+
+   ```shell
+   gh secret set CLOUDFLARE_R2_ACCESS_KEY_ID --repo {owner}/{repo}
+   gh secret set CLOUDFLARE_R2_SECRET_ACCESS_KEY --repo {owner}/{repo}
+   ```
+
+The next deploy moves every oversized file to the bucket.
+
+### Why a key pair, and why redirects
+
+Cloudflare can limit an R2 credential to one bucket on the S3 API only. Its REST API needs **Workers R2 Storage Write**, which reaches every bucket on the account, and CI keeps a credential for a year. So the offload uploads through the S3 API, with the bucket-scoped key pair. The S3 endpoint embeds the account ID, which resolves from `CLOUDFLARE_API_TOKEN` like everywhere else on this page. The request signer is AWS Signature Version 4 on the Python standard library, tested against AWS's published vectors.
+
+Each object lives at `{sha256}/{filename}`. A key that exists already holds the same bytes, so a re-run uploads nothing, a preview deploy cannot overwrite what production serves, and every object carries an `immutable` cache header. For the same reason, the generated redirects use status `302`: the target changes each time the file changes, and a cached `301` would keep sending browsers to the old bytes.
+
+A redirect needs no knowledge of the markup that links to the file, so the same step serves a Sphinx, a Pelican or a hand-built site. `_redirects` cannot proxy another host, because its status `200` only rewrites a relative path. A Pages Function could, but it would put a Worker in front of every request of a static site.
+
+Three limits remain:
+
+- HTML pages stay in the tree, and the deploy drops an oversized one: served from the bucket's host, its relative links would break.
+- One S3 upload takes 5 MiB short of 5 GiB. A bigger file needs a multipart upload by hand, and an absolute link.
+- Nothing is ever deleted from the bucket. Old Pages deployments stay online, and they still redirect to the objects they knew.
 
 ## The redirects engine, as it actually is
 

@@ -184,11 +184,13 @@ class ReportAction(Enum):
     than re-spelled per report.
     """
 
+    DROPPED = "\U0001f5d1\ufe0f Dropped"
     DRY_RUN = "\U0001f441\ufe0f Dry-run"
     FAILED = "\u26a0\ufe0f Failed"
     SKIPPED = "\u2705 In sync"
     UNSUBSCRIBED = "\U0001f515 Unsubscribed"
     UPDATED = "\U0001f504 Updated"
+    UPLOADED = "\u2b06\ufe0f Uploaded"
 
 
 def extract_workflow_filename(workflow_ref: str | None) -> str:

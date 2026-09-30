@@ -284,6 +284,50 @@ def test_site_cloudflare_placement_rejects_unknown_modes():
         })
 
 
+def test_site_cloudflare_r2_keys_load_from_their_table():
+    config = load_repomatic_config({
+        "tool": {
+            "repomatic": {
+                "site": {
+                    "cloudflare-r2-bucket": "papaya-files",
+                    "cloudflare-r2-domain": "files.example.com",
+                }
+            }
+        }
+    })
+    assert config.site_cloudflare_r2_bucket == "papaya-files"
+    assert config.site_cloudflare_r2_domain == "files.example.com"
+
+
+@pytest.mark.parametrize(
+    "site",
+    (
+        pytest.param({"cloudflare-r2-bucket": "papaya-files"}, id="bucket-alone"),
+        pytest.param({"cloudflare-r2-domain": "files.example.com"}, id="domain-alone"),
+    ),
+)
+def test_site_cloudflare_r2_keys_come_as_a_pair(site):
+    """A bucket with nowhere to redirect, or a host with nothing to upload to,
+    would only fail at the first oversized file, deep in a deploy."""
+    with pytest.raises(ValueError, match=r"go together"):
+        load_repomatic_config({"tool": {"repomatic": {"site": site}}})
+
+
+def test_site_cloudflare_r2_domain_must_be_a_bare_hostname():
+    """The offload writes `https://{domain}/{key}`: a scheme would double."""
+    with pytest.raises(ValueError, match=r"must be a bare hostname"):
+        load_repomatic_config({
+            "tool": {
+                "repomatic": {
+                    "site": {
+                        "cloudflare-r2-bucket": "papaya-files",
+                        "cloudflare-r2-domain": "https://files.example.com",
+                    }
+                }
+            }
+        })
+
+
 def test_load_repomatic_config_warns_unknown_keys(tmp_path, monkeypatch, caplog):
     """Unknown keys in [tool.repomatic] produce a warning, not an error."""
     pyproject_content = """\

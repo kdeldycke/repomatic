@@ -42,6 +42,7 @@ from click_extra import echo
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
+from .cloudflare_r2 import PAGES_MAX_FILE_SIZE
 from .config import Config, deploys_to
 from .deps.uv import LockFile
 from .file_inventory import FileInventory
@@ -51,6 +52,7 @@ from .github.gh import gh_api_json, gh_graphql, run_gh_command
 from .github.matrix import PYTHON_VERSION_AXIS
 from .github.token import check_all_pat_permissions
 from .http import FetchError
+from .humanize import format_file_size
 from .labels import LabelConfigError, declared_label_names
 from .matrix_axes import (
     TEST_RUNNERS_FULL,
@@ -3123,6 +3125,10 @@ class LintContext:
     site_cloudflare_compatibility_date: str = ""
     """Declared Workers runtime date, per `site.cloudflare-compatibility-date`."""
 
+    site_cloudflare_r2_bucket: str = ""
+    """R2 bucket serving the files over the Pages limit, per
+    `site.cloudflare-r2-bucket`. Empty means the deploy drops them."""
+
     project_description: str | None = None
     """Description from `pyproject.toml`."""
 
@@ -3146,6 +3152,10 @@ class LintContext:
 
     has_cloudflare_api_token: bool = False
     """Whether `CLOUDFLARE_API_TOKEN` is configured."""
+
+    has_cloudflare_r2_keys: bool = False
+    """Whether `CLOUDFLARE_R2_ACCESS_KEY_ID` and `CLOUDFLARE_R2_SECRET_ACCESS_KEY`
+    are both configured."""
 
     nuitka_active: bool = False
     """Whether this project compiles binaries with Nuitka."""
@@ -3199,6 +3209,19 @@ class LintContext:
         return FileInventory().glob_files("**/_redirects")
 
     @cached_property
+    def oversized_files(self) -> list[Path]:
+        """Tracked files over the Cloudflare Pages limit, `.gitignore` honoured.
+
+        Built trees stay out, like the `_redirects` inventory above: the deploy
+        step reads those, and it names each file it moves or drops.
+        """
+        return [
+            path
+            for path in FileInventory().glob_files("**/*")
+            if path.stat().st_size > PAGES_MAX_FILE_SIZE
+        ]
+
+    @cached_property
     def has_wrangler_toml(self) -> bool:
         """Whether the repository commits a root-level `wrangler.toml`."""
         return Path("wrangler.toml").is_file()
@@ -3238,6 +3261,7 @@ class LintContext:
         has_pat: bool = False,
         has_virustotal_key: bool = False,
         has_cloudflare_api_token: bool = False,
+        has_cloudflare_r2_keys: bool = False,
         has_notifications_pat: bool = False,
     ) -> LintContext:
         """Resolve the project-shaped fields from the current checkout.
@@ -3256,6 +3280,8 @@ class LintContext:
         :param has_virustotal_key: Whether `VIRUSTOTAL_API_KEY` is configured.
         :param has_cloudflare_api_token: Whether `CLOUDFLARE_API_TOKEN` is
             configured.
+        :param has_cloudflare_r2_keys: Whether both R2 upload secrets are
+            configured.
         :param has_notifications_pat: Whether `REPOMATIC_NOTIFICATIONS_PAT` is
             configured.
         """
@@ -3273,6 +3299,7 @@ class LintContext:
             site_cloudflare_compatibility_date=(
                 config.site_cloudflare_compatibility_date
             ),
+            site_cloudflare_r2_bucket=config.site_cloudflare_r2_bucket,
             project_description=metadata.project_description,
             docs_url=documentation_url(project_table.get("urls")),
             keywords=project_table.get("keywords"),
@@ -3281,6 +3308,7 @@ class LintContext:
             has_pat=has_pat,
             has_virustotal_key=has_virustotal_key,
             has_cloudflare_api_token=has_cloudflare_api_token,
+            has_cloudflare_r2_keys=has_cloudflare_r2_keys,
             nuitka_active=config.nuitka_enabled and bool(metadata.script_entries),
             has_notifications_pat=has_notifications_pat,
             unsubscribe_active=config.notification_unsubscribe,
@@ -3350,6 +3378,32 @@ def _cloudflare_secrets(ctx: LintContext) -> CheckResult:
     return CheckResult(
         True,
         "CLOUDFLARE_API_TOKEN is configured, and the account resolves from it.",
+    )
+
+
+def _cloudflare_r2_secrets(ctx: LintContext) -> CheckResult:
+    """Report whether the offload can upload to the declared R2 bucket.
+
+    Without the key pair the deploy still publishes, but it drops every file
+    over 25 MiB: the very files the bucket was declared to serve. The pair is
+    limited to that bucket, which Cloudflare allows on the S3 API only, so
+    `CLOUDFLARE_API_TOKEN` cannot stand in for it.
+    """
+    if ctx.has_cloudflare_r2_keys:
+        return CheckResult(
+            True,
+            "CLOUDFLARE_R2_ACCESS_KEY_ID and CLOUDFLARE_R2_SECRET_ACCESS_KEY are"
+            " configured.",
+        )
+    return CheckResult(
+        False,
+        "CLOUDFLARE_R2_ACCESS_KEY_ID and CLOUDFLARE_R2_SECRET_ACCESS_KEY are not"
+        " both configured, while site.cloudflare-r2-bucket declares"
+        f" {ctx.site_cloudflare_r2_bucket!r}: the deploy drops every file over"
+        " 25 MiB instead of serving it from R2. In the dashboard's R2 section,"
+        " create an account API token with Object Read & Write, limited to that"
+        " bucket, and store its Access Key ID and Secret Access Key as those two"
+        " repository secrets.",
     )
 
 
@@ -3487,6 +3541,40 @@ def _wrangler_config(ctx: LintContext) -> Iterator[CheckResult]:
             )
 
 
+def _oversized_site_files(ctx: LintContext) -> CheckResult:
+    """Warn about tracked files the Cloudflare Pages deploy cannot upload.
+
+    Direct Upload rejects any file over 25 MiB. The deploy drops such a file
+    unless an R2 bucket takes it, and a dropped file leaves a dead link. No
+    setting names the site's sources, so the check reads every tracked file:
+    a large file outside the site is a false alarm, which is why this warns
+    and never fails.
+    """
+    files = ctx.oversized_files
+    if not files:
+        return CheckResult(
+            True, "No tracked file is over the 25 MiB Cloudflare Pages limit."
+        )
+    listed = ", ".join(
+        f"{path} ({format_file_size(path.stat().st_size)})" for path in files
+    )
+    if ctx.site_cloudflare_r2_bucket:
+        return CheckResult(
+            True,
+            f"{len(files)} tracked file(s) over the 25 MiB Cloudflare Pages"
+            f" limit move to R2 bucket {ctx.site_cloudflare_r2_bucket!r} if"
+            f" the site ships them: {listed}.",
+        )
+    return CheckResult(
+        False,
+        f"{len(files)} tracked file(s) over the 25 MiB Cloudflare Pages limit:"
+        f" {listed}. The deploy drops any the site ships, which leaves a dead"
+        " link. Declare [tool.repomatic] site.cloudflare-r2-bucket and"
+        " site.cloudflare-r2-domain to serve them from R2 instead: see"
+        " https://repomatic.net/cloudflare#files-over-25-mib.",
+    )
+
+
 def _virustotal_secret(ctx: LintContext) -> CheckResult:
     """Report whether the VirusTotal API key is available to release builds."""
     if ctx.has_virustotal_key:
@@ -3559,6 +3647,15 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         applies=lambda ctx: ctx.deploys_to("cloudflare-pages"),
     ),
     RepoCheck(
+        # The key pair only matters to a site that declared a bucket: without
+        # one, the deploy drops oversized files by design and reads no key.
+        "cloudflare-r2-secrets",
+        _cloudflare_r2_secrets,
+        applies=lambda ctx: bool(
+            ctx.deploys_to("cloudflare-pages") and ctx.site_cloudflare_r2_bucket
+        ),
+    ),
+    RepoCheck(
         # The mirror image of `pages-deployment-source` above: that one asks
         # the GitHub Pages host to publish, this one asks it to redirect. Only
         # a repository that moved away needs the second question answered.
@@ -3582,6 +3679,11 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         applies=lambda ctx: bool(
             ctx.deploys_to("cloudflare-pages") and ctx.has_wrangler_toml
         ),
+    ),
+    RepoCheck(
+        "oversized-site-files",
+        _oversized_site_files,
+        applies=lambda ctx: ctx.deploys_to("cloudflare-pages"),
     ),
     RepoCheck(
         "stale-gh-pages-branch",

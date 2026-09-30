@@ -46,6 +46,7 @@ from ..changelog import (
     resolved_changelog_path,
 )
 from ..cloudflare import CloudflareError, run_cloudflare_pages
+from ..cloudflare_r2 import run_cloudflare_r2, run_offload
 from ..deps.dep_policy import scan_policy
 from ..deps.dep_sources import (
     LINT_DEPS_HEADER_DEFS,
@@ -98,6 +99,7 @@ from .main import (
     _section_release,
     exit_if_disabled,
     has_cloudflare_api_token_option,
+    has_cloudflare_r2_keys_option,
     has_notifications_pat_option,
     has_pat_option,
     has_virustotal_key_option,
@@ -620,6 +622,7 @@ def lint_deps(
 @repo_name_option
 @repo_slug_option
 @has_cloudflare_api_token_option
+@has_cloudflare_r2_keys_option
 @has_notifications_pat_option
 @has_pat_option
 @has_virustotal_key_option
@@ -629,6 +632,7 @@ def lint_repo(
     repo_name: str | None,
     repo: str | None,
     has_cloudflare_api_token: bool,
+    has_cloudflare_r2_keys: bool,
     has_notifications_pat: bool,
     has_pat: bool,
     has_virustotal_key: bool,
@@ -663,12 +667,16 @@ def lint_repo(
         workflow is enabled (warning).
       - CLOUDFLARE_API_TOKEN secret missing when site.deploy targets
         Cloudflare Pages (warning).
+      - CLOUDFLARE_R2_ACCESS_KEY_ID or CLOUDFLARE_R2_SECRET_ACCESS_KEY secret
+        missing when site.cloudflare-r2-bucket is declared (warning).
       - Legacy github.io URLs still redirect, for a project that moved its
         site to Cloudflare Pages (warning).
       - Committed _redirects files survive the Cloudflare Pages engine:
         no dropped rules, no silent budget abort (error).
       - wrangler.toml agrees with the declared Cloudflare project name and
         compatibility date (warning).
+      - No tracked file is over the 25 MiB Cloudflare Pages limit, unless an
+        R2 bucket is declared to serve it (warning).
 
     \b
     When a PAT is detected, additional capability checks are run:
@@ -690,6 +698,7 @@ def lint_repo(
             has_pat=has_pat,
             has_virustotal_key=has_virustotal_key,
             has_cloudflare_api_token=has_cloudflare_api_token,
+            has_cloudflare_r2_keys=has_cloudflare_r2_keys,
             has_notifications_pat=has_notifications_pat,
         )
     )
@@ -815,6 +824,114 @@ def cloudflare_pages(
             attach_domain=attach_domain or "",
             compatibility_date=config.site_cloudflare_compatibility_date,
             placement=config.site_cloudflare_placement,
+        )
+    except CloudflareError as error:
+        raise ClickException(str(error)) from error
+    ctx.exit(exit_code)
+
+
+@repomatic.command(
+    short_help="Serve site files over the Pages size limit from Cloudflare R2",
+    section=_section_lint,
+    examples=(
+        (
+            "In CI, between the build and `wrangler pages deploy`",
+            "repomatic cloudflare-r2 --offload ./docs/_build",
+        ),
+        (
+            "Create the bucket and attach its domain, or converge an existing one",
+            "repomatic cloudflare-r2 --create",
+        ),
+        (
+            "Compare the live bucket against the declared state",
+            "repomatic cloudflare-r2 --check",
+        ),
+    ),
+)
+@option(
+    "--project",
+    default=None,
+    help=(
+        "Cloudflare Pages project of the site, which resolves the account."
+        " Defaults to [tool.repomatic] site.cloudflare-project, then to the"
+        " repository name."
+    ),
+)
+@option(
+    "--offload",
+    metavar="DIRECTORY",
+    type=dir_path(exists=True, readable=True, resolve_path=True),
+    default=None,
+    help=(
+        "Move every file over 25 MiB out of the built site in DIRECTORY, to the"
+        " bucket, and redirect its path there in DIRECTORY/_redirects. Without"
+        " a bucket, drop the file with a warning. Never fails the deploy."
+    ),
+)
+@option(
+    "--create",
+    is_flag=True,
+    help=(
+        "Create the bucket when missing, attach the domain with TLS 1.2 at"
+        " least, and turn the r2.dev URL off. Re-running is safe."
+    ),
+)
+@option(
+    "--check",
+    is_flag=True,
+    help="Compare the live bucket against the declared state; exit 1 on drift.",
+)
+@pass_context
+def cloudflare_r2(
+    ctx: Context,
+    project: str | None,
+    offload: Path | None,
+    create: bool,
+    check: bool,
+) -> None:
+    """Serve a static site's files over the Pages size limit from Cloudflare R2.
+
+    Cloudflare Pages Direct Upload rejects any file over 25 MiB. --offload
+    moves each such file from the built site to the bucket that [tool.repomatic]
+    site.cloudflare-r2-bucket declares, and redirects its path to the copy.
+    Without a bucket, or when a file cannot move, the file is dropped with a
+    warning annotation, and everything else still publishes.
+
+    Uploads use a key pair limited to the bucket, from
+    CLOUDFLARE_R2_ACCESS_KEY_ID and CLOUDFLARE_R2_SECRET_ACCESS_KEY. --create
+    and --check manage the bucket through the REST API, with
+    CLOUDFLARE_API_TOKEN or a local `wrangler login`. The account resolves
+    from the credential, never from a declared identifier.
+    """
+    modes = {"--check": check, "--create": create, "--offload": offload is not None}
+    selected = [flag for flag, active in modes.items() if active]
+    if len(selected) != 1:
+        msg = f"Pick exactly one of {', '.join(modes)}. Got: {selected or 'none'}."
+        raise UsageError(msg)
+
+    config = get_tool_config(ctx)
+    bucket = config.site_cloudflare_r2_bucket
+    domain = config.site_cloudflare_r2_domain
+    resolved = project or config.site_cloudflare_project or Metadata().repo_name or ""
+
+    if offload is not None:
+        ctx.exit(run_offload(offload, bucket=bucket, domain=domain, project=resolved))
+
+    if not bucket:
+        msg = (
+            "No bucket declared: set [tool.repomatic] site.cloudflare-r2-bucket"
+            " and site.cloudflare-r2-domain."
+        )
+        raise UsageError(msg)
+    if not resolved:
+        msg = (
+            "No project name: pass --project or set [tool.repomatic]"
+            " site.cloudflare-project."
+        )
+        raise UsageError(msg)
+    try:
+        exit_code = run_cloudflare_r2(
+            resolved, bucket, domain, check=check, create=create
         )
     except CloudflareError as error:
         raise ClickException(str(error)) from error

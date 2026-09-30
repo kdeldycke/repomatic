@@ -30,6 +30,7 @@ import yaml
 
 from repomatic import lint_repo
 from repomatic.cli.setup import show_metadata
+from repomatic.cloudflare_r2 import PAGES_MAX_FILE_SIZE
 from repomatic.config import Config, LabelsConfig
 from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
 from repomatic.http import FetchError
@@ -43,6 +44,8 @@ from repomatic.lint_repo import (
     REPO_CHECKS,
     CheckResult,
     LintContext,
+    _cloudflare_r2_secrets,
+    _oversized_site_files,
     _resolve_declared_labels,
     anchored_exclude_core,
     check_bootstrap_config_drift,
@@ -476,6 +479,62 @@ def test_cloudflare_secrets_check(capsys, site_deploy, is_sphinx, has_token, exp
         assert "CLOUDFLARE" not in captured.out
     else:
         assert expected in captured.out
+
+
+@pytest.mark.parametrize(
+    ("bucket", "applies"),
+    (
+        pytest.param("", False, id="no-bucket-reads-no-key"),
+        pytest.param("papaya-files", True, id="bucket-needs-its-keys"),
+    ),
+)
+def test_cloudflare_r2_secrets_follow_the_declared_bucket(bucket, applies):
+    """Without a bucket the deploy drops oversized files by design, reading no key."""
+    (check,) = (check for check in REPO_CHECKS if check.name == "cloudflare-r2-secrets")
+    ctx = LintContext(site_deploy="cloudflare-pages", site_cloudflare_r2_bucket=bucket)
+    assert check.applies(ctx) is applies
+
+
+@pytest.mark.parametrize(
+    ("has_keys", "passed", "fragment"),
+    (
+        pytest.param(False, False, "the deploy drops every file", id="missing"),
+        pytest.param(True, True, "are configured", id="configured"),
+    ),
+)
+def test_cloudflare_r2_secrets(has_keys, passed, fragment):
+    ctx = LintContext(
+        site_deploy="cloudflare-pages",
+        site_cloudflare_r2_bucket="papaya-files",
+        has_cloudflare_r2_keys=has_keys,
+    )
+    result = _cloudflare_r2_secrets(ctx)
+    assert result.passed is passed
+    assert fragment in result.message
+
+
+@pytest.mark.parametrize(
+    ("big", "bucket", "passed", "fragment"),
+    (
+        pytest.param(False, "", True, "No tracked file", id="nothing-oversized"),
+        pytest.param(True, "", False, "The deploy drops any", id="no-bucket-warns"),
+        pytest.param(True, "papaya-files", True, "move to R2", id="bucket-serves"),
+    ),
+)
+def test_oversized_site_files(tmp_path, big, bucket, passed, fragment):
+    """Warn about a tracked file the Pages deploy would drop, unless R2 takes it."""
+    files = []
+    if big:
+        atlas = tmp_path / "atlas.zip"
+        with atlas.open("wb") as stream:
+            stream.truncate(PAGES_MAX_FILE_SIZE + 1)
+        files.append(atlas)
+    ctx = LintContext(site_deploy="cloudflare-pages", site_cloudflare_r2_bucket=bucket)
+    # Seed the cached inventory: the check must not walk this repository.
+    ctx.__dict__["oversized_files"] = files
+    result = _oversized_site_files(ctx)
+    assert result.passed is passed
+    assert fragment in result.message
 
 
 @pytest.mark.parametrize(

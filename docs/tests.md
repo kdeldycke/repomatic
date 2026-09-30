@@ -27,6 +27,7 @@
    tests.test_ci_status
    tests.test_claude_assets
    tests.test_cloudflare
+   tests.test_cloudflare_r2
    tests.test_config
    tests.test_dep_graph
    tests.test_dep_policy

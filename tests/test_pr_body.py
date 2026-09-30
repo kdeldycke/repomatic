@@ -896,6 +896,7 @@ PROGRAMMATIC_TEMPLATES = frozenset({
     "setup-guide",
     "setup-guide-branch-ruleset",
     "setup-guide-cloudflare-pages",
+    "setup-guide-cloudflare-r2",
     "setup-guide-dependabot",
     "setup-guide-fork-pr-approval",
     "setup-guide-notifications-pat",

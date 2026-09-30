@@ -1205,6 +1205,10 @@ ALL_RELEASE_SECRETS = (
             "lint.yaml",
             "    secrets:\n"
             "      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n"
+            "      CLOUDFLARE_R2_ACCESS_KEY_ID:"
+            " ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}\n"
+            "      CLOUDFLARE_R2_SECRET_ACCESS_KEY:"
+            " ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}\n"
             "      REPOMATIC_NOTIFICATIONS_PAT:"
             " ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}\n"
             "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"

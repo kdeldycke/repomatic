@@ -134,6 +134,7 @@ from .main import (
     dry_run_option,
     exit_if_disabled,
     has_cloudflare_api_token_option,
+    has_cloudflare_r2_keys_option,
     has_notifications_pat_option,
     has_pat_option,
     has_virustotal_key_option,
@@ -1110,6 +1111,7 @@ def pr_sync(
     ),
 )
 @has_cloudflare_api_token_option
+@has_cloudflare_r2_keys_option
 @has_notifications_pat_option
 @has_pat_option
 @has_virustotal_key_option
@@ -1119,6 +1121,7 @@ def pr_sync(
 def setup_guide(
     ctx: Context,
     has_cloudflare_api_token: bool,
+    has_cloudflare_r2_keys: bool,
     has_notifications_pat: bool,
     has_pat: bool,
     has_virustotal_key: bool,
@@ -1148,6 +1151,7 @@ def setup_guide(
         has_notifications_pat=has_notifications_pat,
         has_virustotal_key=has_virustotal_key,
         has_cloudflare_api_token=has_cloudflare_api_token,
+        has_cloudflare_r2_keys=has_cloudflare_r2_keys,
         repo=repo,
     )
 
