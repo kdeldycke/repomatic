@@ -76,7 +76,6 @@ from repomatic.tooling.tool_registry import (
     ToolSpec,
     UnsupportedPlatformError,
     _fix_myst_directives,
-    _reroot_section,
     _unescape_colon_fence,
     _yaml_block_to_field_list,
 )
@@ -1775,12 +1774,18 @@ def test_resolve_config_toml_preserves_pyproject_comments(tmp_path, monkeypatch)
     assert tmp is None
 
 
-def test_reroot_section_strips_prefix_and_keeps_comments():
-    """_reroot_section reparents a [tool.X] section and preserves every comment."""
+def test_native_format_toml_serialize_reroots_section_and_keeps_comments():
+    """A live [tool.X] section loses its prefix and keeps every comment."""
     section = tomlrt.loads(
-        "[tool.x]\n"
+        "[project]\n"
+        'name = "orchard"\n'
+        "\n"
+        "# above header\n"
+        "[tool.x]  # on header\n"
         "# leading\n"
         "a = 1  # eol\n"
+        "# above inline table\n"
+        "held = { apple = 1 }\n"
         "[tool.x.sub]\n"
         "# nested\n"
         "b = 2\n"
@@ -1789,23 +1794,30 @@ def test_reroot_section_strips_prefix_and_keeps_comments():
         "c = 3\n"
     )["tool"]["x"]
 
-    out = tomlrt.dumps(_reroot_section(section))
+    out = NativeFormat.TOML.serialize(section)
 
     assert "[sub]" in out and "[tool.x.sub]" not in out
     assert "[[items]]" in out and "[[tool.x.items]]" not in out
-    for comment in ("# leading", "# eol", "# nested", "# aot"):
+    for comment in (
+        "# above header",
+        "# on header",
+        "# leading",
+        "# eol",
+        "# above inline table",
+        "# nested",
+        "# aot",
+    ):
         assert comment in out
+    assert tomlrt.loads(out).to_dict() == section.to_dict()
 
 
-def test_reroot_section_inline_expands_without_raising():
-    """An inline `tool.x = {...}` table expands instead of hitting the comment API."""
+def test_native_format_toml_serialize_inline_section():
+    """An inline `tool.x = {...}` table serializes to the same data."""
     section = tomlrt.loads("[tool]\nx = { a = 1, sub = { b = 2 } }\n")["tool"]["x"]
 
-    out = tomlrt.dumps(_reroot_section(section))
+    out = NativeFormat.TOML.serialize(section)
 
-    assert "a = 1" in out
-    assert "[sub]" in out
-    assert "b = 2" in out
+    assert tomlrt.loads(out).to_dict() == {"a": 1, "sub": {"b": 2}}
 
 
 def test_resolve_config_json_translation(tmp_path, monkeypatch, cache_env):

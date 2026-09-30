@@ -1636,7 +1636,7 @@ requires-dist = [
     { name = "pyelftools", specifier = ">=0.33" },
     { name = "pyproject-metadata", specifier = ">=0.9" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "tomlrt", specifier = ">=1.7.6" },
+    { name = "tomlrt", specifier = ">=2.2.4" },
     { name = "vt-py", specifier = ">=0.18" },
     { name = "wcmatch", specifier = ">=10" },
 ]

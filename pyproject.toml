@@ -118,11 +118,10 @@ dependencies = [
   # PyYAML < 6.0.2 uses Cython extensions that fail to compile on Python 3.14, and
   # old releases lack requires-python metadata to prevent selection on 3.14.
   "pyyaml>=6.0.3",
-  # tomlrt is the format-preserving TOML reader/writer behind every
-  # comment-preserving write (tool config translation, pyproject.toml merging).
-  # 1.7.6 fixed the two trivia-loss bugs the `_update_tool_config` path hits:
-  # dimbleby/tomlrt#171 and dimbleby/tomlrt#172.
-  "tomlrt>=1.7.6",
+  # tomlrt 2.2.4 made Document(table) keep a section's comments and spacing,
+  # which NativeFormat.serialize (tooling/tool_registry.py) relies on to turn a
+  # [tool.X] section into a native config file.
+  "tomlrt>=2.2.4",
   # vt-py is the official VirusTotal Python client (uses aiohttp internally).
   # Used by the scan-virustotal CLI command to upload release binaries.
   "vt-py>=0.18",
