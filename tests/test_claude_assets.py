@@ -61,6 +61,7 @@ from __future__ import annotations
 import ast
 import os
 import re
+from importlib import resources
 from pathlib import Path
 
 import pytest
@@ -138,12 +139,31 @@ def bundled_assets() -> list[tuple[str, str]]:
     """Every bundled skill and agent, as `(asset id, body)` pairs.
 
     Skills are folders entered through `SKILL.md`; agents are single files.
-    Both deploy verbatim, so both are held to the same rules.
+    Both deploy verbatim, so both are held to the same rules. A skill's
+    `references/` pages deploy with it, so each page is an asset of its own,
+    named after its path inside the skill.
     """
-    assets = [
-        (entry.file_id, get_data_content(f"{entry.source}/{SKILL_FILENAME}"))
-        for entry in COMPONENTS_BY_NAME["skills"].files
-    ]
+    assets = []
+    for entry in COMPONENTS_BY_NAME["skills"].files:
+        assets.append((
+            entry.file_id,
+            get_data_content(f"{entry.source}/{SKILL_FILENAME}"),
+        ))
+        references = (
+            resources
+            .files("repomatic.data")
+            .joinpath(entry.source)
+            .joinpath("references")
+        )
+        if references.is_dir():
+            assets.extend(
+                (
+                    f"{entry.file_id}/references/{page.name}",
+                    page.read_text(encoding="UTF-8"),
+                )
+                for page in sorted(references.iterdir(), key=lambda page: page.name)
+                if page.name.endswith(".md")
+            )
     assets.extend(
         (entry.file_id, get_data_content(entry.source))
         for entry in COMPONENTS_BY_NAME["subagents"].files

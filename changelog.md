@@ -16,6 +16,7 @@
 - The bundled `awesome-triage` skill now traces a candidate to its primary source, and verifies every row of a small factual table.
 - The bundled `repomatic-ship` skill now keeps signed commits inside the sandbox when the sandbox settings allow the signing agent's socket and files.
 - The bundled `babysit-ci` skill now fetches run logs inside the sandbox first, and leaves it only when the `gh` cache write fails.
+- The bundled `babysit-ci` and `repomatic-ship` skills now keep their failure catalog and two rare procedures in `references/` pages, read on demand.
 
 ## [`7.16.3` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.16.2...v7.16.3)
 

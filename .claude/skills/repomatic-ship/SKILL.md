@@ -279,19 +279,7 @@ Do not merge the PR, and do not mark it ready yourself. That final human action 
 
 #### Repairing a short ship
 
-When the binary matrix came up short, say so here and name the platforms the version will lose. Publishing is what locks the asset list, so this is the last moment the gap is cheap to record; afterwards it is a permanent property of that version. Shipping short is intended behavior and never a reason to hold the release.
-
-Three artifacts then keep advertising binaries that are not there, each needing a hand *after* the merge:
-
-- The version's **changelog section**, which takes a `> [!WARNING]` naming the gap. Write it as a hand-written admonition in which no line starts with `` > `X.Y.Z` is ``. It then lands in the editorial slot `fix-changelog` preserves, not the availability slot it regenerates.
-- The **GitHub release body**, rebuilt from that section. Immutability locks the assets and the tag, not the notes, so this stays editable after publishing. `sync-github-releases` is the mechanism, but it skips drafts and caches the release list for 24h, so a same-day fix goes through `gh release edit --notes-file` with the body `build_expected_body` renders. Both converge on the same text, so a later CI sync is a no-op rather than a clobber.
-- **`docs/install.md`**, whose download URLs the freeze pins to the version being released, optimistically: the freeze commit is what triggers the build, so it cannot know whether the binaries will land. Re-point them at the last release that carries binaries via `PrepareRelease.freeze_install_download_urls`, and the next release's freeze ratchets them forward again. `lint-repo`'s `check_install_guide_downloads` reports the gap but never repairs it, since an automated rewrite driven by a single API read could downgrade a healthy install page on a flaky response.
-
-Report the three as follow-ups. Do not perform them: they land after a merge this skill does not make.
-
-```{note}
-Upstream only: the release PR is rebase-merged, so its freeze and unfreeze commits arrive in a single push, and GitHub Actions reads workflow files from that push's head. `kdeldycke/repomatic`'s own release lane therefore always runs the **unfrozen** workflow content, whatever the freeze wrote into the release commit. A job that assumes the frozen `uvx 'repomatic==X.Y.Z'` form is what executes (and drops its checkout on that basis) dies on `Failed to spawn: repomatic`. Only downstream repos, which call the reusable workflow at its tag, ever run the frozen form.
-```
+When the binary matrix came up short, read `references/short-ship.md` before the report. It says what to report, lists the three follow-ups to name, and holds the upstream-only note on `Failed to spawn: repomatic`.
 
 ### 8. Reflect and contribute back
 
@@ -309,18 +297,7 @@ Fix at the mechanism, not the symptom: a wording repeated across many generated 
 
 #### Shipping the findings when the repo *is* repomatic
 
-**Inside `kdeldycke/repomatic` there is no `../repomatic`, and the boundary above inverts.** The canonical repo is both the subject of the release and the home of every skill, workflow and convention these findings target, so "propose it upstream" collapses into "fix it here". Leaving the diff uncommitted there buys nothing and costs the release: the next cycle ships the same rough edge, and the diff sits in the tree collecting conflicts against whatever the machinery rewrites meanwhile. Detect the case the way the invocation rule already does (the context shows `CANONICAL_REPO`), then land the findings as an ordinary reconciliation commit rather than a working-tree diff.
-
-**A late commit still ships, which is what makes folding them in possible at all.** `prepare-release` regenerates the release PR on every push to `main`, replaying the freeze onto the new HEAD, so anything pushed before the maintainer merges lands in *this* release instead of the next. That is also why the pass stays here rather than moving before step 5: the findings worth shipping mostly do not exist until babysit has surfaced what CI does and the local gate cannot.
-
-Treat that commit as a reconciliation like any other, which means four things the uncommitted-diff path never had to handle:
-
-- **Verify it with the same gate.** Run the part of step 2 the change touches: the pinned `<cmd> run mdformat` over an edited Markdown asset, `pytest tests/test_claude_assets.py tests/test_skills.py` over a bundled skill or agent, the full gate over Python. Bundled assets carry conformance tests that a docs page does not, and that difference decides how much you run.
-- **Give it a changelog bullet only when a user can observe it.** A bundled skill, agent or workflow deploys verbatim to every downstream repo, so correcting one is a shipped fix and earns an entry. A change to this skill's own release choreography is not something a downstream user consumes, and earns none. When you do add one, re-run consolidation and present the diff (step 4) before committing.
-- **Time the push by what it rebuilds** (step 6): a docs-only commit skips both matrices, and a `.claude/`-only one skips the binary matrix but runs Tests, since the test suite reads every bundled skill and agent. Either one still cancels an in-flight `release.yaml` on a binaries-enabled project. Hold it until the heavy matrices are terminal, or bundle it into the next source-affecting push.
-- **Re-verify after it lands.** The push starts a fresh round of CI and re-bases the PR, so every green you read before it is stale. Confirm each monitored workflow is green on the new HEAD and that `behind_by` is `0` again before step 7, and never report a release green from a run that predates your own last commit.
-
-**Keep the pass bounded to what the session actually surfaced.** A release is the wrong moment to land a refactor, so a finding needing more than a contained edit, or touching code the release itself depends on, stays an uncommitted diff plus a note in the step-7 report, exactly as the downstream path prescribes. The usable test is whether the gate you just ran can verify it; when it cannot, it is not a release-time change. The archetype: a session's own step-8 finding was left uncommitted under the downstream boundary, the maintainer committed it by hand as a separate change, and it missed the release it was learned in.
+When the context shows `CANONICAL_REPO`, there is no `../repomatic` and the boundary above inverts: land the findings as an ordinary reconciliation commit. Read `references/findings-in-repomatic.md` first: it holds the rules that commit follows.
 
 ### Why "Rebase and merge", never squash
 

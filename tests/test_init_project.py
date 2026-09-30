@@ -96,6 +96,28 @@ _OPT_IN_IDS = frozenset(
 )
 
 
+def written_file_count(entry: FileEntry) -> int:
+    """Count the files one registry entry writes: a whole tree, else one.
+
+    A tree entry is a skill folder, which can ship `references/` pages and
+    other resources beside its `SKILL.md`. A test that counted the entry itself
+    would fail the day a skill gains one.
+    """
+    if not entry.tree:
+        return 1
+    count = 0
+    folders = [files("repomatic.data").joinpath(entry.source)]
+    while folders:
+        for child in folders.pop().iterdir():
+            if child.name in ("__init__.py", "__pycache__"):
+                continue
+            if child.is_dir():
+                folders.append(child)
+            else:
+                count += 1
+    return count
+
+
 @pytest.fixture
 def toml_file(tmp_path: Path):
     """Return a factory writing TOML content to a scratch `pyproject.toml`.
@@ -2085,9 +2107,10 @@ def test_init_creates_all_default_files(
     # bare init. Awesome-only skills are included because ``include =
     # ["skills"]`` bypasses scope filtering.
     config_file_count = sum(
-        len(c.files)
+        written_file_count(f)
         for c in COMPONENTS
         if isinstance(c, BundledComponent) and not c.ephemeral
+        for f in c.files
     )
     opt_in_count = sum(1 for f in COMPONENTS_BY_NAME["workflows"].files if f.config_key)
     default_workflows = len(REUSABLE_WORKFLOWS) - opt_in_count
@@ -2283,7 +2306,9 @@ def test_init_only_skills(tmp_path: Path):
     result = run_init(output_dir=tmp_path, components=("skills",))
 
     created_set = set(result.created)
-    assert len(created_set) == len(COMPONENTS_BY_NAME["skills"].files)
+    assert len(created_set) == sum(
+        written_file_count(f) for f in COMPONENTS_BY_NAME["skills"].files
+    )
 
     # Verify all skill files are created, including awesome-only ones.
     for name in (
@@ -5243,7 +5268,9 @@ def test_init_bare_overrides_qualified(tmp_path: Path):
         components=("skills", "skills/repomatic-topics"),
     )
     # All skills created: explicit component request bypasses scope.
-    total_skills = len(COMPONENTS_BY_NAME["skills"].files)
+    total_skills = sum(
+        written_file_count(f) for f in COMPONENTS_BY_NAME["skills"].files
+    )
     assert len(result.created) == total_skills
 
 
