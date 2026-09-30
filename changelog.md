@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.17.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.16.3...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.17.0` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.16.3...v7.17.0)
 
 - **Breaking:** The Docs workflow's Cloudflare deploy now fails when it has to drop a file over 25 MiB, once the rest of the site is published. Declare `site.cloudflare-r2-bucket` to serve such files instead.
 - Add `cloudflare-r2` and the `site.cloudflare-r2-bucket` and `site.cloudflare-r2-domain` keys: the Docs workflow's Cloudflare deploy now serves files over 25 MiB from that R2 bucket.
