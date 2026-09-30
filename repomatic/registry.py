@@ -426,6 +426,17 @@ class ToolConfigComponent(Component):
     `(dotted_path, member)` for one item of a list.
     """
 
+    legacy_table: str = ""
+    """Sub-table the tool reads in place of the section's own keys.
+
+    Only meaningful when `sync_mode` is `BOOTSTRAP`. pytest reads
+    `[tool.pytest.ini_options]` as well as the native `[tool.pytest]` keys the
+    template carries, which need pytest 9.0, and refuses a file holding both.
+    {func}`~repomatic.lint_repo.check_bootstrap_config_drift` measures a section
+    that keeps its keys in this sub-table against the sub-table, so it never
+    reports them missing or asks for a native twin the tool would reject.
+    """
+
     preserved_keys: tuple[str, ...] = ()
     """Top-level keys whose existing values survive an ongoing sync.
 
@@ -878,6 +889,7 @@ COMPONENTS: tuple[Component, ...] = (
         # change it. repomatic's own answer is a bare `--cov`, with the source
         # named once in `[tool.coverage] run.source`.
         customizable_entries=(("addopts", "--cov=."),),
+        legacy_table="ini_options",
     ),
     ToolConfigComponent(
         name="coverage",

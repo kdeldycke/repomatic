@@ -2278,6 +2278,10 @@ def check_bootstrap_config_drift(
     rule on purpose, and only its maintainer can tell that from a section left
     behind.
 
+    A section keeping its keys in the component's
+    {attr}`~repomatic.registry.ToolConfigComponent.legacy_table` is measured
+    there, and the finding names that sub-table.
+
     :param tool_table: The repository's `[tool]` table, parsed.
     :return: One result per adopted BOOTSTRAP section.
     """
@@ -2285,13 +2289,18 @@ def check_bootstrap_config_drift(
         local = tool_table.get(comp.tool_name)
         if not isinstance(local, Mapping):
             continue
+        section = comp.tool_section
+        legacy = local.get(comp.legacy_table) if comp.legacy_table else None
+        if isinstance(legacy, Mapping):
+            local = legacy
+            section = f"{section}.{comp.legacy_table}"
 
         try:
             template = tomlrt.loads(get_data_content(comp.source_file))
         except (OSError, ValueError, tomlrt.TOMLParseError):
             yield CheckResult(
                 None,
-                f"[{comp.tool_section}] drift: skipped (bundled"
+                f"[{section}] drift: skipped (bundled"
                 f" `{comp.source_file}` could not be read).",
             )
             continue
@@ -2308,7 +2317,7 @@ def check_bootstrap_config_drift(
             )
             yield CheckResult(
                 False,
-                f"[{comp.tool_section}] does not carry"
+                f"[{section}] does not carry"
                 f" {listed} from the"
                 f" bundled `{comp.source_file}`. `init` seeds this section"
                 f" once and never revisits it, so a knob the template gained"
@@ -2319,8 +2328,7 @@ def check_bootstrap_config_drift(
 
         yield CheckResult(
             True,
-            f"[{comp.tool_section}] carries every entry of the bundled"
-            f" `{comp.source_file}`.",
+            f"[{section}] carries every entry of the bundled `{comp.source_file}`.",
         )
 
 

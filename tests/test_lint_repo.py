@@ -811,6 +811,24 @@ def test_bootstrap_config_drift_keeps_a_customized_placeholder():
     assert [result.passed for result in results] == [True]
 
 
+def test_bootstrap_config_drift_reads_the_pytest_legacy_table():
+    """A section kept under `ini_options` is measured there, not reported empty.
+
+    pytest refuses a file carrying both `[tool.pytest]` keys and
+    `[tool.pytest.ini_options]`, so reporting the template's keys as missing from
+    `[tool.pytest]` would prescribe a configuration pytest rejects.
+    """
+    legacy = tomlrt.loads(get_data_content("pytest.toml"))
+    results = tuple(check_bootstrap_config_drift({"pytest": {"ini_options": legacy}}))
+    assert [result.passed for result in results] == [True]
+
+    del legacy["xfail_strict"]
+    results = tuple(check_bootstrap_config_drift({"pytest": {"ini_options": legacy}}))
+    assert [result.passed for result in results] == [False]
+    assert results[0].message.startswith("[tool.pytest.ini_options] does not carry")
+    assert "`xfail_strict`" in results[0].message
+
+
 @pytest.mark.parametrize("comp", BOOTSTRAP_CONFIGS, ids=lambda c: c.name)
 def test_customizable_entries_exist_in_their_template(comp):
     """A placeholder declaration goes stale silently, and then hides real drift."""
