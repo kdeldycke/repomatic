@@ -432,6 +432,11 @@ def ci_status(
         for job in run.failed_probes:
             echo(f"⚠ {run.workflow}: allowed-failure probe failed: {job.name}")
 
+    if status.tip_sha and not status.runs_on_tip:
+        echo(
+            f"… no run on the tip of {branch!r} ({status.tip_sha[:8]}) yet: every"
+            " run above belongs to an earlier commit."
+        )
     if not status.settled:
         echo("… some jobs have not settled yet.")
 

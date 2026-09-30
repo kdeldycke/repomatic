@@ -25,6 +25,7 @@ from unittest.mock import patch
 import pytest
 
 from repomatic.github.ci_status import (
+    CIStatus,
     JobStatus,
     RunStatus,
     latest_run,
@@ -179,114 +180,242 @@ def test_monitored_workflows_skips_unparsable_file(tmp_path):
 # -- Reading runs -------------------------------------------------------------
 
 
-def _gh(listing, jobs, catalog=()):
-    """A `run_gh_command` double serving the three read shapes.
+TIP_SHA = "a" * 40
+PARENT_SHA = "b" * 40
+STALE_SHA = "c" * 40
 
-    A workflow catalog for `workflow list`, a run listing for `run list`
-    (batched or per-workflow alike), and one job payload for `run view`.
+GREEN_JOB = {
+    "name": "✅ ubuntu-26.04 / py3.10",
+    "status": "completed",
+    "conclusion": "success",
+}
+RED_JOB = {
+    "name": "✅ ubuntu-26.04 / py3.10",
+    "status": "completed",
+    "conclusion": "failure",
+}
+
+
+def _run_entry(run_id, filename, branch="main"):
+    """One entry of a per-commit run listing."""
+    return {
+        "id": run_id,
+        "path": f".github/workflows/{filename}",
+        "head_branch": branch,
+    }
+
+
+def _detail(sha, *jobs, conclusion="success", status="completed"):
+    """The `run view` payload of one run."""
+    return {
+        "workflowName": "🔬 Tests",
+        "headSha": sha,
+        "status": status,
+        "conclusion": conclusion,
+        "jobs": list(jobs),
+    }
+
+
+def _gh(history=(), runs_by_sha=None, listing=(), details=None, catalog=()):
+    """A `run_gh_command` double serving every read shape.
+
+    The commit list answers from *history*, a per-commit run listing from
+    *runs_by_sha*, a branch run listing from *listing*, a `run view` from
+    *details* by run ID, and a workflow list from *catalog*.
     """
+    runs_by_sha = runs_by_sha or {}
+    details = details or {}
 
     def dispatch(args):
+        if args[0] == "api":
+            if "/commits?" in args[1]:
+                return json.dumps([{"sha": sha} for sha in history])
+            sha = args[1].partition("head_sha=")[2].partition("&")[0]
+            return json.dumps({"workflow_runs": runs_by_sha.get(sha, [])})
         if args[0] == "workflow":
             return json.dumps(list(catalog))
         if args[1] == "list":
-            return json.dumps(listing)
-        return json.dumps({"jobs": jobs})
+            return json.dumps(list(listing))
+        return json.dumps(details[int(args[2])])
 
     return dispatch
 
 
+def _called(mock, *words):
+    """Whether any `gh` command line holds every one of *words*."""
+    return any(
+        all(word in " ".join(call.args[0]) for word in words)
+        for call in mock.call_args_list
+    )
+
+
 def test_latest_run_reads_jobs():
     """The run and its jobs come back as one object."""
-    listing = [
-        {
-            "databaseId": 42,
-            "workflowName": "🔬 Tests",
-            "status": "queued",
-            "conclusion": "",
-            "headSha": "abc1234def",
-        }
-    ]
-    jobs = [
-        {
-            "name": "✅ ubuntu-26.04 / py3.10",
-            "status": "completed",
-            "conclusion": "failure",
-        },
-        {"name": "⁉️ py3.15-dev", "status": "completed", "conclusion": "failure"},
-    ]
-    with patch("repomatic.github.gh.run_gh_command", side_effect=_gh(listing, jobs)):
+    details = {
+        42: _detail(
+            TIP_SHA,
+            RED_JOB,
+            {"name": "⁉️ py3.15-dev", "status": "completed", "conclusion": "failure"},
+            status="queued",
+            conclusion="",
+        )
+    }
+    with patch(
+        "repomatic.github.gh.run_gh_command",
+        side_effect=_gh(listing=[{"databaseId": 42}], details=details),
+    ):
         status = latest_run("tests.yaml", "main")
     assert status is not None
     assert status.run_id == 42
+    assert status.head_sha == TIP_SHA
     assert len(status.failed_required) == 1
     assert len(status.failed_probes) == 1
 
 
 def test_latest_run_with_no_run():
     """An empty listing is not an error: GitHub may not have materialized one."""
-    with patch("repomatic.github.gh.run_gh_command", side_effect=_gh([], [])):
+    with patch("repomatic.github.gh.run_gh_command", side_effect=_gh()):
         assert latest_run("tests.yaml", "main") is None
+
+
+def test_an_unreadable_run_fails_rather_than_reading_green():
+    """A payload that is not a run raises instead of producing a jobless run."""
+    with (
+        patch(
+            "repomatic.github.gh.run_gh_command",
+            side_effect=_gh(listing=[{"databaseId": 42}], details={42: None}),
+        ),
+        pytest.raises(TypeError, match="run 42"),
+    ):
+        latest_run("tests.yaml", "main")
 
 
 def test_read_ci_status_skips_workflows_without_a_run():
     """A workflow with no run drops out rather than reporting a fake green."""
-    with patch("repomatic.github.gh.run_gh_command", side_effect=_gh([], [])):
+    with patch("repomatic.github.gh.run_gh_command", side_effect=_gh()):
         status = read_ci_status(["tests.yaml", "lint.yaml"], "main")
     assert status.runs == []
+    assert status.tip_sha == ""
     assert status.blocking == []
     assert status.settled is True
 
 
-def test_read_ci_status_batches_the_branch_listing():
-    """One branch-wide listing serves every workflow the window covers."""
-    catalog = [
-        {"id": 7, "path": ".github/workflows/tests.yaml"},
-        {"id": 8, "path": ".github/workflows/lint.yaml"},
+def test_read_ci_status_anchors_on_the_tip():
+    """Every workflow that ran on the tip is read there, and the walk stops."""
+    runs_by_sha = {
+        TIP_SHA: [
+            # A tag pushed on the same commit: not a run of the branch.
+            _run_entry(43, "tests.yaml", branch="v1.2.3"),
+            _run_entry(42, "tests.yaml"),
+            # An older run of the same workflow, which the newest-first scan skips.
+            _run_entry(41, "tests.yaml"),
+            _run_entry(40, "lint.yaml"),
+        ]
+    }
+    details = {run_id: _detail(TIP_SHA, GREEN_JOB) for run_id in (40, 41, 42, 43)}
+    with patch(
+        "repomatic.github.gh.run_gh_command",
+        side_effect=_gh([TIP_SHA, PARENT_SHA], runs_by_sha, details=details),
+    ) as mock:
+        status = read_ci_status(["tests.yaml", "lint.yaml"], "main")
+    assert [run.run_id for run in status.runs] == [42, 40]
+    assert status.tip_sha == TIP_SHA
+    assert status.runs_on_tip == status.runs
+    # One commit list, one run listing for the tip, two run views: the parent
+    # is never read, and the branch listing is never consulted.
+    assert mock.call_count == 4
+    assert not _called(mock, PARENT_SHA)
+    assert not _called(mock, "list")
+
+
+def test_read_ci_status_walks_back_to_a_path_filtered_workflow():
+    """A workflow the tip skipped is read on the commit that last started it."""
+    runs_by_sha = {
+        TIP_SHA: [_run_entry(42, "tests.yaml")],
+        # The parent's own run of `tests.yaml` is older than the tip's.
+        PARENT_SHA: [_run_entry(31, "tests.yaml"), _run_entry(30, "docs.yaml")],
+    }
+    details = {
+        42: _detail(TIP_SHA, GREEN_JOB),
+        31: _detail(PARENT_SHA, RED_JOB, conclusion="failure"),
+        30: _detail(PARENT_SHA, GREEN_JOB),
+    }
+    with patch(
+        "repomatic.github.gh.run_gh_command",
+        side_effect=_gh([TIP_SHA, PARENT_SHA], runs_by_sha, details=details),
+    ):
+        status = read_ci_status(["tests.yaml", "docs.yaml"], "main")
+    assert [(run.run_id, run.head_sha) for run in status.runs] == [
+        (42, TIP_SHA),
+        (30, PARENT_SHA),
     ]
-    listing = [
+    assert [run.run_id for run in status.runs_on_tip] == [42]
+    assert status.blocking == []
+
+
+def test_read_ci_status_ignores_a_stale_branch_listing():
+    """A months-old snapshot from the branch listing never reaches the report.
+
+    The listing below claims the latest `tests.yaml` run failed on an old
+    commit, while the tip's own run is green. A reader trusting the listing
+    reports the old red.
+    """
+    stale_listing = [
         {
-            "databaseId": 42,
-            "workflowDatabaseId": 7,
-            "workflowName": "🔬 Tests",
-            "status": "completed",
-            "conclusion": "success",
-            "headSha": "abc1234def",
-        },
-        # An older run of the same workflow, which the newest-first scan skips.
-        {
-            "databaseId": 41,
+            "databaseId": 1,
             "workflowDatabaseId": 7,
             "workflowName": "🔬 Tests",
             "status": "completed",
             "conclusion": "failure",
-            "headSha": "0ld4sha00",
-        },
-        {
-            "databaseId": 40,
-            "workflowDatabaseId": 8,
-            "workflowName": "Lint",
-            "status": "completed",
-            "conclusion": "success",
-            "headSha": "abc1234def",
-        },
-    ]
-    jobs = [
-        {
-            "name": "✅ ubuntu-26.04 / py3.10",
-            "status": "completed",
-            "conclusion": "success",
+            "headSha": STALE_SHA,
         }
     ]
+    details = {
+        1: _detail(STALE_SHA, RED_JOB, conclusion="failure"),
+        42: _detail(TIP_SHA, GREEN_JOB),
+    }
     with patch(
-        "repomatic.github.gh.run_gh_command", side_effect=_gh(listing, jobs, catalog)
+        "repomatic.github.gh.run_gh_command",
+        side_effect=_gh(
+            [TIP_SHA],
+            {TIP_SHA: [_run_entry(42, "tests.yaml")]},
+            listing=stale_listing,
+            details=details,
+            catalog=[{"id": 7, "path": ".github/workflows/tests.yaml"}],
+        ),
+    ):
+        status = read_ci_status(["tests.yaml"], "main")
+    assert [run.head_sha for run in status.runs] == [TIP_SHA]
+    assert status.blocking == []
+
+
+def test_read_ci_status_falls_back_past_the_window():
+    """A workflow with no run on the newest commits asks the branch listing."""
+    details = {7: _detail(STALE_SHA, GREEN_JOB)}
+    with patch(
+        "repomatic.github.gh.run_gh_command",
+        side_effect=_gh(
+            [TIP_SHA], {TIP_SHA: []}, listing=[{"databaseId": 7}], details=details
+        ),
     ) as mock:
-        status = read_ci_status(["tests.yaml", "lint.yaml"], "main")
-    assert [run.run_id for run in status.runs] == [42, 40]
-    assert [run.workflow for run in status.runs] == ["🔬 Tests", "Lint"]
-    # One workflow catalog, one branch listing, two job views: no
-    # per-workflow listings at all.
-    assert mock.call_count == 4
+        status = read_ci_status(["nightly.yaml"], "main")
+    assert [run.run_id for run in status.runs] == [7]
+    assert status.runs_on_tip == []
+    assert _called(mock, "list", "--workflow=nightly.yaml")
+
+
+def test_runs_on_tip_is_empty_before_the_tip_runs():
+    """Right after a push, every run read belongs to an earlier commit."""
+    earlier = RunStatus(
+        workflow="🔬 Tests",
+        run_id=1,
+        head_sha=PARENT_SHA,
+        status="completed",
+        conclusion="success",
+    )
+    status = CIStatus(branch="main", tip_sha=TIP_SHA, runs=[earlier])
+    assert status.runs_on_tip == []
+    assert status.settled is True
 
 
 def test_workflow_files_keeps_everything_with_runs_of_its_own(tmp_path):

@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from urllib.parse import quote
 
 import yaml
 from click_extra import ColumnSpec
@@ -61,12 +62,13 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
 
-BATCH_RUN_LIMIT = 100
-"""Runs fetched by the branch-wide listing {func}`read_ci_status` starts with.
+TIP_HISTORY_DEPTH = 10
+"""Commits {func}`read_ci_status` walks back from the branch tip, tip included.
 
-Deep enough that every monitored workflow's newest run on a freshly pushed
-branch sits inside it. A workflow whose newest run is older than the window
-is not misreported: it falls back to its own {func}`latest_run` query.
+A push starts most workflows on the tip itself. A workflow whose `paths:` filter
+skipped the tip last ran on an earlier commit, which a walk this deep reaches on
+any active branch. A workflow with no run in the window falls back to
+{func}`latest_run`.
 """
 
 STABLE_GLYPH = "✅"
@@ -203,6 +205,12 @@ class CIStatus:
     branch: str
     """Branch the runs were read from."""
 
+    tip_sha: str = ""
+    """Commit at the tip of the branch when the runs were read.
+
+    Empty when the branch history could not be read.
+    """
+
     runs: list[RunStatus] = field(default_factory=list)
     """One entry per workflow that has a run, newest first."""
 
@@ -210,6 +218,15 @@ class CIStatus:
     def blocking(self) -> list[RunStatus]:
         """Runs holding up a merge."""
         return [run for run in self.runs if run.blocking]
+
+    @property
+    def runs_on_tip(self) -> list[RunStatus]:
+        """Runs created for the tip commit itself.
+
+        Empty right after a push, while GitHub has yet to create the tip's runs:
+        every run listed then belongs to an earlier commit.
+        """
+        return [run for run in self.runs if run.head_sha == self.tip_sha]
 
     @property
     def settled(self) -> bool:
@@ -277,39 +294,55 @@ def monitored_workflows(workflow_dir: Path) -> list[str]:
     ]
 
 
-def _run_status(entry: dict, workflow: str) -> RunStatus:
-    """Build a run's status from its listing entry, fetching its jobs.
+def _run_status(run_id: int, workflow: str) -> RunStatus:
+    """Read one run and its jobs by ID.
 
-    :param entry: A `gh run list` entry for the run.
+    Every field comes from the run itself rather than from the listing that
+    found it, so the report never mixes a listing's view of a run with a
+    fresher view of its jobs.
+
+    :param run_id: The run's numeric ID.
     :param workflow: Workflow filename, the fallback display name.
     :return: The run with its jobs attached.
+    :raises TypeError: When `gh` answers with something other than a run. A
+        run with no status and no jobs would otherwise read as green.
     """
     detail = gh_api_json(
-        ["run", "view", str(entry["databaseId"]), "--json", "jobs"], strict=True
+        [
+            "run",
+            "view",
+            str(run_id),
+            "--json",
+            "conclusion,headSha,jobs,status,workflowName",
+        ],
+        strict=True,
     )
-    jobs: list[JobStatus] = []
-    if isinstance(detail, dict):
-        jobs = [
+    if not isinstance(detail, dict):
+        msg = f"Could not read run {run_id} of {workflow}."
+        raise TypeError(msg)
+    return RunStatus(
+        workflow=detail.get("workflowName") or workflow,
+        run_id=run_id,
+        head_sha=detail.get("headSha") or "",
+        status=detail.get("status") or "",
+        conclusion=detail.get("conclusion") or "",
+        jobs=tuple(
             JobStatus(
                 name=job.get("name") or "",
                 status=job.get("status") or "",
                 conclusion=job.get("conclusion") or "",
             )
             for job in detail.get("jobs") or []
-        ]
-
-    return RunStatus(
-        workflow=entry.get("workflowName") or workflow,
-        run_id=int(entry["databaseId"]),
-        head_sha=entry.get("headSha") or "",
-        status=entry.get("status") or "",
-        conclusion=entry.get("conclusion") or "",
-        jobs=tuple(jobs),
+        ),
     )
 
 
 def latest_run(workflow: str, branch: str) -> RunStatus | None:
     """Read a workflow's most recent run on *branch*, jobs included.
+
+    Reads the branch-wide run listing, which can serve a stale snapshot, so
+    {func}`read_ci_status` asks it only about a workflow with no run on the
+    newest commits.
 
     :param workflow: Workflow filename, like `tests.yaml`.
     :param branch: Branch to read runs from.
@@ -327,49 +360,73 @@ def latest_run(workflow: str, branch: str) -> RunStatus | None:
             f"--branch={branch}",
             "--limit=1",
             "--json",
-            "databaseId,workflowName,status,conclusion,headSha",
+            "databaseId",
         ],
         strict=True,
     )
     if not isinstance(listing, list) or not listing:
         return None
-    return _run_status(listing[0], workflow)
+    return _run_status(int(listing[0]["databaseId"]), workflow)
 
 
-def _workflow_files_by_id(names: Iterable[str]) -> dict[int, str]:
-    """Map workflow database ids onto the wanted filenames, in one call.
+def _branch_history(branch: str) -> list[str]:
+    """SHAs of the newest commits on *branch*, tip first.
 
-    `gh run list` reports a run's workflow as a display name and a database
-    id, never as the file defining it, so the batched listing in
-    {func}`read_ci_status` needs this index to recognize which runs belong
-    to the monitored files.
-
-    :param names: Workflow filenames to index.
-    :return: Database id to filename, for the filenames the repository knows.
+    :param branch: Branch to read.
+    :return: At most {data}`TIP_HISTORY_DEPTH` SHAs. Empty when the branch
+        cannot be read.
     """
-    wanted = set(names)
-    listing = gh_api_json(
-        ["workflow", "list", "--all", "--limit=100", "--json", "id,path"],
+    endpoint = (
+        f"repos/{{owner}}/{{repo}}/commits?sha={quote(branch, safe='')}"
+        f"&per_page={TIP_HISTORY_DEPTH}"
+    )
+    commits = gh_api_json(["api", endpoint], strict=True)
+    if not isinstance(commits, list):
+        return []
+    return [commit["sha"] for commit in commits if commit.get("sha")]
+
+
+def _runs_on_commit(sha: str, branch: str) -> dict[str, int]:
+    """The newest run of each workflow GitHub created for commit *sha*.
+
+    :param sha: Full commit SHA.
+    :param branch: Branch the runs must belong to. The same commit also carries
+        runs for a tag pushed on it, or for a pull request branch.
+    :return: Run ID by workflow filename.
+    """
+    payload = gh_api_json(
+        ["api", f"repos/{{owner}}/{{repo}}/actions/runs?head_sha={sha}&per_page=100"],
         strict=True,
     )
-    index: dict[int, str] = {}
-    if isinstance(listing, list):
-        for entry in listing:
-            basename = str(entry.get("path") or "").rpartition("/")[2]
-            if basename in wanted:
-                index[int(entry["id"])] = basename
-    return index
+    runs: dict[str, int] = {}
+    if not isinstance(payload, dict):
+        return runs
+    # Newest first, per the API's ordering: the first entry seen for a
+    # workflow is its latest run on this commit.
+    for entry in payload.get("workflow_runs") or []:
+        if entry.get("head_branch") != branch:
+            continue
+        filename = str(entry.get("path") or "").rpartition("/")[2]
+        if filename and filename not in runs:
+            runs[filename] = int(entry["id"])
+    return runs
 
 
 def read_ci_status(workflows: Iterable[str], branch: str) -> CIStatus:
     """Read the latest run of each workflow on *branch*.
 
-    Batched: one branch-wide run listing locates the newest run of every
-    recently active workflow, then one `gh run view` per run reads its jobs,
-    so a poll costs 2 + N calls where the per-workflow loop cost 2 per
-    workflow. A workflow whose newest run is older than the listing window
-    falls back to its own {func}`latest_run` query, so the batching never
-    costs correctness.
+    Anchored on the branch tip: reads the runs of each of the newest commits,
+    tip first, and stops as soon as every workflow has one. A workflow whose
+    `paths:` filter skipped the tip is found on the commit that last started
+    it. Only a workflow with no run in the whole window falls back to
+    {func}`latest_run`.
+
+    ```{warning}
+    The branch-wide run listing (`gh run list --branch`) can answer with a
+    stale snapshot: runs from commits months old, presented as the latest
+    ones. Reading runs commit by commit, from a commit list that comes from
+    git data rather than from the run index, keeps that snapshot out.
+    ```
 
     :param workflows: Workflow filenames to read.
     :param branch: Branch to read runs from.
@@ -379,29 +436,23 @@ def read_ci_status(workflows: Iterable[str], branch: str) -> CIStatus:
     names = list(workflows)
     if not names:
         return status
-    files_by_id = _workflow_files_by_id(names)
-    listing = gh_api_json(
-        [
-            "run",
-            "list",
-            f"--branch={branch}",
-            f"--limit={BATCH_RUN_LIMIT}",
-            "--json",
-            "databaseId,workflowName,workflowDatabaseId,status,conclusion,headSha",
-        ],
-        strict=True,
-    )
-    newest: dict[str, dict] = {}
-    if isinstance(listing, list):
-        # Newest first, per `gh run list` ordering: the first entry seen for
-        # a workflow is its latest run on the branch.
-        for entry in listing:
-            filename = files_by_id.get(int(entry.get("workflowDatabaseId") or 0))
-            if filename and filename not in newest:
-                newest[filename] = entry
+    history = _branch_history(branch)
+    if history:
+        status.tip_sha = history[0]
+    wanted = set(names)
+    found: dict[str, int] = {}
+    for sha in history:
+        for filename, run_id in _runs_on_commit(sha, branch).items():
+            if filename in wanted and filename not in found:
+                found[filename] = run_id
+        if len(found) == len(wanted):
+            break
     for workflow in names:
-        entry = newest.get(workflow)
-        run = _run_status(entry, workflow) if entry else latest_run(workflow, branch)
+        run = (
+            _run_status(found[workflow], workflow)
+            if workflow in found
+            else latest_run(workflow, branch)
+        )
         if run is None:
             logging.info(f"No run found for {workflow} on {branch}.")
             continue
