@@ -1426,7 +1426,8 @@ def verify_via_write_path(
     :return: `(exit_code, drifted)`, where `exit_code` is `0` when every target
         is already formatted and `1` otherwise, and `drifted` names the paths
         the write path would have changed. A tool that fails on the copies
-        yields its own exit code and no drift, since it measured nothing.
+        yields its own exit code and no drift, since it measured nothing. So
+        does a call with no existing path to copy, which yields `2`.
     """
     spec = TOOL_REGISTRY[name]
     # An argument resolving to the working directory means "every file the tool
@@ -1489,11 +1490,20 @@ def verify_via_write_path(
             pairs.append((source, copy))
             rewritten.append(str(copy))
 
+        # Nothing copied means nothing measured, which must not read as clean. A
+        # tool that walks the tree itself declares no default path to copy, and
+        # the working directory cannot be copied (see above), so it needs paths.
         if not pairs:
-            logging.warning(
-                f"{name}: no existing path among {extra_args!r}, nothing to verify."
-            )
-            return 0, []
+            if extra_args:
+                logging.error(
+                    f"{name}: no existing path among {extra_args!r}, nothing to verify."
+                )
+            else:
+                logging.error(
+                    f"{name} declares no default path to copy: name the files or"
+                    " directories to verify."
+                )
+            return 2, []
 
         # A tool that died on the copies formatted nothing, so the comparison
         # below would find no difference and report the tree as clean. Surface

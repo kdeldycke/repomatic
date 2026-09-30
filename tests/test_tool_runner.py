@@ -3235,6 +3235,32 @@ def test_verify_via_write_path_accepts_the_working_directory(
     assert not list(tmp_path.glob(".repomatic-verify-*"))
 
 
+@pytest.mark.parametrize(
+    ("tool", "extra_args"),
+    (
+        # typos walks the tree itself, so it declares no default path to copy.
+        ("typos", ()),
+        ("mdformat", ("papaya.md",)),
+    ),
+)
+@patch("repomatic.tooling.tool_runner.run_tool", return_value=0)
+def test_verify_via_write_path_fails_when_nothing_is_copied(
+    mock_run_tool, tool, extra_args, tmp_path, monkeypatch
+):
+    """A verification that copied no path measured nothing, so it cannot pass.
+
+    An exit code of `0` would read as a clean tree to any gate running it.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    exit_code, drifted = verify_via_write_path(tool, extra_args=extra_args)
+
+    assert exit_code == 2
+    assert drifted == []
+    mock_run_tool.assert_not_called()
+    assert not list(tmp_path.glob(".repomatic-verify-*"))
+
+
 def test_run_rejects_an_unknown_tool_as_a_usage_error():
     """An unknown tool name is refused at parse time, naming the registry.
 

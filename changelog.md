@@ -17,11 +17,13 @@
 - The bundled `repomatic-ship` skill now names the transient empty run page a watcher must poll through rather than read as a finished suite.
 - The bundled `repomatic-ship` skill now classifies a version derived from a checked-in spec, whose bump breaks the recipe invoking it, and points a reading agent at `git show HEAD:<path>` instead of `git stash`.
 - The bundled `repomatic-ship` skill now re-reads the tree after the last gate command, which can re-create a mutation already reverted.
+- The bundled `repomatic-ship` skill now builds the docs with `--fresh-env`, so a reference broken in an unchanged page still surfaces.
 - The bundled `file-bug-report` skill now carries the evidence rules for an upstream report and the numbering behind a GitHub Actions log anchor.
 - The bundled `babysit-ci` skill now warns that `gh run rerun --failed` never reaches a job skipped behind a failed dependency.
 - Generated workflows, the `lint-changelog` annotations and the bundled `typos`, `uv` and `zizmor` configurations now cite the published documentation in place of `claude.md`, which downstream repositories no longer receive.
 - Raise the `click-extra` floor to `9.3`.
 - Fix `scan-virustotal` failing when the freshly published release still lists no asset, which skipped the whole scan for that version.
+- Fix `repomatic run --verify` exiting `0` when it had no path to verify, like a bare `typos` run.
 - The bundled `🤖 ci` content rules no longer match `.github`, which pre-labelled every issue filed through an awesome list's own new-link form.
 - Fix the bundled `repomatic-audit` skill claiming `init` refreshes a seeded `mypy`, `pytest` or `coverage` section, which it never revisits.
 - Fix the bundled `repomatic-ship` skill claiming CI resolves the project's dependencies fresh, when its jobs install from `uv.lock`.
