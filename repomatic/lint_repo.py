@@ -78,12 +78,10 @@ from .pypi import (
 )
 from .pyproject import get_project_name
 from .registry import (
-    COMPONENTS,
     DEFAULT_REPO,
     INSTALL_GUIDE_PATH,
     WORKFLOW_TARGET_ROOT,
     SyncMode,
-    ToolConfigComponent,
     package_of,
 )
 from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
@@ -2279,11 +2277,7 @@ def check_bootstrap_config_drift(
     :param tool_table: The repository's `[tool]` table, parsed.
     :return: One result per adopted BOOTSTRAP section.
     """
-    for comp in COMPONENTS:
-        if not isinstance(comp, ToolConfigComponent):
-            continue
-        if comp.sync_mode is not SyncMode.BOOTSTRAP:
-            continue
+    for comp in SyncMode.BOOTSTRAP.components():
         local = tool_table.get(comp.tool_name)
         if not isinstance(local, Mapping):
             continue
@@ -2396,11 +2390,7 @@ def check_superseded_local_excludes(
     :param tool_table: The repository's `[tool]` table, parsed.
     :return: One result per synced tool config holding exclude patterns.
     """
-    for comp in COMPONENTS:
-        if not isinstance(comp, ToolConfigComponent):
-            continue
-        if comp.sync_mode is not SyncMode.ONGOING:
-            continue
+    for comp in SyncMode.ONGOING.components():
         if comp.tool_name not in _EXCLUDE_PATTERN_TOOLS:
             continue
         section = tool_table.get(comp.tool_name)

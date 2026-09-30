@@ -23,12 +23,16 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from click_extra.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.release.virustotal import (
+    RELEASE_ASSET_POLL_ATTEMPTS,
     SCAN_HEADERS,
     DetectionStats,
     ScanRecord,
     ScanResult,
+    download_release_binaries,
     load_scan_records,
     poll_detection_stats,
     records_from_release_notes,
@@ -372,3 +376,106 @@ def test_poll_detection_stats_timeout():
 def test_poll_detection_stats_empty():
     """Polling with no results returns empty list."""
     assert poll_detection_stats("key", []) == []
+
+
+# --- download_release_binaries ---
+
+
+@patch("repomatic.release.virustotal.time.sleep")
+@patch("repomatic.release.virustotal.run_gh_command")
+def test_download_release_binaries_waits_for_the_asset_list(
+    mock_gh, mock_sleep, tmp_path
+):
+    """The download starts once the release lists an asset, not before."""
+    dest = tmp_path / "binaries"
+    mock_gh.side_effect = [
+        '{"assets": []}',
+        '{"assets": [{"name": "papaya-1.2.3-linux-arm64.bin"}]}',
+        "",
+    ]
+
+    download_release_binaries("orchard/papaya", "v1.2.3", "1.2.3", dest)
+
+    assert mock_sleep.call_count == 1
+    assert mock_gh.call_args_list[-1].args[0] == [
+        "release",
+        "download",
+        "v1.2.3",
+        "--repo",
+        "orchard/papaya",
+        "--dir",
+        str(dest),
+        "--pattern",
+        "*-1.2.3-*.bin",
+        "--pattern",
+        "*-1.2.3-*.exe",
+    ]
+    assert dest.is_dir()
+
+
+@patch("repomatic.release.virustotal.time.sleep")
+@patch("repomatic.release.virustotal.run_gh_command")
+def test_download_release_binaries_retries_a_failed_read(mock_gh, mock_sleep, tmp_path):
+    """A read that fails is retried like one that lists no asset."""
+    mock_gh.side_effect = [
+        RuntimeError("HTTP 502"),
+        '{"assets": [{"name": "papaya-1.2.3-windows-x64.exe"}]}',
+        "",
+    ]
+
+    download_release_binaries("orchard/papaya", "v1.2.3", "1.2.3", tmp_path)
+
+    assert mock_gh.call_count == 3
+    assert mock_sleep.call_count == 1
+
+
+@patch("repomatic.release.virustotal.time.sleep")
+@patch("repomatic.release.virustotal.run_gh_command")
+def test_download_release_binaries_downloads_after_the_last_empty_read(
+    mock_gh, mock_sleep, tmp_path
+):
+    """An asset list that stays empty leaves the verdict to the download.
+
+    No wait follows the last read: the download runs at once, and its own
+    failure is what reports a release that ships no binary.
+    """
+    mock_gh.side_effect = [
+        *(['{"assets": []}'] * RELEASE_ASSET_POLL_ATTEMPTS),
+        RuntimeError("no assets to download"),
+    ]
+
+    with pytest.raises(RuntimeError, match="no assets to download"):
+        download_release_binaries("orchard/papaya", "v1.2.3", "1.2.3", tmp_path)
+
+    assert mock_sleep.call_count == RELEASE_ASSET_POLL_ATTEMPTS - 1
+
+
+# --- scan-virustotal CLI ---
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    (
+        (["--download"], "--download requires --repo."),
+        (["--no-download"], "does not exist."),
+    ),
+)
+def test_scan_virustotal_rejects_an_unusable_target(args, message, tmp_path):
+    """Nothing is read or uploaded when the binaries cannot be located."""
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "scan-virustotal",
+            "--tag",
+            "v1.2.3",
+            "--api-key",
+            "mango",
+            "--binaries-dir",
+            str(tmp_path / "missing"),
+            *args,
+        ],
+        env={"GITHUB_REPOSITORY": None},
+    )
+
+    assert result.exit_code == 2, result.output
+    assert message in result.output

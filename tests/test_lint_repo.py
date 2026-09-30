@@ -671,11 +671,7 @@ def test_manpages_toolchain_only_applies_to_an_opted_in_project():
     assert check.applies(LintContext(manpages_script="basket.cli:basket")) is True
 
 
-BOOTSTRAP_CONFIGS = tuple(
-    comp
-    for comp in COMPONENTS
-    if isinstance(comp, ToolConfigComponent) and comp.sync_mode is SyncMode.BOOTSTRAP
-)
+BOOTSTRAP_CONFIGS = SyncMode.BOOTSTRAP.components()
 """Every tool config `init` seeds once and never revisits."""
 
 

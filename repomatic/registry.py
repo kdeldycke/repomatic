@@ -120,6 +120,14 @@ class SyncMode(Enum):
     """Replace template content on every sync, preserving local additions
     (e.g., bumpversion)."""
 
+    def components(self) -> tuple[ToolConfigComponent, ...]:
+        """Every registered tool config this mode governs, in registry order."""
+        return tuple(
+            comp
+            for comp in COMPONENTS
+            if isinstance(comp, ToolConfigComponent) and comp.sync_mode is self
+        )
+
 
 class RepoScope(Enum):
     """Which repository types a component or file entry applies to.

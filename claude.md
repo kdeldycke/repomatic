@@ -1,6 +1,6 @@
 # Development guide
 
-Project-specific guidance for developing `repomatic` itself. The generic coding conventions load from the maintainer's machine configuration and are deliberately not carried here: this file holds only what is specific to this repository. It used to be the source document the retired `agent` component projected into consuming repositories; those sections now live with their owner.
+Project-specific guidance for developing `repomatic` itself. The generic coding conventions load from the maintainer's machine configuration and are deliberately not carried here: this file holds only what is specific to this repository.
 
 ## Downstream repositories
 
@@ -144,14 +144,11 @@ Every automated operation follows the [naming conventions](#naming-conventions-f
 
 ### Bundled agents and skills
 
-This repository uses three Claude Code agents in `.claude/agents/`. Definitions stay lean: if a rule belongs in `CLAUDE.md`, put it there and reference it. Do not duplicate.
+This repository uses three Claude Code agents in `.claude/agents/`, and `qa-engineer` is the gatekeeper for changes to their definitions. Definitions stay lean, and each states its rules inline.
 
-**Agents must be self-contained for downstream portability.** Agents deploy downstream via `repomatic init subagents` as standalone files; Claude auto-invokes them from their `description:` frontmatter. All knowledge must be inline or reference `claude.md` sections, not upstream `docs/` URLs or upstream-only paths. When mining session history, default to local `claude.md` updates; file an upstream proposal only when the pattern is generic across repos.
+**Agents must be self-contained for downstream portability.** Agents deploy downstream via `repomatic init subagents` as standalone files; Claude auto-invokes them from their `description:` frontmatter. All knowledge must be inline: a downstream repository receives no copy of this `claude.md`, of the upstream `docs/` or of any upstream-only path, so a pointer to one of them dangles there. When mining session history, default to local `claude.md` updates; file an upstream proposal only when the pattern is generic across repos.
 
 **Skills are self-contained the same way.** `repomatic init skills` deploys each one as a standalone folder into repositories that have no `docs/` tree, and skills typically lack `WebFetch`, so a skill keeps its domain knowledge inline or in its own `references/`. Duplication between a skill and a docs page is intentional: `docs/` serves humans, the skill serves Claude at runtime.
-
-- Agent definitions reference `CLAUDE.md` sections, not restate them.
-- qa-engineer is the gatekeeper for agent definition changes.
 
 ### Mechanical vs analytical work
 

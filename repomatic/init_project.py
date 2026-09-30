@@ -1289,11 +1289,8 @@ def adopted_ongoing_configs(output_dir: Path) -> set[str]:
         return set()
     return {
         comp.name
-        for comp in COMPONENTS
-        if isinstance(comp, ToolConfigComponent)
-        and comp.init_default is InitDefault.EXPLICIT
-        and comp.sync_mode is SyncMode.ONGOING
-        and comp.tool_name in tool_table
+        for comp in SyncMode.ONGOING.components()
+        if comp.init_default is InitDefault.EXPLICIT and comp.tool_name in tool_table
     }
 
 

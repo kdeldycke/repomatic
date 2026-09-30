@@ -8,6 +8,8 @@
 - `lint-repo` now warns when a seeded tool config (`ruff`, `pytest`, `coverage`, `mypy`, `mdformat`) lacks an entry its bundled template gained after the seeding.
 - `lint-repo` now warns when a `[tool.lychee] exclude` entry is the bare form of one the bundled template has since anchored, which an ongoing sync grafts back beside its own replacement.
 - `update-docs` now lists each generated API page in its parent `toctree`, so a new module no longer needs a hand edit.
+- `scan-virustotal` gains `--download` and `--repo`, fetching the tag's versioned binaries once its release lists them.
+- The bundled `[tool.repomatic.gitignore] extra-content` default now ignores `.wrangler/`, the local state `wrangler` writes in a checkout.
 - The bundled `lychee.toml` now excludes `medium.com`, which returns 403 to anonymous crawlers but serves the full article to a browser.
 - The bundled `awesome-template` contributing guide and `awesome-triage` skill now separate a crawler-blocked `403`, which keeps its live URL behind a `[tool.lychee]` exclude, from a `404`, which gets archived.
 - The bundled `sphinx-docs` agent now warns that an incremental build's warning count covers only the pages it re-read.
@@ -19,7 +21,7 @@
 - The bundled `repomatic-ship` skill now re-reads the tree after the last gate command, which can re-create a mutation already reverted.
 - The bundled `repomatic-ship` skill now builds the docs with `--fresh-env`, so a reference broken in an unchanged page still surfaces.
 - The bundled `file-bug-report` skill now carries the evidence rules for an upstream report and the numbering behind a GitHub Actions log anchor.
-- The bundled `babysit-ci` skill now warns that `gh run rerun --failed` never reaches a job skipped behind a failed dependency.
+- The bundled `babysit-ci` skill now notes that `gh run rerun --failed` also re-runs the jobs skipped behind a failed or cancelled dependency.
 - Generated workflows, the `lint-changelog` annotations and the bundled `typos`, `uv` and `zizmor` configurations now cite the published documentation in place of `claude.md`, which downstream repositories no longer receive.
 - Raise the `click-extra` floor to `9.3`.
 - Fix `scan-virustotal` failing when the freshly published release still lists no asset, which skipped the whole scan for that version.
@@ -27,6 +29,7 @@
 - The bundled `🤖 ci` content rules no longer match `.github`, which pre-labelled every issue filed through an awesome list's own new-link form.
 - Fix the bundled `repomatic-audit` skill claiming `init` refreshes a seeded `mypy`, `pytest` or `coverage` section, which it never revisits.
 - Fix the bundled `repomatic-ship` skill claiming CI resolves the project's dependencies fresh, when its jobs install from `uv.lock`.
+- Fix the bundled `sphinx-docs` agent pointing a rule at a `claude.md` section, which downstream repositories do not receive.
 - The `metrics` and `metric_chart` docstrings now state that a star gained on a repository's creation day replaces its `created` anchor, so not every series carries one.
 - The plugin page now warns that an account-enabled plugin also loads in the CLI, so pairing it with `init skills` registers every skill twice.
 - The plugin page now names the Desktop panel that takes the archive, the supported marketplace hosts, and where the off-by-default `Sync automatically` switch lives.

@@ -78,6 +78,7 @@ from ..release.binary import (
 from ..release.prepare_release import PrepareRelease
 from ..release.virustotal import (
     FREE_TIER_RATE_LIMIT,
+    download_release_binaries,
     load_scan_records,
     poll_detection_stats,
     records_from_release_notes,
@@ -609,6 +610,10 @@ def prepare_release(
             "Wait for verdicts and record them",
             "repomatic scan-virustotal --tag v1.2.3 --binaries-dir ./binaries --poll --records docs/assets/virustotal-scans.csv",
         ),
+        (
+            "Download the release's binaries first",
+            "repomatic scan-virustotal --tag v1.2.3 --download --repo owner/repo --binaries-dir ./binaries",
+        ),
     ),
 )
 @option(
@@ -624,9 +629,21 @@ def prepare_release(
 )
 @option(
     "--binaries-dir",
-    type=dir_path(exists=True, resolve_path=True),
+    type=dir_path(resolve_path=True),
     required=True,
     help="Directory containing binary files to upload.",
+)
+@option(
+    "--download/--no-download",
+    default=False,
+    help="Download the tag's versioned binaries from its GitHub release into "
+    "--binaries-dir first, waiting for the release to list its assets.",
+)
+@option(
+    "--repo",
+    envvar="GITHUB_REPOSITORY",
+    default=None,
+    help="Repository in owner/repo format that --download reads the release from.",
 )
 @option(
     "--rate-limit",
@@ -667,6 +684,8 @@ def scan_virustotal(
     tag: str,
     api_key: str,
     binaries_dir: Path,
+    download: bool,
+    repo: str | None,
     rate_limit: int,
     poll: bool,
     poll_timeout: int,
@@ -679,6 +698,10 @@ def scan_virustotal(
     VirusTotal, seeding antivirus vendor databases with the signatures of the
     freshly built binaries.
 
+    With --download, first fetches the tag's versioned binaries from its GitHub
+    release into the directory, waiting for a freshly published release to list
+    its assets.
+
     With --poll, waits for the analyses to complete and reports each binary's
     flagged / total verdict counts. With --records, the polled snapshots are
     merged into a CSV history, which sync-binaries renders into the binaries
@@ -688,8 +711,18 @@ def scan_virustotal(
         raise UsageError("--records requires --poll.")
     if carry_from and not records:
         raise UsageError("--carry-from requires --records.")
+    if download and not repo:
+        raise UsageError("--download requires --repo.")
+    if not download and not binaries_dir.is_dir():
+        raise UsageError(f"Directory {binaries_dir} does not exist.")
     if carry_from and records:
         carry_pr_branch_paths(carry_from, (records,))
+
+    if download and repo:
+        try:
+            download_release_binaries(repo, tag, tag.removeprefix("v"), binaries_dir)
+        except RuntimeError as error:
+            raise ClickException(f"Could not download {tag} binaries: {error}")
 
     file_paths = sorted(
         p

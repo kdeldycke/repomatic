@@ -286,7 +286,7 @@ Not all CI failures are code bugs:
 
 For infrastructure, re-run the failed jobs (`gh run rerun <RUN_ID> --failed`) and continue polling; never modify code to work around transient infra. **A release run is the exception**: when an orchestrator like `/repomatic-ship` spawned this loop, a flake surfaced here is debt owed under that skill's genuinely-green goal, so a red whose defect lives in the repository (the wall-clock budget above, a tolerated-exit set that needs widening) gets fixed at the source instead. "Transient infra" then names the trigger, not the remedy. A red with no repo-side defect at all, like a runner OOM or a PyPI 503, is still a re-run.
 
-**`--failed` never reaches a skipped job.** A downstream `needs:` job skipped because its dependency failed stays skipped once that dependency goes green, and the run keeps its `failure` conclusion. To reach it, re-run the whole workflow or do its work by hand.
+**`--failed` also re-runs the jobs skipped behind a failure.** Each failed or cancelled job re-runs with every job that `needs:` it, skipped ones included. So one rerun restores the whole chain: never re-run the whole workflow to reach a skipped dependent.
 
 <a id="github-api-rate-limit-exhaustion"></a>
 

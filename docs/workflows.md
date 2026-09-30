@@ -742,7 +742,8 @@ flowchart TD
 
 #### 🛡️ VirusTotal scan (`scan-virustotal`)
 
-- Uploads compiled binaries (`.bin` and `.exe`) to [VirusTotal](https://www.virustotal.com/) via `repomatic scan-virustotal`, polls for analysis completion, and records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.csv`
+- Downloads the release's versioned binaries (`.bin` and `.exe`) with `repomatic scan-virustotal --download`, which first waits for a freshly published release to list its assets
+- Uploads those binaries to [VirusTotal](https://www.virustotal.com/), polls for analysis completion, and records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.csv`
 - Seeds AV vendor databases to reduce false positive detections for downstream distributors (Chocolatey, Scoop, etc.)
 - Regenerates the binaries catalog (`docs/assets/binaries.csv` and its `docs/binaries.md` page) from the GitHub Releases API and the scan history via `repomatic sync-binaries` (with `--backfill-records` recovering snapshots from legacy release-notes tables), then publishes the files through the job's pull request via `repomatic pr-sync`. Release notes stay clean: raw detection counts next to a download link read as a malware verdict without the context the page provides
 - **Requires**:

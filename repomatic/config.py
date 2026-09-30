@@ -375,6 +375,9 @@ class GitignoreConfig:
             .claude/settings.local.json
             **/.claude/.cc-writes/
 
+            # Cloudflare wrangler local state.
+            .wrangler/
+
             # Sphinx linkcheck output.
             docs/_linkcheck/
             """

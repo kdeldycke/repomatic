@@ -53,9 +53,11 @@ from pathlib import Path
 import vt
 from packaging.version import Version
 
+from ..github.gh import run_gh_command
 from ..hashing import compute_file_sha256
 from ..tabular import load_records, read_csv, render_csv, write_csv
 from ..versions import safe_version
+from .binary import BINARY_ASSET_SUFFIXES
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -68,6 +70,12 @@ FREE_TIER_RATE_LIMIT = 4
 The single source for the upload and polling pace: the `scan-virustotal`
 CLI default and both client functions below derive from it.
 """
+
+RELEASE_ASSET_POLL_ATTEMPTS = 6
+"""How many times {func}`download_release_binaries` reads a release's assets."""
+
+RELEASE_ASSET_POLL_DELAY = 10
+"""Seconds {func}`download_release_binaries` waits between two reads."""
 
 SCAN_HEADERS = (
     "tag",
@@ -219,6 +227,52 @@ class ScanRecord:
                 harmless=int(data["harmless"]),
             ),
         )
+
+
+def download_release_binaries(
+    repository: str, tag: str, version: str, dest: Path
+) -> None:
+    """Download a release's versioned binaries once its asset list shows them.
+
+    A read landing seconds after a release is published can list no asset, and
+    `gh release download` then fails with `no assets to download` on a release
+    holding every binary. So the asset list is read first, up to
+    {data}`RELEASE_ASSET_POLL_ATTEMPTS` times. The download still runs when the
+    list stays empty: a release that ships no binary fails there, with the
+    message of `gh`.
+
+    The patterns name the versioned files only. The versionless alias copies
+    share their digest with a versioned sibling, so scanning them would only
+    submit duplicates.
+
+    :param repository: Repository in `owner/repo` format.
+    :param tag: Release tag, like `v1.2.3`.
+    :param version: Version the binary filenames carry, like `1.2.3`.
+    :param dest: Directory to download into, created when missing.
+    :raises RuntimeError: When `gh release download` fails.
+    """
+    view = ["release", "view", tag, "--repo", repository, "--json", "assets"]
+    for attempt in range(1, RELEASE_ASSET_POLL_ATTEMPTS + 1):
+        try:
+            if json.loads(run_gh_command(view)).get("assets"):
+                break
+        except (RuntimeError, json.JSONDecodeError) as error:
+            logging.warning(f"Attempt {attempt}: could not read {tag}: {error}")
+        else:
+            logging.warning(f"Attempt {attempt}: {tag} lists no asset yet.")
+        if attempt < RELEASE_ASSET_POLL_ATTEMPTS:
+            time.sleep(RELEASE_ASSET_POLL_DELAY)
+
+    dest.mkdir(parents=True, exist_ok=True)
+    patterns = [
+        arg
+        for suffix in BINARY_ASSET_SUFFIXES
+        for arg in ("--pattern", f"*-{version}-*{suffix}")
+    ]
+    run_gh_command(
+        ["release", "download", tag, "--repo", repository, "--dir", str(dest)]
+        + patterns
+    )
 
 
 def scan_files(

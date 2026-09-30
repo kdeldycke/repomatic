@@ -2695,11 +2695,7 @@ def test_bumpversion_template_is_pyproject_fmt_fixed_point(tmp_path: Path) -> No
 @pytest.mark.once
 @pytest.mark.parametrize(
     "config_type",
-    sorted(
-        c.name
-        for c in COMPONENTS
-        if isinstance(c, ToolConfigComponent) and c.sync_mode is SyncMode.ONGOING
-    ),
+    sorted(c.name for c in SyncMode.ONGOING.components()),
 )
 def test_ongoing_sync_template_survives_pyproject_fmt(
     config_type: str, tmp_path: Path
@@ -2762,11 +2758,7 @@ def test_ongoing_sync_template_survives_pyproject_fmt(
 
 @pytest.mark.parametrize(
     "config_type",
-    sorted(
-        c.name
-        for c in COMPONENTS
-        if isinstance(c, ToolConfigComponent) and c.sync_mode is SyncMode.ONGOING
-    ),
+    sorted(c.name for c in SyncMode.ONGOING.components()),
 )
 def test_ongoing_resync_preserves_local_string_style(
     config_type: str, tmp_path: Path

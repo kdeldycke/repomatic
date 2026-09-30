@@ -859,7 +859,7 @@ When you receive a new "rule" about how to write or maintain docs, ask where it 
 - A pattern only the upstream package itself uses (e.g., `docs/docs_update.py` internals, release-only artifacts) → `docs/upstream-development.md`.
 - A pattern downstream Sphinx repos benefit from → this agent definition.
 
-Don't restate `claude.md` rules here. Reference the section instead.
+State a rule that belongs here inline, never as a pointer to a `claude.md` section. This file ships to repositories that do not receive repomatic's `claude.md`.
 
 When a user-driven instruction explicitly conflicts with a `claude.md` or global tropes rule (e.g., the install.md compatibility-matrix range labels use a `→` arrow, which conflicts with the global `Unicode Decoration` anti-pattern), the explicit instruction takes precedence. Note the conflict in your reply so the user can confirm or override, but apply the instruction.
 
