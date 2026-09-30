@@ -691,6 +691,8 @@ def test_setup_guide_holds_open_until_the_r2_keys_land(
         result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG], env=env)
     assert result.exit_code == 0
     assert "gh secret set CLOUDFLARE_R2_ACCESS_KEY_ID" in bodies[0]
+    assert "--domain files.example.com" in bodies[0]
+    assert f"papaya-r2-{datetime.now(timezone.utc):%Y-%m}" in bodies[0]
     assert lifecycle.call_args_list[0][1]["has_issues"] is expected_has_issues
 
 

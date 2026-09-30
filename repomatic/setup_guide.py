@@ -225,6 +225,12 @@ class GuideContext:
         """
         return f"{self.md.repo_name}-deploy-{datetime.now(timezone.utc):%Y-%m}"
 
+    @property
+    def cloudflare_r2_token_name(self) -> str:
+        """Suggested name for the R2 upload token, dated for the same reason as
+        {attr}`cloudflare_token_name`: it carries the same one-year expiry."""
+        return f"{self.md.repo_name}-r2-{datetime.now(timezone.utc):%Y-%m}"
+
     def deploys_to(self, target: str) -> bool:
         """Whether this repository publishes its site to *target*.
 
@@ -483,7 +489,9 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
         ),
         args=lambda ctx: {
             "bucket": ctx.config.site_cloudflare_r2_bucket,
+            "domain": ctx.config.site_cloudflare_r2_domain,
             "repo_slug": ctx.md.repo_slug,
+            "token_name": ctx.cloudflare_r2_token_name,
         },
     ),
     SetupStep(
