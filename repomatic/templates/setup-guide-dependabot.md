@@ -3,14 +3,15 @@ args: [repo_url, repo_slug]
 footer: 'false'
 ---
 
-Enable [vulnerability alerts](https://docs.github.com/en/code-security/dependabot/dependabot-alerts/configuring-dependabot-alerts) so `fix-vulnerable-deps` can read them, and disable [automated security fixes](https://docs.github.com/en/code-security/dependabot/dependabot-security-updates/configuring-dependabot-security-updates) so Dependabot stops opening duplicate PRs for the same advisories:
+Enable vulnerability alerts so `fix-vulnerable-deps` can read them, and disable automated security fixes so Dependabot stops opening duplicate PRs:
 
-```shell
-gh api repos/$repo_slug/vulnerability-alerts --method PUT
-gh api repos/$repo_slug/automated-security-fixes --method DELETE
-```
+1. Run both calls:
 
-Then two things the API cannot reach:
+   ```shell
+   gh api repos/$repo_slug/vulnerability-alerts --method PUT
+   gh api repos/$repo_slug/automated-security-fixes --method DELETE
+   ```
 
-- Dependabot version updates and grouped security updates have no endpoint. If either was enabled by hand, turn it off at **[Settings → Advanced Security → Dependabot]($repo_url/settings/security_analysis)**.
-- Delete `.github/dependabot.yml` if present: `sync-uv-lock`, `sync-tool-versions` and `sync-action-pins` cover dependency updates.
+2. Turn off **Dependabot version updates** and **Grouped security updates** at **[Settings → Advanced Security → Dependabot]($repo_url/settings/security_analysis)**. No API reaches either setting.
+
+3. Delete `.github/dependabot.yml` if the repository has one: `sync-uv-lock`, `sync-tool-versions` and `sync-action-pins` cover dependency updates.

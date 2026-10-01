@@ -420,6 +420,9 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
     SetupStep(
         placeholder="step_sha_pinning_required",
         title="Require SHA pinning for GitHub Actions",
+        # The step's `gh api` call reads the settings back and writes them with
+        # one field flipped: `PUT /actions/permissions` requires `enabled`, so a
+        # payload carrying `sha_pinning_required` alone is rejected.
         template="setup-guide-sha-pinning-required",
         probe=lambda ctx: ctx.probe_settings(check_sha_pinning_required),
         tolerates_unknown=True,
@@ -468,9 +471,7 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
         applies=lambda ctx: ctx.deploys_to("cloudflare-pages"),
         args=lambda ctx: {
             "repo_name": ctx.md.repo_name,
-            "repo_owner": ctx.md.repo_owner,
             "repo_slug": ctx.md.repo_slug,
-            "repo_url": ctx.md.repo_url,
             "token_name": ctx.cloudflare_token_name,
         },
     ),
@@ -532,11 +533,11 @@ def _org_tip(repo_owner: str | None) -> str:
     if owner_type != "Organization":
         return ""
     return (
-        "> 💡 **For organizations**: Consider using a"
+        "> 💡 **For organizations**: let a"
         " [machine user account](https://docs.github.com/en/"
         "get-started/learning-about-github/types-of-github-accounts"
-        "#personal-accounts) or a dedicated service account to own"
-        " the PAT, rather than tying it to an individual's account."
+        "#personal-accounts) or a service account own the PAT, instead of"
+        " an individual's account."
     )
 
 

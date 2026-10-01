@@ -9,12 +9,10 @@ The [unsubscribe workflow]($repo_url/actions/workflows/unsubscribe.yaml) needs i
 
 2. Set an expiration, then click **Generate token**.
 
-3. Add it as a repository secret:
+3. Store it as a repository secret:
 
    ```shell
    gh secret set REPOMATIC_NOTIFICATIONS_PAT --repo $repo_slug
    ```
 
    Or by hand: **[Settings → Secrets → Actions]($repo_url/settings/secrets/actions)** → **New repository secret** → `REPOMATIC_NOTIFICATIONS_PAT`.
-
-> ℹ️ **Note**: Notifications are account-wide, so one repository holding this secret cleans the whole inbox.
