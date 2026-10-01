@@ -2387,6 +2387,14 @@ def check_superseded_local_excludes(
     excluding every domain ending in `x.com`, `cloudlinux.com` among them,
     which is what the anchored form was written to stop doing.
 
+    The fix depends on what sits beside the stale entry. Where the anchored
+    form is present, dropping the bare one is the whole fix. A section no sync
+    reaches holds the bare form alone: lychee is an awesome-only component, so
+    another repository keeps a copy nothing rebuilds unless
+    `[tool.repomatic] include` opts it in. Dropping the entry there would stop
+    excluding the host itself, so the result names the anchored form to write
+    in its place.
+
     Advisory. Only the maintainer can separate a bare entry the template
     superseded from one the repository narrowed on purpose.
 
@@ -2430,9 +2438,11 @@ def check_superseded_local_excludes(
                 f" `{comp.source_file}` declares no `exclude` array).",
             )
             continue
-        cores = {
-            core
-            for core in (anchored_exclude_core(str(item)) for item in bundled)
+        anchors = {
+            core: str(item)
+            for item, core in (
+                (item, anchored_exclude_core(str(item))) for item in bundled
+            )
             if core is not None
         }
         stale = tuple(
@@ -2441,19 +2451,31 @@ def check_superseded_local_excludes(
             if isinstance(item, str)
             and item not in bundled
             and not item.startswith("^")
-            and item in cores
+            and item in anchors
         )
         if stale:
             listed = ", ".join(f"`{item}`" for item in stale)
+            fixes = []
+            for item in stale:
+                anchored = anchors[item]
+                if anchored in local:
+                    fixes.append(
+                        f"Drop `{item}`: `{anchored}` beside it already"
+                        f" excludes the host, and an ongoing sync never"
+                        f" retires the bare form."
+                    )
+                else:
+                    fixes.append(
+                        f"Replace `{item}` with `{anchored}`: the section"
+                        f" lacks the anchored form, so dropping the bare one"
+                        f" would stop excluding the host itself."
+                    )
             yield CheckResult(
                 False,
                 f"[{comp.tool_section}] exclude carries {listed}, which the"
-                f" bundled `{comp.source_file}` now anchors. An ongoing sync"
-                f" grafts a local-only array item back on and never retires"
-                f" one the template replaced, so the bare form survives beside"
-                f" its own replacement: lychee reads these as substring"
-                f" matches, and the bare one keeps excluding every domain"
-                f" ending in the same suffix. Drop it.",
+                f" bundled `{comp.source_file}` now anchors: lychee reads"
+                f" these as substring matches, so a bare form keeps excluding"
+                f" every domain ending in the same suffix. {' '.join(fixes)}",
             )
             continue
 
@@ -4099,9 +4121,7 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "superseded-local-excludes",
         lambda ctx: check_superseded_local_excludes(ctx.tool_table),
-        summary=(
-            "No [tool.lychee] exclude entry beside the anchored form that replaced it"
-        ),
+        summary="No bare [tool.lychee] exclude entry the bundled template now anchors",
         description=(
             "Warns when a `[tool.lychee] exclude` entry is the bare form of one the"
             " bundled template has since anchored. An ongoing sync grafts a local-only"
@@ -4109,9 +4129,11 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             " *replaced* rather than added survives beside its own replacement: lychee"
             " matches these as substrings, and a bare `x\\.com` kept beside"
             " `^https://(www\\.)?x\\.com(/.*)?$` goes on excluding every domain ending"
-            " in `x.com`, which is what the anchoring was written to stop. Advisory,"
-            " since only the maintainer can tell a superseded entry from one the"
-            " repository narrowed on purpose"
+            " in `x.com`, which is what the anchoring was written to stop. A section"
+            " no sync reaches holds the bare form alone, so there the warning names"
+            " the anchored form to write in its place rather than advising a drop."
+            " Advisory, since only the maintainer can tell a superseded entry from"
+            " one the repository narrowed on purpose"
         ),
         applies=lambda ctx: bool(ctx.tool_table),
     ),

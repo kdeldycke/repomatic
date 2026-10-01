@@ -910,7 +910,25 @@ def test_superseded_local_excludes_reports_a_bare_entry_the_bundle_anchored():
     local = [*BUNDLED_LYCHEE_EXCLUDES, r"x\.com"]
     results = tuple(check_superseded_local_excludes({"lychee": {"exclude": local}}))
     assert [result.passed for result in results] == [False]
-    assert r"`x\.com`" in results[0].message
+    assert r"Drop `x\.com`" in results[0].message
+
+
+def test_superseded_local_excludes_replaces_a_bare_entry_left_alone():
+    """A section no sync reaches lacks the anchored form, so a drop loses the host.
+
+    A repository outside the awesome-only scope keeps its own `[tool.lychee]`
+    copy, carrying the bare `x\\.com` where the bundle now has the anchored
+    form. Dropping it there would stop excluding `x.com` itself.
+    """
+    anchored = r"^https://(www\.)?x\.com(/.*)?$"
+    assert anchored in BUNDLED_LYCHEE_EXCLUDES
+    local = [
+        r"x\.com" if item == anchored else item for item in BUNDLED_LYCHEE_EXCLUDES
+    ]
+    results = tuple(check_superseded_local_excludes({"lychee": {"exclude": local}}))
+    assert [result.passed for result in results] == [False]
+    assert rf"Replace `x\.com` with `{anchored}`" in results[0].message
+    assert "Drop" not in results[0].message
 
 
 def test_superseded_local_excludes_keeps_a_local_bare_entry_with_no_twin():
