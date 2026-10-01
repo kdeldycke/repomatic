@@ -36,6 +36,6 @@ footer: 'false'
    gh secret set CLOUDFLARE_R2_SECRET_ACCESS_KEY --repo $repo_slug
    ```
 
-   When the form shows only a token value, the Access Key ID is the token's ID and the Secret Access Key is the SHA-256 of the value. No other secret is needed: the account is derived from `CLOUDFLARE_API_TOKEN`.
+   No other secret is needed: the account is derived from `CLOUDFLARE_API_TOKEN`.
 
 > ℹ️ **Note**: To go back, remove `site.cloudflare-r2-bucket` and `site.cloudflare-r2-domain`. The R2 secrets go unread and this step disappears, but the deploy then fails on any file over 25 MiB.
