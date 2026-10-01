@@ -177,6 +177,10 @@ Stale or abandoned projects should be moved to the "Excluded projects" section w
 
 For each feature row, spot-check 2-3 projects against their current documentation or changelog. Flag cells that look wrong (features added or removed since the benchmark was written).
 
+A row added since the last pass gets every competitor cell assessed, not a sample: its cells start unassessed, and an empty cell reads as "unsupported".
+
+Re-anchor the version-pinned evidence links of a competitor that shipped a new release. A link pinned to a tag or a commit with a line range (`blob/v17.12.2/src/steps.rs#L120-L140`) keeps pointing at the old release. Find the same snippet in the new release by its content, never by the old line numbers, then repoint the link to the new tag and range. A snippet that is gone means the cell needs a fresh assessment.
+
 #### 3. Gap analysis freshness
 
 For each item in "Gaps and opportunities", check whether the linked upstream issues have changed status:
