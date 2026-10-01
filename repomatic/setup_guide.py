@@ -478,6 +478,9 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
     SetupStep(
         placeholder="step_cloudflare_r2",
         title="Configure the R2 upload keys",
+        # No URL pre-fills the R2 token form, which reads `type` alone. The generic
+        # form's `permissionGroupKeys` prefill sets every group at account scope and
+        # drops bucket-scoped ones, so it cannot express a one-bucket token.
         template="setup-guide-cloudflare-r2",
         # The deploy still publishes without the keys, but it drops every file
         # over 25 MiB, the very files the declared bucket exists to serve. So
@@ -516,7 +519,15 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
         gates_closure=False,
     ),
 )
-"""Every step of the setup guide, in the order the issue body lists them."""
+"""Every step of the setup guide, in the order the issue body lists them.
+
+Each step's template takes the shape of the `REPOMATIC_PAT` step: one lead
+sentence saying what to set and why, then numbered actions in the order they run.
+An action gives the command, then at most one alternative, written `Or by hand:`
+when it goes through the web UI. A form's values go in a field table. A note only
+warns against a wrong action or names the cost of skipping one. Reasons and other
+routes live in `docs/`, or in a comment beside the step.
+"""
 
 
 def _org_tip(repo_owner: str | None) -> str:
