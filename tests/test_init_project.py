@@ -3213,6 +3213,61 @@ default.extend-ignore-re = [
     assert ignore.comments[offset + 1] == "Seen after the rain."
 
 
+LOCAL_KEYS_WITH_COMMENTS = """\
+[tool.typos]
+# Spelled the way the Lisbon office writes.
+default.locale = "en-gb"  # Not the default "en".
+# Kept out of the forecast pages.
+check-filename = false  # Station codes read as typos.
+"""
+"""Local-only keys whose comments live in the layout of their parent table."""
+
+
+def test_typos_carries_comments_on_local_keys(tmp_path: Path) -> None:
+    """A local key keeps the comment above it and the comment after it.
+
+    Both belong to the parent table's layout rather than to the value, so a
+    key grafted onto the rebuilt section arrives without them unless they are
+    copied across. That holds for a key inside a table the template also
+    defines (`default`) and for one on the section itself.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(LOCAL_KEYS_WITH_COMMENTS, encoding="UTF-8")
+
+    result = init_config("typos", pyproject)
+
+    assert result is not None
+    typos = tomlrt.loads(result)["tool"]["typos"]
+    assert typos["default"]["locale"] == "en-gb"
+    assert typos["default"].leading_block["locale"] == (
+        "Spelled the way the Lisbon office writes.",
+    )
+    assert typos["default"].comments["locale"] == 'Not the default "en".'
+    assert typos["check-filename"] is False
+    assert typos.leading_block["check-filename"] == ("Kept out of the forecast pages.",)
+    assert typos.comments["check-filename"] == "Station codes read as typos."
+
+
+def test_typos_sync_ignores_the_spaces_before_a_comment(tmp_path: Path) -> None:
+    """A synced section stays a fixpoint once `pyproject-fmt` respaces it.
+
+    A carried end-of-line comment is written one space after its value, and
+    `pyproject-fmt` moves it to two. The next sync must not read that as a
+    change, or `sync-repomatic` and `format-pyproject` undo each other forever.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(LOCAL_KEYS_WITH_COMMENTS, encoding="UTF-8")
+    synced = init_config("typos", pyproject)
+    assert synced is not None
+    assert 'default.locale = "en-gb" # Not the default "en".' in synced
+
+    respaced = synced.replace(' # Not the default "en".', '  # Not the default "en".')
+    assert respaced != synced
+    pyproject.write_text(respaced, encoding="UTF-8")
+
+    assert init_config("typos", pyproject) is None
+
+
 def test_typos_merged_inline_tables_use_pyproject_fmt_spacing(tmp_path: Path) -> None:
     """Merged inline tables render `{ ... }`, matching pyproject-fmt.
 

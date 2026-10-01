@@ -276,23 +276,42 @@ def _entry_identity(
     return tuple((key, entry[key]) for key in identity_keys if key in entry)
 
 
-def _carry_item_comments(
-    source: tomlrt.Array, index: int, target: tomlrt.Array
+def _carry_comments(
+    source: Any, source_slot: str | int, target: Any, target_slot: str | int
 ) -> None:
-    """Copy the comments of *source*'s item *index* onto *target*'s last item.
+    """Copy the comments beside one slot of *source* onto one slot of *target*.
 
-    Iterating a tomlrt array yields decoded values, so an item appended from
-    one arrives bare: the comment block above it and the comment after it stay
-    behind. tomlrt keeps both in views keyed by item position. Writing one
-    turns a single-line *target* into one item per line, since a comment needs
-    a line of its own.
+    Both containers are tomlrt tables or arrays. A value grafted from one
+    arrives bare: the comment block above it and the comment after it belong
+    to the container's layout, not to the value. tomlrt keeps both in views
+    keyed by slot, the key of a table entry or the position of an array item.
+    Writing a comment on an item turns a single-line *target* array into one
+    item per line, since a comment needs a line of its own.
+
+    tomlrt writes an end-of-line comment one space after its value, where
+    `pyproject-fmt` puts two. {func}`_same_modulo_comment_gaps` keeps that
+    difference from reading as a change.
     """
-    block = source.leading_block.get(index)
+    block = source.leading_block.get(source_slot)
     if block:
-        target.leading_block[len(target) - 1] = block
-    trailing = source.comments.get(index)
+        target.leading_block[target_slot] = block
+    trailing = source.comments.get(source_slot)
     if trailing:
-        target.comments[len(target) - 1] = trailing
+        target.comments[target_slot] = trailing
+
+
+def _same_modulo_comment_gaps(first: str, second: str) -> bool:
+    """Whether two renderings differ at most in the spaces before a `#`.
+
+    {func}`_carry_comments` writes an end-of-line comment one space after its
+    value, and `pyproject-fmt` moves it to two. Compared exactly, a section
+    carrying such a comment reads as changed on every sync, so the unattended
+    `sync-repomatic` and `format-pyproject` jobs would each open a pull request
+    undoing the other's. A `#` inside a string value is normalized too, which
+    can only hide a change made of nothing but the spaces before that `#`.
+    """
+    gap = re.compile(r"[ \t]+#")
+    return gap.sub(" #", first).strip() == gap.sub(" #", second).strip()
 
 
 def _graft_local_additions(
@@ -324,11 +343,12 @@ def _graft_local_additions(
       canonical value wins, which is the point of an ongoing sync.
 
     Grafted keys are copied from *existing* as nodes, so the comments and
-    inline formatting inside them carry over. A comment beside the grafted key
-    itself belongs to the parent table's layout, not to the node, and is lost.
-    A local-only array item is appended as a value instead: its comments are
-    copied across by {func}`_carry_item_comments`, but its lexeme is re-emitted
-    in tomlrt's own style.
+    inline formatting inside them carry over. The comments beside a grafted key
+    belong to the parent table's layout, so {func}`_carry_comments` copies them
+    across. A local-only array item is appended as a value instead: its
+    comments are copied the same way, but its lexeme is re-emitted in tomlrt's
+    own style. A comment beside a key the template also defines is not carried:
+    the template's own comment wins, like its value.
 
     :param target: tomlrt table built from the bundled template, mutated in
         place.
@@ -344,6 +364,10 @@ def _graft_local_additions(
         if template_value is _MISSING:
             # Key the canonical template does not define: keep it verbatim.
             target[key] = existing_value
+            # The section root parses as a `Document`, which is not a `Table`.
+            containers = (tomlrt.Document, tomlrt.Table)
+            if isinstance(existing, containers) and isinstance(target, containers):
+                _carry_comments(existing, key, target, key)
         elif isinstance(template_value, dict) and isinstance(existing_value, dict):
             # Standard or inline table: recurse so local-only sub-keys survive.
             _graft_local_additions(
@@ -393,7 +417,9 @@ def _graft_local_additions(
                 if isinstance(existing_value, tomlrt.Array) and isinstance(
                     target[key], tomlrt.Array
                 ):
-                    _carry_item_comments(existing_value, index, target[key])
+                    _carry_comments(
+                        existing_value, index, target[key], len(target[key]) - 1
+                    )
         # Scalar in both: the canonical template value wins, nothing to graft.
 
 
@@ -502,7 +528,7 @@ def _update_tool_config(
 
     modified = tomlrt.dumps(doc)
 
-    if modified.strip() == content.strip():
+    if _same_modulo_comment_gaps(modified, content):
         logging.info(f"[{comp.tool_section}] already up to date.")
         return None
 
