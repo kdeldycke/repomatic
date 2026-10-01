@@ -27,8 +27,6 @@ footer: 'false'
    gh secret set CLOUDFLARE_API_TOKEN --repo $repo_slug
    ```
 
-   That is the only secret needed: the account is derived from the token itself at run time. If the token reaches several accounts, the one owning the project wins.
-
 > ℹ️ **Note**: The token reaches **every** Pages project on the account: `Cloudflare Pages` is an account permission that cannot be narrowed to one project. If this project ever published to `$repo_owner.github.io/$repo_name`, leave GitHub Pages enabled there with its custom domain set to the new site: the old URLs then keep redirecting. The [Cloudflare Pages guide](https://repomatic.net/cloudflare) covers both.
 
-> ℹ️ **Note**: To go back, set `site.deploy = "github-pages"`. The Cloudflare secrets go unread and this step disappears.
+> ℹ️ **Note**: To go back, set `site.deploy = "github-pages"`.

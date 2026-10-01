@@ -3,7 +3,7 @@ args: [package_name, repo_owner, repo_name, workflow_filename, settings_url]
 footer: 'false'
 ---
 
-Register a **Trusted Publisher** on PyPI so `publish-pypi` uploads through OIDC, with no long-lived token.
+Register a **Trusted Publisher** on PyPI so `publish-pypi` uploads through OIDC.
 
 Open the [**pre-filled Trusted Publishers page**]($settings_url), where the GitHub tab is selected and every field populated. Check the values, then click **Add**:
 

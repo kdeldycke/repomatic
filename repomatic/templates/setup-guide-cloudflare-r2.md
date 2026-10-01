@@ -36,6 +36,4 @@ footer: 'false'
    gh secret set CLOUDFLARE_R2_SECRET_ACCESS_KEY --repo $repo_slug
    ```
 
-   No other secret is needed: the account is derived from `CLOUDFLARE_API_TOKEN`.
-
-> ℹ️ **Note**: To go back, remove `site.cloudflare-r2-bucket` and `site.cloudflare-r2-domain`. The R2 secrets go unread and this step disappears, but the deploy then fails on any file over 25 MiB.
+> ℹ️ **Note**: To go back, remove `site.cloudflare-r2-bucket` and `site.cloudflare-r2-domain`. The deploy then fails on any file over 25 MiB.

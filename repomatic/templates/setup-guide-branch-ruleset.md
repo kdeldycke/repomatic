@@ -8,7 +8,5 @@ Create a [**branch ruleset**]($repo_url/settings/rules/new?target=branch&enforce
 1. **Ruleset name**: `main`
 2. **Enforcement status**: Active
 3. Under **Target branches**: **Add target** → **Include default branch**
-4. Check **Restrict deletions** and **Block force pushes**, both on by default
+4. Keep **Restrict deletions** and **Block force pushes** checked
 5. Click **Create**
-
-No status checks needed.
