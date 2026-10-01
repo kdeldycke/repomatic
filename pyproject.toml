@@ -338,17 +338,11 @@ output-prefer-rule-codes = true
 # suppresses either, since the checker never sees the whole word. Any acronym
 # carrying a lowercase suffix needs its own entry here.
 default.extend-identifiers = { Github = "GitHub", IOS = "iOS", Javascript = "JavaScript", MacOS = "macOS", PATCHed = "PATCHed", PNGs = "PNGs", PyPi = "PyPI", Typescript = "TypeScript" }
-# False positives: "astroid" is a Python AST library (not "asteroid"); "oject" appears when "pyproject.toml" is split across line breaks in CLI help output; "sur" is macOS 11 Big Sur and Homebrew's big_sur bottle tag (not "sure").
-default.extend-words = { astroid = "astroid", oject = "oject", sur = "sur", Contribuer = "Contribuer", quater = "quater" }
+# False positives: "astroid" is a Python AST library (not "asteroid"); "certifi" is the CA bundle package a dependency graph lists under requests (not "certify"); "oject" appears when "pyproject.toml" is split across line breaks in CLI help output; "sur" is macOS 11 Big Sur and Homebrew's big_sur bottle tag (not "sure").
+default.extend-words = { astroid = "astroid", certifi = "certifi", oject = "oject", sur = "sur", Contribuer = "Contribuer", quater = "quater" }
 # Skip content between <!-- typos:off --> and <!-- typos:on --> markers.
 default.extend-ignore-re = [ "(?s)<!-- typos:off -->.*?<!-- typos:on -->", "\\{qeury\\}", 'base32 "[0-9a-z]{52}"' ]
 default.extend-ignore-identifiers-re = [
-  # error: `certifi` should be `certify`, `certifies`, `certified`
-  #     ╭▸ ./docs/assets/dependencies.mmd:184:11
-  #     │
-  # 184 │     click certifi "https://pypi.org/project/certifi/" _blank
-  #     ╰╴          ━━━━━━━
-  "certifi",
   # error: `nwo` should be `now`
   #     ╭▸ ./repomatic/github/release_sync.py:147:5
   #     │
