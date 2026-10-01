@@ -34,6 +34,7 @@ site.cloudflare-r2-bucket = "my-site-files"
 site.cloudflare-r2-domain = "files.example.com"
 uv-lock.sync = false
 
+dependency-graph.update = true
 dependency-graph.output = "./docs/assets/dependencies.mmd"
 dependency-graph.all-groups = true
 dependency-graph.all-extras = true

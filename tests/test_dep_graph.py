@@ -21,7 +21,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
+from repomatic.cli.main import repomatic as repomatic_cli
 from repomatic.deps.dep_graph import (
     Subgraph,
     SubgraphKind,
@@ -758,3 +760,27 @@ def test_resolve_subgraph_selection() -> None:
     assert resolve(select_all=True, config_excluded=("docs", "typing")) == tuple(
         name for name in groups if name not in {"docs", "typing"}
     )
+
+
+def test_update_dep_graph_disabled_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`dependency-graph.update = false` exits before reading the lockfile.
+
+    The directory holds no `uv.lock`, so the export would fail: a clean exit
+    with no output file is reachable only through the guard.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "papaya"\n\n'
+        "[tool.repomatic]\ndependency-graph.update = false\n",
+        encoding="UTF-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "graph.mmd"
+
+    result = CliRunner().invoke(
+        repomatic_cli, ["update-dep-graph", "--output", str(output)]
+    )
+
+    assert result.exit_code == 0
+    assert not output.exists()

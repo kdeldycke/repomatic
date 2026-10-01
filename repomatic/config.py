@@ -142,6 +142,14 @@ class DependencyGraphConfig:
     The dependency graph visualizes the project's dependency tree in Mermaid format.
     """
 
+    update: bool = True
+    """Whether the `update-dep-graph` command writes the graph.
+
+    Set to `false` for a project that keeps no dependency graph: the command
+    then exits without writing, so the `update-dep-graph` job opens no pull
+    request.
+    """
+
 
 @dataclass
 class DocsConfig:

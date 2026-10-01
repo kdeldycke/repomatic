@@ -146,7 +146,7 @@ jobs:
     # own): compile-binaries needs id-token + attestations (plus contents:read),
     # create-tag / create-release / manpages / publish-release /
     # scan-virustotal / sync-dev-release need contents:write, and
-    # update-dep-graph needs pull-requests:write for its PR.
+    # scan-virustotal needs pull-requests:write for its PR.
     permissions:
       attestations: write
       contents: write

@@ -1764,6 +1764,7 @@ def test_repomatic_config_defaults(tmp_path, monkeypatch):
     assert metadata.config.dependency_graph.no_groups == []
     assert metadata.config.dependency_graph.no_extras == []
     assert metadata.config.dependency_graph.level is None
+    assert metadata.config.dependency_graph.update is True
     assert metadata.config.labels.content_rules == {}
     assert metadata.config.labels.extra == []
     assert metadata.config.labels.extra_files == []
@@ -1899,6 +1900,7 @@ gitignore.extra-content = '''
 # Claude Code
 .claude/
 '''
+dependency-graph.update = false
 dependency-graph.output = "./custom/deps.mmd"
 dependency-graph.all-groups = false
 dependency-graph.all-extras = true
@@ -1969,6 +1971,7 @@ click-version = ["released", "stable", "main"]
     assert metadata.config.dependency_graph.no_groups == ["typing"]
     assert metadata.config.dependency_graph.no_extras == ["xml"]
     assert metadata.config.dependency_graph.level == 2
+    assert metadata.config.dependency_graph.update is False
     assert metadata.dev_targets == {"macos-arm64", "windows-x64"}
     assert metadata.unstable_targets == {"linux-arm64", "windows-x64"}
     assert metadata.config.labels.extra == [

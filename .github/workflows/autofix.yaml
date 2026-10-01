@@ -120,14 +120,12 @@ jobs:
     name: 🧬 Project metadata
     # Skipping this job propagates to every `needs: metadata` job below, so the
     # workflow costs no runner minutes on version-bump pushes: those commits are
-    # machine-generated and ship-gated, any drift they could introduce is caught
-    # by the next ordinary push or the weekly scheduled sweep, and the one job
-    # whose only firing moment was the release push (update-dep-graph) now lives
-    # in the release engine. The PR branch list must stay in sync with
-    # repomatic.git_ops.VERSION_BUMP_BRANCHES; the single commit-message clause
-    # relies on repomatic.git_ops.CHANGELOG_COMMIT_PREFIX marking every
-    # machine-authored version-machinery commit. Both enforced by repomatic's
-    # own test suite.
+    # machine-generated and ship-gated, and any drift they could introduce is
+    # caught by the next ordinary push or the weekly scheduled sweep. The PR
+    # branch list must stay in sync with repomatic.git_ops.VERSION_BUMP_BRANCHES;
+    # the single commit-message clause relies on
+    # repomatic.git_ops.CHANGELOG_COMMIT_PREFIX marking every machine-authored
+    # version-machinery commit. Both enforced by repomatic's own test suite.
     if: >
       !contains(fromJSON('["major-version-increment","minor-version-increment","prepare-release"]'),
       github.head_ref)
@@ -763,6 +761,36 @@ jobs:
           pr-sync --template sync-workflow-pins
       # sync-tool-versions is deliberately absent: it rewrites repomatic's own
       # tool registry, so it lives in the upstream-only self-maintenance.yaml.
+
+  # The graph shows no package versions, so a lock refresh changes it only when
+  # the dependency tree changes shape or a declared version requirement changes.
+  # Gated on any Python project: a uv virtual project locks dependencies too,
+  # but never runs the release engine. `dependency-graph.update = false` makes
+  # the command exit without writing.
+  update-dep-graph:
+    name: 🕸️ Update dependency graph
+    needs:
+      - metadata
+    if: fromJSON(needs.metadata.outputs.metadata).is_python_project
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+      - name: Generate graph
+        # Package name and output path are auto-detected from pyproject.toml.
+        run: uv --no-progress run --frozen -- repomatic update-dep-graph
+      - name: Sync pull request
+        env:
+          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
+        run: >
+          uv --no-progress run --frozen -- repomatic
+          pr-sync --template update-dep-graph
 
   update-docs:
     name: 📚 Update docs

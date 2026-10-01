@@ -118,6 +118,7 @@ from .main import (
     _section_setup,
     _show_config_sort,
     deprecated_alias,
+    exit_if_disabled,
     flat_matrix_table,
     format_matrix_cell,
     log_output_target,
@@ -264,7 +265,9 @@ if TYPE_CHECKING:
     default=None,
     help="Output file path. Defaults to [tool.repomatic] config or stdout.",
 )
+@pass_context
 def dep_graph(
+    ctx: Context,
     package: str | None,
     groups: tuple[str, ...],
     all_groups: bool,
@@ -284,7 +287,8 @@ def dep_graph(
     flowchart for documentation. Version specifiers from uv.lock are shown
     as edge labels.
     """
-    config = get_tool_config()
+    config = get_tool_config(ctx)
+    exit_if_disabled(ctx, config.dependency_graph.update, "dependency-graph.update")
 
     # Auto-detect package name from [project].name.
     if package is None:

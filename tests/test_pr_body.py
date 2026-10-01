@@ -869,9 +869,8 @@ REFERENCE_WORKFLOWS = (
     # The detect-squash-merge --template reference lives in the build lane, not
     # the release.yaml entry (which only calls the lanes and publishes).
     ".github/workflows/_release-build.yaml",
-    # The update-dep-graph --template reference lives in the engine lane: a
-    # release push is that job's only firing moment, and autofix.yaml (its
-    # former home) skips version-bump pushes wholesale.
+    # The scan-virustotal --template reference lives in the engine lane: that
+    # job scans the assets a release publishes.
     ".github/workflows/_release-engine.yaml",
     # The sample-metrics --template reference lives in its own schedule-only
     # workflow, which `repomatic init` only materializes for a repository that

@@ -270,6 +270,16 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yaml-jobs), shares this family but not this job: it rewrites repomatic's own tool registry, so it lives in the upstream-only [`self-maintenance.yaml`](#github-workflows-self-maintenance-yaml-jobs).
 ```
 
+#### 🕸️ Update dependency graph (`update-dep-graph`)
+
+- Generates a Mermaid dependency graph of the Python project using [`repomatic update-dep-graph`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps/dep_graph.py), and opens a PR with the refreshed diagram
+- Keeps the graph current between releases: it shows no package versions, so a lock refresh changes it only when the dependency tree changes shape or a declared version requirement changes
+- Covers uv virtual projects (`[tool.uv] package = false`), which lock dependencies but never run a release
+- **Requires**:
+  - Python project with a `uv.lock` file
+- **Skipped if**:
+  - `dependency-graph.update = false` in `[tool.repomatic]`
+
 #### 📚 Update docs (`update-docs`)
 
 - Regenerates Sphinx autodoc files using [`sphinx-apidoc`](https://github.com/sphinx-doc/sphinx), converting the generated RST stubs to [MyST markdown](https://myst-parser.readthedocs.io/) when the docs tree uses it
@@ -751,14 +761,6 @@ flowchart TD
   - The wheel from the build lane (`build-package`, downloaded run-scoped) and the `compile-binaries` job (uses `always()` for resilience)
 - **Skipped if**:
   - `dev-release.sync = false` in `[tool.repomatic]`
-
-#### 🕸️ Update dependency graph (`update-dep-graph`)
-
-- Generates a Mermaid dependency graph of the Python project using [`repomatic update-dep-graph`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps/dep_graph.py), and opens a PR with the refreshed diagram
-- Lives in the release engine because a release push is its only firing moment (ordinary pushes would only churn the graph with transitive noise), and `autofix.yaml`, its former home, now skips version-bump pushes wholesale
-- **Runs on**: Release commits only
-- **Requires**:
-  - Python package with a `uv.lock` file
 
 (github-workflows-self-maintenance-yaml-jobs)=
 

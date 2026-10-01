@@ -6,6 +6,8 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** Remove the `lint-anchors` command and the Docs workflow step running it. A Sphinx build reports the same broken fragment links as `myst.xref_missing` warnings.
+- The `update-dep-graph` job moves from the release workflow to Autofix: it refreshes the graph on every push, for uv virtual projects too.
+- Add `dependency-graph.update` to turn off the dependency graph updates.
 - Fix `lint-repo` reporting every bundled key missing from a `[tool.pytest]` section kept under `ini_options`, and asking for native keys pytest refuses beside that table.
 - Fix `repomatic init` dropping the comments beside a local key it keeps when re-syncing a tool config.
 - Fix `repomatic init` re-syncing a multi-line tool config array at a four-space indent, which `format-pyproject` then rewrote to two in its own pull request.
