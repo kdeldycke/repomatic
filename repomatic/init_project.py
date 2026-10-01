@@ -150,6 +150,14 @@ Matches the `warning:` lines the configuration loader logs, like an unknown
 `[tool.repomatic]` key, and the `Warning:` lines of the closing summary.
 """
 
+PYPROJECT_FMT_INDENT = 2
+"""Spaces `pyproject-fmt` puts before each row of a multi-line array, its default.
+
+{func}`_graft_local_additions` lays out a rebuilt multi-line array at this
+indent. tomlrt's own fallback is four spaces, which the `format-pyproject` job
+rewrites in a pull request of its own.
+"""
+
 RUNTIME_FRAGMENTS: tuple[str, ...] = (
     "release.yaml",
     "vt-trend-chart.js",
@@ -347,8 +355,9 @@ def _graft_local_additions(
     belong to the parent table's layout, so {func}`_carry_comments` copies them
     across. A local-only array item is appended as a value instead: its
     comments are copied the same way, but its lexeme is re-emitted in tomlrt's
-    own style. A comment beside a key the template also defines is not carried:
-    the template's own comment wins, like its value.
+    own style. An array the project wrote one item per row keeps that layout, at
+    {data}`PYPROJECT_FMT_INDENT`. A comment beside a key the template also
+    defines is not carried: the template's own comment wins, like its value.
 
     :param target: tomlrt table built from the bundled template, mutated in
         place.
@@ -412,6 +421,16 @@ def _graft_local_additions(
                 # request undoing the other's, forever.
                 target[key] = existing_value
                 continue
+            if (
+                isinstance(existing_value, tomlrt.Array)
+                and isinstance(target[key], tomlrt.Array)
+                and existing_value.multiline
+                and not target[key].multiline
+            ):
+                # Keep the one-row-per-item layout the project wrote. On one
+                # line, tomlrt breaks the array into rows itself when a carried
+                # comment needs a line of its own, but at four spaces.
+                target[key].set_multiline(multiline=True, indent=PYPROJECT_FMT_INDENT)
             for index, item in grafted.items():
                 target[key].append(item)
                 if isinstance(existing_value, tomlrt.Array) and isinstance(

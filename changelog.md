@@ -7,6 +7,7 @@
 
 - Fix `lint-repo` reporting every bundled key missing from a `[tool.pytest]` section kept under `ini_options`, and asking for native keys pytest refuses beside that table.
 - Fix `repomatic init` dropping the comments beside a local key it keeps when re-syncing a tool config.
+- Fix `repomatic init` re-syncing a multi-line tool config array at a four-space indent, which `format-pyproject` then rewrote to two in its own pull request.
 - `job-timings`, `cancel-runs` and the `ci-status` fallback now list runs with a date filter, so a stale run listing no longer feeds them weeks-old runs.
 - The workflows reference now lists every `lint-repo` check, rendered from the check roster like `lint-repo --help`.
 

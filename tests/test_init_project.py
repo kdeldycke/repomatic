@@ -3182,6 +3182,17 @@ def test_typos_update_idempotent(tmp_path: Path) -> None:
     assert init_config("typos", pyproject) is None
 
 
+LOCAL_ARRAY_ITEMS_WITH_COMMENTS = """\
+[tool.typos]
+default.extend-ignore-re = [
+  # Quoted from a storm forecast.
+  "hail-warning",
+  "rainbow",  # Seen after the rain.
+]
+"""
+"""A local array lacking the canonical item, so the sync rebuilds it."""
+
+
 def test_typos_carries_comments_on_local_array_items(tmp_path: Path) -> None:
     """A local `extend-ignore-re` item keeps its comments through a rebuild.
 
@@ -3190,17 +3201,7 @@ def test_typos_carries_comments_on_local_array_items(tmp_path: Path) -> None:
     above the item and the comment after it have to be copied across.
     """
     pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        """\
-[tool.typos]
-default.extend-ignore-re = [
-  # Quoted from a storm forecast.
-  "hail-warning",
-  "rainbow",  # Seen after the rain.
-]
-""",
-        encoding="UTF-8",
-    )
+    pyproject.write_text(LOCAL_ARRAY_ITEMS_WITH_COMMENTS, encoding="UTF-8")
 
     result = init_config("typos", pyproject)
 
@@ -3211,6 +3212,25 @@ default.extend-ignore-re = [
     assert ignore == [*canonical["extend-ignore-re"], "hail-warning", "rainbow"]
     assert ignore.leading_block[offset] == ("Quoted from a storm forecast.",)
     assert ignore.comments[offset + 1] == "Seen after the rain."
+
+
+def test_typos_rebuilt_array_uses_pyproject_fmt_indent(tmp_path: Path) -> None:
+    """A rebuilt multi-line array is indented the way `pyproject-fmt` writes it.
+
+    The rebuild starts from the template's single-line array. tomlrt breaks it
+    into rows once a carried comment needs a line of its own, but at four
+    spaces, which the `format-pyproject` job re-indents to two in a pull request
+    of its own.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(LOCAL_ARRAY_ITEMS_WITH_COMMENTS, encoding="UTF-8")
+
+    result = init_config("typos", pyproject)
+
+    assert result is not None
+    rows = result.split("default.extend-ignore-re = [\n", 1)[1].split("\n]", 1)[0]
+    for row in rows.splitlines():
+        assert row.startswith("  ") and not row[2].isspace(), row
 
 
 LOCAL_KEYS_WITH_COMMENTS = """\
