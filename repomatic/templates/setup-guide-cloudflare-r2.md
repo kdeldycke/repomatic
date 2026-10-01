@@ -11,7 +11,7 @@ footer: 'false'
    repomatic cloudflare-r2 --create
    ```
 
-   Or by hand: `wrangler r2 bucket create $bucket`, then `wrangler r2 bucket domain add $bucket --domain $domain --zone-id {zone-id} --min-tls 1.2`.
+   Or run `wrangler r2 bucket create $bucket`, then `wrangler r2 bucket domain add $bucket --domain $domain --zone-id {zone-id} --min-tls 1.2`.
 
 2. Create the API token in the **[R2 account token form](https://dash.cloudflare.com/?to=/:account/r2/api-tokens/create&type=account)**. No link pre-fills this form, so set each field:
 

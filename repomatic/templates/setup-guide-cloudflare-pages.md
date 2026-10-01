@@ -28,3 +28,5 @@ footer: 'false'
    ```
 
 > ℹ️ **Note**: `Cloudflare Pages` is an account permission, so the token reaches every Pages project on the account.
+
+> ⚠️ **Warning**: If this site moved from GitHub Pages, leave GitHub Pages enabled, or every old link breaks: see [Leaving GitHub Pages behind](https://repomatic.net/cloudflare#leaving-github-pages-behind-urls-intact).

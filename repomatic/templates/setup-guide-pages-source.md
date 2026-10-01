@@ -5,7 +5,7 @@ footer: 'false'
 
 Set the GitHub Pages deployment source to **GitHub Actions**, which is how `docs.yaml` deploys:
 
-1. Run both calls: `POST` enables Pages for the first time, `PUT` changes an existing setup.
+1. Run the call that fits: `POST` enables Pages for the first time, `PUT` changes an existing setup.
 
    ```shell
    gh api --method POST repos/$repo_slug/pages -f build_type=workflow

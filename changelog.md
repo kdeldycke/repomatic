@@ -10,8 +10,7 @@
 - Fix `repomatic init` dropping the comments beside a local key it keeps when re-syncing a tool config.
 - Fix `repomatic init` re-syncing a multi-line tool config array at a four-space indent, which `format-pyproject` then rewrote to two in its own pull request.
 - Fix the setup guide's R2 keys step describing a dashboard route the R2 page does not have: it now links the account token form.
-- The setup guide's Cloudflare token steps now list their form fields in a table, like the `REPOMATIC_PAT` step.
-- Every setup guide step now reads like the token step: one lead sentence, numbered actions, and the long explanations left in `docs/`.
+- Every setup guide step now reads like the token step: one lead sentence, numbered actions, form fields in a table, and the long explanations left in `docs/`.
 - `job-timings`, `cancel-runs` and the `ci-status` fallback now list runs with a date filter, so a stale run listing no longer feeds them weeks-old runs.
 - `cloudflare-r2 --offload` now writes why it dropped a file as Markdown in the step summary, with code-formatted names and a docs link.
 - The workflows reference now lists every `lint-repo` check, rendered from the check roster like `lint-repo --help`.

@@ -3,7 +3,7 @@ args: [repo_url, repo_slug]
 footer: 'false'
 ---
 
-Require approval before a fork pull request runs workflows. GitHub's default catches only a brand-new account.
+Require approval before a first-time contributor's fork pull request runs workflows. GitHub's default catches only a brand-new account.
 
 ```shell
 gh api --method PUT repos/$repo_slug/actions/permissions/fork-pr-contributor-approval -f approval_policy=first_time_contributors
