@@ -85,7 +85,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 3. **Run local tests while waiting for CI.** Don't idle while polling. Start the full test suite and linters locally in the background immediately:
 
    ```shell-session
-   $ uv run pytest --no-header -q &
+   $ uv run --frozen --all-extras --group test pytest --no-header -q &
    $ uv run --group typing repomatic run mypy &
    $ uv run repomatic run ruff -- check repomatic tests docs &
    ```
@@ -156,7 +156,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
    After applying fixes, re-run the full local validation:
 
    ```shell-session
-   $ uv run pytest --no-header -q
+   $ uv run --frozen --all-extras --group test pytest --no-header -q
    $ uv run --group typing repomatic run mypy
    $ uv run repomatic run ruff -- check repomatic tests docs
    $ uv run repomatic run ruff -- format repomatic tests docs

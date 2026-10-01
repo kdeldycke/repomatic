@@ -20,6 +20,7 @@
 - `cloudflare-r2 --offload` now writes why it dropped a file as Markdown in the step summary, with code-formatted names and a docs link.
 - The workflows reference now lists every `lint-repo` check, rendered from the check roster like `lint-repo --help`.
 - The bundled `benchmark-update` skill now assesses every competitor cell of a row added since the last pass, and re-anchors pinned evidence links by content after a release.
+- The bundled `babysit-ci` and `repomatic-ship` skills now run their local tests with the `test` dependency group, which repositories without default groups need.
 
 ## [`7.17.1` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.17.0...v7.17.1)
 
