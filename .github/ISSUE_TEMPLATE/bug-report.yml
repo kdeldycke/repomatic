@@ -11,7 +11,7 @@ body:
 
         ```shell-session
 
-        $ uvx --from git+https://github.com/kdeldycke/repomatic -- repomatic --version
+        $ uvx --exclude-newer '1 week' --from git+https://github.com/kdeldycke/repomatic -- repomatic --version
 
         ```
   - type: textarea
@@ -33,7 +33,8 @@ body:
     attributes:
       label: Version
       description: >
-        Output of `repomatic --version` (or `uvx -- repomatic --version`).
+        Output of `repomatic --version`
+        (or `uvx --exclude-newer '1 week' --exclude-newer-package repomatic=P0D -- repomatic --version`).
       placeholder: "repomatic, version X.Y.Z"
     validations:
       required: true
