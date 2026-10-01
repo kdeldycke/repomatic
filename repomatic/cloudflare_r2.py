@@ -75,6 +75,7 @@ import hmac
 import http.client
 import mimetypes
 import os
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
@@ -129,6 +130,9 @@ OFFLOAD_DOCS_URL: Final = "https://repomatic.net/cloudflare#files-over-25-mib"
 """Where a message about a dropped file or a missing key sends the reader to set
 up R2."""
 
+OFFLOAD_DOCS_LINK: Final = f"[big file offloading]({OFFLOAD_DOCS_URL})"
+"""{data}`OFFLOAD_DOCS_URL` as the Markdown link that ends a dropped file's reason."""
+
 PAGE_SUFFIXES: Final = frozenset((".htm", ".html"))
 """Extensions of pages, which stay out of the bucket. See the module
 docstring."""
@@ -154,6 +158,9 @@ while."""
 
 SECRET_ACCESS_KEY_ENV: Final = "CLOUDFLARE_R2_SECRET_ACCESS_KEY"
 """Environment variable holding the bucket-scoped S3 secret access key."""
+
+_MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
+"""A Markdown link, captured as its label and its URL."""
 
 _MIME_TYPES = mimetypes.MimeTypes()
 """Python's own extension table, without the host's `mime.types` files: a
@@ -354,7 +361,7 @@ class Offload:
     """Where the file is served from now. Empty when dropped."""
 
     reason: str = ""
-    """Why the file was dropped. Empty otherwise."""
+    """Why the file was dropped, in Markdown. Empty otherwise."""
 
 
 def oversized_files(root: Path) -> list[Path]:
@@ -477,6 +484,16 @@ def offload(
     return results
 
 
+def _spell_out_links(markdown: str) -> str:
+    """Rewrite each Markdown link in *markdown* as its label and its URL.
+
+    A reason is written once, in the Markdown the step summary renders. An
+    annotation shows its text as is, so `[label](url)` becomes `label (url)`
+    there. Code spans read the same either way, and stay.
+    """
+    return _MARKDOWN_LINK.sub(r"\1 (\2)", markdown)
+
+
 def _report(results: Sequence[Offload]) -> None:
     """Print each outcome, annotate each drop, and fill the step summary."""
     for entry in results:
@@ -486,7 +503,7 @@ def _report(results: Sequence[Offload]) -> None:
                 AnnotationLevel.ERROR,
                 f"{entry.path} ({size}) is over the 25 MiB Cloudflare Pages"
                 " limit, so this deploy dropped it and its links are dead:"
-                f" {entry.reason}",
+                f" {_spell_out_links(entry.reason)}",
             )
         else:
             echo(f"ok    {entry.path} ({size}) now redirects to {entry.url}")
@@ -515,20 +532,16 @@ def _bucket_from_environment(bucket: str, project: str) -> tuple[R2Bucket | None
     """The bucket to upload to, or `None` and the reason it is out of reach."""
     if not bucket:
         return None, (
-            "no R2 bucket is declared. Declare [tool.repomatic]"
-            " site.cloudflare-r2-bucket and site.cloudflare-r2-domain to serve it"
-            f" from R2: see {OFFLOAD_DOCS_URL}"
+            "`[tool.repomatic] site.cloudflare-r2-bucket` and"
+            f" `site.cloudflare-r2-domain` missing for {OFFLOAD_DOCS_LINK}"
         )
     missing = [
-        name
+        f"`{name}`"
         for name in (ACCESS_KEY_ID_ENV, SECRET_ACCESS_KEY_ENV)
         if not os.getenv(name)
     ]
     if missing:
-        return None, (
-            f"{' and '.join(missing)} not set. Store the bucket's key pair as"
-            f" repository secrets: see {OFFLOAD_DOCS_URL}"
-        )
+        return None, f"{' and '.join(missing)} missing for {OFFLOAD_DOCS_LINK}"
     try:
         account = _account(_token(), project)
     except (CloudflareError, OSError) as error:

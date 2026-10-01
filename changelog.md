@@ -9,6 +9,7 @@
 - Fix `repomatic init` dropping the comments beside a local key it keeps when re-syncing a tool config.
 - Fix `repomatic init` re-syncing a multi-line tool config array at a four-space indent, which `format-pyproject` then rewrote to two in its own pull request.
 - `job-timings`, `cancel-runs` and the `ci-status` fallback now list runs with a date filter, so a stale run listing no longer feeds them weeks-old runs.
+- `cloudflare-r2 --offload` now writes why it dropped a file as Markdown in the step summary, with code-formatted names and a docs link.
 - The workflows reference now lists every `lint-repo` check, rendered from the check roster like `lint-repo --help`.
 
 ## [`7.17.1` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.17.0...v7.17.1)

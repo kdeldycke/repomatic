@@ -37,6 +37,7 @@ from repomatic.cloudflare import CloudflareError, CloudflareHTTPError
 from repomatic.cloudflare_r2 import (
     ACCESS_KEY_ID_ENV,
     CACHE_CONTROL,
+    OFFLOAD_DOCS_LINK,
     OFFLOAD_DOCS_URL,
     PAGES_MAX_FILE_SIZE,
     REDIRECTS_HEADER,
@@ -397,8 +398,7 @@ def test_bucket_from_environment_names_the_missing_secrets(monkeypatch):
     monkeypatch.setenv(SECRET_ACCESS_KEY_ENV, "secret-under-test")
     bucket, reason = _bucket_from_environment("papaya-files", "papaya-site")
     assert bucket is None
-    assert reason.startswith(f"{ACCESS_KEY_ID_ENV} not set.")
-    assert OFFLOAD_DOCS_URL in reason
+    assert reason == f"`{ACCESS_KEY_ID_ENV}` missing for {OFFLOAD_DOCS_LINK}"
 
 
 def test_bucket_from_environment_resolves_the_account(monkeypatch):
@@ -437,10 +437,13 @@ def test_run_offload_fails_loudly_on_a_dropped_file(tmp_path, monkeypatch, capsy
     assert not (site / "atlas.zip").exists()
     output = capsys.readouterr().out
     assert "::error::/atlas.zip (" in output
-    assert OFFLOAD_DOCS_URL in output
+    # An annotation renders no Markdown: the link is spelled out there.
+    assert f"big file offloading ({OFFLOAD_DOCS_URL})" in output
+    assert OFFLOAD_DOCS_LINK not in output
     table = summary.read_text(encoding="UTF-8")
     assert "| `/atlas.zip` |" in table
     assert ReportAction.DROPPED.value in table
+    assert OFFLOAD_DOCS_LINK in table
 
 
 def test_run_offload_succeeds_when_every_file_reaches_the_bucket(tmp_path, capsys):
