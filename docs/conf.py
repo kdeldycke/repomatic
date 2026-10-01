@@ -443,6 +443,7 @@ def prune_build_artifacts(app, exception):
         sources.rmdir()
 
 
+# XXX: swap for click-extra's option. See the `{todo}` in docs/upstream-development.md.
 class UnresolvedAnchors(logging.Handler):
     """Record whether myst-parser left a fragment link unresolved.
 
