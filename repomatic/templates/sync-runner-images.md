@@ -11,7 +11,7 @@ A runner image this repository uses has changed in GitHub's [available-images ta
 
 **A 🔴 retirement moves jobs to a released image.** A released successor always wins over a preview. The **Passed over** column names any newer preview not taken: take it instead if you accept the preview's risks.
 
-**A 🆕 upgrade has two halves.** Every job naming the old image in a literal `runs-on:` moves to the new one, because a test-matrix cell cannot reach a job like that. The matrix also gains the image as a `continue-on-error` cell, which cannot fail the build. That half is skipped when the matrix already runs the image.
+**A 🆕 upgrade has two halves.** Every job naming the old image in a literal `runs-on:` moves to the new one, because a test-matrix cell cannot reach a job like that. The matrix also gains the image as a `continue-on-error` cell.
 
 > [!IMPORTANT]
 > Read the CI run before you merge. Check `repomatic job-timings` for the image's cost in whole-job wall-clock time, not just whether it passes.

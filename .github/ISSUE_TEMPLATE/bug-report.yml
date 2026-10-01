@@ -14,9 +14,6 @@ body:
         $ uvx --from git+https://github.com/kdeldycke/repomatic -- repomatic --version
 
         ```
-
-
-        If the bug is gone, it will be included in the next release.
   - type: textarea
     id: description
     attributes:

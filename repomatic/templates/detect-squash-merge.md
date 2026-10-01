@@ -20,11 +20,11 @@ Existing safeguards stopped the release:
 - No PyPI package was published.
 - No GitHub release was created.
 
-Freeze and unfreeze cancel out, so `main` stays valid for the next cycle. The skipped version appears in the changelog but was never published.
+The skipped version appears in the changelog but was never published.
 
 ## Recovery
 
-No action is required. To release:
+To release:
 
 1. Make any pending changes (or wait for the next one).
 2. Let `prepare-release` create a new release PR for the next version.

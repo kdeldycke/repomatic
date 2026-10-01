@@ -7,9 +7,7 @@ labels: [🤖 ci]
 
 ## 📈 Readings
 
-Each scheduled run appends to this branch, so this pull request carries every reading taken since it was opened. Merging it moves them onto the default branch and the next run starts a fresh one.
-
-An open pull request does not stop the readings: they keep accruing here, and only the charts published from the default branch lag behind.
+Each scheduled run appends to this branch, so this pull request carries every reading taken since it was opened. Merging it moves them onto the default branch and the next run starts a fresh one. Until you merge, the charts published from the default branch lag behind.
 
 ## ⚙️ Configuration
 

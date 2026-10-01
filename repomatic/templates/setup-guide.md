@@ -32,4 +32,4 @@ args: [missing_permissions_section, step_token, step_dependabot, immutable_relea
 
 \$org_tip
 
-This issue will close automatically once all setup steps are verified. Repository state and configuration are continuously checked and enforced by the [`lint-repo` job]($repo_url/actions/workflows/lint.yaml).
+Repository state and configuration are continuously checked and enforced by the [`lint-repo` job]($repo_url/actions/workflows/lint.yaml).

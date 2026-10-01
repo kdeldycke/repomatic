@@ -9,7 +9,7 @@ labels: [🔗 dependencies]
 \$diff_table
 
 > [!NOTE]
-> If checks fail on this PR, the project relies on branch commits newer than the adopted release. Do not merge: bump the dependency's `.dev` version floor past them instead. The next run then retracts this swap automatically.
+> If checks fail on this PR, the project relies on branch commits newer than the adopted release. Do not merge: bump the dependency's `.dev` version floor past them instead.
 
 ## ⚙️ Configuration
 
