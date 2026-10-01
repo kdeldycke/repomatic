@@ -67,7 +67,7 @@ Attaching a custom domain has the same shape of gap, one step further along. The
 
 The project's `source` must read `null`, and must stay that way. Attaching a git repository reintroduces a second, competing publisher for the same project, one with no build configuration capable of producing a usable site. The [drift check](#the-drift-check) fails when a source block appears, which is the guard against it coming back through a well-meaning dashboard visit.
 
-Two platform limits shape the upload. Direct Upload rejects any file over 25 MiB, and `wrangler` fails the whole deploy on the first one it meets: [files over 25 MiB](#files-over-25-mib) describes how the deploy moves them to R2, or drops them. And each project keeps its `<project>.pages.dev` hostname for life; see [below](#the-pages-dev-hostname) for why that is fine.
+Two platform limits shape the upload. Direct Upload rejects any file over 25 MiB, and `wrangler` fails the whole deploy on the first one it meets: [files over 25 MiB](#files-over-25-mib) describes how the deploy moves them to R2, or drops them. And each project keeps its `<project>.pages.dev` hostname for life; see [below](#the-pages-dev-hostname).
 
 ## The token
 

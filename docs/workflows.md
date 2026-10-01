@@ -19,9 +19,6 @@ jobs:
     uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.17.0
 ```
 
-> [!IMPORTANT]
-> Leave `concurrency` out of your calling workflow: the reusable workflows [already set it](security.md#concurrency-and-cancellation).
-
 ### GitHub Actions limitations
 
 GitHub Actions has several design limitations that the workflows work around:

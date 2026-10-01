@@ -187,7 +187,7 @@ The reader's eye lands on line 7 of the Python and line 2 of the captured table 
 
 ### Emitting raw HTML from `{python:render}`
 
-`{python:render}` parses captured stdout as MyST, and MyST passes block-level raw HTML straight through to the rendered page. So a generator that produces HTML can just `print(html)` — no `{raw} html` wrap, no extra plumbing:
+`{python:render}` parses captured stdout as MyST, and MyST passes block-level raw HTML straight through to the rendered page. So a generator that produces HTML can just `print(html)` — no `{raw} html` wrap:
 
 ````markdown
 ```{python:render}

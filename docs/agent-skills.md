@@ -193,7 +193,7 @@ my-skill/
 └── assets/           templates and data files
 ```
 
-Nothing needs adding to the registry when a skill grows one: whatever sits beside `SKILL.md` is copied. Re-running `init` rewrites only what actually differs, so it stays safe to repeat.
+Whatever sits beside `SKILL.md` is copied. Re-running `init` rewrites only what actually differs.
 
 `argument-hint` is the **single** frontmatter field that goes beyond the spec's six, kept because no spec field expresses an autocomplete hint and because it degrades to a no-op wherever it is not understood. Every other Claude Code extension stays out, which is why the recommended model rides in the spec's own `compatibility` field:
 

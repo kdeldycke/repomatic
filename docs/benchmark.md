@@ -109,7 +109,7 @@ For config file sync, `copier` and `cruft` sync files only as part of a full tem
 - **Minimal supply chain surface**: [23 third-party GitHub Actions eliminated](security.md#third-party-action-minimization), [10 Python linters/formatters consolidated into ruff](security.md#ruff-consolidation), and [5 packaging tools consolidated into uv](security.md#uv-consolidation). Only 1 third-party action remains (of 8 total). Every other tool in this benchmark that uses GitHub Actions relies on third-party action ecosystems without equivalent reduction.
 - **Binary builds and supply chain attestations**: Nuitka compilation produces standalone executables for 6 platform targets (Linux/macOS/Windows, x64/ARM64) with SLSA provenance attestations and VirusTotal scanning of release artifacts. No other tool in this benchmark provides binary builds.
 - **Changelog lifecycle**: hand-curated changelogs with a freeze/unfreeze release cycle, producing human-written release notes rather than auto-generated commit logs.
-- **pyproject.toml-native configuration**: all settings live in `[tool.repomatic]` with schema-aware dataclass support, field-level documentation, and CLI flag overrides. No extra configuration files needed.
+- **pyproject.toml-native configuration**: all settings live in `[tool.repomatic]` with schema-aware dataclass support, field-level documentation, and CLI flag overrides.
 
 ## Gaps and opportunities
 

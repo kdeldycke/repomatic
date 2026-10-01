@@ -32,7 +32,7 @@ This repository has reached an equilibrium state. We are past its accumulation p
 
 Your pull-request should pass the [official Awesome List's linter](https://github.com/sindresorhus/awesome-lint).
 
-No extra work is required here as it is [already integrated by the way of GitHub actions](https://github.com/kdeldycke/awesome-template/tree/main/.github/workflows).
+It runs in the repository's [GitHub Actions workflows](https://github.com/kdeldycke/awesome-template/tree/main/.github/workflows).
 
 You can still anticipate issues by running the linter locally with:
 
@@ -114,7 +114,7 @@ If one of these rule conflict with the linter, the linter's rule should takes pr
 
   - You can skip some items from the original list and renumber it.
 
-  - You shouldn't have to re-order it though.
+  - Keep the original order of the items.
 
 - An additional link in the description is allowed. This must be limited to some rare cases. Like pointing to a bigger concept, an acronym definition, or reference material (book, biography, …).
 

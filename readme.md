@@ -42,8 +42,8 @@ repomatic does for the release process what ruff did for linting and uv did for 
 - [Immutable releases](https://repomatic.net/security#supply-chain-security) enforced via GitHub's tag protection and release locking
 - Workflow security linting with [`zizmor`](https://repomatic.net/workflows#github-workflows-lint-yaml-jobs) on every push to catch dangerous triggers and excessive permissions
 - Credential scanning with [`gitleaks`](https://repomatic.net/workflows#github-workflows-lint-yaml-jobs) to prevent secret leakage
-- Single [`pyproject.toml` configuration](https://repomatic.net/configuration): no extra dotfiles, no JSON configs, no YAML presets to maintain
-- The CLI itself [ships as standalone binaries](https://repomatic.net/install#binaries) (Linux / macOS / Windows, x86_64 / arm64): no Python environment needed to run it
+- Single [`pyproject.toml` configuration](https://repomatic.net/configuration)
+- The CLI itself [ships as standalone binaries](https://repomatic.net/install#binaries) (Linux / macOS / Windows, x86_64 / arm64)
 - [15+ code quality tools](https://repomatic.net/tool-runner) (ruff, mypy, biome, typos, mdformat, shfmt, yamllint, actionlint, lychee, oxipng, pyproject-fmt, labelmaker, gitleaks, zizmor) managed through one `repomatic run <tool>` interface with automatic installation and platform-specific binary caching
 
 ## Quick start

@@ -822,7 +822,7 @@ def sync_binaries(
     With --backfill-records, detection snapshots are first recovered from the
     VirusTotal tables that release notes carried before the history file
     existed, and merged into the records file. Release notes are immutable,
-    so the backfill converges and is safe to leave enabled.
+    so the backfill converges.
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.binaries_sync, "binaries.sync")

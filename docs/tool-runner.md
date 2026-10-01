@@ -4,7 +4,7 @@
 
 ## Why not run the tools directly?
 
-Installing a tool and running `yamllint .` yourself is fine for one tool on one machine. Once a project leans on a dozen, the same three chores repeat for each, and `repomatic run` takes care of all of them:
+Once a project leans on a dozen tools, the same three chores repeat for each, and `repomatic run` takes care of all of them:
 
 - Configuration stays in `pyproject.toml`, one reviewed file rather than a dotfile per tool. Even tools that can't read `pyproject.toml` themselves get their `[tool.X]` table translated to a temporary native config at run time, following the [precedence chain](#config-resolution) below.
 - Installation is automatic: binaries come from GitHub Releases and are checksum-verified, PyPI tools run through `uvx`, tools that import your code (mypy, Nuitka) run inside the project virtualenv, and npm tools install from the npm registry (Node.js required).
@@ -85,7 +85,7 @@ $ repomatic run ruff -- check .
 
 ### Level 2: `[tool.X]` in `pyproject.toml`
 
-If no native config file is found but your `pyproject.toml` has a `[tool.<name>]` section, repomatic uses it. For tools that read `pyproject.toml` natively (ruff, mypy, bump-my-version, etc.), this just works. For tools that don't, repomatic translates the section into the tool's native format and passes it via a temporary config file.
+If no native config file is found but your `pyproject.toml` has a `[tool.<name>]` section, repomatic uses it. Tools that read `pyproject.toml` natively (ruff, mypy, bump-my-version, etc.) read the section themselves. For tools that don't, repomatic translates the section into the tool's native format and passes it via a temporary config file.
 
 ```{note}
 When the tool's native format is also TOML (like gitleaks), the translation keeps the comments from your `[tool.X]` section and only drops the `[tool.X]` prefix. Translations to another format (YAML, JSON) carry the values only: a TOML comment has no equivalent to map onto.
