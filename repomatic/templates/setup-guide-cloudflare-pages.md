@@ -13,7 +13,13 @@ footer: 'false'
 
    Or `wrangler pages project create $repo_name --production-branch=main`, or the dashboard: **[Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages/create/pages)** → **Direct Upload**.
 
-2. Create the API token from the **[pre-filled form](https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B%22key%22%3A%22page%22%2C%22type%22%3A%22edit%22%7D%5D&name=$token_name)**: account-owned, named `$token_name`, carrying **Account → Cloudflare Pages → Edit**. The form cannot set a TTL, so add a **one-year** one by hand.
+2. Create the account-owned API token from the **[pre-filled form](https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B%22key%22%3A%22page%22%2C%22type%22%3A%22edit%22%7D%5D&name=$token_name)**, then check the values:
+
+   | Field                | Value                             |
+   | :------------------- | :-------------------------------- |
+   | **Token name**       | `$token_name`                     |
+   | **Permissions**      | Account → Cloudflare Pages → Edit |
+   | **Token expiration** | 1 year *(set by hand)*            |
 
 3. Store the token as a repository secret:
 

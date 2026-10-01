@@ -10,4 +10,7 @@ gh api repos/$repo_slug/vulnerability-alerts --method PUT
 gh api repos/$repo_slug/automated-security-fixes --method DELETE
 ```
 
-Then two things the API cannot reach. Dependabot version updates and grouped security updates have no endpoint: if either was enabled by hand, turn it off at **[Settings → Advanced Security → Dependabot]($repo_url/settings/security_analysis)**. And delete `.github/dependabot.yml` if present, since `sync-uv-lock`, `sync-tool-versions` and `sync-action-pins` cover dependency updates.
+Then two things the API cannot reach:
+
+- Dependabot version updates and grouped security updates have no endpoint. If either was enabled by hand, turn it off at **[Settings → Advanced Security → Dependabot]($repo_url/settings/security_analysis)**.
+- Delete `.github/dependabot.yml` if present: `sync-uv-lock`, `sync-tool-versions` and `sync-action-pins` cover dependency updates.
