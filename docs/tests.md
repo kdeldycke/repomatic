@@ -72,7 +72,6 @@
    tests.test_runner_catalog
    tests.test_runner_sync
    tests.test_setup_guide
-   tests.test_site_anchors
    tests.test_skills
    tests.test_sphinx_crossrefs
    tests.test_status

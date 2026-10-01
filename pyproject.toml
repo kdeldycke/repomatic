@@ -542,18 +542,15 @@ exclude = [
   # a `?to=/:account/...` URL resolves against whichever account the reader is
   # signed into, and pre-fills a token form no anonymous request can reach.
   "^https://dash\\.cloudflare\\.com/.*$",
-  # Local intra-docs heading fragments, which lychee cannot judge: it computes
-  # GitHub's slug (`cache.dir` → `cachedir`) while `docs/conf.py` pins
-  # `myst_heading_slug_func` to docutils' `make_id` (`cache.dir` → `cache-dir`),
-  # and it cannot see MyST `(target)=` anchors. So it false-positives links that
-  # resolve fine in the rendered docs. `myst_heading_anchors` does not cover the
-  # gap either: it *generates* anchors and validates nothing, so a literal
-  # `](#fragment)` is copied into the HTML unresolved and survives a green
-  # build. `lint-anchors` is what checks these, against the built page rather
-  # than a guessed slug.
+  # Local intra-docs fragments, which lychee cannot judge. It reads the Markdown
+  # source, which holds neither MyST `(target)=` labels nor the anchors that
+  # directives like `{click:config}` generate at build time. And it computes
+  # GitHub's slug (`cachedir` for `cache.dir`), where `docs/conf.py` pins
+  # docutils' `make_id` (`cache-dir`). The Sphinx build checks these links
+  # instead: `docs/conf.py` fails it on a `myst.xref_missing` warning.
   # Anchored to `file://` so external `.../docs/*.md#` URLs stay checked.
   # XXX: re-test once `lychee` ships lycheeverse/lychee#2250. See the `{todo}`
-  # in `repomatic/site_anchors.py`.
+  # in `repomatic/tooling/tool_registry.py`.
   "^file://.*/docs/[\\w.-]+\\.md#",
 ]
 exclude_path = [

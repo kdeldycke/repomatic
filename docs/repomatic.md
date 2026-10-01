@@ -63,7 +63,6 @@
    repomatic.runner_catalog
    repomatic.runner_images
    repomatic.setup_guide
-   repomatic.site_anchors
    repomatic.sync_ops
    repomatic.tabular
    repomatic.versions

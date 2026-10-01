@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -89,17 +90,15 @@ myst_enable_extensions = [
 # See: https://github.com/mgaitan/sphinxcontrib-mermaid/issues/99#issuecomment-2339587001
 myst_fence_as_directive = ["mermaid"]
 
-# Register every heading as a resolvable cross-reference target so in-page
-# `[text](#anchor)` links resolve (and broken ones warn) at build time, making
-# Sphinx the authority for internal anchors. The slug function is pinned to
-# docutils' `make_id` so MyST anchors match the section IDs docutils already
-# emits (`cache.dir` → `cache-dir`), keeping existing anchor URLs stable. The
-# override is what puts this build at odds with `lychee`, which computes
-# GitHub's slug (`cache.dir` → `cachedir`), as does myst-parser's own default
-# slug function. That is why the `[tool.lychee]` config skips intra-`docs/`
-# fragment links: it would false-positive every dotted heading, and it cannot
-# see MyST `(target)=` anchors at all, so it reports links that resolve fine
-# here as broken.
+# Register every heading as a resolvable cross-reference target, so the build
+# resolves each authored `[text](#anchor)` and `[text](page.md#anchor)` link,
+# and fails on one that lands nowhere: see `UnresolvedAnchors` below. The slug
+# function is pinned to docutils' `make_id`, so an authored anchor is the same
+# string as the section ID the page publishes (`cache-dir` for `cache.dir`).
+# Its cost: a heading that starts with a digit gets an empty slug, so no anchor
+# reaches a changelog version. GitHub, `lychee` and myst-parser's own default
+# slug function write `cachedir` instead: `[tool.lychee]` says why it skips
+# these links.
 myst_heading_anchors = 6
 myst_heading_slug_func = "docutils.nodes.make_id"
 
@@ -444,12 +443,53 @@ def prune_build_artifacts(app, exception):
         sources.rmdir()
 
 
+class UnresolvedAnchors(logging.Handler):
+    """Record whether myst-parser left a fragment link unresolved.
+
+    myst-parser resolves every `[text](#anchor)` and `[text](page.md#anchor)`
+    link against what the build produced: heading slugs, `(target)=` labels,
+    and the sections directives like `{click:config}` generate. It logs a
+    `myst.xref_missing` warning for a link it cannot place, and ships the link
+    as written anyway. Sphinx exits 0 on warnings, and this build carries too
+    many unrelated ones for `--fail-on-warning`, so this handler picks out
+    that one type and `setup` fails the build on it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.WARNING)
+        self.seen = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if (getattr(record, "type", ""), getattr(record, "subtype", "")) == (
+            "myst",
+            "xref_missing",
+        ):
+            self.seen = True
+
+
 def setup(app):
     """Sphinx extension entry point.
 
     Swaps sphinxcontrib-mermaid's ``autoclasstree`` directive for
     :class:`NoZoomClassDiagram`: conf.py is loaded as the last extension,
-    so this registration wins.
+    so this registration wins. Also fails the build on an unresolved fragment
+    link, as recorded by :class:`UnresolvedAnchors`.
     """
     app.add_directive("autoclasstree", NoZoomClassDiagram, override=True)
     app.connect("build-finished", prune_build_artifacts)
+
+    unresolved = UnresolvedAnchors()
+    logging.getLogger("sphinx").addHandler(unresolved)
+
+    def fail_on_unresolved_anchors(app, exception):
+        """Turn a recorded `myst.xref_missing` warning into a failed build."""
+        if exception is None and unresolved.seen:
+            # A stdlib logger under Sphinx's namespace, not `sphinx.util.logging`:
+            # importing `sphinx` makes mypy, run at Python 3.10, parse Sphinx's
+            # 3.12-only syntax.
+            logging.getLogger("sphinx.conf").error(
+                "Unresolved fragment links: see the myst.xref_missing warnings."
+            )
+            app.statuscode = 1
+
+    app.connect("build-finished", fail_on_unresolved_anchors)

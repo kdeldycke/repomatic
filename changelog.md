@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** Remove the `lint-anchors` command and the Docs workflow step running it. A Sphinx build reports the same broken fragment links as `myst.xref_missing` warnings.
 - Fix `lint-repo` reporting every bundled key missing from a `[tool.pytest]` section kept under `ini_options`, and asking for native keys pytest refuses beside that table.
 - Fix `repomatic init` dropping the comments beside a local key it keeps when re-syncing a tool config.
 - Fix `repomatic init` re-syncing a multi-line tool config array at a four-space indent, which `format-pyproject` then rewrote to two in its own pull request.
@@ -1352,7 +1353,7 @@
 ## [`6.0.1` (2026-02-24)](https://github.com/kdeldycke/repomatic/compare/v6.0.0...v6.0.1)
 
 > [!NOTE]
-> First release under the [`repomatic`](https://pypi.org/project/repomatic/) name on PyPI, after `repokit` was rejected for typo-squatting ([see `6.0.0` below](#600-2026-02-24)). The GitHub repository is [`kdeldycke/repomatic`](https://github.com/kdeldycke/repomatic).
+> First release under the [`repomatic`](https://pypi.org/project/repomatic/) name on PyPI, after `repokit` was rejected for typo-squatting ([see `6.0.0`](https://github.com/kdeldycke/repomatic/releases/tag/v6.0.0)). The GitHub repository is [`kdeldycke/repomatic`](https://github.com/kdeldycke/repomatic).
 
 > [!NOTE]
 > `6.0.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/6.0.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v6.0.1).

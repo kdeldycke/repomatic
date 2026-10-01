@@ -46,6 +46,17 @@ or
 [executablebooks/mdformat-myst#48](https://github.com/executablebooks/mdformat-myst/pull/48).
 See `_ESCAPED_COLON_FENCE_RE` for the shape it repairs.
 ```
+
+```{todo}
+Once `lychee` ships `0.25.0`, the release expected to carry
+[lycheeverse/lychee#2250](https://github.com/lycheeverse/lychee/pull/2250),
+run the ``{#id}`` reproduction from
+[lycheeverse/lychee#2249](https://github.com/lycheeverse/lychee/issues/2249#issuecomment-5760051417)
+through `repomatic run lychee`, and report the result there, as that comment
+commits to. The `file://` docs-fragment entry in `[tool.lychee]` stays either
+way: `lychee` reads the Markdown source, which holds neither MyST `(target)=`
+labels nor the anchors directives generate at build time.
+```
 """
 
 from __future__ import annotations

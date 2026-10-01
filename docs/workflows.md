@@ -390,7 +390,6 @@ docs = [
 - Builds Sphinx-based documentation and publishes it to GitHub Pages using [`sphinx`](https://github.com/sphinx-doc/sphinx), [`upload-pages-artifact`](https://github.com/actions/upload-pages-artifact) and [`deploy-pages`](https://github.com/actions/deploy-pages)
 - Builder is `sphinx.builder` in `[tool.repomatic]`, defaulting to `html`; set it to `dirhtml` to publish extension-less URLs (`/page/` instead of `/page.html`)
 - Runs only when `site.deploy` is `github-pages`, its default. The other target has its own job below, and exactly one of the two ever runs
-- Before publishing, [`repomatic lint-anchors`](#same-page-links-are-checked-against-the-built-site) resolves every same-page `](#fragment)` link written in the Markdown sources against the anchors the build actually produced, and fails the job when one lands nowhere
 - **Requires**:
   - Python package with a `pyproject.toml` file
   - `docs` dependency group
@@ -401,7 +400,6 @@ docs = [
 
 - Same build as the job above, uploaded to a [Cloudflare Pages](https://developers.cloudflare.com/pages/) project with `wrangler pages deploy` instead of the Pages artifact pair. Cloudflare never builds anything and needs no access to the repository; see the [Cloudflare Pages guide](cloudflare.md) for how this hosting model works
 - Runs only when `site.deploy` is `cloudflare-pages`. The job holds no `id-token`, no `pages` scope and no environment, since it authenticates against Cloudflare rather than the repository's own deployment surface
-- Runs the same [`lint-anchors`](#same-page-links-are-checked-against-the-built-site) check as the job above, ahead of the offload below so it reads the tree as Sphinx wrote it
 - Files over Direct Upload's 25 MiB per-file limit leave the tree before the upload, through [`repomatic cloudflare-r2 --offload`](cloudflare.md#files-over-25-mib): `wrangler` would otherwise fail the whole deploy on the first one it meets. With `site.cloudflare-r2-bucket` declared, each moves to that R2 bucket and its old path redirects there. A file that cannot move, or any file without a bucket, is dropped with an error annotation, and the job fails once everything else is published
 - Choose it for what the edge can do rather than for speed: a Cloudflare Pages custom domain carries its own certificate, so a zone's apex can be proxied, which is what a `_redirects` file, a real `404.html` and any apex edge rule all depend on
 - **Requires**:
@@ -433,14 +431,6 @@ docs = [
   - All PRs (only runs on push to main)
   - `prepare-release` branch
   - Post-release bump commits
-
-#### Same-page links are checked against the built site
-
-Both deploy jobs run `repomatic lint-anchors` between the Sphinx build and the upload. It reads every `](#fragment)` written in the Markdown sources and resolves it against the `id` and `name` anchors of the page that source was rendered into, failing the job with the file, the fragment and the page it looked in.
-
-This is the one cross-reference nothing else covers. A `{ref}` or `{doc}` role goes through Sphinx, which reports a missing target under `nitpicky`; a literal fragment is copied into the HTML untouched, so the build has nothing to resolve and stays green. `check-broken-links` above does not close the gap either, because a Markdown checker has to *compute* the slug rather than read it, and the two answers differ: on the heading `## The pages.dev hostname`, this build emits `the-pages-dev-hostname`, because `docs/conf.py` pins `myst_heading_slug_func` to docutils' `make_id`, while `lychee` computes GitHub's `the-pagesdev-hostname`, each reporting the other as broken. `lychee` is not the outlier: myst-parser's own default slug function implements the same GitHub algorithm. That disagreement is why intra-docs fragments are excluded from `lychee` in `[tool.lychee]`, and reading the built page is what fills the hole the exclusion leaves.
-
-Only authored fragments are checked, so a theme's own footnote backrefs and header permalinks never enter, and both Sphinx HTML builders are handled by probing `{name}.html` then `{name}/index.html`. A source that produced no page (one left out of every toctree, or a fragment meant only to be included elsewhere) is reported and skipped rather than failed: which sources become pages is the build's call.
 
 (github-workflows-labels-yaml-jobs)=
 
