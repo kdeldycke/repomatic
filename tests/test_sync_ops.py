@@ -1030,9 +1030,30 @@ def test_uv_gate_reads_the_action_pin_out_of_the_scanned_files():
     verified.assert_called_once_with({"a" * 40})
 
 
-def test_uv_gate_passes_everything_through_when_the_table_is_unknown():
-    """An unreadable table degrades to the ungated behaviour, never to a block."""
-    assert _gate(None) == (UV_CANDIDATES, False)
+def test_uv_gate_holds_the_pin_when_the_table_is_unknown(caplog):
+    """An unreadable table keeps out every release newer than the pin.
+
+    A blind bump can overshoot the table, and the next run that reads it steps
+    the pin back again.
+    """
+    with caplog.at_level(logging.WARNING):
+        gated, unverified = _gate(None, pinned="0.12.3")
+    assert [candidate.version for candidate in gated] == ["0.12.2", "0.12.3"]
+    assert unverified is False
+    assert "Holding the uv pin at 0.12.3" in caplog.text
+
+
+def test_uv_gate_passes_everything_through_without_a_setup_uv_pin():
+    """With no action pinned there is no table to wait for, so nothing holds."""
+    no_action = {
+        Path("lint.yaml"): "jobs:\n  lint:\n    steps:\n      - run: uv sync\n"
+    }
+    with patch("repomatic.sync_ops.setup_uv_verified_versions") as verified:
+        gated = _gate_uv_on_checksums(
+            list(UV_CANDIDATES), "0.12.3", no_action, MIN_AGE, GATE_TODAY
+        )
+    assert gated == (UV_CANDIDATES, False)
+    verified.assert_not_called()
 
 
 def test_uv_gate_reports_a_pin_above_the_table():
@@ -1075,10 +1096,13 @@ def test_uv_gate_reports_a_release_it_withheld(caplog):
     assert "holding the pin" in caplog.text
 
 
-def _resolve_uv_pin(pinned: str) -> SyncPlan:
+def _resolve_uv_pin(
+    pinned: str, verified: frozenset[str] | None = frozenset({"0.12.3", "0.12.4"})
+) -> SyncPlan:
     """Resolve the workflow pins of a job installing uv *pinned* via `setup-uv`.
 
-    The pinned action's checksum table covers `0.12.3` and `0.12.4`.
+    The pinned action's checksum table covers `0.12.3` and `0.12.4`, unless
+    *verified* stands in for another table, or for an unreadable one (`None`).
     """
     workflow = {
         Path("tests.yaml"): (
@@ -1091,10 +1115,7 @@ def _resolve_uv_pin(pinned: str) -> SyncPlan:
     with (
         patch("repomatic.sync_ops._pinnable_files", return_value=workflow),
         patch("repomatic.sync_ops.pypi_candidates", return_value=list(UV_CANDIDATES)),
-        patch(
-            "repomatic.sync_ops.setup_uv_verified_versions",
-            return_value=frozenset({"0.12.3", "0.12.4"}),
-        ),
+        patch("repomatic.sync_ops.setup_uv_verified_versions", return_value=verified),
     ):
         return _resolve_workflow_pins(rc)
 
@@ -1132,6 +1153,16 @@ def test_workflow_pins_label_nothing_on_a_forward_uv_bump():
     plan = _resolve_uv_pin("0.12.3")
     assert ("uv", "0.12.3", "0.12.4") in plan.changes
     assert not plan.change_labels
+
+
+def test_workflow_pins_hold_the_uv_pin_on_an_unreadable_table():
+    """An unreadable table moves the uv pin neither forward nor back.
+
+    `0.12.4` cleared the cooldown, so only the hold keeps it out.
+    """
+    plan = _resolve_uv_pin("0.12.3", verified=None)
+    assert not plan.changes
+    assert not plan.file_writes
 
 
 def _lockstep_workflow(inline_pin: str) -> dict[Path, str]:

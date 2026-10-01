@@ -1113,7 +1113,7 @@ def test_checksum_table_falls_back_to_the_typescript_layout(uncached_table):
 
 
 def test_checksum_table_unreadable_is_unknown(uncached_table):
-    """A failed fetch leaves the gate open rather than blocking every bump."""
+    """A failed fetch is unknown, never a table that verifies nothing."""
     with patch(
         "repomatic.release.version_sync.get_text", side_effect=vs.FetchError("boom")
     ) as fetch:
@@ -1150,6 +1150,20 @@ def test_setup_uv_verified_versions_intersects_every_pin(uncached_table):
     with patch("repomatic.release.version_sync.get_text", side_effect=fake_get_text):
         verified = vs.setup_uv_verified_versions(["newsha", "oldsha"])
     assert verified == frozenset({"0.11.30"})
+
+
+def test_setup_uv_verified_versions_with_one_unreadable_pin_is_unknown(
+    uncached_table,
+):
+    """One unreadable table voids the intersection: it may be the narrowest."""
+
+    def fake_get_text(url, **kwargs):
+        if "oldsha" in url:
+            raise vs.FetchError("boom")
+        return CHECKSUM_TABLE
+
+    with patch("repomatic.release.version_sync.get_text", side_effect=fake_get_text):
+        assert vs.setup_uv_verified_versions(["newsha", "oldsha"]) is None
 
 
 def test_setup_uv_verified_versions_without_pins_is_unknown(uncached_table):

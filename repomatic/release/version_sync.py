@@ -559,7 +559,7 @@ def _checksum_table(sha: str) -> frozenset[str] | None:
         failures.append(f"{path}: no checksum key parsed")
     logging.warning(
         f"Could not read the {SETUP_UV_SLUG} checksum table at {sha}"
-        f" ({'; '.join(failures)}), so the uv pin is not gated."
+        f" ({'; '.join(failures)})."
     )
     return None
 
@@ -581,15 +581,21 @@ def setup_uv_verified_versions(shas: Iterable[str]) -> frozenset[str] | None:
 
     Intersecting rather than picking one table keeps a repository mid-bump
     honest: while `sync-action-pins` has landed on some files and not others,
-    the only uv a *whole* fleet can verify is one both tables carry.
+    the only uv a *whole* fleet can verify is one both tables carry. By the same
+    rule, one unreadable table leaves the whole answer unknown: it may be the
+    narrowest.
 
     :param shas: Every distinct {data}`SETUP_UV_SLUG` commit pinned in the
         repository.
-    :return: The uv versions verifiable by all of them, or `None` when no
-        table could be read (no pin found, or every fetch failed), which leaves
-        the caller ungated rather than blocked.
+    :return: The uv versions verifiable by all of them, or `None` when no pin
+        was found or any pinned table could not be read.
     """
-    tables = [table for sha in sorted(set(shas)) if (table := _checksum_table(sha))]
+    tables = []
+    for sha in sorted(set(shas)):
+        table = _checksum_table(sha)
+        if table is None:
+            return None
+        tables.append(table)
     if not tables:
         return None
     return frozenset.intersection(*tables)

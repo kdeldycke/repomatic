@@ -1020,14 +1020,19 @@ def _gate_uv_on_checksums(
     `setup-uv` is the one already pinned, and every job keeps installing uv
     without a pinned hash for as long as that holds.
 
+    An unreadable table holds the pin where it is. A bump past a table nobody
+    could read can overshoot it, and the first run that reads it again steps
+    the pin back: two pull requests that cancel out.
+
     :param candidates: Every uv release, as offered by PyPI.
     :param pinned: The uv version currently written in the workflows.
     :param file_data: The scanned files, read for their `setup-uv` pins.
     :param min_age: The stabilization window, to name what the gate withheld.
     :param today: Reference date for the cooldown computation.
-    :return: The candidates carrying a checksum, or all of them when no table
-        could be read, paired with whether the pin on disk is itself
-        unverified.
+    :return: The candidates carrying a checksum, paired with whether the pin on
+        disk is itself unverified. All of them pass when no `setup-uv` commit is
+        pinned, and only those no newer than *pinned* when a pinned table is
+        unreadable.
     """
     shas = {
         pin.sha
@@ -1035,9 +1040,20 @@ def _gate_uv_on_checksums(
         for pin in find_action_pins(text)
         if pin.slug == SETUP_UV_SLUG
     }
+    if not shas:
+        return candidates, False
     verified = setup_uv_verified_versions(shas)
     if verified is None:
-        return candidates, False
+        logging.warning(
+            f"Holding the uv pin at {pinned} until the checksum table of the"
+            f" pinned {SETUP_UV_SLUG} can be read."
+        )
+        held = [
+            candidate
+            for candidate in candidates
+            if not is_newer(candidate.version, pinned)
+        ]
+        return held, False
 
     # Audit the pin already on disk, not just the one about to replace it: the
     # same reason pin_inside_cooldown exists, for a condition that likewise
