@@ -102,7 +102,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    It reads every workflow a push can start (derived from `.github/workflows/`, so its list is wider than the five above), reports each one's latest run, and names the failing jobs that actually gate a merge. Three traps it settles, so no hand-rolled `jq` has to: a run's own `status` lags its jobs (every monitored workflow can read `queued` while a dozen jobs have already finished, which is indistinguishable from the runner-cap saturation a busy account genuinely hits); a `continue-on-error` probe that crashed hides inside a `success` run conclusion; and a run whose `conclusion` is `failure` with *no* failed job is a workflow-level error (an invalid `strategy.matrix` expression, malformed YAML, a missing secret) with no job log to read, which the command flags rather than letting you write off a persistently-red workflow as a known artifact.
 
-   `ci-status` reads runs through the same `head_sha` endpoint, commit by commit back from the branch tip, and says when the tip has no run yet. A workflow with no run on the newest commits falls back to `gh run list`, so its row can be stale. Re-read a surprising red or green once before acting on it.
+   `ci-status` reads runs through the same `head_sha` endpoint, commit by commit back from the branch tip, and says when the tip has no run yet. A workflow with no run on the newest commits falls back to its own run listing, filtered by creation date. Re-read a surprising red or green once before acting on it.
 
    Run state *does* gate the run-scoped log read (step 4): `gh run view --log-failed` refuses to answer until the parent run reaches a terminal state. A completed job's own log is readable at once.
 

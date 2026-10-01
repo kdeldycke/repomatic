@@ -54,17 +54,19 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from random import randint
 from tempfile import mkstemp
+from urllib.parse import quote, urlencode
 
 from click_extra import echo, prep_path
 
 from ..compat import StrEnum
 from ..git_ops import RELEASE_COMMIT_PREFIX
-from .gh import run_gh_command
+from .gh import gh_api_json, run_gh_command
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -109,6 +111,22 @@ limit counted in UTF-16 code units. A value can clear this one and still be
 trimmed later by {func}`repomatic.github.pr_body.build_pr_body`, which is the
 layer that leaves the reader a truncation notice.
 ```
+"""
+
+
+RUN_LISTING_WINDOW = timedelta(days=90)
+"""How far back every runs listing here reaches, through its `created` filter.
+
+```{warning}
+GitHub's runs listings can answer with a stale snapshot: a page weeks or
+months old, presented as the newest runs, on a branch that ran every hour.
+`gh run list` reads the same endpoints and carries the same risk. A listing
+that sends a `created` filter has not been seen to do it, so every listing
+here sends one.
+```
+
+Ninety days holds the few runs any caller needs on an active branch. A
+workflow idle for longer reads as having no run.
 """
 
 
@@ -487,6 +505,63 @@ def is_pull_request() -> bool:
     return bool(get_event_pull_request())
 
 
+def runs_created_since() -> str:
+    """The `created` filter a runs listing sends: runs from the last window.
+
+    See {data}`RUN_LISTING_WINDOW` for why every listing carries one.
+    """
+    start = datetime.now(timezone.utc) - RUN_LISTING_WINDOW
+    return f">={start:%Y-%m-%d}"
+
+
+def workflow_runs(
+    workflow: str,
+    branch: str,
+    *,
+    status: str = "",
+    limit: int = 1,
+    strict: bool = False,
+) -> list[dict[str, Any]]:
+    """The newest runs of *workflow* on *branch*, newest first.
+
+    Reads the workflow's runs endpoint with a {func}`runs_created_since`
+    filter, never `gh run list`: see {data}`RUN_LISTING_WINDOW`.
+
+    :param workflow: Workflow filename, like `tests.yaml`.
+    :param branch: Branch whose runs to list.
+    :param status: A run status or conclusion to keep, like `success`. Empty
+        keeps every run.
+    :param limit: How many runs to return at most.
+    :param strict: Raise the `RuntimeError` of a `gh` call that could not run,
+        instead of returning the runs read so far.
+    :return: Run payloads as the REST API returns them.
+    """
+    per_page = min(limit, 100)
+    params = {
+        "branch": branch,
+        "created": runs_created_since(),
+        "per_page": per_page,
+    }
+    if status:
+        params["status"] = status
+    endpoint = f"repos/{{owner}}/{{repo}}/actions/workflows/{quote(workflow)}/runs"
+    runs: list[dict[str, Any]] = []
+    page = 1
+    while len(runs) < limit:
+        payload = gh_api_json(
+            ["api", f"{endpoint}?{urlencode({**params, 'page': page})}"],
+            strict=strict,
+        )
+        batch = payload.get("workflow_runs") if isinstance(payload, dict) else None
+        if not batch:
+            break
+        runs.extend(batch)
+        if len(batch) < per_page:
+            break
+        page += 1
+    return runs[:limit]
+
+
 def cancel_superseded_runs(branch: str, current_run_id: str) -> int:
     """Cancel the in-progress and queued workflow runs of *branch*.
 
@@ -518,11 +593,14 @@ def cancel_superseded_runs(branch: str, current_run_id: str) -> int:
     :return: Number of runs cancelled.
     """
     cancelled = 0
+    # A live run is recent by definition, so the window drops none of them.
+    created = quote(runs_created_since())
     for status in ("in_progress", "queued"):
+        query = f"branch={branch}&status={status}&created={created}"
         listing = run_gh_command([
             "api",
             "--paginate",
-            f"repos/{{owner}}/{{repo}}/actions/runs?branch={branch}&status={status}",
+            f"repos/{{owner}}/{{repo}}/actions/runs?{query}",
             "--jq",
             # Tab-separated so a display title carrying spaces stays one field.
             '.workflow_runs[] | "\\(.id)\\t\\(.display_title)"',

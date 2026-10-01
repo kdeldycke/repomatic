@@ -18,12 +18,16 @@
 
 from __future__ import annotations
 
+import json
+from unittest.mock import patch
+
 import pytest
 
 from repomatic.github.job_timings import (
     UNATTRIBUTED,
     JobTiming,
     _duration,
+    fetch_job_timings,
     format_duration,
     match_runner,
     render_markdown,
@@ -86,6 +90,46 @@ def test_duration_skips_what_it_cannot_measure(job: dict, expected: float) -> No
     instead of its speed, which is the opposite of what this measures.
     """
     assert _duration(job) == expected
+
+
+def test_fetch_job_timings_samples_dated_successful_runs() -> None:
+    """Runs come from the dated listing of successful runs, never `gh run list`.
+
+    That listing command has served runs weeks old as the newest ones, which
+    would time an image on builds nobody runs any more.
+    """
+    jobs = {
+        "jobs": [
+            {
+                "name": "✅ ubuntu-26.04 / py3.10",
+                "startedAt": "2026-08-15T10:00:00Z",
+                "completedAt": "2026-08-15T10:02:30Z",
+            },
+            # Cancelled in the queue: skipped rather than counted as zero.
+            {"name": "✅ macos-26 / py3.10", "startedAt": "", "completedAt": ""},
+        ]
+    }
+
+    def gh(args):
+        if args[0] == "api":
+            return json.dumps({"workflow_runs": [{"id": 8}, {"id": 9}]})
+        return json.dumps(jobs)
+
+    with patch("repomatic.github.gh.run_gh_command", side_effect=gh) as mock_gh:
+        timings = fetch_job_timings("tests.yaml", "main", limit=2)
+
+    assert (
+        timings
+        == [
+            JobTiming("✅ ubuntu-26.04 / py3.10", "ubuntu-26.04", 150.0),
+        ]
+        * 2
+    )
+    commands = [" ".join(call.args[0]) for call in mock_gh.call_args_list]
+    assert "actions/workflows/tests.yaml/runs?" in commands[0]
+    assert "status=success" in commands[0]
+    assert "created=%3E%3D" in commands[0]
+    assert commands[1:] == ["run view 8 --json jobs", "run view 9 --json jobs"]
 
 
 def test_format_duration_sorts_chronologically() -> None:

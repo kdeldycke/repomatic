@@ -54,6 +54,7 @@ from urllib.parse import quote
 import yaml
 from click_extra import ColumnSpec
 
+from .actions import workflow_runs
 from .gh import gh_api_json
 from .workflow_sync import workflow_triggers
 
@@ -340,33 +341,23 @@ def _run_status(run_id: int, workflow: str) -> RunStatus:
 def latest_run(workflow: str, branch: str) -> RunStatus | None:
     """Read a workflow's most recent run on *branch*, jobs included.
 
-    Reads the branch-wide run listing, which can serve a stale snapshot, so
+    Lists the workflow's runs through {func}`~repomatic.github.actions.workflow_runs`,
+    which sends a `created` filter to keep a stale snapshot out.
     {func}`read_ci_status` asks it only about a workflow with no run on the
     newest commits.
 
     :param workflow: Workflow filename, like `tests.yaml`.
     :param branch: Branch to read runs from.
-    :return: The run, or `None` when the workflow has none. An empty listing
-        is not proof the workflow was filtered out: GitHub can sit on a push
-        event for hours before materializing a run.
+    :return: The run, or `None` when the workflow has none in the listing
+        window. An empty listing is not proof the workflow was filtered out:
+        GitHub can sit on a push event for hours before materializing a run.
     """
     # `strict`: an unreachable `gh` must fail the read rather than report the
     # workflow as run-less, which `/babysit-ci` would read as a green hole.
-    listing = gh_api_json(
-        [
-            "run",
-            "list",
-            f"--workflow={workflow}",
-            f"--branch={branch}",
-            "--limit=1",
-            "--json",
-            "databaseId",
-        ],
-        strict=True,
-    )
-    if not isinstance(listing, list) or not listing:
+    runs = workflow_runs(workflow, branch, strict=True)
+    if not runs:
         return None
-    return _run_status(int(listing[0]["databaseId"]), workflow)
+    return _run_status(int(runs[0]["id"]), workflow)
 
 
 def _branch_history(branch: str) -> list[str]:
@@ -422,10 +413,11 @@ def read_ci_status(workflows: Iterable[str], branch: str) -> CIStatus:
     {func}`latest_run`.
 
     ```{warning}
-    The branch-wide run listing (`gh run list --branch`) can answer with a
-    stale snapshot: runs from commits months old, presented as the latest
-    ones. Reading runs commit by commit, from a commit list that comes from
-    git data rather than from the run index, keeps that snapshot out.
+    The branch-wide run listing can answer with a stale snapshot: runs from
+    commits months old, presented as the latest ones. Reading runs commit by
+    commit, from a commit list that comes from git data rather than from the
+    run index, keeps that snapshot out. The fallback listing sends a `created`
+    filter for the same reason.
     ```
 
     :param workflows: Workflow filenames to read.

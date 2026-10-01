@@ -57,6 +57,7 @@ from click_extra import ColumnSpec
 from ..humanize import parse_iso_datetime
 from ..lint_repo import KNOWN_RUNNERS
 from ..tabular import render_markdown_table
+from .actions import workflow_runs
 from .gh import gh_api_json
 
 TYPE_CHECKING = False
@@ -151,7 +152,9 @@ def fetch_job_timings(
     Only successful runs are sampled. A failed run's jobs stop early, so their
     durations measure where the failure landed rather than what the image
     costs, and a cancelled matrix reports whatever fraction ran before the
-    cancellation swept it.
+    cancellation swept it. The runs come from
+    {func}`~repomatic.github.actions.workflow_runs`, whose `created` filter keeps
+    a stale snapshot of old runs out of the sample.
 
     :param workflow: Workflow filename, like `tests.yaml`.
     :param branch: Branch whose runs to sample.
@@ -159,28 +162,9 @@ def fetch_job_timings(
         what smooths a queue stall into noise.
     :return: One {class}`JobTiming` per finished job across the sampled runs.
     """
-    listing = gh_api_json([
-        "run",
-        "list",
-        f"--workflow={workflow}",
-        f"--branch={branch}",
-        "--status=success",
-        f"--limit={limit}",
-        "--json",
-        "databaseId",
-    ])
-    if not isinstance(listing, list) or not listing:
-        return []
-
     timings: list[JobTiming] = []
-    for entry in listing:
-        detail = gh_api_json([
-            "run",
-            "view",
-            str(entry["databaseId"]),
-            "--json",
-            "jobs",
-        ])
+    for run in workflow_runs(workflow, branch, status="success", limit=limit):
+        detail = gh_api_json(["run", "view", str(run["id"]), "--json", "jobs"])
         if not isinstance(detail, dict):
             continue
         for job in detail.get("jobs") or []:

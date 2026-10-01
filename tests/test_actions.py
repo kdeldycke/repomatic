@@ -18,13 +18,17 @@
 
 from __future__ import annotations
 
+import json
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs
 
 import pytest
 
 from repomatic.github.actions import (
     MAX_STEP_OUTPUT_BYTES,
+    RUN_LISTING_WINDOW,
     ReportAction,
     cancel_superseded_runs,
     emit_report,
@@ -35,6 +39,7 @@ from repomatic.github.actions import (
     is_pull_request,
     read_file_output,
     trim_to_byte_budget,
+    workflow_runs,
     write_output_file,
 )
 
@@ -151,6 +156,7 @@ def test_cancel_superseded_runs_queries_both_statuses():
     for args, status in zip(listing_calls, ("in_progress", "queued")):
         assert args[1] == "--paginate"
         assert f"branch=melon-branch&status={status}" in args[2]
+        assert "&created=%3E%3D" in args[2]
 
 
 def test_cancel_superseded_runs_tolerates_cancel_failure():
@@ -202,6 +208,70 @@ def test_cancel_superseded_runs_reads_titles_from_the_listing():
         args = call.args[0]
         assert args[3] == "--jq"
         assert args[4] == '.workflow_runs[] | "\\(.id)\\t\\(.display_title)"'
+
+
+# -- workflow_runs --------------------------------------------------------------
+
+
+def _runs_page(*run_ids):
+    """One page of a workflow's run listing, as the REST API returns it."""
+    return json.dumps({"workflow_runs": [{"id": run_id} for run_id in run_ids]})
+
+
+def _query(call):
+    """The decoded query parameters of one `gh api` call."""
+    return parse_qs(call.args[0][1].partition("?")[2])
+
+
+def test_workflow_runs_sends_a_created_filter():
+    """The listing names the workflow, the branch, the status and the window."""
+    with patch(
+        "repomatic.github.gh.run_gh_command", return_value=_runs_page(3, 2)
+    ) as mock_gh:
+        runs = workflow_runs("tests.yaml", "melon-branch", status="success", limit=2)
+    assert [run["id"] for run in runs] == [3, 2]
+    endpoint = mock_gh.call_args.args[0][1]
+    assert endpoint.startswith(
+        "repos/{owner}/{repo}/actions/workflows/tests.yaml/runs?"
+    )
+    query = _query(mock_gh.call_args)
+    assert query["branch"] == ["melon-branch"]
+    assert query["status"] == ["success"]
+    assert query["per_page"] == ["2"]
+    created = query["created"][0]
+    assert created.startswith(">=")
+    since = date.fromisoformat(created.removeprefix(">="))
+    # Computed in UTC, compared against the local date: a day of slack.
+    assert abs(date.today() - RUN_LISTING_WINDOW - since) <= timedelta(days=1)
+
+
+def test_workflow_runs_pages_up_to_the_limit():
+    """A limit past one page reads the next page, then stops at the limit."""
+    pages = [_runs_page(*range(100)), _runs_page(*range(100, 200))]
+    with patch("repomatic.github.gh.run_gh_command", side_effect=pages) as mock_gh:
+        runs = workflow_runs("tests.yaml", "main", limit=150)
+    assert [run["id"] for run in runs] == list(range(150))
+    assert [_query(call)["page"] for call in mock_gh.call_args_list] == [["1"], ["2"]]
+
+
+def test_workflow_runs_stops_on_a_short_page():
+    """A page shorter than asked is the last one: no further call is made."""
+    with patch(
+        "repomatic.github.gh.run_gh_command", return_value=_runs_page(5)
+    ) as mock_gh:
+        runs = workflow_runs("tests.yaml", "main", limit=3)
+    assert [run["id"] for run in runs] == [5]
+    assert mock_gh.call_count == 1
+
+
+def test_workflow_runs_raises_only_when_strict():
+    """A `gh` that cannot run fails a strict read and empties a lenient one."""
+    with patch(
+        "repomatic.github.gh.run_gh_command", side_effect=RuntimeError("offline")
+    ):
+        with pytest.raises(RuntimeError, match="offline"):
+            workflow_runs("tests.yaml", "main", strict=True)
+        assert workflow_runs("tests.yaml", "main") == []
 
 
 # -- Step output size guard ---------------------------------------------------

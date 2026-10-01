@@ -220,8 +220,9 @@ def _gh(history=(), runs_by_sha=None, listing=(), details=None, catalog=()):
     """A `run_gh_command` double serving every read shape.
 
     The commit list answers from *history*, a per-commit run listing from
-    *runs_by_sha*, a branch run listing from *listing*, a `run view` from
-    *details* by run ID, and a workflow list from *catalog*.
+    *runs_by_sha*, a workflow's run listing (the endpoint and `gh run list`
+    alike) from *listing*, a `run view` from *details* by run ID, and a
+    workflow list from *catalog*.
     """
     runs_by_sha = runs_by_sha or {}
     details = details or {}
@@ -230,6 +231,8 @@ def _gh(history=(), runs_by_sha=None, listing=(), details=None, catalog=()):
         if args[0] == "api":
             if "/commits?" in args[1]:
                 return json.dumps([{"sha": sha} for sha in history])
+            if "/actions/workflows/" in args[1]:
+                return json.dumps({"workflow_runs": list(listing)})
             sha = args[1].partition("head_sha=")[2].partition("&")[0]
             return json.dumps({"workflow_runs": runs_by_sha.get(sha, [])})
         if args[0] == "workflow":
@@ -262,7 +265,7 @@ def test_latest_run_reads_jobs():
     }
     with patch(
         "repomatic.github.gh.run_gh_command",
-        side_effect=_gh(listing=[{"databaseId": 42}], details=details),
+        side_effect=_gh(listing=[{"id": 42}], details=details),
     ):
         status = latest_run("tests.yaml", "main")
     assert status is not None
@@ -283,7 +286,7 @@ def test_an_unreadable_run_fails_rather_than_reading_green():
     with (
         patch(
             "repomatic.github.gh.run_gh_command",
-            side_effect=_gh(listing=[{"databaseId": 42}], details={42: None}),
+            side_effect=_gh(listing=[{"id": 42}], details={42: None}),
         ),
         pytest.raises(TypeError, match="run 42"),
     ):
@@ -390,18 +393,17 @@ def test_read_ci_status_ignores_a_stale_branch_listing():
 
 
 def test_read_ci_status_falls_back_past_the_window():
-    """A workflow with no run on the newest commits asks the branch listing."""
+    """A workflow with no run on the newest commits asks its dated run listing."""
     details = {7: _detail(STALE_SHA, GREEN_JOB)}
     with patch(
         "repomatic.github.gh.run_gh_command",
-        side_effect=_gh(
-            [TIP_SHA], {TIP_SHA: []}, listing=[{"databaseId": 7}], details=details
-        ),
+        side_effect=_gh([TIP_SHA], {TIP_SHA: []}, listing=[{"id": 7}], details=details),
     ) as mock:
         status = read_ci_status(["nightly.yaml"], "main")
     assert [run.run_id for run in status.runs] == [7]
     assert status.runs_on_tip == []
-    assert _called(mock, "list", "--workflow=nightly.yaml")
+    assert _called(mock, "actions/workflows/nightly.yaml/runs", "created=%3E%3D")
+    assert not _called(mock, "run list")
 
 
 def test_runs_on_tip_is_empty_before_the_tip_runs():
