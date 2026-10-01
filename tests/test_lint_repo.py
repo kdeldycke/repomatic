@@ -83,6 +83,7 @@ from repomatic.lint_repo import (
     get_repo_metadata,
     literal_runners,
     missing_template_entries,
+    repo_check_reference,
     run_repo_lint,
 )
 from repomatic.matrix_axes import UNSTABLE_PYTHON_VERSIONS
@@ -2842,6 +2843,36 @@ def test_help_lists_every_check():
         if f"{check.summary} ({'error' if check.fatal else 'warning'})." not in text
     ]
     assert not missing, f"Checks absent from `lint-repo --help`: {missing}"
+
+
+@pytest.mark.parametrize("check", REPO_CHECKS, ids=lambda check: check.name)
+def test_check_description_opens_on_its_severity(check):
+    """A check's docs bullet says whether it fails the job or only warns.
+
+    A fatal check's description opens on `Fails`, any other on `Warns`, or on
+    `Reports` for one that reports before it warns. The docs page renders these
+    bullets under the `lint-repo` job, so a wrong verb misstates the severity.
+    """
+    verb = check.description.split(" ", 1)[0]
+    if check.fatal:
+        assert verb == "Fails", f"{check.name} is fatal: open on 'Fails'."
+    else:
+        assert verb in {"Warns", "Reports"}, f"{check.name} is not fatal: {verb!r}."
+    assert not check.description.endswith("."), (
+        f"{check.name}: job bullets on the page carry no closing period."
+    )
+
+
+def test_workflows_page_renders_every_check():
+    """The `lint-repo` job docs render the roster rather than a hand-kept list."""
+    page = (Path(__file__).parent.parent / "docs" / "workflows.md").read_text(
+        encoding="UTF-8"
+    )
+    job = page.partition("#### 🏠 Lint repository metadata (`lint-repo`)")[2]
+    job = job.partition("\n#### ")[0]
+    assert "print(repo_check_reference())" in job
+    rendered = repo_check_reference().splitlines()
+    assert rendered == [f"- {check.description}" for check in REPO_CHECKS]
 
 
 # ---------------------------------------------------------------------------
