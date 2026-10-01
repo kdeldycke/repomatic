@@ -80,7 +80,7 @@ The concrete win is elsewhere. The action's cleanup only ran when the action ran
 
 Owning both ends also collapsed the plumbing: each job used to render its body with `repomatic pr-body`, squeeze it through a `$GITHUB_OUTPUT` step output (a 32 KiB ceiling), and relay it into the action via `env:`. `pr-sync --template X` renders internally, so the relay, its size ceiling, and the per-step `env:` blocks are gone, and the branch, labels and draft state derive from the template's own frontmatter.
 
-A conformance test holds this in place: `test_pull_requests_are_opened_by_the_cli_not_an_action` fails when any workflow reaches for the action again. A job that checks out a raw SHA needs no `--base`. On a detached `HEAD`, `pr-sync` reads the repository's default branch from the CI event payload. It fails when neither source names a base.
+A conformance test holds this in place: `test_pull_requests_are_opened_by_the_cli_not_an_action` fails when any workflow reaches for the action again. Without `--base` on a detached `HEAD`, `pr-sync` reads the repository's default branch from the CI event payload, and fails when the payload names none.
 
 Replacement strategies, ordered from most to least isolated:
 

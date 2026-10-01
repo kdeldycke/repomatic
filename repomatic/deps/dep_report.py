@@ -463,8 +463,7 @@ class BypassForecast:
 BYPASS_SECTION_NOTE = (
     "Packages pulled in ahead of the cooldown by an [`exclude-newer-package`]"
     "(https://docs.astral.sh/uv/reference/settings/#exclude-newer-package)"
-    " freeze. Each entry is cleared from `pyproject.toml` automatically once"
-    " its held version ages past the `exclude-newer` cutoff."
+    " freeze."
 )
 """Intro paragraph for the `sync-uv-lock` cooldown-bypasses section."""
 

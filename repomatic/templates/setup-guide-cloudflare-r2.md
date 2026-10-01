@@ -35,5 +35,3 @@ footer: 'false'
    gh secret set CLOUDFLARE_R2_ACCESS_KEY_ID --repo $repo_slug
    gh secret set CLOUDFLARE_R2_SECRET_ACCESS_KEY --repo $repo_slug
    ```
-
-> ℹ️ **Note**: To go back, remove `site.cloudflare-r2-bucket` and `site.cloudflare-r2-domain`. The deploy then fails on any file over 25 MiB.

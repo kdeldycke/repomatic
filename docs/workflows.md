@@ -20,7 +20,7 @@ jobs:
 ```
 
 > [!IMPORTANT]
-> [Concurrency is already configured](security.md#concurrency-and-cancellation) in the reusable workflows: you don't need to re-specify it in your calling workflow.
+> Leave `concurrency` out of your calling workflow: the reusable workflows [already set it](security.md#concurrency-and-cancellation).
 
 ### GitHub Actions limitations
 
@@ -94,7 +94,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 
 - Looks every runner label this repository runs up in the [*Available Images* table](https://github.com/actions/runner-images#available-images), and opens a pull request carrying the mechanical half of whatever it finds, so the decision is made against a real CI run rather than against a description
 - A **retirement** rewrites every literal `runs-on:` naming a deprecated image onto its successor. A released image always wins over a preview, since a forced move should not trade a known deadline for an unknown one; a newer preview passed over is named in the pull request body rather than taken
-- An **upgrade** to a strictly newer *version* has two halves. Every literal `runs-on:` naming the old image is rewritten onto the new one, since a matrix cell cannot reach a job that names its image outright. The full test matrix also gains the image as a `continue-on-error` probe (`test-matrix.variations.os` plus a `test-matrix.unstable` entry), which cannot fail the build while the suite starts exercising it
+- An **upgrade** to a strictly newer *version* has two halves. Every literal `runs-on:` naming the old image is rewritten onto the new one, since a matrix cell cannot reach a job that names its image outright. The full test matrix also gains the image as a `continue-on-error` probe (`test-matrix.variations.os` plus a `test-matrix.unstable` entry)
 - The probe half is skipped when the matrix already runs the successor: its `unstable` entry marks every cell on that image `continue-on-error`, so one job left pinned to an older image would otherwise stop the current image from gating the build. The rewrite half still applies, and is what stops that job being left behind
 - A rewritten `runs-on:` is evidenced by the proposal's own CI run only for a job that run executes. A workflow triggered by `schedule` or `workflow_dispatch` alone shows nothing on the pull request, so review its diff rather than its checks
 - Strictly newer by **version** is what separates an upgrade from a flavour. `Windows 11 Arm64 with Visual Studio 2026` sits at the same version as `Windows 11 Arm64`: a different toolchain, not a newer image, and it is never proposed as one
@@ -408,7 +408,7 @@ docs = [
   - `CLOUDFLARE_API_TOKEN` repository secret, an account-owned token scoped to **Account → Cloudflare Pages → Edit**
   - Optionally, `CLOUDFLARE_R2_ACCESS_KEY_ID` and `CLOUDFLARE_R2_SECRET_ACCESS_KEY`, an R2 key pair limited to the bucket, for a site that serves files over the size limit: see [files over 25 MiB](cloudflare.md#files-over-25-mib)
 - `CLOUDFLARE_API_TOKEN` is a prerequisite, not an enhancement: the job fails without it, so `lint-repo` warns about the gap and the setup guide issue stays open until it is set. Give the token a one-year TTL and let the machinery watch it: the workflow's monthly run turns a lapsed token into a red run and an email, and the drift job below starts warning a month ahead
-- No second identifier beside that secret: the account is derived from the token at run time, and a credential reaching several accounts resolves it by which one owns the project. See [§ The token](cloudflare.md#the-token)
+- The account is derived from the token at run time, and a credential reaching several accounts resolves it by which one owns the project. See [§ The token](cloudflare.md#the-token)
 
 #### 🌩️ Check Cloudflare config drift (`cloudflare-config-drift`)
 
@@ -552,7 +552,7 @@ The `publish-pypi` job lives here rather than inside a reusable lane so each rep
 
 #### 🐍 Publish to PyPI (`publish-pypi`)
 
-- Uploads packages to PyPI with attestations using [`uv publish --trusted-publishing automatic`](https://github.com/astral-sh/uv) over OIDC: no long-lived API token is required.
+- Uploads packages to PyPI with attestations using [`uv publish --trusted-publishing automatic`](https://github.com/astral-sh/uv) over OIDC.
 - The job lives in each repo's own `release.yaml` entry, never in the `_release-engine.yaml` reusable: repomatic and downstreams alike publish from a `release.yaml` (the same filename everywhere). It invokes the [`publish-pypi`](https://github.com/kdeldycke/repomatic/blob/main/.github/actions/publish-pypi/action.yaml) composite action. Composite actions inherit the calling job's OIDC context, so the token's `job_workflow_ref` claim resolves to that `release.yaml`: the path each repo registers with PyPI as a Trusted Publisher. This works around [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096), where a job inside the reusable engine would claim the upstream path and fail the publisher match.
 - **Requires**:
   - A one-time PyPI Trusted Publisher registration for the repo's `release.yaml` entry, the same filename in every repo (repomatic included), so no per-repo workflow-name divergence (see [PyPI Trusted Publishers docs](https://docs.pypi.org/trusted-publishers/adding-a-publisher/)).
@@ -797,10 +797,10 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 - Rebuilds every GitHub subject's whole star curve from GitHub's star history, one reading per week that gained a star: those curves are complete from their first star rather than from the day sampling started. The endpoint is anonymous, so this covers the repositories a project merely tracks as well as the ones it owns
 - Redraws the configured SVG charts, stamped with the newest reading of the metric they plot rather than the run date, so a week that moved nothing rewrites nothing
 - Publishes the store through one long-lived pull request that every run appends to, restoring the store from its branch before sampling so readings still awaiting review are added to rather than replaced (see [§ Sampling accumulates in one pull request](operation-contracts.md#sampling-accumulates-in-one-pull-request))
-- Leaving that pull request open stalls nothing: readings keep landing on its branch, and only the charts published from the default branch lag behind. Merging it starts a fresh accrual, whichever merge method is used
+- Until that pull request is merged, the charts published from the default branch lag behind. Merging it starts a fresh accrual
 - **Runs on**: weekly schedule, manual dispatch, and `workflow_call` from downstream repositories. Never on push: sampling the same value twice in a day writes the same row
 - **Requires**:
-  - `REPOMATIC_PAT` secret with contents write permission, to open a pull request whose checks actually run. Reading the metrics needs no scope beyond public data
+  - `REPOMATIC_PAT` secret with contents write permission, to open a pull request whose checks actually run
 - **Skipped if**:
   - `metrics.sync = false` in `[tool.repomatic]`, or no subject is declared
 
@@ -945,7 +945,7 @@ Safe to re-run: tag creation skips if already exists, version bumps have eligibi
 
 ### Graceful degradation
 
-Fallback tokens (`secrets.REPOMATIC_PAT || secrets.GITHUB_TOKEN`) and `continue-on-error` for unstable targets. Job names use emoji prefixes for at-a-glance status: **✅** for stable jobs that must pass, **⁉️** for unstable jobs (e.g., experimental Python versions, unreleased platforms) that are expected to fail and won't block the workflow. [`repomatic ci-status`](cli.md) reads the same glyphs back, reporting each workflow's latest run and which of its failing jobs actually gate a merge, so triaging red CI does not require eyeballing a run's job list by hand.
+Fallback tokens (`secrets.REPOMATIC_PAT || secrets.GITHUB_TOKEN`) and `continue-on-error` for unstable targets. Job names use emoji prefixes for at-a-glance status: **✅** for stable jobs that must pass, **⁉️** for unstable jobs (e.g., experimental Python versions, unreleased platforms) that are expected to fail and won't block the workflow. [`repomatic ci-status`](cli.md) reads the same glyphs back, reporting each workflow's latest run and which of its failing jobs actually gate a merge.
 
 ### Dogfooding
 
@@ -982,7 +982,7 @@ GitHub Actions are pinned to full commit SHAs, with the semver tag preserved as 
 
 Every updater respects a cooldown, whether it runs inside `sync-deps` or on its own. `sync-action-pins`, `sync-workflow-pins`, and `sync-tool-versions` share [`minimum-release-age`](configuration.md#minimum-release-age) (default `"1 week"`): a release is only adopted once it has been public for at least that long, giving upstream time to yank a bad cut. uv's `--exclude-newer` is its counterpart guarding `sync-uv-lock`, and `sync-dep-sources` adopts a fresh release through that same window with an explicit `exclude-newer-package` freeze.
 
-To [mitigate supply chain attacks](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), a new release reaching the cooldown threshold produces a PR automatically: no manual bump required.
+To [mitigate supply chain attacks](https://blog.yossarian.net/2025/11/21/We-should-all-be-using-dependency-cooldowns), a new release reaching the cooldown threshold produces a PR automatically.
 
 Each cooldown-gated PR mirrors the `sync-uv-lock` body. Above the update table it prints the effective cutoff date (`today` minus `minimum-release-age`). For pins that resolve to a GitHub source (every action, the GitHub-backed registry tools, and PyPI version literals in workflows), a `Release notes` dropdown then collects the adopted versions' upstream notes; npm literals have no source-discovery path, so they carry no notes. A final `⏸️ Held back by cooldown` section lists every scanned pin with a newer release still inside the window, alongside the date each becomes adoptable.
 

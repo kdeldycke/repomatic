@@ -55,7 +55,7 @@ The whole migration, given nothing but a domain in a Cloudflare account and a re
 
 Cloudflare Pages strips `.html`. A page built as `security.html` is served at `/security`, and a request for `/security.html` gets a `308` to it. This happens on the stock `html` builder, with no `_redirects` file and nothing configured: it is how the host serves assets.
 
-Two consequences. Every absolute self-link written against the old host has an extra hop in it now, so links are worth rewriting extensionless rather than merely re-hosted, and links written that way are one hop even from the old `github.io` address. And a `sphinx.builder` switch from `html` to `dirhtml` needs no redirect rules of its own, since Pages already resolves the old form to whatever the builder wrote.
+Every absolute self-link written against the old host has an extra hop in it now, so links are worth rewriting extensionless rather than merely re-hosted, and links written that way are one hop even from the old `github.io` address.
 
 ## Direct Upload, and why nothing else
 
@@ -73,7 +73,7 @@ Two platform limits shape the upload. Direct Upload rejects any file over 25 MiB
 
 One secret, `CLOUDFLARE_API_TOKEN`, holding exactly one permission: **Account → Cloudflare Pages → Edit**. Nothing else.
 
-No account identifier is ever declared beside it, and repomatic does not read one at all: the account is derived from the token at run time. A token scoped to Pages Edit and nothing else still enumerates its own account through `GET /accounts`, verified on 2026-08-16 against a `cfat_` token with exactly that scope, so a repository holding only the token deploys normally. When a credential sees several accounts, `repomatic cloudflare-pages` asks which one owns the project it is reconciling and acts on that one, failing rather than guessing when the question has no single answer.
+The account is derived from the token at run time. A token scoped to Pages Edit and nothing else still enumerates its own account through `GET /accounts`, verified on 2026-08-16 against a `cfat_` token with exactly that scope. When a credential sees several accounts, `repomatic cloudflare-pages` asks which one owns the project it is reconciling and acts on that one, failing rather than guessing when the question has no single answer.
 
 Not storing the identifier anywhere is deliberate: it is not a credential (a stable value visible in every dashboard URL, which never expires and never rotates), yet it belongs to the account rather than the project, so deriving it at run time keeps it out of the secrets list and out of a public tree without costing anything. The one shape the derivation cannot settle is a creation from nothing on a multi-account credential: with no project to look up, the command fails and names the remedy, creating the token under the account you want to deploy into. That is the only case that ever needed the identifier declared, and narrowing the credential fixes it. `wrangler` is less clever here: a token seeing several accounts makes it demand its own `CLOUDFLARE_ACCOUNT_ID` variable, which is one more reason the one-account token is the recommendation.
 

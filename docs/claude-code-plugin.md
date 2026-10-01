@@ -105,7 +105,7 @@ $ claude plugin validate /tmp/plugins/repomatic --strict
 $ claude --plugin-dir /tmp/plugins/repomatic
 ```
 
-`--plugin-dir` also takes the archive itself, so checking what a build actually exposes needs no unpacking. This is the quickest way to catch a manifest that loads fewer components than intended:
+`--plugin-dir` also takes the archive itself. This is the quickest way to catch a manifest that loads fewer components than intended:
 
 ```shell-session
 $ claude --plugin-dir /tmp/repomatic-claude-plugin.zip plugin details repomatic
@@ -157,7 +157,7 @@ The app's **Add > Add marketplace** flow takes the same `kdeldycke/repomatic` ca
 
 The host has to be GitHub, GitLab, Bitbucket or GitHub Enterprise. A self-hosted forge is refused with `This host isn't supported` ([anthropics/claude-code#20697](https://github.com/anthropics/claude-code/issues/20697#issuecomment-5330840382), reported against a Gitea instance).
 
-Adding and installing needs no GitHub App, on a public repository. Keeping the plugin current on every push does, and that switch starts off: `Sync automatically` sits in the `...` menu beside the marketplace name, next to `Synced commit` and `Check for updates`. Without the app it refuses:
+Keeping the plugin current on every push needs the GitHub App, and that switch starts off: `Sync automatically` sits in the `...` menu beside the marketplace name, next to `Synced commit` and `Check for updates`. Without the app it refuses:
 
 ![A warning reading "Auto-sync requires the Claude GitHub App to have access to this repository", with a Grant access link](assets/desktop-autosync-warning.png)
 
