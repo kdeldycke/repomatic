@@ -42,6 +42,7 @@ commit-messages
 upstream-development
 operation-contracts
 packaging
+upstream
 code-of-conduct
 ```
 
