@@ -1169,23 +1169,23 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "27c4b6d0ba6f37d120ce32117777d703fc9d57ba71f16e8bcde5b35c987cf9b8",
+        ): "456f9fe7aa6e7c1597879f5e951d7de2fab261a9ca05f16f324f896c806c55db",
         (
             LINUX,
             X86_64,
-        ): "abcb3e257c7c2abeff4d903f7fe68071357637605bdb283ce2251f44bc70dc09",
+        ): "aca6b5d546307092b8d0a8e0a89dd80f9da51f2f7617c5e45c5607c1684ffbf2",
         (
             MACOS,
             AARCH64,
-        ): "70d61e9d682034133f0aa56f5a02bae0de168495f3cce62a87054aa7186c1901",
+        ): "844d4121fb47a95604aa5566843bb9e3d6078040b3c8f22367709f563038f2c5",
         (
             MACOS,
             X86_64,
-        ): "7480a081e51d428d94f560ef8b855ae0decb7c35cc686925ed887c5f51b1ecf1",
+        ): "7cc75e42fff1e3b66928de325b3ea1ec7e23ce35ffaa3561fdb0ede8e7275f6f",
         (
             WINDOWS,
             X86_64,
-        ): "8474ca8bd72df497b7dee2272345bdea0d4926b18b708faea492fc9bcfd0b0e9",
+        ): "b59f149d84e86aab535d52db029fa8d3ac5ecba9ae5c7f19cf07acb5aa0caaaf",
     },
 }
 """Tool name to platform-keyed SHA-256 hex digest mapping.
@@ -1205,7 +1205,7 @@ VERSIONS: dict[str, str] = {
     "lychee": "0.24.2",
     "oxipng": "10.2.1",
     "shfmt": "3.14.1",
-    "typos": "1.50.2",
+    "typos": "1.50.3",
 }
 """Tool name to the version each checksum set was computed for.
 
@@ -1848,7 +1848,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.16.8",
+        version="0.16.9",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
@@ -1922,7 +1922,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "typos": ToolSpec(
         name="typos",
-        version="1.50.2",
+        version="1.50.3",
         source_url="https://github.com/crate-ci/typos",
         config_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
         cli_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
