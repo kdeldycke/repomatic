@@ -10,6 +10,7 @@
 - Add `dependency-graph.update` to turn off the dependency graph updates.
 - Fix `lint-repo` reporting every bundled key missing from a `[tool.pytest]` section kept under `ini_options`, and asking for native keys pytest refuses beside that table.
 - Fix `lint-repo` advising to drop a bare `[tool.lychee] exclude` entry that no anchored form sits beside: it now names the anchored form to write instead.
+- Fix `lint-repo` skipping its PAT repository-scope check on every run: the probe of another repository of the same owner now runs.
 - Fix `repomatic init` dropping the comments beside a local key it keeps when re-syncing a tool config.
 - Fix `repomatic init` re-syncing a multi-line tool config array at a four-space indent, which `format-pyproject` then rewrote to two in its own pull request.
 - Fix the setup guide's R2 keys step describing a dashboard route the R2 page does not have: it now links the account token form.

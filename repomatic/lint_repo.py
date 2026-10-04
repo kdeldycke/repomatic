@@ -777,8 +777,12 @@ def check_pat_repository_scope(repo: str) -> CheckResult:
     # Strategy B: cross-repo probe.
     owner = repo.split("/", 1)[0]
     try:
+        # `gh api` sends a POST once a field is passed, which this endpoint
+        # answers with a 404.
         output = run_gh_command([
             "api",
+            "--method",
+            "GET",
             f"/users/{owner}/repos",
             "--jq",
             ".[].full_name",

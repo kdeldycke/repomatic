@@ -62,6 +62,7 @@ from repomatic.lint_repo import (
     check_metadata_keys,
     check_package_name_vs_repo,
     check_pages_redirect_preserved,
+    check_pat_repository_scope,
     check_pat_stale_statuses_permission,
     check_pr_templates,
     check_pypi_trusted_publisher,
@@ -1921,6 +1922,47 @@ def test_pat_check_annotates_with_github_status_incident():
         assert passed is False
         assert "active incident" in msg
         assert "githubstatus.com" in msg
+
+
+def _gh_api_stand_in(args: list[str], push: str) -> str:
+    """Answer the scope check's `gh api` calls, method switch included.
+
+    `gh api` sends a `POST` as soon as a field is passed, unless `--method` says
+    otherwise, and GitHub answers a `POST` on a listing endpoint with a 404. The
+    stand-in keeps that rule, so the listing succeeds only when its argv asks for
+    a `GET`.
+
+    :param args: Arguments the check hands to `gh`.
+    :param push: What the probed repository reports as `permissions.push`.
+    :return: The output `gh` would print.
+    """
+    if "/installation/repositories" in args:
+        raise RuntimeError("Resource not accessible by personal access token")
+    if "/users/orchard/repos" in args:
+        if "--method" in args:
+            sends_get = args[args.index("--method") + 1] == "GET"
+        else:
+            sends_get = not {"--raw-field", "--field"} & set(args)
+        if not sends_get:
+            raise RuntimeError("Not Found (HTTP 404)")
+        return "orchard/apricot\norchard/cherry\n"
+    return push
+
+
+@pytest.mark.parametrize(
+    ("push", "passed", "fragment"),
+    (
+        ("false", True, "no push access to orchard/cherry"),
+        ("true", False, "PAT has push access to orchard/cherry"),
+    ),
+)
+def test_pat_repository_scope_probes_another_repository(push, passed, fragment):
+    """A PAT is refused the installation endpoint, so the probe decides."""
+    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+        mock_gh.side_effect = lambda args: _gh_api_stand_in(args, push)
+        result = check_pat_repository_scope("orchard/apricot")
+    assert result.passed is passed
+    assert fragment in result.message
 
 
 def test_pat_stale_statuses_permission_present():
