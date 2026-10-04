@@ -30,6 +30,9 @@
 
 ## [`7.17.1` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.17.0...v7.17.1)
 
+> [!NOTE]
+> `7.17.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.17.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.17.1).
+
 - `fix-typos` now checks hidden files and directories like `.github/` and `.claude/`, through the bundled `[tool.typos]` config.
 - `lint-repo --help` now lists every check the command runs, rendered from the check roster.
 - The setup guide's R2 keys step now mirrors the Cloudflare Pages step, with the wrangler and dashboard routes and a dated token name.
