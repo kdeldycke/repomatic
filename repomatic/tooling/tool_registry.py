@@ -1930,7 +1930,11 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         config_flag="--config",
         native_format=NativeFormat.TOML,
         reads_pyproject=True,
-        default_flags=("--write-changes",),
+        # typos applies `files.extend-exclude` only while it walks a directory: a
+        # path named on the command line bypasses the list, and `--write-changes`
+        # then rewrites a file the repository excluded. `--force-exclude` holds
+        # the list for those paths too.
+        default_flags=("--force-exclude", "--write-changes"),
         binary=BinarySpec(
             urls={
                 (
@@ -1975,6 +1979,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             ```
 
             typos scans the tree and, with repomatic's default `--write-changes`, fixes what it finds. It reads `[tool.typos]` natively; use `[tool.typos.default.extend-words]` to map project-specific terms to their intended spelling.
+
+            The default `--force-exclude` applies `extend-exclude` to a path named on the command line too, as in `repomatic run typos -- {path}`. typos alone honours that list only while it walks a directory, and rewrites an excluded file handed to it by name.
 
             Because the `fix-typos` workflow job ships whatever typos rewrites as an unattended pull request, guard content where a "correction" is a corruption with `[tool.typos.default.extend-ignore-re]` patterns. The two known traps are encoded hashes, whose random letter runs typos happily respells (a Guix `(base32 "...")` source hash losing its value to an `an`-to-`and` fix), and intentional-typo examples that docs or tests exercise on purpose:
 

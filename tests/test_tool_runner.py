@@ -1458,6 +1458,36 @@ def test_run_tool_binary_uses_direct_path(
 @patch("repomatic.tooling.tool_runner.subprocess.run")
 @patch("repomatic.tooling.tool_runner._install_binary")
 @patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_typos_holds_excludes_for_explicit_paths(
+    mock_ci,
+    mock_install,
+    mock_run,
+    tmp_path,
+    monkeypatch,
+):
+    """A path named on the command line stays subject to the typos exclude list.
+
+    typos applies `files.extend-exclude` only while it walks a directory, so a file
+    passed by name is rewritten whatever the list says, unless `--force-exclude`
+    comes with it.
+    """
+    monkeypatch.chdir(tmp_path)
+    bin_path = tmp_path / "typos"
+    bin_path.touch()
+    mock_install.return_value = bin_path
+    mock_run.return_value = MagicMock(returncode=0)
+
+    run_tool("typos", extra_args=("recipes/tarte.md",))
+
+    cmd = mock_run.call_args[0][0]
+    assert "--write-changes" in cmd
+    assert "--force-exclude" in cmd
+    assert cmd.index("--force-exclude") < cmd.index("recipes/tarte.md")
+
+
+@patch("repomatic.tooling.tool_runner.subprocess.run")
+@patch("repomatic.tooling.tool_runner._install_binary")
+@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
 def test_run_tool_binary_forwards_extra_args(
     mock_ci,
     mock_install,
