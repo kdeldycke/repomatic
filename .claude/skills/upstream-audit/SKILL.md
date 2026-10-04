@@ -88,7 +88,7 @@ Three traps in that sweep:
 
 When the maintainer runs several projects with upstream pages, dedupe against the sibling pages and give each item one canonical home. Pick it in this order:
 
-1. The project whose activity produced the item: the first of the maintainer's repositories that references it in a commit, issue or pull request. With no reference, judge by date and topic.
+1. The project whose activity produced the item: the first of the maintainer's repositories that references it in a commit, issue or pull request. Read the item's `CROSS_REFERENCED_EVENT` and `REFERENCED_EVENT` timeline items through GraphQL to find those references. With no reference, judge by date and topic.
 2. When that repository has no upstream page, or the item predates the project: the project with authority over the tooling or workflow concerned.
 
 Move an item found on the wrong sibling page to its home, and delete it from the old page in the same pass. Distribution packaging of the project itself belongs to its packaging docs, not this page.
@@ -152,6 +152,10 @@ To determine whether the project has a workaround for an issue, search the codeb
 #### 7. Build the page
 
 Write the document following the five-section structure. Within "Code contributed upstream", group PRs by upstream project and optionally by theme (for projects with many PRs). Within "Addressed by this project", group by feature area rather than by upstream project.
+
+Give a project its own heading in one section only when `docs/conf.py` loads `sphinx.ext.autosectionlabel`: a repeated heading raises a duplicate-label warning. Elsewhere, write `project#N` in the item's link text.
+
+Wrap an item whose title quotes a misspelling in `<!-- typos:off -->` and `<!-- typos:on -->` lines, or the `fix-typos` job rewrites the title.
 
 Use the `{octicon}` title format if sphinx-design is available (check `docs/conf.py` for the extension):
 
