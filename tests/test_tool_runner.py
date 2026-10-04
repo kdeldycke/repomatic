@@ -1455,34 +1455,48 @@ def test_run_tool_binary_uses_direct_path(
     assert "--write-changes" in cmd
 
 
+@pytest.mark.parametrize(
+    ("name", "flag", "extra_args"),
+    [
+        pytest.param(
+            "ruff",
+            "--config=force-exclude=true",
+            ("check", "recipes/tarte.py"),
+            id="ruff",
+        ),
+        pytest.param("typos", "--force-exclude", ("recipes/tarte.md",), id="typos"),
+    ],
+)
 @patch("repomatic.tooling.tool_runner.subprocess.run")
 @patch("repomatic.tooling.tool_runner._install_binary")
 @patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
-def test_run_tool_typos_holds_excludes_for_explicit_paths(
+def test_run_tool_holds_excludes_for_explicit_paths(
     mock_ci,
     mock_install,
     mock_run,
     tmp_path,
     monkeypatch,
+    name,
+    flag,
+    extra_args,
 ):
-    """A path named on the command line stays subject to the typos exclude list.
+    """A path named on the command line stays subject to the tool's exclude list.
 
-    typos applies `files.extend-exclude` only while it walks a directory, so a file
-    passed by name is rewritten whatever the list says, unless `--force-exclude`
-    comes with it.
+    ruff and typos apply their exclude list only while they walk a directory, so a
+    file passed by name is processed whatever the list says, unless the flag that
+    holds the list comes with it.
     """
     monkeypatch.chdir(tmp_path)
-    bin_path = tmp_path / "typos"
+    bin_path = tmp_path / name
     bin_path.touch()
     mock_install.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=0)
 
-    run_tool("typos", extra_args=("recipes/tarte.md",))
+    run_tool(name, extra_args=extra_args)
 
     cmd = mock_run.call_args[0][0]
-    assert "--write-changes" in cmd
-    assert "--force-exclude" in cmd
-    assert cmd.index("--force-exclude") < cmd.index("recipes/tarte.md")
+    assert flag in cmd
+    assert cmd.index(flag) < cmd.index(extra_args[0])
 
 
 @patch("repomatic.tooling.tool_runner.subprocess.run")
@@ -1557,7 +1571,7 @@ def test_run_tool_ruff_bundled_default(mock_ci, mock_run, tmp_path, monkeypatch)
 def test_run_tool_ruff_reads_pyproject_natively(
     mock_ci, mock_run, tmp_path, monkeypatch
 ):
-    """ruff gets no --config flag when [tool.ruff] exists in pyproject.toml."""
+    """ruff gets no config file when [tool.ruff] exists in pyproject.toml."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "test"\n\n[tool.ruff]\npreview = true\n', encoding="UTF-8"

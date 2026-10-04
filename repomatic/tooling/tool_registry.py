@@ -1857,6 +1857,11 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         native_format=NativeFormat.TOML,
         default_config="ruff.toml",
         reads_pyproject=True,
+        # ruff applies `exclude` and `extend-exclude` only while it walks a
+        # directory: a path named on the command line bypasses both. Its
+        # `--force-exclude` flag exists only after the subcommand, so the same
+        # setting goes in through the global `--config`, as an inline override.
+        default_flags=("--config=force-exclude=true",),
         docs_notes=cleandoc(r"""
             **Try it:**
 
@@ -1872,6 +1877,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             ```
 
             `ruff check .` lints; `ruff format .` reformats. Both read `[tool.ruff]` natively. With no project config, repomatic falls back to its bundled `ruff.toml` baseline.
+
+            The default `--config=force-exclude=true` applies `exclude` and `extend-exclude` to a path named on the command line too, as in `repomatic run ruff -- check {path}`. ruff alone honours those lists only while it walks a directory, and lints or reformats an excluded file handed to it by name. To process such a file once, pass `--no-force-exclude` after the subcommand.
             """),
     ),
     "shfmt": ToolSpec(
