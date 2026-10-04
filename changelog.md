@@ -25,6 +25,7 @@
 - New upstream page tracks the pull requests and issues repomatic sends to the projects it depends on.
 - The bundled `upstream-audit` skill now assigns each item to the project that produced it, and lists every issue the maintainer reported.
 - The bundled `repomatic-ship` skill now says how to take over a sweep lane after its agent dies mid-edit.
+- The bundled `sphinx-docs` agent now runs `sphinx-build` with the command sandbox off: `sphinx_sitemap` fails inside it.
 
 ## [`7.17.1` (2026-09-30)](https://github.com/kdeldycke/repomatic/compare/v7.17.0...v7.17.1)
 
