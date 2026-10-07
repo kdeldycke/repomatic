@@ -17,9 +17,10 @@
 """Render tests for Sphinx cross-references in the built documentation.
 
 Build the docs once and assert against the real HTML that the generated
-summary tables deep-link to the sections they describe, and that intersphinx
-references to Click resolve to the upstream site. This catches drift the moment
-a ``{click:config}`` or ``{click:tree}`` directive stops wiring its anchors, or
+summary tables deep-link to the sections they describe, that each changelog
+release is anchored on its version, and that intersphinx references to Click
+resolve to the upstream site. This catches drift the moment a
+``{click:config}`` or ``{click:tree}`` directive stops wiring its anchors, or
 an ``intersphinx_mapping`` URL goes stale, neither of which a mock-based test
 would notice.
 """
@@ -32,6 +33,8 @@ import sys
 from pathlib import Path
 
 import pytest
+
+from repomatic.changelog import Changelog
 
 # The docs dependency group requires Python >= 3.14 (see pyproject.toml
 # [tool.uv] dependency-groups.docs). Only build under the same conditions the
@@ -90,6 +93,32 @@ def read_html(built_docs: Path, filename: str) -> str:
     html_path = built_docs / filename
     assert html_path.exists(), f"HTML file not found: {html_path}"
     return html_path.read_text(encoding="UTF-8")
+
+
+@pytest.mark.parametrize(
+    ("source", "page"),
+    (
+        ("changelog.md", "changelog.html"),
+        ("docs/changelog-archive.md", "changelog-archive.html"),
+    ),
+)
+def test_changelog_releases_are_anchored_on_their_version(built_docs, source, page):
+    """Each release of the changelog has an anchor made from its version.
+
+    docutils reduces a release heading to nothing and numbers its section from
+    a per-page counter, so `#id40` names another release after each new one.
+    `ReleaseAnchors` of `docs/conf.py` gives each section an anchor like
+    `#v7-17-1` instead.
+    """
+    changelog = Changelog((PROJECT_ROOT / source).read_text(encoding="UTF-8"))
+    html = read_html(built_docs, page)
+    missing = []
+    for version in sorted(changelog.extract_all_version_headings()):
+        # The release in preparation is anchored on the version it ships as.
+        anchor = "v" + version.partition(".dev")[0].replace(".", "-")
+        if f'<section id="{anchor}">' not in html:
+            missing.append(version)
+    assert not missing, f"{page}: releases with no version anchor: {missing}"
 
 
 @pytest.mark.parametrize(

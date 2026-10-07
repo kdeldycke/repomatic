@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 import tomllib  # type: ignore[import-not-found]
-from docutils.nodes import container
+from docutils.nodes import container, section
+from docutils.transforms import Transform
+from docutils.transforms.references import PropagateTargets
 from sphinxcontrib.mermaid import MermaidClassDiagram
 
 project_path = Path(__file__).parent.parent.resolve()
@@ -95,10 +98,10 @@ myst_fence_as_directive = ["mermaid"]
 # and fails on one that lands nowhere: see `UnresolvedAnchors` below. The slug
 # function is pinned to docutils' `make_id`, so an authored anchor is the same
 # string as the section ID the page publishes (`cache-dir` for `cache.dir`).
-# Its cost: a heading that starts with a digit gets an empty slug, so no anchor
-# reaches a changelog version. GitHub, `lychee` and myst-parser's own default
-# slug function write `cachedir` instead: `[tool.lychee]` says why it skips
-# these links.
+# GitHub, `lychee` and myst-parser's own default slug function write `cachedir`
+# instead: `[tool.lychee]` says why it skips these links. `make_id` leaves
+# nothing of a changelog release heading: `ReleaseAnchors` below gives each one
+# an anchor made from its version.
 myst_heading_anchors = 6
 myst_heading_slug_func = "docutils.nodes.make_id"
 
@@ -443,6 +446,62 @@ def prune_build_artifacts(app, exception):
         sources.rmdir()
 
 
+RELEASE_HEADING = re.compile(r"(?P<version>\d+\.\d+\.\d+)(?:\.\w+)? \([^)]+\)")
+"""Rendered title of a changelog release: `7.17.1 (2026-09-30)`.
+
+The release in preparation carries a `.devN` suffix, and the `unreleased` label
+in place of a date: `7.18.0.dev0 (unreleased)`.
+"""
+
+
+class ReleaseAnchors(Transform):
+    """Anchor each release of the changelog on its version, like `#v7-17-1`.
+
+    docutils builds a section ID from the title, minus its leading digits and
+    hyphens. That leaves nothing of `7.17.1 (2026-09-30)`, so the section takes
+    the next value of a per-page counter: `#id1` for the newest release. The
+    next release then moves every older one, and a saved `#id40` link shows a
+    different release.
+
+    The version ID replaces that ID on the section, and in the table myst-parser
+    resolves a `[text](changelog.md#v7-17-1)` link against. The `.devN` suffix
+    of the release in preparation is left out, so its anchor does not change the
+    day it ships.
+
+    Runs right before `PropagateTargets`: the section then holds only the ID
+    docutils gave it, and nothing has read that ID yet.
+    """
+
+    default_priority = PropagateTargets.default_priority - 1
+
+    def apply(self, **kwargs: object) -> None:
+        renamed: dict[str, str] = {}
+        for release in self.document.findall(section):
+            match = RELEASE_HEADING.fullmatch(release[0].astext())
+            if not match:
+                continue
+            anchor = "v" + match["version"].replace(".", "-")
+            # Makes a second pass, or a second heading of that version, a no-op.
+            if anchor in self.document.ids:
+                continue
+            docutils_id = release["ids"][0]
+            release["ids"][0] = anchor
+            del self.document.ids[docutils_id]
+            self.document.ids[anchor] = release
+            for name in release["names"]:
+                self.document.nameids[name] = anchor
+            renamed[docutils_id] = anchor
+
+        # The same object as `env.metadata[docname]["myst_slugs"]`, which is why
+        # it is updated in place.
+        slugs = getattr(self.document, "myst_slugs", {})
+        for slug, (line, section_id, title) in list(slugs.items()):
+            if section_id in renamed:
+                del slugs[slug]
+                anchor = renamed[section_id]
+                slugs[anchor] = (line, anchor, title)
+
+
 # XXX: swap for click-extra's option. See the `{todo}` in docs/upstream-development.md.
 class UnresolvedAnchors(logging.Handler):
     """Record whether myst-parser left a fragment link unresolved.
@@ -473,10 +532,12 @@ def setup(app):
 
     Swaps sphinxcontrib-mermaid's ``autoclasstree`` directive for
     :class:`NoZoomClassDiagram`: conf.py is loaded as the last extension,
-    so this registration wins. Also fails the build on an unresolved fragment
+    so this registration wins. Anchors each changelog release on its version
+    with :class:`ReleaseAnchors`. Also fails the build on an unresolved fragment
     link, as recorded by :class:`UnresolvedAnchors`.
     """
     app.add_directive("autoclasstree", NoZoomClassDiagram, override=True)
+    app.add_transform(ReleaseAnchors)
     app.connect("build-finished", prune_build_artifacts)
 
     unresolved = UnresolvedAnchors()
