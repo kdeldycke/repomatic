@@ -53,7 +53,8 @@ exactly as if the PAT had never been set.
 Jobs that use `REPOMATIC_PAT`:
 
 - `autofix.yaml`: fix-typos, sync-repomatic, sync-action-pins,
-  sync-workflow-pins (PRs touching `.github/workflows/` files),
+  sync-workflow-pins, sync-runner-images (PRs touching
+  `.github/workflows/` files),
   sync-tool-versions (upstream-only dependency PRs), fix-vulnerable-deps
   (reads the GitHub Advisory Database).
 - `changelog.yaml`: prepare-release (freezes versions in workflow files).
