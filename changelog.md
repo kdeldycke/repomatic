@@ -26,6 +26,7 @@
 - The bundled `babysit-ci` and `repomatic-ship` skills now run their local tests with the `test` dependency group, which repositories without default groups need.
 - New upstream page tracks the pull requests and issues repomatic sends to the projects it depends on.
 - Give each release of the changelog and changelog archive pages a stable anchor made from its version, like `https://repomatic.net/changelog#v7-17-1`. The numbered `#id1` anchors, which moved with each release, are removed.
+- Document that mdformat also deletes backslash escapes and entities from a Markdown image's alt-text.
 - The bundled `upstream-audit` skill now assigns each item to the project that produced it, and lists every issue the maintainer reported.
 - The bundled `repomatic-ship` skill now says how to take over a sweep lane after its agent dies mid-edit.
 - The bundled `sphinx-docs` agent now runs `sphinx-build` with the command sandbox off: `sphinx_sitemap` fails inside it.

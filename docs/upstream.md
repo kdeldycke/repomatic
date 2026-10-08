@@ -241,6 +241,14 @@ Pull requests and issues still pending upstream.
 
 - [`lychee#1772` - Suggest alternative frontend services from LibRedirect](https://github.com/lycheeverse/lychee/issues/1772)
 
+- [`markdown-it-py#445` - Image `alt` text loses backslash escapes and entities](https://github.com/executablebooks/markdown-it-py/issues/445): the cause of `mdformat#599` and `MyST-Parser#1210`.
+
+- [`mdformat#599` - Backslash escapes and entities are deleted from image `alt` text](https://github.com/hukkin/mdformat/issues/599): the `format-markdown` job applies that loss to every image it formats. See [A known mdformat defect](tool-runner.md#a-known-mdformat-defect).
+
+  ```{todo}
+  When a `markdown-it-py` release carries the fix for [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445), run the reproducer from [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599) through `repomatic run mdformat`. Then update this entry and [A known mdformat defect](tool-runner.md#a-known-mdformat-defect) to match the result.
+  ```
+
 - [`mdformat-myst#25` - Block attributes formatting introduce extra empty line](https://github.com/executablebooks/mdformat-myst/issues/25)
 
 - [`mdformat-web#8` - `format_xml` drops comments and the XML declaration](https://github.com/hukkin/mdformat-web/issues/8): since `0.2.0`, formatting an `xml` code block deletes its comments and its `<?xml ...?>` declaration. repomatic pins `mdformat-web` `0.2.0`, so the `format-markdown` job applies that loss to every `xml` block it formats.
@@ -250,6 +258,8 @@ Pull requests and issues still pending upstream.
   ```
 
 - [`Nuitka#3998` - `enableCcache` overwrites a user-set `CCACHE_SLOPPINESS`, unlike `CCACHE_DIR` which is honored](https://github.com/Nuitka/Nuitka/issues/3998)
+
+- [`MyST-Parser#1210` - Image `alt` text loses backslash escapes](https://github.com/executablebooks/MyST-Parser/issues/1210): the same loss in the `alt` attribute of a page that Sphinx builds.
 
 - [`MyST-Parser#1151` - Cross-reference to an explicit target emits a false-positive `myst.xref_missing` warning](https://github.com/executablebooks/MyST-Parser/issues/1151)
 

@@ -290,13 +290,25 @@ becomes:
 ![A pear's  stage in a crate](pear.svg)
 ```
 
-The same code span in ordinary link text is kept, so the defect belongs to the image-alt path alone.
+It deletes a backslash escape and an entity from the alt-text in the same way:
+
+```text
+![A 3 \* 4 crate of pears &amp; plums](pear.svg)
+```
+
+becomes:
+
+```text
+![A 3  4 crate of pears  plums](pear.svg)
+```
+
+The same text in an ordinary link keeps its characters, so the defect belongs to the image-alt path alone.
 
 This is mdformat itself, not a plugin that repomatic bundles: it occurs with a bare `mdformat` and no plugins loaded. `repomatic run mdformat` therefore cannot prevent it, and the `format-markdown` job carries it into every consuming repository. The loss is silent, it applies to prose that is already committed, and no check reports it.
 
-mdformat tracks the defect as [hukkin/mdformat#414](https://github.com/hukkin/mdformat/issues/414), where the maintainer records that a proper fix needs `markdown-it-py` synced with markdown-it `14.0.0`. It is still present in mdformat `1.0.0`.
+mdformat tracks the code span as [hukkin/mdformat#414](https://github.com/hukkin/mdformat/issues/414), where the maintainer records that a proper fix needs `markdown-it-py` synced with markdown-it `14.0.0`. It tracks the escape and the entity as [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599), and [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445) reports their cause in `markdown-it-py`. Both losses are still present in mdformat `1.0.0`.
 
-Write image alt-text without code spans until mdformat corrects this. Removing the backticks is the stable repair: a restored code span is deleted again by the next `format-markdown` run.
+Write image alt-text without code spans, backslashes or entities until mdformat corrects this. Rewording the alt-text is the stable repair: a restored code span, escape or entity is deleted again by the next `format-markdown` run.
 
 ## Tool details
 
