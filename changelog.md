@@ -16,6 +16,7 @@
 - Fix the setup guide's R2 keys step describing a dashboard route the R2 page does not have: it now links the account token form.
 - Fix `fix-typos` failing on `certifi` in a dependency graph that includes `requests`: the bundled `typos` config now accepts it.
 - Fix `repomatic run ruff` and `repomatic run typos` ignoring the tool's exclude list for a file named on the command line.
+- Fix `repomatic run mdformat` skipping its MyST directive repairs for the files below a directory argument.
 - Fix `sync-workflow-pins` bumping the uv pin when it cannot read the `setup-uv` checksum table: it now holds the pin until the table reads again.
 - Every setup guide step now reads like the token step: one lead sentence, numbered actions, form fields in a table, and the long explanations left in `docs/`.
 - `job-timings`, `cancel-runs` and the `ci-status` fallback now list runs with a date filter, so a stale run listing no longer feeds them weeks-old runs.

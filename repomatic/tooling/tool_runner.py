@@ -1322,10 +1322,13 @@ def run_tool(
                         continue
                     destination.parent.mkdir(parents=True, exist_ok=True)
 
-            # Snapshot the targets when the tool reports rewrites through its
-            # exit code, so the claim can be checked against the files below.
+            # Snapshot the targets when the files have to say what the tool
+            # rewrote: to check a rewrite it reports through its exit code, and
+            # to find the files below a directory that a post_process must fix.
             before = (
-                _digest_targets(batch) if spec.rewrite_exit_code is not None else {}
+                _digest_targets(batch)
+                if spec.rewrite_exit_code is not None or spec.post_process
+                else {}
             )
 
             logging.info(f"Running: {' '.join(cmd)}")
@@ -1355,7 +1358,15 @@ def run_tool(
             # never in check/dry-run mode, which writes nothing. The warning
             # below covers that gap; see ToolSpec.check_bypasses_post_process.
             if result.returncode == 0 and spec.post_process:
-                spec.post_process(batch)
+                # A directory argument names no file, so add the ones this run
+                # rewrote below it. A file the tool's own exclude list skipped
+                # is unchanged, which keeps it out of the fixup as well.
+                rewritten = [
+                    path
+                    for path, digest in _digest_targets(batch).items()
+                    if before.get(path) != digest and path not in batch
+                ]
+                spec.post_process([*batch, *rewritten])
 
             # A check/dry-run invocation of a post_process tool cannot be
             # trusted: the fixup never ran, so warn rather than report a

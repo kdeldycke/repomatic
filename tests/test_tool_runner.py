@@ -2890,6 +2890,49 @@ def test_run_tool_no_check_warning_in_write_mode(
     assert "check mode" not in caplog.text
 
 
+@patch("repomatic.tooling.tool_runner.subprocess.run")
+@patch("repomatic.tooling.tool_runner._install_binary")
+@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+def test_run_tool_post_processes_files_below_a_directory(
+    mock_ci,
+    mock_install,
+    mock_run,
+    tmp_path,
+    monkeypatch,
+):
+    """mdformat pointed at a directory gets its fixup on each file it rewrote.
+
+    A file the run left alone keeps its content. It stands for a file that the
+    exclude list of the tool skipped, which the fixup must not rewrite either.
+    """
+    monkeypatch.chdir(tmp_path)
+    bin_path = tmp_path / "shfmt"
+    bin_path.touch()
+    mock_install.return_value = bin_path
+
+    field_list = "```{figure} tart.jpeg\n:alt: A pear tart\n```\n"
+    yaml_block = "```{figure} tart.jpeg\n---\nalt: A pear tart\n---\n```\n"
+    recipes = tmp_path / "recipes"
+    recipes.mkdir()
+    rewritten = recipes / "pear-tart.md"
+    rewritten.write_text("* Three pears\n\n" + field_list, encoding="UTF-8")
+    skipped = recipes / "plum-jam.md"
+    skipped.write_text("* Two plums\n\n" + yaml_block, encoding="UTF-8")
+
+    def mdformat(cmd, **kwargs):
+        """Rewrite one file the way `mdformat-myst` does, and skip the other."""
+        rewritten.write_text("- Three pears\n\n" + yaml_block, encoding="UTF-8")
+        return MagicMock(returncode=0)
+
+    mock_run.side_effect = mdformat
+
+    run_tool("mdformat", extra_args=("recipes",))
+
+    # The new list marker proves the tool ran, and the options the fixup.
+    assert rewritten.read_text(encoding="UTF-8") == "- Three pears\n\n" + field_list
+    assert skipped.read_text(encoding="UTF-8") == "* Two plums\n\n" + yaml_block
+
+
 # ---------------------------------------------------------------------------
 # [tool.X] to CLI flags translation
 # ---------------------------------------------------------------------------

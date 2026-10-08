@@ -728,6 +728,9 @@ class ToolSpec:
     post_process: Callable[[Sequence[str]], None] | None = None
     """Callback invoked on `extra_args` after the tool exits successfully.
 
+    `run_tool` adds each file the run rewrote below a directory argument, so a
+    callback that reads its arguments as files covers a tree too.
+
     Intended for temporary workarounds that fix known upstream formatting bugs
     in-place. Each callback carries its own todo admonition naming the upstream
     release that retires it.
