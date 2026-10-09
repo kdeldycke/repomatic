@@ -83,7 +83,7 @@ jobs:
       - name: Run repomatic show-metadata
         id: metadata
         run: >
-          uv --no-progress run --frozen -- repomatic show-metadata
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.18.0' show-metadata
           --format github-json --output "$GITHUB_OUTPUT"
           is_python_project is_sphinx doc_files sphinx_builder
           site_deploy site_cloudflare_project
@@ -216,7 +216,7 @@ jobs:
             ${{ fromJSON(needs.metadata.outputs.metadata).site_cloudflare_project
             || github.event.repository.name }}
         run: >
-          uv --no-progress run --frozen -- repomatic cloudflare-r2
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.18.0' cloudflare-r2
           --offload ./docs/_build --project "$PROJECT_NAME"
       - name: Deploy to Cloudflare Pages
         # Direct Upload: the tree built above is what reaches the edge, so
@@ -283,7 +283,7 @@ jobs:
             ${{ fromJSON(needs.metadata.outputs.metadata).site_cloudflare_project
             || github.event.repository.name }}
         run: >
-          uv --no-progress run --frozen -- repomatic cloudflare-pages
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.18.0' cloudflare-pages
           --project "$SITE_PROJECT" --check
 
   check-broken-links:
@@ -375,7 +375,7 @@ jobs:
           files=()
           while IFS= read -r -d '' f; do files+=("$f"); done \
             < <(echo "${DOC_FILES}" | xargs printf '%s\0')
-          uv --no-progress run --frozen -- repomatic run lychee -- \
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.18.0' run lychee -- \
             --format markdown --output ./lychee/out.md \
             --hidden --suggest --no-progress --include-fragments --exclude-all-private \
             "${files[@]}" \
@@ -386,5 +386,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           LYCHEE_EXIT_CODE: ${{ steps.lychee_run.outputs.exit_code }}
         run: |
-          uv --no-progress run --frozen -- repomatic broken-links \
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==7.18.0' broken-links \
             ${LYCHEE_EXIT_CODE:+--lychee-exit-code "${LYCHEE_EXIT_CODE}"}
