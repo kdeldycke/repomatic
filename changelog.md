@@ -8,6 +8,7 @@
 - **Breaking:** Remove the `lint-anchors` command and the Docs workflow step running it. A Sphinx build reports the same broken fragment links as `myst.xref_missing` warnings.
 - The `update-dep-graph` job moves from the release workflow to Autofix: it refreshes the graph on every push, for uv virtual projects too.
 - Add `dependency-graph.update` to turn off the dependency graph updates.
+- `lint-repo` now fails on a `_redirects` rule that Cloudflare Pages can never apply: a source it cannot compile, a destination token it never replaces, or an exact rule that a pattern above it answers first.
 - Fix `lint-repo` reporting every bundled key missing from a `[tool.pytest]` section kept under `ini_options`, and asking for native keys pytest refuses beside that table.
 - Fix `lint-repo` advising to drop a bare `[tool.lychee] exclude` entry that no anchored form sits beside: it now names the anchored form to write instead.
 - Fix `lint-repo` skipping its PAT repository-scope check on every run: the probe of another repository of the same owner now runs.

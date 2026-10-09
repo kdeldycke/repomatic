@@ -24,15 +24,21 @@ a URL nobody visits. This module replicates the reference implementation so
 `lint-repo` can audit a committed file the way production will read it, before
 production reads it.
 
-Transcribed on 2026-08-10 from the engine itself, not from the documentation:
+Transcribed on 2026-08-10 from the engine itself, not from the documentation,
+and compared again on 2026-10-08 with
+[cloudflare/workers-sdk@6478d32](https://github.com/cloudflare/workers-sdk/commit/6478d32f66da0e95d9de79aa572bcacb23bd9a4b),
+run on the same inputs:
 
 - Parsing: ``packages/workers-shared/utils/configuration/parseRedirects.ts`` in
   [cloudflare/workers-sdk](https://github.com/cloudflare/workers-sdk), as
   bundled in wrangler 4.118 (the same code path Miniflare uses, and the same
   parser family the Pages asset server feeds on).
-- Matching: ``packages/workers-shared/asset-worker/src/utils/rules-engine.ts``.
+- Sorting into the two rule sets: ``constructRedirects`` in
+  ``packages/workers-shared/utils/configuration/constructConfiguration.ts``.
+- Matching: ``packages/workers-shared/asset-worker/src/utils/rules-engine.ts``,
+  called by ``packages/pages-shared/asset-server/handler.ts``.
 
-The three rules of the engine that the documentation does not state:
+The five rules of the engine that the documentation does not state:
 
 1. **A static rule is only free while it appears before the first dynamic
    rule.** The parser flips ``canCreateStaticRule`` to false permanently at the
@@ -47,6 +53,15 @@ The three rules of the engine that the documentation does not state:
    a splat to ``.*`` (may be empty), and the whole source to ``^...$``.
    ``/a/:b`` does not match ``/x/y/`` and ``/a/*`` matches ``/a/`` with an
    empty splat.
+4. **An exact rule is only probed first while it is free.** The exact rules
+   above the first dynamic one go to a map that the server reads before
+   anything else. An exact rule below that point joins the dynamic rules, in
+   file order: a pattern above it that matches the same path answers first,
+   and the exact rule never fires.
+5. **A source that cannot compile is dropped at run time.** A second ``*``, a
+   ``*`` beside ``:splat``, or a placeholder name used twice gives a regular
+   expression with a duplicate group. The parser keeps such a rule, and the
+   server discards it when the regular expression fails to build.
 """
 
 from __future__ import annotations
@@ -63,6 +78,10 @@ PERMITTED_STATUS_CODES = frozenset({200, 301, 302, 303, 307, 308})
 
 SPLAT_REGEX = re.compile(r"\*")
 PLACEHOLDER_REGEX = re.compile(r":[A-Za-z]\w*")
+
+# What a source captures, in the order the server replaces it in a destination.
+SOURCE_TOKEN_REGEX = re.compile(r"\*|:[A-Za-z]\w*")
+
 URL_REGEX = re.compile(r"^https://+(?P<host>[^/]+)/?(?P<path>.*)")
 HOST_WITH_PORT_REGEX = re.compile(r".*:\d+$")
 
@@ -91,6 +110,43 @@ class Rule:
         return bool(SPLAT_REGEX.search(self.source)) or bool(
             PLACEHOLDER_REGEX.search(self.source)
         )
+
+    @property
+    def compiles(self) -> bool:
+        """Whether the server can build the regular expression of the source.
+
+        It cannot when two groups take the same name: a second `*`, a `*`
+        beside `:splat`, or a placeholder name used twice. The parser keeps
+        such a rule, and the server then drops it without a word.
+        """
+        try:
+            rule_pattern(self.source)
+        except re.error:
+            return False
+        return True
+
+    @property
+    def unresolved(self) -> tuple[str, ...]:
+        """Destination tokens that no capture of the source replaces.
+
+        The server replaces `:name` in the destination for each group the
+        source captured, and `:splat` for a `*`. Any other `:name` stays in the
+        URL as literal text, and so does a `*`: the engine reports nothing, and
+        the visitor lands on an address that holds a colon and a word.
+
+        An exact source captures nothing, so its destination is literal text
+        from end to end and this answers an empty tuple for it: a colon in the
+        address of another site is ordinary there.
+        """
+        if not self.is_dynamic:
+            return ()
+        leftover = self.destination
+        for token in SOURCE_TOKEN_REGEX.findall(self.source):
+            leftover = leftover.replace(":splat" if token == "*" else token, "")
+        tokens = dict.fromkeys(PLACEHOLDER_REGEX.findall(leftover))
+        if "*" in self.source and "*" in self.destination:
+            tokens["*"] = None
+        return tuple(tokens)
 
 
 @dataclass(frozen=True)
@@ -242,6 +298,9 @@ def parse_redirects(text: str) -> ParseResult:
             result.invalid.append(Invalid(error or "", line, index + 1))
             continue
 
+        # The reference reads the status with JavaScript's `Number()`, which
+        # also takes `301.0` and `0x12d` for 301. This reads plain integers
+        # only, so it refuses those two spellings where the engine does not.
         try:
             status = int(str_status)
         except ValueError:
@@ -301,8 +360,14 @@ def misordered_statics(rules: list[Rule]) -> list[Rule]:
     holds, so this is the early warning: each rule returned here brings the
     file one line closer to the silent abort {func}`parse_redirects` reports as
     ``aborted_at_line``. The fix is always the same reorder, all exact rules
-    first, all pattern rules second, which is behaviour-preserving because the
-    asset server probes exact sources first regardless of file position.
+    first, all pattern rules second.
+
+    ```{caution}
+    The reorder changes what the site answers for each rule that
+    {func}`shadowed_statics` returns: such a rule is dead where it sits, and
+    it starts to fire once it moves above the patterns. Every other rule
+    answers the same before and after.
+    ```
     """
     first_dynamic = next(
         (index for index, rule in enumerate(rules) if rule.is_dynamic), None
@@ -331,7 +396,13 @@ def rule_pattern(source: str) -> re.Pattern[str]:
 
 
 def apply_rule(rule: Rule, path: str) -> str | None:
-    """Return the destination for ``path``, or None if the rule does not match."""
+    """Return the destination for ``path``, or None if the rule does not match.
+
+    A rule whose source cannot compile matches nothing: the server catches the
+    error and drops the rule. See {attr}`Rule.compiles`.
+    """
+    if not rule.compiles:
+        return None
     match = rule_pattern(rule.source).match(path)
     if match is None:
         return None
@@ -389,18 +460,43 @@ def discarded_rules(text: str, parsed: ParseResult) -> list[Rule]:
 def evaluate(rules: list[Rule], path: str) -> tuple[Rule, str] | None:
     """First-match evaluation over the kept rules, the way the asset server runs it.
 
-    The server splits exact sources into a hash map probed first, then walks
-    the dynamic rules in file order. The two passes below mirror that: an
-    exact rule wins over a pattern that also matches, wherever each sits in
-    the file, which is also what makes the statics-first reorder the lint
-    recommends behaviour-preserving.
+    The server reads a map of exact sources first, then walks the other rules
+    in file order and takes the first match. The map holds only the exact rules
+    above the first dynamic one. So one pass in file order gives the same
+    answer: every rule of the map sits above every rule of the walk.
+
+    ```{warning}
+    An exact rule does not win over a pattern "wherever it sits". Below the
+    first dynamic rule it is one more rule of the walk, and a pattern above it
+    that matches the same path answers first. {func}`shadowed_statics` lists
+    the exact rules that never fire for that reason.
+    ```
     """
     for rule in rules:
-        if not rule.is_dynamic and rule.source == path:
-            return rule, rule.destination
-    for rule in rules:
-        if rule.is_dynamic:
-            destination = apply_rule(rule, path)
-            if destination is not None:
-                return rule, destination
+        destination = (
+            apply_rule(rule, path)
+            if rule.is_dynamic
+            else (rule.destination if rule.source == path else None)
+        )
+        if destination is not None:
+            return rule, destination
     return None
+
+
+def shadowed_statics(rules: list[Rule]) -> list[tuple[Rule, Rule]]:
+    """Exact rules that never fire, each with the pattern that answers for it.
+
+    An exact rule below the first dynamic one is probed in file order with the
+    patterns (see {func}`evaluate`). When a pattern above it matches its source,
+    that pattern answers every request the exact rule was written for. Nothing
+    reports it: the request still redirects, to the destination of the pattern.
+
+    :param rules: The rules {func}`parse_redirects` kept.
+    :return: Pairs of the dead exact rule and the rule that fires in its place.
+    """
+    shadowed = []
+    for rule in misordered_statics(rules):
+        landing = evaluate(rules, rule.source)
+        if landing is not None and landing[0] is not rule:
+            shadowed.append((rule, landing[0]))
+    return shadowed

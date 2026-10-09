@@ -73,6 +73,7 @@ from .pages_redirects import (
     misordered_statics,
     parse_redirects,
     sample_path,
+    shadowed_statics,
 )
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
@@ -102,7 +103,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
     from typing import Any
 
-    from .pages_redirects import ParseResult
+    from .pages_redirects import ParseResult, Rule
 
 DOCS_URL_KEYS = ("documentation", "docs")
 """Keys in `[project.urls]` naming the published documentation site.
@@ -3512,6 +3513,31 @@ def _dead_url_report(text: str, parsed: ParseResult) -> str:
     return f" Lost from line {abandoned[0].line_number}: {'; '.join(verdicts)}{tail}."
 
 
+def _shadowed_report(rules: list[Rule]) -> str:
+    """Name the exact rules that never fire, and the pattern that answers for each.
+
+    An exact rule below the first dynamic one is probed in file order, after
+    every pattern above it. Where one of those patterns matches its source,
+    the exact rule is dead today, and moving it up is what makes it fire: the
+    reader must know that the reorder changes these answers, and only these.
+
+    :param rules: The rules {func}`~repomatic.pages_redirects.parse_redirects`
+        kept.
+    :return: A sentence to append to the failure, empty when no rule is dead.
+    """
+    shadowed = shadowed_statics(rules)
+    if not shadowed:
+        return ""
+    verdicts = [
+        f"{rule.source} (line {rule.line_number}) is answered by"
+        f" {winner.source} on line {winner.line_number}"
+        for rule, winner in shadowed[:MAX_REPORTED_DEAD_URLS]
+    ]
+    remainder = len(shadowed) - len(verdicts)
+    tail = f", and {remainder} more" if remainder > 0 else ""
+    return f" Dead where they sit: {'; '.join(verdicts)}{tail}."
+
+
 def _pages_redirects(ctx: LintContext) -> Iterator[CheckResult]:
     """Audit every committed `_redirects` file the way the Pages engine reads it.
 
@@ -3549,10 +3575,30 @@ def _pages_redirects(ctx: LintContext) -> Iterator[CheckResult]:
                 f"{path}: {len(misordered)} exact rule(s) sit below the first"
                 f" dynamic rule (line {misordered[0].line_number} on), each"
                 " burning a slot of the 100-rule dynamic budget instead of the"
-                " 2000-rule static one. Reordering exact rules first is"
-                " behaviour-preserving: the runtime probes exact sources ahead"
-                " of patterns wherever they sit in the file.",
+                " 2000-rule static one. Move them above it: the runtime reads"
+                " an exact rule ahead of every pattern only from there."
+                f"{_shadowed_report(parsed.rules)}",
             )
+        for rule in parsed.rules:
+            if not rule.compiles:
+                problems += 1
+                yield CheckResult(
+                    False,
+                    f"{path}:{rule.line_number}: the engine cannot compile the"
+                    f" source {rule.source}, and drops the rule at run time"
+                    " without a word. A source takes one `*`, never beside"
+                    " `:splat`, and each placeholder name once.",
+                )
+            elif rule.unresolved:
+                problems += 1
+                yield CheckResult(
+                    False,
+                    f"{path}:{rule.line_number}: the destination"
+                    f" {rule.destination} holds {', '.join(rule.unresolved)},"
+                    f" which no capture of the source {rule.source} replaces,"
+                    " so it reaches the visitor as literal text. Write a splat"
+                    " as `:splat` there, and a literal colon as `%3A`.",
+                )
         if not problems:
             yield CheckResult(
                 True,
@@ -3799,8 +3845,9 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         ),
         description=(
             "Fails when a committed `_redirects` file would lose rules to the"
-            " Cloudflare Pages engine's undocumented budget accounting, since a"
-            " dropped rule is silently dead in production"
+            " Cloudflare Pages engine's undocumented budget accounting, or holds"
+            " a rule that can never apply as written, since such a rule is"
+            " silently dead in production"
             " ([details](cloudflare.md#the-redirects-engine-as-it-actually-is))"
         ),
         applies=lambda ctx: bool(ctx.redirects_files),

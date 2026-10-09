@@ -18,8 +18,9 @@
 
 Every behaviour asserted here was transcribed from the reference
 implementation in `cloudflare/workers-sdk`, not from the documentation: the
-budget accounting, the trailing-slash literalism and the exact-before-pattern
-probing are precisely the parts the documentation does not state.
+budget accounting, the trailing-slash literalism, the order in which exact
+rules and patterns are probed, and the rules dropped at run time are precisely
+the parts the documentation does not state.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from repomatic.pages_redirects import (
     parse_redirects,
     rule_pattern,
     sample_path,
+    shadowed_statics,
 )
 
 
@@ -145,17 +147,105 @@ def test_placeholder_never_matches_a_slash_or_nothing():
     assert evaluate(parsed.rules, "/y/2010") is not None
 
 
-def test_exact_rules_probe_before_patterns_wherever_they_sit():
-    """The asset server hashes exact sources and probes them first.
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    (
+        pytest.param(
+            "/fruits/pear /pear 301\n/fruits/* /basket/:splat 301\n",
+            "/pear",
+            id="exact-above-the-pattern",
+        ),
+        pytest.param(
+            "/fruits/* /basket/:splat 301\n/fruits/pear /pear 301\n",
+            "/basket/pear",
+            id="exact-below-the-pattern",
+        ),
+    ),
+)
+def test_an_exact_rule_wins_only_above_the_first_dynamic_rule(text, expected):
+    """The server's map of exact sources holds the rules above the first pattern.
 
-    This is what makes the statics-first reorder the lint recommends
-    behaviour-preserving: a file where a pattern shadows a later exact rule
-    already resolved the exact one at runtime.
+    An exact rule below that point is probed in file order with the patterns,
+    so a pattern above it that matches the same path answers first. The
+    reference gives these two answers for these two files.
     """
-    parsed = parse_redirects("/a/* /pattern/:splat 301\n/a/b /exact 301\n")
-    match = evaluate(parsed.rules, "/a/b")
+    parsed = parse_redirects(text)
+    match = evaluate(parsed.rules, "/fruits/pear")
     assert match is not None
-    assert match[1] == "/exact"
+    assert match[1] == expected
+
+
+def test_shadowed_statics_pairs_each_dead_rule_with_the_pattern_that_answers():
+    """A late exact rule that a pattern above it matches never fires."""
+    parsed = parse_redirects(
+        "/herbs/mint /mint 301\n"
+        "/fruits/* /basket/:splat 301\n"
+        "/fruits/pear /pear 301\n"  # Dead: the splat above answers first.
+        "/roots/beet /beet 301\n"  # Late, but no pattern matches it.
+    )
+    assert [
+        (rule.source, winner.source) for rule, winner in shadowed_statics(parsed.rules)
+    ] == [("/fruits/pear", "/fruits/*")]
+    # A late exact rule that nothing shadows still answers for itself.
+    late = evaluate(parsed.rules, "/roots/beet")
+    assert late is not None
+    assert late[1] == "/beet"
+
+
+@pytest.mark.parametrize(
+    ("source", "request_path"),
+    (
+        pytest.param("/fruits/*/crate/*", "/fruits/pear/crate/3", id="two-splats"),
+        pytest.param(
+            "/fruits/:splat/*", "/fruits/pear/3", id="splat-beside-splat-name"
+        ),
+        pytest.param("/:kind/:kind", "/pear/pear", id="placeholder-name-twice"),
+    ),
+)
+def test_a_source_that_cannot_compile_is_dropped_at_run_time(source, request_path):
+    """The parser keeps the rule, then the server fails to build its pattern.
+
+    The reference catches that error and drops the rule alone, so the rules
+    around it keep working and nothing is reported.
+    """
+    parsed = parse_redirects(f"{source} /basket 301\n/herbs/* /garden 301\n")
+    broken, working = parsed.rules
+    assert not parsed.invalid
+    assert not broken.compiles
+    assert working.compiles
+    assert apply_rule(broken, request_path) is None
+    assert evaluate(parsed.rules, request_path) is None
+    landing = evaluate(parsed.rules, "/herbs/mint")
+    assert landing is not None
+    assert landing[1] == "/garden"
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    (
+        pytest.param("/tree/:kind /orchard/:kind 301", (), id="captured-name"),
+        pytest.param("/tree/* /orchard/:splat 301", (), id="captured-splat"),
+        pytest.param(
+            "/tree/:kind /orchard/:variety 301", (":variety",), id="name-never-captured"
+        ),
+        pytest.param(
+            "/tree/:kind /orchard/:splat 301",
+            (":splat",),
+            id="splat-name-without-splat",
+        ),
+        pytest.param("/tree/* /orchard/* 301", ("*",), id="literal-star"),
+        # The server replaces `:kind` inside `:kindness` too, so nothing stays.
+        pytest.param("/tree/:kind /orchard/:kindness 301", (), id="name-as-a-prefix"),
+        # An exact source captures nothing: its destination is literal text.
+        pytest.param(
+            "/guide https://example.org/wiki/Help:Contents 301", (), id="exact-source"
+        ),
+    ),
+)
+def test_unresolved_names_what_stays_literal_in_a_destination(line, expected):
+    """The engine reports nothing for these: the visitor gets `:name` in the URL."""
+    (rule,) = parse_redirects(line + "\n").rules
+    assert rule.unresolved == expected
 
 
 def test_budget_constant_matches_the_reference():

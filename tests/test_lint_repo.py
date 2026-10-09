@@ -1105,6 +1105,81 @@ def test_pages_redirects_caps_the_urls_it_names(tmp_path, monkeypatch):
     assert "and 16 more rule(s) below them" in abort
 
 
+def test_pages_redirects_names_the_exact_rules_a_pattern_shadows(tmp_path, monkeypatch):
+    """An exact rule below a pattern that matches it is dead, and the lint says so.
+
+    Moving it above the patterns is the fix, and it is also a change: the rule
+    starts to fire. The failure names each such rule with the pattern that
+    answers in its place, so the reader knows which answers the reorder moves.
+    """
+    (tmp_path / "_redirects").write_text(
+        "/fruits/* /basket/:splat 301\n/fruits/pear /pear 301\n/roots/beet /beet 301\n",
+        encoding="UTF-8",
+    )
+    ctx = _lint_context_in(tmp_path, monkeypatch)
+    failures = [
+        result.message
+        for result in lint_repo._pages_redirects(ctx)
+        if result.passed is False
+    ]
+    assert len(failures) == 1
+    assert "2 exact rule(s) sit below" in failures[0]
+    assert "/fruits/pear (line 2) is answered by /fruits/* on line 1" in failures[0]
+    # The other late rule still fires: no pattern above it matches its source.
+    assert "/roots/beet" not in failures[0]
+
+
+@pytest.mark.parametrize(
+    ("line", "fragment"),
+    (
+        pytest.param(
+            "/fruits/*/crate/* /basket 301",
+            "cannot compile the source /fruits/*/crate/*",
+            id="two-splats",
+        ),
+        pytest.param(
+            "/tree/:kind /orchard/:variety 301",
+            "holds :variety",
+            id="name-never-captured",
+        ),
+        pytest.param("/tree/* /orchard/* 301", "holds *", id="literal-star"),
+    ),
+)
+def test_pages_redirects_reports_rules_that_cannot_work(
+    tmp_path, monkeypatch, line, fragment
+):
+    """Rules the parser keeps and production still breaks, each with its line.
+
+    The engine reports none of them: it drops a source it cannot compile at
+    run time, and a destination token it does not replace reaches the visitor
+    as literal text.
+    """
+    (tmp_path / "_redirects").write_text(
+        f"/herbs /garden 301\n{line}\n", encoding="UTF-8"
+    )
+    ctx = _lint_context_in(tmp_path, monkeypatch)
+    failures = [
+        result.message
+        for result in lint_repo._pages_redirects(ctx)
+        if result.passed is False
+    ]
+    assert len(failures) == 1
+    assert failures[0].startswith("_redirects:2:")
+    assert fragment in failures[0]
+
+
+def test_pages_redirects_accepts_a_literal_colon_in_an_exact_rule(
+    tmp_path, monkeypatch
+):
+    """An exact source captures nothing, so a colon in its destination is text."""
+    (tmp_path / "_redirects").write_text(
+        "/guide https://example.org/wiki/Help:Contents 301\n", encoding="UTF-8"
+    )
+    ctx = _lint_context_in(tmp_path, monkeypatch)
+    results = list(lint_repo._pages_redirects(ctx))
+    assert [result.passed for result in results] == [True]
+
+
 def test_pages_redirects_check_is_fatal_and_gated_on_the_file():
     """The roster entry must fail the run: dropped rules are already broken."""
     check = next(check for check in REPO_CHECKS if check.name == "pages-redirects")
