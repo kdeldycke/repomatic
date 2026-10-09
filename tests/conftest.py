@@ -295,6 +295,25 @@ def _no_real_gh_subprocess():
 
 
 @pytest.fixture(autouse=True)
+def _no_status_probe():
+    """Keep a failed `gh` call from probing githubstatus.com.
+
+    {func}`_no_real_gh_subprocess` fails every unmocked `gh` call, and the
+    failure path of `run_gh_command` annotates its error with GitHub's live
+    status. Without this stub, each such test sends a request to a live host,
+    waits on its timeout when offline, and asserts on a message that gains a
+    sentence during an incident.
+
+    A test of the annotation patches
+    `repomatic.github.status.status_annotation` itself, which shadows this stub
+    for its duration. A test of the probe calls it by its imported name, which
+    this patch does not reach.
+    """
+    with patch("repomatic.github.status.status_annotation", return_value=""):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _stub_gh_executable():
     """Keep the suite off the network when resolving the `gh` binary.
 

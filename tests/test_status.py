@@ -32,6 +32,7 @@ from repomatic.github.status import (
     GitHubStatus,
     get_github_status,
     status_annotation,
+    with_status_annotation,
 )
 from tests.conftest import FakeResponse
 
@@ -140,3 +141,15 @@ def test_status_annotation_populated_when_incident():
         assert "major" in annotation
         assert "Partial System Outage" in annotation
         assert "githubstatus.com" in annotation
+
+
+def test_suite_never_reaches_the_probe_by_default():
+    """A caller of `with_status_annotation` sends no request from the suite.
+
+    The `_no_status_probe` fixture of `tests/conftest.py` holds this, so a test
+    module needs no patch of its own to keep a failed `gh` call off
+    githubstatus.com.
+    """
+    with patch("repomatic.http.urlopen", side_effect=URLError("offline")) as urlopen:
+        assert with_status_annotation("gh failed") == "gh failed"
+    urlopen.assert_not_called()

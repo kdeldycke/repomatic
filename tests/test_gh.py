@@ -37,20 +37,6 @@ from repomatic.github.gh import (
 
 
 @pytest.fixture(autouse=True)
-def _no_status_probe():
-    """Neutralize the githubstatus.com probe by default.
-
-    Tests that exercise the incident annotation override this fixture by
-    patching ``repomatic.github.status.status_annotation`` themselves.
-    """
-    with patch(
-        "repomatic.github.status.status_annotation",
-        return_value="",
-    ):
-        yield
-
-
-@pytest.fixture(autouse=True)
 def _no_transient_retry():
     """Disable the same-token transient-401 retry loop by default.
 
