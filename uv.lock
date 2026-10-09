@@ -465,7 +465,7 @@ wheels = [
 
 [[package]]
 name = "click-extra"
-version = "9.3.5"
+version = "9.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boltons" },
@@ -478,9 +478,9 @@ dependencies = [
     { name = "wcmatch" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8e/c5/a856a174f091d796d6ad21ac531f20192485afcb321c35c7d260c31fdd3f/click_extra-9.3.5.tar.gz", hash = "sha256:92c90e7307867c56713a30230272e24d31dc52439dac76d555e68c6da2793d64", size = 1701948, upload-time = "2026-09-28T07:41:14.092Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c1/50/b1461452bb7dcdf9d0b18a10888ea26ce84f06d38663f79c8268ab74414e/click_extra-9.4.0.tar.gz", hash = "sha256:35f2fe0fdb863663dde284145b1e8c86b6533b1b62ac81fdd7126a6619e3754c", size = 1712374, upload-time = "2026-10-01T14:26:15.755Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c5/3f/8e39d5ffe830eb20cee391e7682ffb2fb90fe5197b6b88276cb4c6ac8732/click_extra-9.3.5-py3-none-any.whl", hash = "sha256:693b42bb45228adb3dafed9d603fcf7b604f4a307169da7cde097df7d92db865", size = 652050, upload-time = "2026-09-28T07:41:11.858Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/c6/77fc3c9cefb1b95e800a2518280353c5cf5e8656618fb57b0919df83fd3c/click_extra-9.4.0-py3-none-any.whl", hash = "sha256:650beea6b2c4d7195108715df905bcf0e1a29462158ec4ec5bb7da158fcb4997", size = 655532, upload-time = "2026-10-01T14:26:13.473Z" },
 ]
 
 [package.optional-dependencies]
@@ -1643,7 +1643,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 docs = [
-    { name = "click-extra", extras = ["sphinx"], marker = "python_full_version >= '3.14'" },
+    { name = "click-extra", extras = ["sphinx"], marker = "python_full_version >= '3.14'", specifier = ">=9.4" },
     { name = "coverage", extras = ["toml"], marker = "python_full_version >= '3.14'", specifier = ">=7.11" },
     { name = "furo", marker = "python_full_version >= '3.14'", specifier = ">=2025.9.25" },
     { name = "myst-parser", marker = "python_full_version >= '3.14'", specifier = ">=5.1" },

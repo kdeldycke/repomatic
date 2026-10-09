@@ -20,10 +20,6 @@ The following documentation artifacts must stay in sync with the code in this re
 - **Binary download URLs and `Specific version` CLI pin** in `docs/install.md`: both version-pinned, both ratcheted forward to the new release automatically by `prepare-release`'s `freeze_install_download_urls` and `freeze_install_cli_version`.
 - **Plugin marketplace pin** in `.claude-plugin/marketplace.json`, and the plugin manifest version in `.claude/.claude-plugin/plugin.json`: `prepare-release`'s `freeze_marketplace_pin` writes both the entry's `ref` and its `version` on the release commit. `freeze_plugin_manifest_version` stamps the same version into the manifest, which is the string the Claude Code CLI compares to detect an update (see [§ How the pin moves](claude-code-plugin.md#how-the-pin-moves)). Then `unfreeze_marketplace_ref` returns the `ref` to the default branch and leaves both versions on the release. It is deliberately not a `[[tool.bumpversion.files]]` entry: that would rewrite the version on the post-release bump too, advertising a `vX.Y.Z.devN` release that never exists.
 
-```{todo}
-Replace the `UnresolvedAnchors` handler in `docs/conf.py` with the `click_extra_fail_on_warnings = ["myst.xref_missing"]` line, once a click-extra release ships that option and clears the one-week `minimum-release-age` cooldown. Both fail the build on an unresolved fragment link, so the swap changes no behavior.
-```
-
 ## Tool runner: flags vs config
 
 When adding or modifying a tool in `TOOL_REGISTRY`, choose the right mechanism for each default based on whether downstream repos should be able to override it:

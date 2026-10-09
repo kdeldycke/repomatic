@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import re
 from datetime import date, datetime, timezone
@@ -94,16 +93,23 @@ myst_enable_extensions = [
 myst_fence_as_directive = ["mermaid"]
 
 # Register every heading as a resolvable cross-reference target, so the build
-# resolves each authored `[text](#anchor)` and `[text](page.md#anchor)` link,
-# and fails on one that lands nowhere: see `UnresolvedAnchors` below. The slug
-# function is pinned to docutils' `make_id`, so an authored anchor is the same
-# string as the section ID the page publishes (`cache-dir` for `cache.dir`).
-# GitHub, `lychee` and myst-parser's own default slug function write `cachedir`
-# instead: `[tool.lychee]` says why it skips these links. `make_id` leaves
-# nothing of a changelog release heading: `ReleaseAnchors` below gives each one
-# an anchor made from its version.
+# resolves each authored `[text](#anchor)` and `[text](page.md#anchor)` link.
+# The slug function is pinned to docutils' `make_id`, so an authored anchor is
+# the same string as the section ID the page publishes (`cache-dir` for
+# `cache.dir`). GitHub, `lychee` and myst-parser's own default slug function
+# write `cachedir` instead: `[tool.lychee]` says why it skips these links.
+# `make_id` leaves nothing of a changelog release heading: `ReleaseAnchors`
+# below gives each one an anchor made from its version.
 myst_heading_anchors = 6
 myst_heading_slug_func = "docutils.nodes.make_id"
+
+# Fail the build on a fragment link that lands nowhere. myst-parser resolves
+# each one against what the build produced: heading slugs, `(target)=` labels,
+# and the sections directives like `{click:config}` generate. It logs a
+# `myst.xref_missing` warning for a link it cannot place, and ships the link as
+# written anyway. Sphinx exits 0 on warnings, and this build carries too many
+# unrelated ones for `--fail-on-warning`.
+click_extra_fail_on_warnings = ["myst.xref_missing"]
 
 mermaid_d3_zoom = True
 
@@ -502,56 +508,14 @@ class ReleaseAnchors(Transform):
                 slugs[anchor] = (line, anchor, title)
 
 
-# XXX: swap for click-extra's option. See the `{todo}` in docs/upstream-development.md.
-class UnresolvedAnchors(logging.Handler):
-    """Record whether myst-parser left a fragment link unresolved.
-
-    myst-parser resolves every `[text](#anchor)` and `[text](page.md#anchor)`
-    link against what the build produced: heading slugs, `(target)=` labels,
-    and the sections directives like `{click:config}` generate. It logs a
-    `myst.xref_missing` warning for a link it cannot place, and ships the link
-    as written anyway. Sphinx exits 0 on warnings, and this build carries too
-    many unrelated ones for `--fail-on-warning`, so this handler picks out
-    that one type and `setup` fails the build on it.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(level=logging.WARNING)
-        self.seen = False
-
-    def emit(self, record: logging.LogRecord) -> None:
-        if (getattr(record, "type", ""), getattr(record, "subtype", "")) == (
-            "myst",
-            "xref_missing",
-        ):
-            self.seen = True
-
-
 def setup(app):
     """Sphinx extension entry point.
 
     Swaps sphinxcontrib-mermaid's ``autoclasstree`` directive for
     :class:`NoZoomClassDiagram`: conf.py is loaded as the last extension,
     so this registration wins. Anchors each changelog release on its version
-    with :class:`ReleaseAnchors`. Also fails the build on an unresolved fragment
-    link, as recorded by :class:`UnresolvedAnchors`.
+    with :class:`ReleaseAnchors`.
     """
     app.add_directive("autoclasstree", NoZoomClassDiagram, override=True)
     app.add_transform(ReleaseAnchors)
     app.connect("build-finished", prune_build_artifacts)
-
-    unresolved = UnresolvedAnchors()
-    logging.getLogger("sphinx").addHandler(unresolved)
-
-    def fail_on_unresolved_anchors(app, exception):
-        """Turn a recorded `myst.xref_missing` warning into a failed build."""
-        if exception is None and unresolved.seen:
-            # A stdlib logger under Sphinx's namespace, not `sphinx.util.logging`:
-            # importing `sphinx` makes mypy, run at Python 3.10, parse Sphinx's
-            # 3.12-only syntax.
-            logging.getLogger("sphinx.conf").error(
-                "Unresolved fragment links: see the myst.xref_missing warnings."
-            )
-            app.statuscode = 1
-
-    app.connect("build-finished", fail_on_unresolved_anchors)
