@@ -82,28 +82,32 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  # arrow parses the RFC 3339 timestamps uv emits, which Python 3.10's
-  # fromisoformat rejects, and 1.3 carries the .humanize() rendering relative
-  # times in sync-uv-lock tables and the unsubscribe report.
+  # arrow 1.0 stopped .humanize() rounding up early: 0.17 says "a minute ago" for
+  # 45 seconds. It phrases the relative times in sync-uv-lock tables (humanize.py)
+  # and the unsubscribe report.
   # XXX Switch back to whenever once it grows a humanizer:
   # https://github.com/ariebovenberg/whenever/discussions/277
-  "arrow>=1.3",
+  "arrow>=1",
   # Provides enum.StrEnum for Python < 3.11; all versions expose the class.
   "backports-strenum>=1; python_version<'3.11'",
-  # boltons 25.0.0 dropped Python 3.9, matching our requires-python >= 3.10.
-  "boltons>=25",
-  # click-extra 9.3 split click_extra.screenshot: docs/docs_update.py imports
-  # AUTO_HOLD from click_extra.screenshot_svg and CaptureBackground from
-  # click_extra.screenshot_presets, the modules that release introduced.
+  # boltons 19 is the first release whose iterutils imports on Python 3.10: 18.x
+  # still takes Mapping from collections. github/matrix.py and mailmap.py use its
+  # FrozenDict and unique().
+  "boltons>=19",
+  # click-extra 9.3 added region_markers() to click_extra.blocks and the visible=
+  # argument of OperationTrail. release/binaries_page.py imports the first and
+  # sync_ops.py passes the second: on 9.2 no command starts.
   "click-extra>=9.3",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
   # under patched subprocess in tests and triggered a CPython 3.10.x bug.
   "extra-platforms>=12.0.2",
-  # canonicalize_name() available since packaging 16; Version() since 17.
-  "packaging>=17",
-  # py-walk 0.3.x introduced get_parser_from_file(); replaced gitignore-parser
-  # (mherrmann/gitignore_parser#43).
+  # packaging 20 added the major and minor aliases of Version, which
+  # metadata/project.py compares to decide whether a version bump is allowed.
+  "packaging>=20",
+  # py-walk 0.3.1 is the first release that keeps __init__.py and __main__.py: on
+  # 0.2.0 its gitignore parser reports them ignored, and file_inventory.py drops
+  # them from the Python file list.
   # XXX Replace py-walk with wcmatch once the latter supports gitignore files:
   # https://github.com/facelessuser/wcmatch/issues/226
   "py-walk>=0.3.1",
@@ -122,9 +126,10 @@ dependencies = [
   # which NativeFormat.serialize (tooling/tool_registry.py) relies on to turn a
   # [tool.X] section into a native config file.
   "tomlrt>=2.2.4",
-  # vt-py is the official VirusTotal Python client (uses aiohttp internally).
-  # Used by the scan-virustotal CLI command to upload release binaries.
-  "vt-py>=0.18",
+  # vt-py 0.18.3 fixed the RuntimeError its synchronous client raised outside an
+  # event loop. release/virustotal.py opens vt.Client that way for the
+  # scan-virustotal command.
+  "vt-py>=0.18.3",
   # wcmatch 10.0 fixed globbing inconsistencies with symlinks; our metadata
   # globbing uses iglob() with FOLLOW for symlink-aware file discovery.
   "wcmatch>=10",
