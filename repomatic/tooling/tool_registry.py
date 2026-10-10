@@ -1694,7 +1694,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "mypy": ToolSpec(
         name="mypy",
         default_paths="python_files",
-        version="2.3.1",
+        version="2.4.0",
         source_url="https://github.com/python/mypy",
         config_docs_url="https://mypy.readthedocs.io/en/stable/config_file.html",
         cli_docs_url="https://mypy.readthedocs.io/en/stable/command_line.html",
@@ -1822,7 +1822,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "pyproject-fmt": ToolSpec(
         name="pyproject-fmt",
         default_paths="pyproject_files",
-        version="2.29.4",
+        version="2.30.0",
         source_url="https://github.com/tox-dev/pyproject-fmt",
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         cli_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
@@ -1851,7 +1851,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.16.9",
+        version="0.16.10",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
