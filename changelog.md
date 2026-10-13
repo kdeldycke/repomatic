@@ -1,9 +1,6 @@
 # Changelog
 
-## [`7.18.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.17.1...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`7.18.0` (2026-10-13)](https://github.com/kdeldycke/repomatic/compare/v7.17.1...v7.18.0)
 
 - **Breaking:** Remove the `lint-anchors` command and the Docs workflow step running it. A Sphinx build reports the same broken fragment links as `myst.xref_missing` warnings.
 - **Breaking:** `nuitka_matrix` replaces the `module_path` and `nuitka_python_flags` keys with `main_entry_point`, the value of Nuitka's `--main-entry-point`. A workflow reading either key needs the new one.
