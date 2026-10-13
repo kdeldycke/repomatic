@@ -1,9 +1,11 @@
 # Changelog
 
-## [`7.18.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.18.0...main)
+## [`7.18.2.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v7.18.1...main)
 
 > [!WARNING]
 > This version is **not released yet** and is under active development.
+
+## [`7.18.1` (2026-10-13)](https://github.com/kdeldycke/repomatic/compare/v7.18.0...v7.18.1)
 
 - The setup guide issue now stays open while `REPOMATIC_PAT` also has access to another repository of its owner, and the token step names it.
 - `lint-repo` now probes the Actions settings of the owner's 10 most recently pushed repositories to find such a token, instead of one repository's push permission.
