@@ -1209,23 +1209,23 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "456f9fe7aa6e7c1597879f5e951d7de2fab261a9ca05f16f324f896c806c55db",
+        ): "2ac5e37b3236b3c07dec5cdf1527acf143aec4674a6089b0bf424d021b35e099",
         (
             LINUX,
             X86_64,
-        ): "aca6b5d546307092b8d0a8e0a89dd80f9da51f2f7617c5e45c5607c1684ffbf2",
+        ): "93c301fd4120ff076e2cc2a6d6a61cab4a4bdb81899287c0938b452e56d1f454",
         (
             MACOS,
             AARCH64,
-        ): "844d4121fb47a95604aa5566843bb9e3d6078040b3c8f22367709f563038f2c5",
+        ): "316d50a32c3726a80ab39c6d12141b70080498973c5e8a9b068b12cde78b10c1",
         (
             MACOS,
             X86_64,
-        ): "7cc75e42fff1e3b66928de325b3ea1ec7e23ce35ffaa3561fdb0ede8e7275f6f",
+        ): "f3451079971633a7f769fb958fe06b0d64b5f1dc46df0854aa1ddb9a6f4031d6",
         (
             WINDOWS,
             X86_64,
-        ): "b59f149d84e86aab535d52db029fa8d3ac5ecba9ae5c7f19cf07acb5aa0caaaf",
+        ): "518f759fba43205f17a717656054c1d25bc883455a6296989e9d021c6edb7c59",
     },
 }
 """Tool name to platform-keyed SHA-256 hex digest mapping.
@@ -1245,7 +1245,7 @@ VERSIONS: dict[str, str] = {
     "lychee": "0.24.2",
     "oxipng": "10.2.1",
     "shfmt": "3.14.1",
-    "typos": "1.50.3",
+    "typos": "1.51.1",
 }
 """Tool name to the version each checksum set was computed for.
 
@@ -1873,7 +1873,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "pyproject-fmt": ToolSpec(
         name="pyproject-fmt",
         default_paths="pyproject_files",
-        version="2.30.1",
+        version="2.30.2",
         source_url="https://github.com/tox-dev/pyproject-fmt",
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         cli_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
@@ -1902,7 +1902,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.16.10",
+        version="0.17.0",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
@@ -1983,7 +1983,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "typos": ToolSpec(
         name="typos",
-        version="1.50.3",
+        version="1.51.1",
         source_url="https://github.com/crate-ci/typos",
         config_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
         cli_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
