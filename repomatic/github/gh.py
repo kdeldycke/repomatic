@@ -31,7 +31,7 @@ the **same** token after a short back-off, catching transient flaps that
 clear on their own.  A `Bad credentials` 401 skips that wait: an expired
 or revoked PAT never recovers on a retry.  Either then falls back to
 `GITHUB_TOKEN` if available and different.  When every retry path is
-exhausted, the raised `RuntimeError` is annotated with the current
+exhausted, the raised {class}`GhCommandError` is annotated with the current
 [githubstatus.com](https://www.githubstatus.com) summary so operators
 are not sent chasing PAT scopes during an upstream incident.
 ```
@@ -42,8 +42,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
-from functools import lru_cache
+from functools import cache
 from subprocess import run
 
 from click_extra import ClickException
@@ -54,6 +55,9 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping, Sequence
     from typing import Any
+
+_HTTP_STATUS_RE = re.compile(r"HTTP (\d{3})")
+"""The HTTP status `gh api` writes into its error output, like `HTTP 404`."""
 
 _AUTH_FALLBACK_MARKERS = ("Bad credentials", "Requires authentication")
 """Stderr substrings that mean: the primary token's auth context was
@@ -112,6 +116,48 @@ throttled token is not a wrong one, and swapping credentials against an
 abuse-detection refusal would only spread the burst across two identities."""
 
 
+class GhCommandError(RuntimeError):
+    """A `gh` command that still failed after every retry.
+
+    The message is the command's error output, with the
+    [githubstatus.com](https://www.githubstatus.com) annotation when an incident
+    is active. The attributes keep what a caller branches on, so no caller has
+    to search the message for an HTTP status.
+    """
+
+    def __init__(
+        self, message: str, *, stdout: str = "", stderr: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.stdout = stdout
+        """What the command wrote to its standard output before it failed.
+
+        `gh api graphql` writes the partial `data` here when a query fails
+        only in part, see {func}`gh_graphql`.
+        """
+        self.stderr = message if stderr is None else stderr
+        """The command's standard error, without the status annotation.
+
+        Defaults to *message*, which is the error output when no annotation
+        was added to it.
+        """
+        match = _HTTP_STATUS_RE.search(self.stderr)
+        self.status: int | None = int(match[1]) if match else None
+        """The HTTP status of the failed API call.
+
+        `None` when the error output names none: a network error, a `gh`
+        usage error.
+        """
+
+
+class GhOutputError(RuntimeError):
+    """A `gh` command that ran, but printed something other than the JSON asked for.
+
+    Kept apart from {class}`GhCommandError`: a caller may treat a command that
+    could not run as fatal and an unreadable answer as a soft miss.
+    """
+
+
 def _matched_marker(stderr: str, markers: tuple[str, ...]) -> str | None:
     """Return the first *markers* entry present in *stderr*.
 
@@ -127,7 +173,7 @@ def _matched_marker(stderr: str, markers: tuple[str, ...]) -> str | None:
     return next((m for m in markers if m in stderr), None)
 
 
-@lru_cache(maxsize=1)
+@cache
 def gh_executable() -> str:
     """Resolve the `gh` binary every call in this package shells out to.
 
@@ -235,13 +281,13 @@ def run_gh_command(args: list[str]) -> str:
     then retried with `GITHUB_TOKEN` if available and different, letting
     CI jobs degrade gracefully to the standard Actions token instead of
     failing outright on a stale PAT.  When every retry path is exhausted,
-    the raised `RuntimeError` carries a
+    the raised {class}`GhCommandError` carries a
     [githubstatus.com](https://www.githubstatus.com) annotation when an
     incident is active.
 
     :param args: Command arguments to pass to `gh`.
     :return: The stdout output from the command.
-    :raises RuntimeError: If the command fails (after retries and fallback,
+    :raises GhCommandError: If the command fails (after retries and fallback,
         if attempted).
     """
     cmd = [gh_executable(), *args]
@@ -300,7 +346,11 @@ def run_gh_command(args: list[str]) -> str:
             logging.warning("GITHUB_TOKEN fallback also failed.")
 
         logging.debug(f"gh command failed: {stderr}")
-        raise RuntimeError(with_status_annotation(stderr, sep="\n"))
+        raise GhCommandError(
+            with_status_annotation(stderr, sep="\n"),
+            stdout=process.stdout,
+            stderr=stderr,
+        )
 
     return process.stdout
 
@@ -329,61 +379,118 @@ def parse_create_output(output: str, kind: str) -> tuple[int, str]:
     return int(tail), url
 
 
-def gh_api_json(args: Sequence[str], *, strict: bool = False) -> Any | None:
-    """Run a `gh` command expected to emit JSON, and parse it.
+def gh_json(args: Sequence[str], *, soft: bool = False) -> Any | None:
+    """Run a `gh` command that prints JSON, and return the parsed value.
 
-    The two ways a JSON-producing `gh` call can fail are indistinguishable to a
-    caller that just wants the payload: the command may not run at all (network,
-    auth, a `404` on an endpoint the repository has not enabled) or it may return
-    something that is not JSON. Both collapse to `None` here, so a caller reports
-    one "could not read it" outcome instead of two it cannot act on differently.
-
-    Reserved for calls whose failure is a *tolerable* outcome, which is what
-    every {mod}`repomatic.lint_repo` check wants: a probe that cannot run reports
-    itself as skipped rather than failing the lint. A caller for whom a failed
-    *command* is fatal while unparsable *output* stays a soft miss passes
-    *strict* (`ci-status` reads runs this way); one treating every failure as
-    fatal keeps using {func}`run_gh_command` and handles `RuntimeError` itself.
+    The one entry point for every `gh` call whose output is JSON: an API read
+    (`gh api`) as well as a JSON listing (`gh release view --json`).
 
     :param args: Command arguments to pass to `gh`.
-    :param strict: Re-raise the `RuntimeError` of a command that could not run,
-        instead of collapsing it to `None`.
-    :return: The parsed JSON payload, or `None` when the command failed (unless
-        *strict*) or its output did not parse.
+    :param soft: Return `None` when the command fails or prints something that
+        is not JSON, and log the cause at debug level. A caller sets it when a
+        failed read only means "nothing to report", as a lint probe does.
+    :return: The parsed JSON value, or `None` on a failure when *soft* is set.
+    :raises GhCommandError: When the command fails and *soft* is not set.
+    :raises GhOutputError: When the output is not JSON and *soft* is not set.
     """
     try:
         output = run_gh_command(list(args))
     except RuntimeError as error:
-        if strict:
+        if not soft:
             raise
         logging.debug(f"gh {' '.join(args)} failed: {error}")
         return None
     try:
         return json.loads(output)
     except json.JSONDecodeError as error:
-        logging.debug(f"gh {' '.join(args)} returned unparsable JSON: {error}")
+        msg = f"gh {' '.join(args)} returned unparsable JSON: {error}"
+        if not soft:
+            raise GhOutputError(msg) from error
+        logging.debug(msg)
         return None
 
 
-def gh_graphql(query: str, **variables: str) -> Any:
-    """Run a one-shot GraphQL query through `gh`, and return its `data` envelope.
+def gh_api_json(args: Sequence[str], *, strict: bool = False) -> Any | None:
+    """Run a `gh` command expected to emit JSON, and parse it.
 
-    The paginated sibling of {func}`iter_graphql_nodes`, for the queries that
-    read a handful of fields off a single object rather than walking a
-    connection. The query travels as a raw field, since `--field` reads a value
-    looking like a number or a boolean as one, which would corrupt a query
-    string that happens to start with a digit.
+    A failed command and an unparsable output both read as `None`, so a caller
+    reports one "could not read it" outcome instead of two it cannot act on
+    differently. With *strict*, a failed command raises instead, while an
+    unparsable output stays a soft miss (`ci-status` reads runs this way).
+
+    A thin layer over {func}`gh_json`, which new code calls directly.
+
+    :param args: Command arguments to pass to `gh`.
+    :param strict: Re-raise the {class}`GhCommandError` of a failed command,
+        instead of returning `None`.
+    :return: The parsed JSON payload, or `None` when the command failed (unless
+        *strict*) or its output did not parse.
+    """
+    if not strict:
+        return gh_json(args, soft=True)
+    try:
+        return gh_json(args)
+    except GhOutputError as error:
+        logging.debug(str(error))
+        return None
+
+
+def _graphql_args(query: str, variables: Mapping[str, str | int | bool]) -> list[str]:
+    """Build the `gh api graphql` arguments for *query* and its *variables*.
+
+    `--field` reads a value that looks like a number, a boolean or `null` as
+    that type. So a string variable travels as `--raw-field`: a repository named
+    `2048` stays the string a `String!` variable expects. An integer or a
+    boolean travels as `--field`, which keeps its GraphQL type. The query is a
+    string too, and travels the same way.
 
     :param query: The GraphQL query string.
-    :param variables: Query variables, all passed as strings.
-    :return: The response's `data` object, unwrapped.
-    :raises RuntimeError: When the `gh` invocation fails
-        (see {func}`run_gh_command`).
+    :param variables: Query variables, by name.
+    :return: The arguments to pass to {func}`run_gh_command`.
     """
     args = ["api", "graphql", "--raw-field", f"query={query}"]
     for name, value in variables.items():
-        args.extend(["--field", f"{name}={value}"])
-    return json.loads(run_gh_command(args))["data"]
+        flag = "--raw-field" if isinstance(value, str) else "--field"
+        args.extend([flag, f"{name}={value}"])
+    return args
+
+
+def gh_graphql(
+    query: str, *, partial: bool = False, **variables: str | int | bool
+) -> Any:
+    """Run a one-shot GraphQL query through `gh`, and return its `data` envelope.
+
+    The one-shot sibling of {func}`iter_graphql_nodes`, for the queries that
+    read a handful of fields off a single object rather than walking a
+    connection.
+
+    :param query: The GraphQL query string.
+    :param partial: Accept a partial answer. GitHub answers a query that fails
+        only in part with the `data` it could resolve, beside its `errors`, and
+        `gh` then exits non-zero. With *partial*, that `data` is returned when
+        the failed command printed one: the fields that failed read as `null`.
+    :param variables: Query variables. See {func}`_graphql_args` for how each
+        type travels.
+    :return: The response's `data` object, unwrapped.
+    :raises GhCommandError: When the `gh` invocation fails (see
+        {func}`run_gh_command`), unless *partial* is set and the output still
+        holds a `data` object.
+    """
+    args = _graphql_args(query, variables)
+    try:
+        output = run_gh_command(args)
+    except GhCommandError as error:
+        if not partial:
+            raise
+        try:
+            data = json.loads(error.stdout).get("data")
+        except (json.JSONDecodeError, AttributeError):
+            data = None
+        if not isinstance(data, dict):
+            raise
+        logging.debug(f"GraphQL query failed in part, keeping its data: {error}")
+        return data
+    return json.loads(output)["data"]
 
 
 def iter_graphql_nodes(
@@ -393,7 +500,6 @@ def iter_graphql_nodes(
     *,
     page_size_var: str = "",
     page_size: int = 0,
-    max_nodes: int | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Iterate a GraphQL connection's nodes, following cursor pagination.
 
@@ -410,48 +516,33 @@ def iter_graphql_nodes(
     :param connection_path: Keys from the response's `data` object down to
         the connection (like `("search",)` or `("user",
         "sponsorshipsAsMaintainer")`).
-    :param variables: Query variables. Strings are passed with `-f`; ints
-        and bools with `-F`, so they keep their GraphQL type.
+    :param variables: Query variables. See {func}`_graphql_args` for how each
+        type travels.
     :param page_size_var: When set, inject the page size into this query
         variable on every request (the query then controls `first:` with
         it). Leave empty for queries with a hard-coded page size.
     :param page_size: Nodes requested per page; only used with
-        *page_size_var*. The last page shrinks to the *max_nodes*
-        remainder so the budget is never over-fetched.
-    :param max_nodes: Stop after yielding this many nodes. `None` means
-        every node in the connection.
+        *page_size_var*.
     :yields: Each node dict, in API order.
-    :raises RuntimeError: When a `gh` invocation fails
+    :raises GhCommandError: When a `gh` invocation fails
         (see {func}`run_gh_command`).
     """
     cursor: str | None = None
-    yielded = 0
-
-    while max_nodes is None or yielded < max_nodes:
-        args = ["api", "graphql", "--raw-field", f"query={query}"]
-        for var_name, value in (variables or {}).items():
-            flag = "--raw-field" if isinstance(value, str) else "--field"
-            args.extend([flag, f"{var_name}={value}"])
+    while True:
+        page_variables: dict[str, str | int | bool] = dict(variables or {})
         if page_size_var:
-            size = page_size
-            if max_nodes is not None:
-                size = min(size, max_nodes - yielded)
-            args.extend(["--field", f"{page_size_var}={size}"])
+            page_variables[page_size_var] = page_size
         if cursor:
-            args.extend(["--raw-field", f"cursor={cursor}"])
+            page_variables["cursor"] = cursor
 
-        response = json.loads(run_gh_command(args))
+        response = json.loads(run_gh_command(_graphql_args(query, page_variables)))
         connection = response.get("data", {})
         for key in connection_path:
             connection = connection.get(key) or {}
 
         for node in connection.get("nodes", []):
-            if not node:
-                continue
-            yield node
-            yielded += 1
-            if max_nodes is not None and yielded >= max_nodes:
-                return
+            if node:
+                yield node
 
         page_info = connection.get("pageInfo", {})
         if not page_info.get("hasNextPage"):

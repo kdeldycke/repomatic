@@ -32,6 +32,7 @@ from click_extra.testing import CliRunner
 
 from repomatic import lint_repo
 from repomatic.bundle import get_data_content
+from repomatic.checks import CheckResult
 from repomatic.cli.main import repomatic
 from repomatic.cli.repo import show_metadata
 from repomatic.cloudflare.r2 import PAGES_MAX_FILE_SIZE
@@ -48,6 +49,7 @@ from repomatic.config import (
     load_repomatic_config,
 )
 from repomatic.deps.pins import Candidate
+from repomatic.github.gh import GhCommandError
 from repomatic.github.labels import (
     LabelConfigError,
     _names_in_labelmaker_config,
@@ -55,12 +57,11 @@ from repomatic.github.labels import (
     serialize_inline_labels,
 )
 from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
-from repomatic.http import FetchError
+from repomatic.http import FetchError, get_bytes
 from repomatic.lint_repo import (
     PAT_SCOPE_PROBE,
     PAT_SCOPE_PROBE_LIMIT,
     REPO_CHECKS,
-    CheckResult,
     LintContext,
     _cloudflare_r2_secrets,
     _oversized_site_files,
@@ -99,14 +100,13 @@ from repomatic.lint_repo import (
     check_workflow_permissions,
     documentation_url,
     get_repo_metadata,
-    literal_runners,
     missing_template_entries,
     repo_check_reference,
     run_repo_lint,
     template_member_name,
 )
 from repomatic.matrix.axes import UNSTABLE_PYTHON_VERSIONS
-from repomatic.metadata.core import METADATA_VALUE_OPTIONS
+from repomatic.metadata.core import METADATA_VALUE_OPTIONS, requested_metadata_keys
 from repomatic.pypi import TrustedPublisher
 from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from repomatic.tooling.registry import (
@@ -1630,7 +1630,7 @@ def test_topics_phrase_keyword_does_not_declare_its_words():
 def test_topics_api_failure():
     """Skip gracefully when API call fails."""
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError("gh command failed")
+        mock_gh.side_effect = GhCommandError("gh command failed")
         warning, msg = check_topics_subset_of_keywords(
             "owner/repo", keywords=["python"]
         )
@@ -1652,7 +1652,7 @@ def test_topics_empty_response():
 def test_stale_gh_pages_branch_absent_passes():
     """A 404 is the desired state: the branch is gone."""
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError("HTTP 404: Branch not found")
+        mock_gh.side_effect = GhCommandError("HTTP 404: Branch not found")
         result = check_stale_gh_pages_branch("owner/repo")
     assert result.passed is True
 
@@ -1673,7 +1673,7 @@ def test_stale_gh_pages_branch_api_failure_skips():
     silently vouched for a branch nobody read.
     """
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError("HTTP 502: upstream error")
+        mock_gh.side_effect = GhCommandError("HTTP 502: upstream error")
         result = check_stale_gh_pages_branch("owner/repo")
     assert result.passed is None
     assert "skipped" in result.message
@@ -1807,7 +1807,7 @@ def test_funding_unreadable_payload(tmp_path, monkeypatch):
     """Skip gracefully when the GraphQL payload cannot be read."""
     monkeypatch.chdir(tmp_path)
     with patch("repomatic.lint_repo.gh_graphql") as mock_gh:
-        mock_gh.side_effect = RuntimeError("boom")
+        mock_gh.side_effect = GhCommandError("boom")
         warning, msg = check_funding_file("owner/repo")
         assert warning is None
         assert "skipped" in msg
@@ -2237,7 +2237,7 @@ def test_pat_permission_probe_pass(probe):
 def test_pat_permission_probe_fail_403(probe):
     """Fail with the missing-permission message when the API call 403s."""
     with patch("repomatic.github.token.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError("HTTP 403: Forbidden")
+        mock_gh.side_effect = GhCommandError("HTTP 403: Forbidden")
         passed, msg = probe_pat_permission("owner/repo", probe)
         assert passed is False
         assert probe.permission in msg
@@ -2252,7 +2252,7 @@ def test_pat_vulnerability_alerts_permission_404():
         if probe.field == "vulnerability_alerts"
     )
     with patch("repomatic.github.token.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError("HTTP 404: Not Found")
+        mock_gh.side_effect = GhCommandError("HTTP 404: Not Found")
         passed, msg = probe_pat_permission("owner/repo", vuln_probe)
         assert passed is False
         assert "not enabled" in msg
@@ -2262,7 +2262,7 @@ def test_pat_vulnerability_alerts_permission_404():
 def test_pat_check_non_403_surfaces_raw_error():
     """A 401 from an upstream incident surfaces the raw stderr, not a scope hint."""
     with patch("repomatic.github.token.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError("HTTP 401: Requires authentication")
+        mock_gh.side_effect = GhCommandError("HTTP 401: Requires authentication")
         passed, msg = probe_pat_permission("owner/repo", PAT_PERMISSION_PROBES[0])
         assert passed is False
         assert "GitHub API call failed" in msg
@@ -2280,7 +2280,7 @@ def test_pat_check_annotates_with_github_status_incident():
             "Partial System Outage. See https://www.githubstatus.com for details.",
         ),
     ):
-        mock_gh.side_effect = RuntimeError("HTTP 401: Requires authentication")
+        mock_gh.side_effect = GhCommandError("HTTP 401: Requires authentication")
         passed, msg = probe_pat_permission("owner/repo", PAT_PERMISSION_PROBES[0])
         assert passed is False
         assert "active incident" in msg
@@ -2306,14 +2306,14 @@ def _gh_api_stand_in(args: list[str], answers: Mapping[str, str | None]) -> str:
     :return: The output `gh` would print.
     """
     if "/installation/repositories" in args:
-        raise RuntimeError(REFUSED)
+        raise GhCommandError(REFUSED)
     if "/users/orchard/repos" in args:
         if "--method" in args:
             sends_get = args[args.index("--method") + 1] == "GET"
         else:
             sends_get = not {"--raw-field", "--field"} & set(args)
         if not sends_get:
-            raise RuntimeError("Not Found (HTTP 404)")
+            raise GhCommandError("Not Found (HTTP 404)")
         return "".join(f"{name}\n" for name in answers)
     # GitHub resolves a repository name whatever its case.
     settings = {
@@ -2321,7 +2321,7 @@ def _gh_api_stand_in(args: list[str], answers: Mapping[str, str | None]) -> str:
         for name, error in answers.items()
     }
     if error := settings[args[1].casefold()]:
-        raise RuntimeError(error)
+        raise GhCommandError(error)
     return ""
 
 
@@ -2441,7 +2441,7 @@ def test_pat_repository_scope_skips_an_unreadable_listing():
 
     def gh(args: list[str]) -> str:
         if "/users/orchard/repos" in args or "/installation/repositories" in args:
-            raise RuntimeError("Bad Gateway (HTTP 502)")
+            raise GhCommandError("Bad Gateway (HTTP 502)")
         return ""
 
     with patch("repomatic.lint_repo.run_gh_command", side_effect=gh):
@@ -2453,7 +2453,9 @@ def test_pat_repository_scope_skips_an_unreadable_listing():
 def test_pat_stale_statuses_permission_present():
     """Warn when a 422 proves the token still grants Commit statuses."""
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError("No commit found for SHA: 000... (HTTP 422)")
+        mock_gh.side_effect = GhCommandError(
+            "No commit found for SHA: 000... (HTTP 422)"
+        )
         result = check_pat_stale_statuses_permission("owner/repo")
         assert result.passed is False
         assert "Commit statuses" in result.message
@@ -2471,7 +2473,7 @@ def test_pat_stale_statuses_permission_present():
 def test_pat_stale_statuses_permission_absent_or_indeterminate(stderr):
     """Stay silent when the token lacks the scope (403) or the probe is inconclusive."""
     with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = RuntimeError(stderr)
+        mock_gh.side_effect = GhCommandError(stderr)
         result = check_pat_stale_statuses_permission("owner/repo")
         assert result.passed is not False
 
@@ -2863,54 +2865,6 @@ def test_runner_images_ignores_thin_callers(tmp_path, monkeypatch):
     assert all(r.passed is not False for r in results)
 
 
-@pytest.mark.parametrize(
-    ("runner", "expected"),
-    [
-        # The whole reason this is separate from KNOWN_RUNNERS: an off-axis image
-        # is still what the job runs on, and is precisely the one no axis is
-        # watching for a deprecation announcement.
-        pytest.param(
-            "ubuntu-22.04", {"ubuntu-22.04": ["ci.yaml:build"]}, id="off-axis"
-        ),
-        pytest.param("ubuntu-26.04", {"ubuntu-26.04": ["ci.yaml:build"]}, id="on-axis"),
-        pytest.param("ubuntu-latest", {"ubuntu-latest": ["ci.yaml:build"]}, id="alias"),
-        pytest.param("${{ matrix.os }}", {}, id="expression"),
-    ],
-)
-def test_literal_runners(tmp_path, monkeypatch, runner, expected):
-    """Every literal `runs-on:` is reported, axis membership notwithstanding."""
-    monkeypatch.chdir(tmp_path)
-    _write_ci_workflow(
-        tmp_path,
-        f"on: push\njobs:\n  build:\n    runs-on: {runner}\n"
-        "    steps:\n      - run: echo apricot\n",
-    )
-    assert literal_runners() == expected
-
-
-def test_literal_runners_skips_thin_callers(tmp_path, monkeypatch):
-    """A delegating job contributes no runner: it names none of its own."""
-    monkeypatch.chdir(tmp_path)
-    _write_ci_workflow(
-        tmp_path,
-        "on: push\njobs:\n  build:\n    uses: ./.github/workflows/_build.yaml\n",
-    )
-    assert literal_runners() == {}
-
-
-def test_literal_runners_groups_every_location(tmp_path, monkeypatch):
-    """One image named by several jobs reports all of them, sorted by file."""
-    monkeypatch.chdir(tmp_path)
-    job = "    runs-on: ubuntu-26.04\n    steps:\n      - run: echo apricot\n"
-    _write_ci_workflow(tmp_path, f"on: push\njobs:\n  build:\n{job}  test:\n{job}")
-    _write_ci_workflow(
-        tmp_path, f"on: push\njobs:\n  deploy:\n{job}", name="deploy.yaml"
-    )
-    assert literal_runners() == {
-        "ubuntu-26.04": ["ci.yaml:build", "ci.yaml:test", "deploy.yaml:deploy"],
-    }
-
-
 # A SHA-pinned thin-caller `uses:` ref to the upstream toolkit, declaring v6.29.0.
 _UPSTREAM_REF = (
     "jobs:\n"
@@ -3083,16 +3037,15 @@ def _metadata_step(command):
             ["cli_scripts", "package_name"],
             id="uvx-pinned",
         ),
-        # The spelling of releases before 8.0.0, still read for a workflow
-        # pinned to one.
+        # The alias 8.0.0 removed requests nothing: the command it names is gone.
         pytest.param(
             "repomatic metadata --format github-json current_version",
-            ["current_version"],
-            id="deprecated-spelling",
+            [],
+            id="removed-alias",
         ),
         # An option's value is never a key, whether attached or separate.
         pytest.param(
-            "repomatic metadata --format=json current_version",
+            "repomatic show-metadata --format=json current_version",
             ["current_version"],
             id="inline-option-value",
         ),
@@ -3102,37 +3055,41 @@ def _metadata_step(command):
             id="separate-option-value",
         ),
         pytest.param(
-            "repomatic metadata -o out current_version",
+            "repomatic show-metadata -o out current_version",
             ["current_version"],
             id="short-option-value",
         ),
         # Words belonging to another command are not arguments to this one.
         pytest.param(
-            "repomatic metadata current_version && echo done",
+            "repomatic show-metadata current_version && echo done",
             ["current_version"],
             id="shell-operator",
         ),
         pytest.param(
-            "repomatic metadata current_version\necho done",
+            "repomatic show-metadata current_version\necho done",
             ["current_version"],
             id="second-line",
         ),
         pytest.param("uv run pytest -m once", [], id="unrelated-command"),
-        # `metadata` also names a step id, an output and a job. Only the token
-        # following the package invocation is the subcommand.
-        pytest.param("echo metadata cli_scripts", [], id="bare-word"),
-        pytest.param("grep metadata harvest.txt", [], id="bare-word-with-path"),
+        # `show-metadata` also names a step id, an output and a job. Only the
+        # token following the package invocation is the subcommand.
+        pytest.param("echo show-metadata cli_scripts", [], id="bare-word"),
+        pytest.param("grep show-metadata harvest.txt", [], id="bare-word-with-path"),
         # No positional key: the command dumps every one of them.
-        pytest.param("uvx 'repomatic==7.11.0' metadata", [], id="no-keys"),
-        pytest.param("uvx repomatic metadata --output out.json", [], id="only-options"),
+        pytest.param("uvx 'repomatic==7.11.0' show-metadata", [], id="no-keys"),
+        pytest.param(
+            "uvx repomatic show-metadata --output out.json", [], id="only-options"
+        ),
         # An unbalanced quote is a line a shell rejects too: no guess beats a
         # wrong one.
-        pytest.param("uvx repomatic metadata 'test_matrix", [], id="unbalanced-quote"),
+        pytest.param(
+            "uvx repomatic show-metadata 'test_matrix", [], id="unbalanced-quote"
+        ),
     ],
 )
 def test_requested_metadata_keys(command, expected):
     """Positional keys are read off the command line the way Click reads them."""
-    assert lint_repo.requested_metadata_keys(command, "repomatic") == expected
+    assert requested_metadata_keys(command, "repomatic") == expected
 
 
 def test_metadata_keys_flags_a_retired_key(tmp_path, monkeypatch):
@@ -3141,20 +3098,41 @@ def test_metadata_keys_flags_a_retired_key(tmp_path, monkeypatch):
     _write_ci_workflow(
         tmp_path,
         _metadata_step(
-            "uvx --no-progress 'repomatic==7.11.0' metadata cli_scripts coverage_cells"
+            "uvx --no-progress 'repomatic==7.11.0' show-metadata cli_scripts"
+            " coverage_cells"
         ),
     )
     failures = [r for r in check_metadata_keys() if r.passed is False]
     assert failures
     assert "coverage_cells" in failures[0].message
-    assert "--list-keys" in failures[0].message
+    assert "show-metadata --list-keys" in failures[0].message
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        pytest.param("repomatic metadata cli_scripts", id="with-keys"),
+        pytest.param("uvx 'repomatic==7.11.0' metadata", id="without-keys"),
+    ),
+)
+def test_metadata_keys_flags_the_removed_alias(tmp_path, monkeypatch, command):
+    """A step calling the `metadata` alias fails the lint, naming `show-metadata`.
+
+    `8.0.0` removed the alias, so the call dies whatever keys it passes, and
+    even when it passes none.
+    """
+    monkeypatch.chdir(tmp_path)
+    _write_ci_workflow(tmp_path, _metadata_step(command))
+    (failure,) = [r for r in check_metadata_keys() if r.passed is False]
+    assert "`repomatic metadata`" in failure.message
+    assert "`repomatic show-metadata`" in failure.message
 
 
 def test_metadata_keys_accepts_current_keys(tmp_path, monkeypatch):
     """Keys the command still answers raise nothing."""
     monkeypatch.chdir(tmp_path)
     _write_ci_workflow(
-        tmp_path, _metadata_step("repomatic metadata cli_scripts package_name")
+        tmp_path, _metadata_step("repomatic show-metadata cli_scripts package_name")
     )
     results = check_metadata_keys()
     assert all(r.passed is not False for r in results)
@@ -3289,7 +3267,7 @@ def test_check_classic_branch_protection_api_error():
     a question nobody managed to ask.
     """
 
-    with patch("repomatic.lint_repo.gh_graphql", side_effect=RuntimeError("403")):
+    with patch("repomatic.lint_repo.gh_graphql", side_effect=GhCommandError("403")):
         passed, msg = check_classic_branch_protection("owner/repo")
     assert passed is None
     assert "skipped" in msg
@@ -3872,10 +3850,10 @@ def test_declared_label_names_fetches_remote_extra_files():
             FetchError,
             id="unreachable",
         ),
-        # A malformed URL fails before any request, outside `FetchError`.
+        # A malformed URL fails before any request, and still as a `FetchError`.
         pytest.param(
-            REMOTE_LABELS_URL,
-            {"side_effect": ValueError("unknown url type")},
+            "orchard/citrus.toml",
+            {"wraps": get_bytes},
             FetchError,
             id="malformed",
         ),

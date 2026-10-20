@@ -14,15 +14,14 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Shared HTTP fetch for the API clients.
+"""Shared HTTP client for the API clients.
 
-The single implementation of the GET loop used by the PyPI
-({mod}`repomatic.pypi`), npm ({mod}`repomatic.npm`), and GitHub Releases
-({mod}`repomatic.github.releases`) clients, so every datasource shares the
-same timeout, `User-Agent` and truncated-body retry semantics. Caching
-*policy* stays with the callers — each client owns its cache namespace, TTL,
-and serialization — while {func}`get_cached_json` shares the raw-response
-caching mechanics for the clients that store verbatim bodies.
+{func}`request` is the single implementation of the request loop: every
+datasource shares its timeout, its `User-Agent`, its truncated-body retry and
+the one {class}`FetchError` every failure becomes. Caching *policy* stays with
+the callers (each client owns its cache namespace, TTL and serialization),
+while {func}`get_cached_json` shares the caching mechanics for the clients
+that store verbatim bodies.
 
 Most responses are JSON ({func}`get_json`); {func}`get_text` serves the
 datasources that are text rather than an API payload (the `astral-sh/setup-uv`
@@ -36,8 +35,9 @@ from __future__ import annotations
 import json
 import logging
 import time
-from http.client import IncompleteRead
-from urllib.error import URLError
+from http.client import HTTPException, IncompleteRead
+from typing import NamedTuple
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from . import __version__
@@ -63,6 +63,21 @@ registries throttle unidentified agents harder, and an operator reading an
 upstream access log can tell which release of this tool hit them.
 """
 
+ERROR_BODY_EXCERPT = 400
+"""Characters of an error response body a {class}`FetchError` keeps.
+
+Enough for the error object an API answers with, short of a whole HTML error
+page dumped into a log line.
+"""
+
+RETRYABLE_METHODS = frozenset(("GET", "HEAD"))
+"""Methods whose request is sent again after a truncated response body.
+
+Both are safe to repeat. A truncated answer to a `POST`, `PATCH` or `PUT` says
+nothing about whether the server applied the change, so sending it again could
+apply it twice.
+"""
+
 _TRUNCATED_BODY_BACKOFF_SECONDS = (1, 3)
 """Sleep durations before each retry of a truncated body.
 
@@ -74,14 +89,113 @@ check.
 
 
 class FetchError(RuntimeError):
-    """Raised when a JSON fetch could not complete cleanly.
+    """Raised when an HTTP request could not complete cleanly.
 
-    Wraps every failure mode of {func}`get_json`: HTTP 4xx/5xx, network
-    error, timeout, truncated body (after its retries), and JSON parse
-    error. Callers decide whether a failure is fatal (GitHub pagination,
-    where a missing page corrupts the result) or a soft miss (PyPI/npm
-    lookups, logged and treated as "no data").
+    Wraps every failure mode of {func}`request`: HTTP 4xx/5xx, network error,
+    timeout, malformed URL, truncated body (after its retries), and the decode
+    errors of the `get_*` readers. Callers decide whether a failure is fatal
+    (GitHub pagination, where a missing page corrupts the result) or a soft
+    miss (PyPI/npm lookups, logged and treated as "no data").
     """
+
+    def __init__(
+        self, message: str, *, status: int | None = None, body: str = ""
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        """HTTP status of an error response, or `None` when no response came."""
+        self.body = body
+        """The start of the error response body, empty when there was none.
+
+        At most {data}`ERROR_BODY_EXCERPT` characters, decoded leniently: an API
+        error object fits, a whole error page does not.
+        """
+
+
+class Response(NamedTuple):
+    """A completed HTTP response."""
+
+    status: int
+    """The HTTP status code."""
+
+    headers: dict[str, str]
+    """Response headers, keyed by lowercase name."""
+
+    body: bytes
+    """The raw response body."""
+
+
+def _error_excerpt(error: HTTPError) -> str:
+    """The start of an error response's body, empty when it cannot be read."""
+    try:
+        raw = error.read()
+    except (OSError, HTTPException, ValueError):
+        return ""
+    return raw.decode("UTF-8", errors="replace")[:ERROR_BODY_EXCERPT]
+
+
+def request(
+    url: str,
+    *,
+    method: str = "GET",
+    data: bytes | None = None,
+    headers: Mapping[str, str] | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> Response:
+    """Send one HTTP request and return the response.
+
+    A truncated body (`IncompleteRead`) is transient (a flaky connection or an
+    interfering proxy), so a `GET` or `HEAD` request is sent again after each
+    pause in `_TRUNCATED_BODY_BACKOFF_SECONDS`. Every other failure mode, and
+    a truncated answer to any other method (see {data}`RETRYABLE_METHODS`),
+    fails straight away.
+
+    :param url: The URL to request.
+    :param method: The HTTP method.
+    :param data: The request body, already encoded. A JSON body also needs a
+        `Content-Type` header in *headers*.
+    :param headers: Request headers, merged over the `User-Agent` default
+        (caller wins on conflict).
+    :param timeout: Socket timeout in seconds.
+    :return: The status, headers and body of the response.
+    :raises FetchError: On an HTTP error status, carrying the status and the
+        start of the error body. Also on a network error, a timeout, a URL
+        urllib cannot open, or a body still truncated after the last retry.
+    """
+    retries = (
+        _TRUNCATED_BODY_BACKOFF_SECONDS if method.upper() in RETRYABLE_METHODS else ()
+    )
+    for delay in (*retries, None):
+        try:
+            prepared = Request(
+                url,
+                data=data,
+                headers={"User-Agent": USER_AGENT, **(headers or {})},
+                method=method,
+            )
+            with urlopen(prepared, timeout=timeout) as response:
+                body: bytes = response.read()
+                return Response(
+                    response.status,
+                    {key.lower(): value for key, value in response.headers.items()},
+                    body,
+                )
+        except IncompleteRead as exc:
+            if delay is None:
+                raise FetchError(str(exc)) from exc
+            logging.debug(f"Truncated body from {url}, retrying in {delay}s: {exc}")
+            time.sleep(delay)
+        except HTTPError as exc:
+            raise FetchError(
+                str(exc), status=exc.code, body=_error_excerpt(exc)
+            ) from exc
+        # `OSError` covers `URLError`, a timeout and a reset connection.
+        # `HTTPException` covers a server that drops the connection before it
+        # answers (`RemoteDisconnected`), and `ValueError` a URL urllib cannot
+        # open at all.
+        except (OSError, HTTPException, ValueError) as exc:
+            raise FetchError(str(exc)) from exc
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def _read_body(
@@ -90,12 +204,7 @@ def _read_body(
     headers: Mapping[str, str] | None,
     timeout: float,
 ) -> bytes:
-    """GET *url* and return its raw body, retrying on truncation.
-
-    A truncated body (`IncompleteRead`) is transient (a flaky connection or
-    an interfering proxy), so it earns a retry after each pause in
-    `_TRUNCATED_BODY_BACKOFF_SECONDS`; every other failure mode fails
-    straight away.
+    """GET *url* and return its raw body.
 
     :param url: The URL to fetch.
     :param accept: Default `Accept` media type, overridable by *headers*.
@@ -103,26 +212,22 @@ def _read_body(
         on conflict).
     :param timeout: Socket timeout in seconds.
     :return: The raw response body.
-    :raises FetchError: On HTTP error, network error, timeout, or a body
-        still truncated after the last retry.
+    :raises FetchError: On any failure of {func}`request`.
     """
-    request = Request(
-        url,
-        headers={"Accept": accept, "User-Agent": USER_AGENT, **(headers or {})},
-    )
-    for delay in (*_TRUNCATED_BODY_BACKOFF_SECONDS, None):
-        try:
-            with urlopen(request, timeout=timeout) as response:
-                body: bytes = response.read()
-            return body
-        except IncompleteRead as exc:
-            if delay is None:
-                raise FetchError(str(exc)) from exc
-            logging.debug(f"Truncated body from {url}, retrying in {delay}s: {exc}")
-            time.sleep(delay)
-        except (URLError, TimeoutError) as exc:
-            raise FetchError(str(exc)) from exc
-    raise AssertionError("unreachable")  # pragma: no cover
+    return request(
+        url, headers={"Accept": accept, **(headers or {})}, timeout=timeout
+    ).body
+
+
+def _parse_json(raw: bytes) -> Any:
+    """Decode a JSON body.
+
+    :raises FetchError: When *raw* is not JSON.
+    """
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise FetchError(str(exc)) from exc
 
 
 def get_json(
@@ -130,22 +235,17 @@ def get_json(
     *,
     headers: Mapping[str, str] | None = None,
     timeout: float = DEFAULT_TIMEOUT,
-) -> tuple[Any, bytes]:
+) -> Any:
     """GET *url* and parse the body as JSON, retrying on truncation.
 
     :param url: The URL to fetch.
     :param headers: Extra request headers, merged over the JSON `Accept`
         default (caller wins on conflict).
     :param timeout: Socket timeout in seconds.
-    :return: `(parsed, raw_bytes)`: the decoded JSON value and the raw body
-        (for callers that cache the verbatim response).
+    :return: The decoded JSON value.
     :raises FetchError: On any failure (see the class docstring).
     """
-    raw = _read_body(url, "application/json", headers, timeout)
-    try:
-        return json.loads(raw), raw
-    except json.JSONDecodeError as exc:
-        raise FetchError(str(exc)) from exc
+    return _parse_json(_read_body(url, "application/json", headers, timeout))
 
 
 def get_text(
@@ -196,16 +296,20 @@ def get_bytes(
     return _read_body(url, "*/*", headers, timeout)
 
 
-def get_json_soft(url: str, log_label: str) -> tuple[Any, bytes] | None:
+def get_json_soft(
+    url: str, log_label: str, *, headers: Mapping[str, str] | None = None
+) -> Any | None:
     """GET *url* as JSON, logging any failure as a soft miss.
 
     :param url: The URL to fetch.
     :param log_label: Human-readable label for the debug log on failure.
-    :return: `(parsed, raw_bytes)`, or `None` on any failure (HTTP error,
+    :param headers: Extra request headers, merged over the JSON `Accept`
+        default (caller wins on conflict).
+    :return: The decoded JSON value, or `None` on any failure (HTTP error,
         network error, timeout, JSON parse error).
     """
     try:
-        return get_json(url)
+        return get_json(url, headers=headers)
     except FetchError as exc:
         logging.debug(f"{log_label}: {exc}")
         return None
@@ -250,10 +354,12 @@ def get_cached_json(
         except json.JSONDecodeError:
             pass
 
-    fetched = get_json_soft(url, log_label)
-    if fetched is None:
+    try:
+        raw = _read_body(url, "application/json", None, DEFAULT_TIMEOUT)
+        result = _parse_json(raw)
+    except FetchError as exc:
+        logging.debug(f"{log_label}: {exc}")
         return None
-    result, raw = fetched
 
     if ttl > 0:
         store_response(namespace, key, raw)

@@ -65,16 +65,17 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import UTC, datetime
 from functools import cached_property
 from pathlib import Path
 
 from ..changelog import Changelog, resolved_changelog_path
 from ..claude_plugin import MARKETPLACE_PATH, REPO_MANIFEST_PATH
-from ..components import INSTALL_GUIDE_PATH, UPSTREAM_PACKAGE, WORKFLOW_TARGET_ROOT
+from ..components import INSTALL_GUIDE_PATH, UPSTREAM_PACKAGE
 from ..config import load_repomatic_config
 from ..deps.pins import frozen_cli_invocation
 from ..file_ops import write_if_changed
+from ..github.workflow_files import WORKFLOW_DIR
+from ..humanize import today_utc
 from ..metadata.core import Metadata
 from .binary import binary_filename_re
 
@@ -196,7 +197,7 @@ class PrepareRelease:
             load_repomatic_config()
         )
         self.citation_path = citation_path or Path("./citation.cff").resolve()
-        self.workflow_dir = workflow_dir or Path(WORKFLOW_TARGET_ROOT).resolve()
+        self.workflow_dir = workflow_dir or WORKFLOW_DIR.resolve()
         self.install_path = install_path or Path(INSTALL_GUIDE_PATH).resolve()
         self.marketplace_path = marketplace_path or Path(MARKETPLACE_PATH).resolve()
         self.plugin_manifest_path = (
@@ -233,7 +234,7 @@ class PrepareRelease:
     @cached_property
     def release_date(self) -> str:
         """Return today's date in UTC as YYYY-MM-DD."""
-        return datetime.now(UTC).strftime("%Y-%m-%d")
+        return today_utc().isoformat()
 
     def _update_file(self, path: Path, content: str, original: str) -> bool:
         """Write *content* to *path* when it differs, and record the change.

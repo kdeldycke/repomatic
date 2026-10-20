@@ -39,8 +39,9 @@ from typing import NamedTuple
 from ..cache import get_cached_response, store_response
 from ..config import load_repomatic_config
 from ..http import FetchError, get_json
-from ..versions import safe_version
+from ..versions import parse_tag_version
 from .gh import api_headers, run_gh_command
+from .urls import parse_github_repo
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -65,18 +66,6 @@ GITHUB_API_RELEASE_BY_TAG_URL = (
 """GitHub API URL for fetching a single release by tag name."""
 
 
-def owner_repo(repo_url: str) -> tuple[str, str] | None:
-    """Extract `(owner, repo)` from a GitHub repository URL.
-
-    :param repo_url: Repository URL (e.g. `https://github.com/user/repo`).
-    :return: An `(owner, repo)` pair, or `None` when the URL does not parse.
-    """
-    parts = repo_url.rstrip("/").removesuffix(".git").split("/")
-    if len(parts) < 2:
-        return None
-    return parts[-2], parts[-1]
-
-
 def _fetch_release_pages(owner: str, repo: str) -> list[dict]:
     """Fetch every release for a repository, following pagination.
 
@@ -93,7 +82,7 @@ def _fetch_release_pages(owner: str, repo: str) -> list[dict]:
             + f"?per_page=100&page={page}"
         )
         try:
-            data, _raw = get_json(url, headers=api_headers())
+            data = get_json(url, headers=api_headers())
         except FetchError as exc:
             # A failed page fetch can corrupt the result in two ways: a total
             # failure on page 1 returns `{}` (indistinguishable from "repo has
@@ -228,7 +217,7 @@ def _cached_release_map(
     :raises GitHubReleasesUnavailable: When any page fetch fails or returns
         unparsable JSON.
     """
-    parsed = owner_repo(repo_url)
+    parsed = parse_github_repo(repo_url)
     if parsed is None:
         return {}
     owner, repo = parsed
@@ -335,7 +324,7 @@ def get_releases_with_assets(repo_url: str) -> list[ReleaseWithAssets]:
     :raises GitHubReleasesUnavailable: When any page fetch fails or returns
         unparsable JSON.
     """
-    parsed = owner_repo(repo_url)
+    parsed = parse_github_repo(repo_url)
     if parsed is None:
         return []
     owner, repo = parsed
@@ -367,11 +356,6 @@ def get_releases_with_assets(repo_url: str) -> list[ReleaseWithAssets]:
     return releases
 
 
-def parse_release_version(tag: str) -> Version | None:
-    """Parse a release tag as a version, or `None` for foreign tag schemes."""
-    return safe_version(tag.removeprefix("v"))
-
-
 def dev_release_url_and_previous_version(
     repo_url: str, version: str
 ) -> tuple[str | None, str | None]:
@@ -401,11 +385,11 @@ def dev_release_url_and_previous_version(
     except GitHubReleasesUnavailable:
         return None, None
 
-    target = parse_release_version(version)
+    target = parse_tag_version(version)
     dev_release_url = None
     finals: list[Version] = []
     for release in releases:
-        parsed = parse_release_version(release.tag)
+        parsed = parse_tag_version(release.tag)
         if parsed is None:
             continue
         if release.draft:
@@ -434,14 +418,14 @@ def resolve_tag_to_sha(repo_url: str, tag: str) -> str | None:
     :return: The commit SHA, or `None` when the tag cannot be resolved
         (network error, missing tag, or unexpected payload).
     """
-    parsed = owner_repo(repo_url)
+    parsed = parse_github_repo(repo_url)
     if parsed is None:
         return None
     owner, repo = parsed
 
     ref_url = GITHUB_API_TAG_REF_URL.format(owner=owner, repo=repo, tag=tag)
     try:
-        data, _raw = get_json(ref_url, headers=api_headers())
+        data = get_json(ref_url, headers=api_headers())
     except FetchError as exc:
         logging.debug(f"Tag ref lookup failed for {owner}/{repo}@{tag}: {exc}")
         return None
@@ -455,7 +439,7 @@ def resolve_tag_to_sha(repo_url: str, tag: str) -> str | None:
     # Annotated tag: dereference the tag object to its target commit.
     tag_url = GITHUB_API_TAG_OBJECT_URL.format(owner=owner, repo=repo, sha=sha)
     try:
-        data, _raw = get_json(tag_url, headers=api_headers())
+        data = get_json(tag_url, headers=api_headers())
     except FetchError as exc:
         logging.debug(f"Annotated tag deref failed for {owner}/{repo}@{tag}: {exc}")
         return None
@@ -514,7 +498,7 @@ def get_github_release_body(repo_url: str, version: str) -> tuple[str, str]:
         `body` is the release notes markdown. Both are empty strings if no
         release is found.
     """
-    parsed = owner_repo(repo_url)
+    parsed = parse_github_repo(repo_url)
     if not parsed:
         return "", ""
     owner, repo = parsed
@@ -533,7 +517,7 @@ def get_github_release_body(repo_url: str, version: str) -> tuple[str, str]:
     for tag in (f"v{version}", version):
         url = GITHUB_API_RELEASE_BY_TAG_URL.format(owner=owner, repo=repo, tag=tag)
         try:
-            data, _raw = get_json(url, headers=api_headers())
+            data = get_json(url, headers=api_headers())
         except FetchError:
             continue
         body = data.get("body", "")
@@ -573,8 +557,8 @@ def fetch_github_release_notes(
         except GitHubReleasesUnavailable as exc:
             logging.warning(f"Skipping release notes for {name}: {exc}")
             continue
-        old_version = parse_release_version(old)
-        new_version = parse_release_version(new)
+        old_version = parse_tag_version(old)
+        new_version = parse_tag_version(new)
         if old_version is None or new_version is None:
             continue
         fetched: list[tuple[Version, str, str]] = []
@@ -582,7 +566,7 @@ def fetch_github_release_notes(
             version = extract_version(tag, tag_pattern)
             if not version or not release.body:
                 continue
-            parsed = parse_release_version(version)
+            parsed = parse_tag_version(version)
             if parsed is None:
                 continue
             if old_version < parsed <= new_version:

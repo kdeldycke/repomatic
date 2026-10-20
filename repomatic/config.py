@@ -24,7 +24,8 @@ Defines the `Config` dataclass, its TOML serialization helpers, and the
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
+from functools import cache
 from pathlib import Path
 from textwrap import dedent
 
@@ -35,13 +36,13 @@ from click_extra import (
     make_schema_callable,
     schema_field_infos,
 )
-from extra_platforms import ALL_AGENTS, ALL_CI
 
 from .pyproject import read_pyproject_toml
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterator
+    from dataclasses import Field
     from typing import Any, Final
 
 
@@ -178,48 +179,6 @@ class DocsConfig:
     """
 
 
-@dataclass
-class AgentLayout:
-    """Where one AI coding agent expects its assets to live."""
-
-    skills: str
-    """Directory holding one folder per skill."""
-
-    subagents: str
-    """Directory holding subagent definitions.
-
-    Named for what it holds, not for the agent reading it.
-    """
-
-    settings: str
-    """File holding the agent's project-scoped settings.
-
-    A file rather than a directory, unlike its siblings: it is the one asset
-    repomatic merges into rather than writes whole, so the path has to name the
-    document itself.
-    """
-
-
-AGENT_LAYOUTS: Final[dict[str, AgentLayout]] = {
-    "claude_code": AgentLayout(
-        skills="./.claude/skills/",
-        subagents="./.claude/agents/",
-        settings="./.claude/settings.json",
-    ),
-}
-"""Asset layout per agent, keyed by `extra_platforms.ALL_AGENTS` trait ID.
-
-Only agents repomatic can actually lay out appear here. `cline` and `cursor`
-are valid trait IDs but have no Agent Skills layout to target, so selecting
-one is rejected rather than silently producing a Claude Code tree.
-"""
-
-DEFAULT_AGENT: Final[str] = "claude_code"
-"""Agent assumed when `[tool.repomatic.flavor] agent` is unset."""
-
-DEFAULT_CI: Final[str] = "github_ci"
-"""CI system assumed when `[tool.repomatic.flavor] ci` is unset."""
-
 CLOUDFLARE_PLACEMENT_MODES: Final[frozenset[str]] = frozenset((
     "",
     "off",
@@ -276,93 +235,6 @@ def location_path(location: str) -> str:
     :return: The path with no `./` prefix and no trailing slash.
     """
     return location.removeprefix("./").rstrip("/")
-
-
-def _resolve_flavor(
-    value: str, group: Iterable[Any], supported: set[str], key: str
-) -> str:
-    """Normalize a flavor value, then check it twice.
-
-    First against the full extra-platforms vocabulary, which catches a typo or
-    an ecosystem nobody has heard of, then against the subset repomatic can
-    actually target. Keeping the two apart means a real-but-unimplemented
-    ecosystem reports as unsupported rather than as a spelling mistake.
-
-    Trait IDs are underscore-separated (`claude_code`) while `[tool.repomatic]`
-    keys are hyphenated, so both spellings are accepted.
-
-    :param group: extra-platforms trait group defining the vocabulary.
-    :param supported: Trait IDs repomatic implements.
-    :param key: Dotted config path, used in the error messages.
-    :raises ValueError: When *value* is unknown upstream or unsupported here.
-    """
-    normalized = value.strip().lower().replace("-", "_")
-    known = {trait.id for trait in group}
-    if normalized not in known:
-        msg = (
-            f"Unknown [tool.repomatic] {key} = {value!r}. Expected an "
-            f"extra-platforms trait ID: {', '.join(sorted(known))}."
-        )
-        raise ValueError(msg)
-    if normalized not in supported:
-        msg = (
-            f"Unsupported [tool.repomatic] {key} = {value!r}. repomatic "
-            f"targets: {', '.join(sorted(supported))}."
-        )
-        raise ValueError(msg)
-    return normalized
-
-
-@dataclass
-class FlavorConfig:
-    """Nested schema for `[tool.repomatic.flavor]`.
-
-    Declares which ecosystem repomatic is targeting, so a future decision has
-    one place to branch on instead of a new flag per feature.
-
-    ```{note}
-    Values are trait IDs from
-    [extra-platforms](https://github.com/kdeldycke/extra-platforms), which
-    already models both AI agents and CI systems. Borrowing its vocabulary
-    brings its detection helpers (`current_agent()`, `is_github_ci()`) and its
-    naming along for free, instead of repomatic maintaining a parallel enum.
-    ```
-
-    ```{caution}
-    Defaults are static, never detected. Deriving them from `current_agent()`
-    would make a repository's effective configuration depend on which tool
-    happened to invoke `repomatic` last, so `repomatic show-metadata` would stop
-    being reproducible.
-    ```
-    """
-
-    agent: str = DEFAULT_AGENT
-    """AI coding agent whose asset layout the bundled skills and agents target.
-
-    Accepts a `extra_platforms.ALL_AGENTS` trait ID present in
-    {data}`~repomatic.config.AGENT_LAYOUTS`. Hyphens are normalized, so
-    `claude-code` works too.
-    """
-
-    ci: str = DEFAULT_CI
-    """CI system the bundled workflows target.
-
-    Accepts a `extra_platforms.ALL_CI` trait ID. Only `github_ci` is
-    implemented: every bundled workflow is a GitHub Actions workflow, so any
-    other value is rejected rather than quietly emitting the wrong thing.
-    """
-
-    def __post_init__(self) -> None:
-        """Normalize and validate both flavors against their vocabularies."""
-        self.agent = _resolve_flavor(
-            self.agent, ALL_AGENTS, set(AGENT_LAYOUTS), "flavor.agent"
-        )
-        self.ci = _resolve_flavor(self.ci, ALL_CI, {DEFAULT_CI}, "flavor.ci")
-
-    @property
-    def layout(self) -> AgentLayout:
-        """Asset layout for the selected agent."""
-        return AGENT_LAYOUTS[self.agent]
 
 
 @dataclass
@@ -696,22 +568,6 @@ class MetricsConfig:
     begins.
     """
 
-    skip: dict[str, str] = field(default_factory=dict)
-    """Subjects deliberately left unmeasured, mapped to the reason why.
-
-    A mapping rather than a list, following `lint-deps.allow`: the reason is
-    the point. A project absent from both tables is an oversight a conformance
-    test can report, while one listed here is a decision:
-
-    ```toml
-    [tool.repomatic.metrics.skip]
-    papaya = "Ships in a distribution package with no public repository."
-    ```
-
-    Nothing is sampled for them, and whatever renders the readings leaves their
-    cells empty.
-    """
-
     store: str = "./docs/assets/metrics.csv"
     """Where the readings accumulate, one row per subject, metric and date."""
 
@@ -1031,10 +887,7 @@ class Config:
     the autofix job to overwrite it can set this to `false`.
     """
 
-    cache: CacheConfig = field(
-        default_factory=CacheConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "cache"},
-    )
+    cache: CacheConfig = field(default_factory=CacheConfig)
     """Binary cache configuration."""
 
     changelog_archive_location: str = field(
@@ -1099,8 +952,7 @@ class Config:
     """
 
     dependency_graph: DependencyGraphConfig = field(
-        default_factory=DependencyGraphConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "dependency-graph"},
+        default_factory=DependencyGraphConfig
     )
     """Dependency graph generation configuration."""
 
@@ -1114,10 +966,7 @@ class Config:
     GitHub can set this to `false`.
     """
 
-    docs: DocsConfig = field(
-        default_factory=DocsConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "docs"},
-    )
+    docs: DocsConfig = field(default_factory=DocsConfig)
     """Sphinx documentation generation configuration."""
 
     exclude: list[str] = field(default_factory=list)
@@ -1133,16 +982,7 @@ class Config:
     Explicit CLI positional arguments override this list.
     """
 
-    flavor: FlavorConfig = field(
-        default_factory=FlavorConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "flavor"},
-    )
-    """Which agent and CI ecosystem this repository targets."""
-
-    gitignore: GitignoreConfig = field(
-        default_factory=GitignoreConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "gitignore"},
-    )
+    gitignore: GitignoreConfig = field(default_factory=GitignoreConfig)
     """`.gitignore` sync configuration."""
 
     include: list[str] = field(default_factory=list)
@@ -1157,22 +997,13 @@ class Config:
     component. Same syntax as `exclude`.
     """
 
-    labels: LabelsConfig = field(
-        default_factory=LabelsConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "labels"},
-    )
+    labels: LabelsConfig = field(default_factory=LabelsConfig)
     """Repository label sync configuration."""
 
-    lint_deps: LintDepsConfig = field(
-        default_factory=LintDepsConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "lint-deps"},
-    )
+    lint_deps: LintDepsConfig = field(default_factory=LintDepsConfig)
     """Dependency shippability gate configuration."""
 
-    lint_repo: LintRepoConfig = field(
-        default_factory=LintRepoConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "lint-repo"},
-    )
+    lint_repo: LintRepoConfig = field(default_factory=LintRepoConfig)
     """Repository lint configuration."""
 
     mailmap_sync: bool = field(
@@ -1212,10 +1043,7 @@ class Config:
     so the project needs `click-extra >= 9` in its own environment.
     """
 
-    metrics: MetricsConfig = field(
-        default_factory=MetricsConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "metrics"},
-    )
+    metrics: MetricsConfig = field(default_factory=MetricsConfig)
     """What forges say about the repositories this project tracks, over time."""
 
     minimum_release_age: str = field(
@@ -1385,13 +1213,10 @@ class Config:
     """
 
     settings_location: str = field(
-        default=AGENT_LAYOUTS[DEFAULT_AGENT].settings,
+        default="./.claude/settings.json",
         metadata={CONFIG_PATH_METADATA_KEY: "settings.location"},
     )
     """Path to the agent's project settings file, relative to the repository root.
-
-    Left unset, it follows `[tool.repomatic.flavor] agent`; setting it
-    explicitly overrides that.
 
     Only the `plugin` component writes here, merging the marketplace and
     enablement keys it owns into whatever the file already holds.
@@ -1504,13 +1329,10 @@ class Config:
     """
 
     skills_location: str = field(
-        default=AGENT_LAYOUTS[DEFAULT_AGENT].skills,
+        default="./.claude/skills/",
         metadata={CONFIG_PATH_METADATA_KEY: "skills.location"},
     )
     """Directory prefix for skill folders, relative to the repository root.
-
-    Left unset, it follows `[tool.repomatic.flavor] agent`; setting it
-    explicitly overrides that.
 
     Skill files are written as `{skills_location}/{skill-id}/SKILL.md`.
     Useful for repositories where `.claude/` is not at the root (like
@@ -1537,13 +1359,10 @@ class Config:
     """
 
     subagents_location: str = field(
-        default=AGENT_LAYOUTS[DEFAULT_AGENT].subagents,
+        default="./.claude/agents/",
         metadata={CONFIG_PATH_METADATA_KEY: "subagents.location"},
     )
     """Directory prefix for subagent definitions, relative to the repository root.
-
-    Left unset, it follows `[tool.repomatic.flavor] agent`; setting it
-    explicitly overrides that.
 
     Subagent files are written as `{subagents_location}/{agent-id}.md`.
     Useful for repositories where `.claude/` is not at the root (like
@@ -1551,8 +1370,7 @@ class Config:
     """
 
     sync_runner_images: SyncRunnerImagesConfig = field(
-        default_factory=SyncRunnerImagesConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "sync-runner-images"},
+        default_factory=SyncRunnerImagesConfig
     )
     """Runner image pull request configuration."""
 
@@ -1604,16 +1422,10 @@ class Config:
     `sync-uv-lock` job to run `uv lock --upgrade` can set this to `false`.
     """
 
-    vulnerable_deps: VulnerableDepsConfig = field(
-        default_factory=VulnerableDepsConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "vulnerable-deps"},
-    )
+    vulnerable_deps: VulnerableDepsConfig = field(default_factory=VulnerableDepsConfig)
     """Vulnerable dependency detection and remediation configuration."""
 
-    workflow: WorkflowConfig = field(
-        default_factory=WorkflowConfig,
-        metadata={CONFIG_PATH_METADATA_KEY: "workflow"},
-    )
+    workflow: WorkflowConfig = field(default_factory=WorkflowConfig)
     """Workflow sync configuration."""
 
     workflow_pins_sync: bool = field(
@@ -1629,26 +1441,15 @@ class Config:
     """
 
     def __post_init__(self) -> None:
-        """Point the asset locations at the selected agent's layout.
+        """Reject the site settings no deploy can honor.
 
-        Only a location still sitting at its default is derived, so an explicit
-        `skills.location`, `subagents.location` or `settings.location` always
-        wins over the flavor. Also rejects a
-        `site.deploy` target nothing implements, which would otherwise read as
-        a workflow that runs and publishes nowhere, and a
+        A `site.deploy` target nothing implements would otherwise read as a
+        workflow that runs and publishes nowhere, and a
         `site.cloudflare-placement` value the Pages API would bounce far from
         the line that caused it. An R2 bucket and its domain must come as a
         pair, and the domain must be a bare hostname: the offload builds
-        ``https://{domain}/{key}`` URLs from it.
+        `https://{domain}/{key}` URLs from it.
         """
-        default = AGENT_LAYOUTS[DEFAULT_AGENT]
-        layout = self.flavor.layout
-        if self.skills_location == default.skills:
-            self.skills_location = layout.skills
-        if self.subagents_location == default.subagents:
-            self.subagents_location = layout.subagents
-        if self.settings_location == default.settings:
-            self.settings_location = layout.settings
         if self.site_deploy not in SITE_DEPLOY_TARGETS:
             targets = ", ".join(sorted(SITE_DEPLOY_TARGETS))
             msg = (
@@ -1678,6 +1479,68 @@ class Config:
             )
             raise ValueError(msg)
 
+    def is_enabled(self, key: str) -> bool:
+        """Whether the `[tool.repomatic]` setting at the dotted *key* is on.
+
+        A key reaches its field one of two ways. `metrics.sync` is a key of a
+        nested table ({class}`MetricsConfig`), while `notification.unsubscribe`
+        is a flat field whose dotted path is only its metadata. The map from
+        {func}`config_key_paths` resolves both, so a caller names the key the
+        user writes and never the attribute that stores it.
+
+        :param key: A dotted `[tool.repomatic]` key, like `debug.sync`.
+        :return: The truth value of the setting.
+        :raises ValueError: When *key* names no field. A gate wired to a key
+            that does not exist would otherwise read as a feature switched off.
+        """
+        path = config_key_paths().get(key)
+        if path is None:
+            msg = f"[tool.repomatic] has no {key!r} key."
+            raise ValueError(msg)
+        node: object = self
+        for attribute in path:
+            node = getattr(node, attribute)
+        return bool(node)
+
+
+def _field_key(schema_field: Field[Any]) -> str:
+    """The `[tool.repomatic]` key segment of one dataclass field.
+
+    The metadata path wins when the field sets one; otherwise the field name is
+    kebab-cased (`setup_guide` becomes `setup-guide`). That is the rule
+    click-extra applies when it reads the table.
+    """
+    path = schema_field.metadata.get(CONFIG_PATH_METADATA_KEY)
+    return str(path) if path else schema_field.name.replace("_", "-")
+
+
+@cache
+def config_key_paths() -> dict[str, tuple[str, ...]]:
+    """Map every dotted `[tool.repomatic]` key to the attributes that store it.
+
+    Built once from the field metadata of {class}`Config`, recursing into the
+    nested tables: `metrics.sync` maps to `("metrics", "sync")`, and the flat
+    `debug.sync` field to `("debug_sync",)`.
+
+    :return: The attribute path of each leaf key, keyed by the dotted key.
+    """
+    paths: dict[str, tuple[str, ...]] = {}
+
+    def walk(schema: type, prefix: str, attributes: tuple[str, ...]) -> None:
+        for schema_field in fields(schema):
+            key = f"{prefix}{_field_key(schema_field)}"
+            path = (*attributes, schema_field.name)
+            # A nested table is the one field whose default is built by its
+            # own dataclass.
+            factory: object = schema_field.default_factory
+            if is_dataclass(factory) and isinstance(factory, type):
+                walk(factory, f"{key}.", path)
+            else:
+                paths[key] = path
+
+    walk(Config, "", ())
+    return paths
+
 
 SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "abandoned_versions",
@@ -1694,7 +1557,6 @@ SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
     "dev_release_sync",
     "docs",
     "exclude",
-    "flavor",
     "gitignore",
     "include",
     "labels",
@@ -1823,18 +1685,18 @@ config, so a single stale key would otherwise be re-warned on each call,
 drowning one actionable line in a dozen duplicates per invocation.
 """
 
-_CONFIG_CACHE: dict[int, tuple[dict[str, Any], Config]] = {}
+_CONFIG_CACHE: dict[int, tuple[Mapping[str, Any], Config]] = {}
 """Loaded `Config` instances, keyed by the identity of the parse they came from.
 
 Rebuilding a `Config` walks the whole schema through click-extra's dataclass
 instantiation (~0.6 ms), and the hot paths re-load it constantly: every HTTP
 cache access resolves {func}`repomatic.cache.cache_dir` and every PyPI, npm and
 GitHub lookup re-reads its TTL, so a dependency sweep pays for hundreds of
-identical rebuilds. `read_pyproject_toml` returns the *same* dict object for an
+identical rebuilds. `read_pyproject_toml` returns the *same* document for an
 unchanged file (its own cache is keyed on mtime and size), so that object's
 identity is the file's identity: the entry keeps a strong reference to the
-keyed dict, both to pin its `id` and to guard against reuse. An edited file
-parses into a new dict and misses the cache naturally.
+keyed document, both to pin its `id` and to guard against reuse. An edited file
+parses into a new document and misses the cache naturally.
 
 Safe to share unguarded for the same reason the parse cache is: no production
 caller mutates a loaded `Config` (tests that flip flags build their own
@@ -1845,28 +1707,77 @@ a bound only a test session churning through fixture projects ever reaches.
 _CONFIG_CACHE_MAX = 64
 """Entry count past which {data}`_CONFIG_CACHE` is reset."""
 
+_published_config: Config | None = None
+"""The configuration of the running command, once {func}`publish_config` sets it.
+
+A module-level slot rather than a context variable: the worker threads of
+`click_extra.run_jobs` read it too, and a thread does not inherit the context
+variables of the thread that started it.
+"""
+
+
+def publish_config(config: Config | None) -> None:
+    """Make *config* the configuration of the running command.
+
+    The CLI resolves its configuration through click-extra: an upward search
+    from the working directory, the user configuration folder, or a `--config`
+    file. A library helper that reads a setting on its own (a cache TTL, the
+    install cooldown of `repomatic run`) calls {func}`load_repomatic_config`
+    with no argument, which reads `./pyproject.toml` alone. Publishing the CLI's
+    config makes both answer the same, so one command sees one configuration.
+
+    :param config: The resolved configuration, or `None` to clear the slot.
+    """
+    global _published_config
+    _published_config = config
+
+
+def _is_working_directory(project_root: Path | None) -> bool:
+    """Whether *project_root* names the working directory.
+
+    `None` names it by convention. A root that cannot be resolved names
+    something else.
+    """
+    if project_root is None:
+        return True
+    try:
+        return project_root.resolve() == Path.cwd().resolve()
+    except OSError:
+        return False
+
 
 def load_repomatic_config(
-    pyproject_data: dict[str, Any] | None = None,
+    pyproject_data: Mapping[str, Any] | None = None,
+    *,
+    project_root: Path | None = None,
 ) -> Config:
     """Load `[tool.repomatic]` config merged with `Config` defaults.
 
     Delegates to click-extra's schema-aware dataclass instantiation, which
     handles normalization, flattening, nested dataclasses, and opaque field
-    extraction automatically based on field metadata and type hints.
+    extraction automatically based on field metadata and type hints. The
+    `[tool.repomatic]` table is converted to plain data first, so the
+    `Config` never holds a `tomlrt` object.
 
     Loads are memoized per parsed document (see `_CONFIG_CACHE`), so
     treat the returned instance as read-only.
 
-    :param pyproject_data: Pre-parsed `pyproject.toml` dict. If `None`,
-        reads and parses `pyproject.toml` from the current working directory.
+    :param pyproject_data: Pre-parsed `pyproject.toml` content. When set, the
+        configuration is built from it alone.
+    :param project_root: Directory holding the `pyproject.toml` to read when
+        *pyproject_data* is `None`. Defaults to the working directory. For the
+        working directory, the configuration {func}`publish_config` published
+        wins over the file.
     """
     warn_unknown = True
     if pyproject_data is None:
-        pyproject_data = read_pyproject_toml()
-        # Warn about unknown keys once per project and process: the cwd read
-        # makes the resolved pyproject.toml path the project's identity.
-        pyproject_path = Path("pyproject.toml").resolve()
+        if _published_config is not None and _is_working_directory(project_root):
+            return _published_config
+        root = Path() if project_root is None else project_root
+        pyproject_data = read_pyproject_toml(root)
+        # Warn about unknown keys once per project and process: the resolved
+        # pyproject.toml path is the project's identity.
+        pyproject_path = (root / "pyproject.toml").resolve()
         warn_unknown = pyproject_path not in _UNKNOWN_KEYS_WARNED
         _UNKNOWN_KEYS_WARNED.add(pyproject_path)
 
@@ -1874,8 +1785,12 @@ def load_repomatic_config(
     if cached is not None and cached[0] is pyproject_data:
         return cached[1]
 
-    tool_section = pyproject_data.get("tool", {})
-    user_config: dict[str, Any] = tool_section.get("repomatic", {})
+    user_config = pyproject_data.get("tool", {}).get("repomatic", {})
+    # A cached `tomlrt` document carries live tables, which a `Config` must not
+    # hold: they do not serialize like plain data, and they are shared.
+    to_dict = getattr(user_config, "to_dict", None)
+    if to_dict is not None:
+        user_config = to_dict()
 
     # The [tool.repomatic] section is schema-only (the CLI group runs with
     # included_params=()), so warn_unknown flags any key the schema does not

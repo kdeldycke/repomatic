@@ -37,6 +37,7 @@
    repomatic.bundle
    repomatic.cache
    repomatic.changelog
+   repomatic.checks
    repomatic.claude_plugin
    repomatic.components
    repomatic.config

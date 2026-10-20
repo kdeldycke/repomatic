@@ -31,14 +31,13 @@ import pytest
 import yaml
 from click_extra import ClickException
 
-from repomatic import pypi
+from repomatic import pypi, pyproject
 from repomatic.bundle import get_data_content
+from repomatic.checks import CheckResult
+from repomatic.config import config_key_paths, publish_config
 from repomatic.github.actions import get_github_event
 from repomatic.github.token import PatPermissionResults
-from repomatic.github.workflow_sync import (
-    canonical_caller_permissions,
-    extract_trigger_info,
-)
+from repomatic.github.workflow_sync import _canonical
 from repomatic.lint_repo import _fetch_rulesets
 from repomatic.metadata.core import Metadata
 from repomatic.tooling.runner import ensure_binary, run_tool
@@ -251,8 +250,10 @@ def _reset_process_caches() -> None:
     pypi._FETCH_MEMO.clear()
     _fetch_rulesets.cache_clear()
     get_data_content.cache_clear()
-    extract_trigger_info.cache_clear()
-    canonical_caller_permissions.cache_clear()
+    _canonical.cache_clear()
+    config_key_paths.cache_clear()
+    pyproject._TOML_CACHE.clear()
+    publish_config(None)
 
 
 @pytest.fixture(autouse=True)
@@ -410,12 +411,16 @@ def _neutral_terminal(monkeypatch):
 class FakeResponse:
     """Minimal `urlopen` response double: a byte body behind a context manager.
 
-    Stands in for the object `repomatic.http.get_json` reads, so network tests
-    patch `repomatic.http.urlopen` with `return_value=FakeResponse(...)`.
+    Stands in for the object {func}`repomatic.http.request` reads, so network
+    tests patch `repomatic.http.urlopen` with `return_value=FakeResponse(...)`.
     """
 
-    def __init__(self, data: bytes) -> None:
+    def __init__(
+        self, data: bytes, *, status: int = 200, headers: dict[str, str] | None = None
+    ) -> None:
         self._data = BytesIO(data)
+        self.status = status
+        self.headers = dict(headers or {})
 
     def read(self) -> bytes:
         return self._data.read()
@@ -431,13 +436,13 @@ def pat_results(**overrides: tuple[bool, str]) -> PatPermissionResults:
     """Build a `PatPermissionResults` where every check passes by default.
 
     Each keyword names a `PatPermissionResults` field and replaces its
-    `(passed, message)` tuple, so a test spells out only the checks whose
+    `(passed, message)` pair, so a test spells out only the checks whose
     outcome it cares about and the rest read as the happy path.
 
     :param overrides: Field name to its `(passed, message)` result.
     :return: The assembled results object.
     """
-    return PatPermissionResults(**{
+    results = {
         "administration": (True, "Administration: token has access"),
         "contents": (True, "Contents: token has access"),
         "issues": (True, "Issues: token has access"),
@@ -448,6 +453,9 @@ def pat_results(**overrides: tuple[bool, str]) -> PatPermissionResults:
         ),
         "workflows": (True, "Workflows: token has access"),
         **overrides,
+    }
+    return PatPermissionResults(**{
+        name: CheckResult(*result) for name, result in results.items()
     })
 
 

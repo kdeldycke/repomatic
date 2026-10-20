@@ -36,6 +36,7 @@ from ..github.actions import (
     WorkflowEvent,
 )
 from ..github.gh import run_gh_command
+from ..github.urls import split_slug
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -177,10 +178,10 @@ class EnvironmentMetadata:
     def repo_name(self) -> str | None:
         """Returns the repository name without owner prefix.
 
-        Derived from {attr}`repo_slug` by splitting on `/`.
+        Derived from {attr}`repo_slug`.
         """
         slug = self.repo_slug
-        return slug.split("/")[-1] if slug else None
+        return split_slug(slug)[1] if slug else None
 
     @cached_property
     def is_awesome(self) -> bool:
@@ -199,10 +200,8 @@ class EnvironmentMetadata:
         component of {attr}`repo_slug`.
         """
         owner = os.environ.get("GITHUB_REPOSITORY_OWNER") or None
-        if not owner:
-            slug = self.repo_slug
-            if slug and "/" in slug:
-                owner = slug.split("/")[0]
+        if not owner and self.repo_slug:
+            owner = split_slug(self.repo_slug)[0] or None
         return owner
 
     @cached_property

@@ -54,9 +54,6 @@ gitignore.extra-content = '''
 
 exclude = ["skills", "workflows/autolock.yaml", "mypy"]
 
-flavor.agent = "claude_code"
-flavor.ci = "github_ci"
-
 labels.extra-files = ["https://example.com/my-labels.toml"]
 
 nuitka.dev-targets = ["linux-arm64", "windows-x64"]
@@ -186,10 +183,6 @@ papaya = "old-owner/papaya"
 [tool.repomatic.metrics.forges]
 "gitlab.example.org" = "gitlab"
 
-# A mapping rather than a list: the reason is the point.
-[tool.repomatic.metrics.skip]
-carrot = "Ships in a distribution package with no public repository."
-
 [[tool.repomatic.metrics.charts]]
 output = "./docs/assets/star-history.svg"
 
@@ -211,31 +204,6 @@ A chart plots one metric, `stars` unless `metric` names another, and only a metr
 One collector is GitHub-only and skips every other forge with a note. The **reconstruction** (`--reconstruct`, on by default) rebuilds a subject's whole star curve from GitHub's star history, so the curve is complete from the repository's first star rather than starting on the day sampling did. The endpoint is anonymous, so this covers every subject a project tracks and not only the ones its token administers.
 
 It reads by week and stores by week, keeping one reading per week that gained a star. The endpoint resolves to the day, but a cumulative curve counts the stars a repository *still* holds, so one withdrawal years ago lowers every later point: at daily resolution a single unstar would rewrite thousands of committed rows.
-
-### Flavors
-
-`[tool.repomatic.flavor]` declares which ecosystems a repository targets, giving every present and future ecosystem decision one place to live instead of a new flag per feature.
-
-| Key            | Default       | Meaning                                                      |
-| :------------- | :------------ | :----------------------------------------------------------- |
-| `flavor.agent` | `claude_code` | AI coding agent whose asset layout skills and agents follow. |
-| `flavor.ci`    | `github_ci`   | CI system the bundled workflows target.                      |
-
-Values are trait IDs borrowed from [extra-platforms](https://github.com/kdeldycke/extra-platforms), which already models both AI agents and CI systems, so repomatic inherits its vocabulary and detection helpers instead of maintaining a parallel enum. Hyphens are normalized, so `claude-code` and `claude_code` are the same thing.
-
-Each value is checked twice, and the two failures read differently on purpose. A value outside the upstream vocabulary is a typo:
-
-```text
-Unknown [tool.repomatic] flavor.ci = 'mango'. Expected an extra-platforms trait ID: azure_pipelines, bamboo, …
-```
-
-while a real ecosystem repomatic has not implemented says so plainly:
-
-```text
-Unsupported [tool.repomatic] flavor.ci = 'gitlab_ci'. repomatic targets: github_ci.
-```
-
-`flavor.agent` drives where assets land: leave `skills.location`, `subagents.location` and `settings.location` unset and each follows the agent's own layout, while setting one explicitly overrides it for that asset alone. Defaults are static and never auto-detected: deriving them from the running agent would make a repository's effective configuration depend on which tool last invoked repomatic, and `repomatic show-metadata` would stop being reproducible.
 
 ### Repository scope
 

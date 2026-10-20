@@ -29,6 +29,7 @@ from typing import NamedTuple
 from urllib.parse import urlencode, urlsplit
 
 from .config import load_repomatic_config
+from .github.urls import parse_github_repo
 from .http import get_cached_json, get_json_soft
 from .versions import safe_version
 
@@ -321,49 +322,29 @@ def get_release_dates(
     return result
 
 
-def github_repo_root(url: str) -> str | None:
-    """Reduce any GitHub URL to its `https://github.com/owner/repo` root.
-
-    A `project_urls` entry often points *inside* a repository (`/issues`,
-    `/releases`, `/blob/main/CHANGELOG.md`), which is fine for a human-facing
-    link but not for callers that derive an `owner/repo` API slug from it: the
-    releases API would be asked for `repo/issues` and answer 404.
-
-    :param url: Any URL, GitHub or not.
-    :return: The repository root, or `None` when *url* names no GitHub
-        repository (a bare `github.com`, or an owner with no repo).
-    """
-    cleaned = url.strip().rstrip("/").removesuffix(".git")
-    _, separator, tail = cleaned.partition("github.com/")
-    if not separator:
-        return None
-    parts = [segment for segment in tail.split("/") if segment]
-    if len(parts) < 2:
-        return None
-    return f"https://github.com/{parts[0]}/{parts[1]}"
-
-
 def get_source_url(package: str) -> str | None:
     """Discover the GitHub repository URL for a PyPI package.
 
     Queries the PyPI JSON API and scans `project_urls` for keys that typically
     point to a source repository on GitHub, then reduces the winner to its
-    repository root so an API slug can be derived from it.
+    `https://github.com/owner/repo` root. An entry often points *inside* the
+    repository (`/issues`, `/releases`, `/blob/main/changelog.md`), and a
+    caller deriving an API slug from it would otherwise ask the releases API
+    for `repo/issues`, which answers 404.
 
     :param package: The PyPI package name.
     :return: The GitHub repository URL, or `None` if not found.
     """
     project_urls = _project_urls(package)
     by_key = {key.lower(): value for key, value in project_urls.items()}
-    for key in _SOURCE_URL_KEYS:
-        root = github_repo_root(by_key.get(key, ""))
-        if root:
-            return root
-    # Fallback: scan all values for a GitHub URL.
-    for candidate in project_urls.values():
-        root = github_repo_root(candidate)
-        if root:
-            return root
+    # The keys known to name the source come first, then every other value.
+    candidates = [by_key.get(key, "") for key in _SOURCE_URL_KEYS]
+    candidates.extend(project_urls.values())
+    for candidate in candidates:
+        parsed = parse_github_repo(candidate)
+        if parsed:
+            owner, name = parsed
+            return f"https://github.com/{owner}/{name}"
     return None
 
 
@@ -447,12 +428,9 @@ def get_trusted_publishers(
     url = PYPI_PROVENANCE_URL.format(
         package=package, version=version, filename=filename
     )
-    fetched = get_json_soft(
-        url, f"PyPI provenance lookup failed for {package} {version}"
-    )
-    if fetched is None:
+    data = get_json_soft(url, f"PyPI provenance lookup failed for {package} {version}")
+    if not isinstance(data, dict):
         return None
-    data, _raw = fetched
 
     raw_bundles = data.get("attestation_bundles")
     bundles = raw_bundles if isinstance(raw_bundles, list) else []

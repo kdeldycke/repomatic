@@ -43,6 +43,8 @@ from ..git_ops import (
 from ..pyproject import (
     is_python_package as _is_python_package,
     is_python_project as _is_python_project,
+    load_pyproject_doc,
+    read_pyproject_toml,
 )
 from ..release.binary import NUITKA_BUILD_TARGETS
 from ..tooling.registry import MYPY_VERSION_MIN
@@ -214,16 +216,13 @@ class ProjectMetadata:
 
     @cached_property
     def pyproject_toml(self) -> dict[str, Any]:
-        """Returns the raw parsed content of `pyproject.toml`.
+        """Returns the parsed content of `pyproject.toml`.
 
-        Returns an empty dict if the file does not exist.
+        The cached document {func}`~repomatic.pyproject.read_pyproject_toml`
+        shares with every other reader of the file, so treat it as read-only.
+        Empty when the file does not exist or does not parse.
         """
-        if self.pyproject_path.exists() and self.pyproject_path.is_file():
-            data: dict[str, Any] = tomlrt.loads(
-                self.pyproject_path.read_text(encoding="UTF-8")
-            )
-            return data
-        return {}
+        return read_pyproject_toml(self.pyproject_path.parent)
 
     @cached_property
     def pyproject(self) -> StandardMetadata | None:
@@ -250,9 +249,12 @@ class ProjectMetadata:
     def config(self) -> Config:
         """Returns the `[tool.repomatic]` section from `pyproject.toml`.
 
-        Merges user configuration with defaults from `Config`.
+        Merges user configuration with defaults from `Config`, through
+        {func}`~repomatic.config.load_repomatic_config`: for the project in the
+        working directory, the configuration the running command published
+        wins over the file.
         """
-        return load_repomatic_config(self.pyproject_toml)
+        return load_repomatic_config(project_root=self.pyproject_path.parent)
 
     @cached_property
     def nuitka_entry_points(self) -> list[str]:
@@ -450,7 +452,7 @@ class ProjectMetadata:
             if not path.exists():
                 continue
             try:
-                data = tomlrt.loads(path.read_text(encoding="UTF-8")).to_dict()
+                data = load_pyproject_doc(path)
             except tomlrt.TOMLParseError:
                 continue
             section = data

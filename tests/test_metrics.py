@@ -941,9 +941,6 @@ def test_tracked_subjects_are_reachable():
     """
     config = repo_config()
     assert config.metrics.subjects, "no subject declared"
-    assert not set(config.metrics.subjects) & set(config.metrics.skip), (
-        "a subject cannot be both tracked and excused"
-    )
     collected = collected_subjects(config.metrics.subjects, config.metrics.predecessors)
     for name in config.metrics.subjects:
         assert name == name.lower(), f"{name} should be lowercase"
@@ -951,7 +948,3 @@ def test_tracked_subjects_are_reachable():
         assert url.startswith("https://")
     # A forerunner belongs to a subject that is actually tracked.
     assert set(config.metrics.predecessors) <= set(config.metrics.subjects)
-    # Every excusal reads as a sentence, since it is the only record of why a
-    # subject shows nothing.
-    for reason in config.metrics.skip.values():
-        assert reason.endswith("."), f"{reason!r} should read as a sentence"

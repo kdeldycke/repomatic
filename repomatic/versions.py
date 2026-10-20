@@ -63,6 +63,21 @@ def safe_version(value: str) -> Version | None:
         return None
 
 
+def parse_tag_version(tag: str) -> Version | None:
+    """Parse a git tag as a version, dropping its `v` prefix.
+
+    The `v` belongs to the tag namespace and the version string itself is bare,
+    so tag `v1.2.3` names version `1.2.3`. A tag outside the version scheme
+    (`nightly`, `v1.2.3_hotfix`) is not an error: every caller reads tags it
+    does not control, and one odd tag must not stop the others from parsing.
+
+    :param tag: A git tag, with or without its `v` prefix.
+    :return: The parsed {class}`~packaging.version.Version`, or `None` when the
+        tag names no PEP 440 version.
+    """
+    return safe_version(tag.removeprefix("v"))
+
+
 def is_newer(new: str, old: str) -> bool:
     """Return `True` when *new* is a strictly higher version than *old*.
 

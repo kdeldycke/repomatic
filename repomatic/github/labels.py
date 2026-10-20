@@ -46,7 +46,6 @@ import re
 import subprocess
 import tempfile
 from functools import cache
-from http.client import HTTPException
 from pathlib import Path, PurePosixPath
 
 import tomlrt
@@ -584,11 +583,10 @@ def declared_label_names(
             continue
         try:
             body = get_bytes(url)
-        except (FetchError, HTTPException, OSError, ValueError) as exc:
-            # `get_bytes` wraps the usual failures in `FetchError`, but a
-            # malformed URL or a connection dropped mid-response escapes it.
+        except FetchError as exc:
+            # The message gains the URL: the bare failure names no file.
             msg = f"{url}: {exc}"
-            raise FetchError(msg) from exc
+            raise FetchError(msg, status=exc.status, body=exc.body) from exc
         texts[extra_label_filename(url)] = body.decode("UTF-8", errors="replace")
     for filename, label_text in texts.items():
         names |= _names_in_labelmaker_config(label_text, filename=filename)

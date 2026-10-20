@@ -23,6 +23,7 @@
    tests.test_broken_links
    tests.test_cache
    tests.test_changelog
+   tests.test_checks
    tests.test_checksums
    tests.test_ci_status
    tests.test_claude_assets
@@ -80,13 +81,16 @@
    tests.test_sync_ops
    tests.test_tabular
    tests.test_todolist
+   tests.test_token
    tests.test_tool_runner
    tests.test_unsubscribe
+   tests.test_urls
    tests.test_uv
    tests.test_version_sync
    tests.test_versions
    tests.test_virustotal
    tests.test_vulnerable_deps
+   tests.test_workflow_files
    tests.test_workflow_sync
    tests.test_workflows
 ```

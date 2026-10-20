@@ -32,10 +32,10 @@ the mistake above is not expressible.
 ```{note} Why the job name, and not a second API call
 Attributing a duration to an image needs no extra request, because the matrix
 job names already carry it (`⁉️ ubuntu-26.04 / py3.15-dev`). Matching them
-against {data}`~repomatic.lint_repo.KNOWN_RUNNERS` is the same technique
-{func}`~repomatic.lint_repo.literal_runners` uses on `runs-on:` values, and it
-degrades honestly: a job whose name carries no known image is reported under
-{data}`UNATTRIBUTED` rather than guessed at.
+against {data}`~repomatic.matrix.axes.KNOWN_RUNNERS` is the same technique
+{func}`~repomatic.github.workflow_files.literal_runners` uses on `runs-on:`
+values, and it degrades honestly: a job whose name carries no known image is
+reported under {data}`UNATTRIBUTED` rather than guessed at.
 ```
 
 ```{caution}
@@ -55,7 +55,7 @@ from dataclasses import dataclass
 from click_extra import ColumnSpec
 
 from ..humanize import parse_iso_datetime
-from ..lint_repo import KNOWN_RUNNERS
+from ..matrix.axes import KNOWN_RUNNERS
 from ..tabular import render_markdown_table
 from .actions import workflow_runs
 from .gh import gh_api_json

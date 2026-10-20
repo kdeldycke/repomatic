@@ -46,6 +46,8 @@ from repomatic.cli.ci import (
 from repomatic.cli.main import repomatic
 from repomatic.config import (
     Config,
+    load_repomatic_config,
+    publish_config,
 )
 from repomatic.file_inventory import FileInventory
 from repomatic.github.actions import NULL_SHA
@@ -67,10 +69,13 @@ from repomatic.metadata.core import (
     _METADATA_KEY_DESCRIPTIONS,
     Dialect,
     Metadata,
+    MetadataRequest,
     _metadata_config_fields,
     all_metadata_keys,
     metadata_keys_reference,
+    unknown_metadata_keys,
 )
+from repomatic.pyproject import read_pyproject_toml
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from tests.conftest import IN_GIT_CHECKOUT, metadata_from_pyproject
 
@@ -2625,3 +2630,62 @@ cli = "{value}"
     metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
     with pytest.raises(ValueError, match=r"\[project\.scripts\] value"):
         _ = metadata.script_entries
+
+
+def test_unknown_metadata_keys_reads_every_step():
+    """Each step calling the subcommand is listed, with the keys it gets wrong."""
+    workflows = {
+        Path("ci.yaml"): {
+            "jobs": {
+                "metadata": {
+                    "steps": [
+                        {"run": "uvx 'repomatic==8.0.0' show-metadata package_name"},
+                        {"run": "repomatic show-metadata harvest_yield is_bot"},
+                        {"run": "repomatic metadata"},
+                        {"run": "echo show-metadata"},
+                        {"uses": "actions/checkout"},
+                    ]
+                }
+            }
+        }
+    }
+    assert unknown_metadata_keys(workflows, "repomatic") == [
+        MetadataRequest(Path("ci.yaml"), "metadata", ("package_name",), (), False),
+        MetadataRequest(
+            Path("ci.yaml"),
+            "metadata",
+            ("harvest_yield", "is_bot"),
+            ("harvest_yield",),
+            False,
+        ),
+        MetadataRequest(Path("ci.yaml"), "metadata", (), (), True),
+    ]
+
+
+def test_metadata_reads_the_shared_pyproject_parse(tmp_path, monkeypatch):
+    """The singleton reads the same cached document every other reader gets."""
+    metadata = metadata_from_pyproject(
+        tmp_path, monkeypatch, '[project]\nname = "fig"\n'
+    )
+    assert metadata.pyproject_toml is read_pyproject_toml(tmp_path)
+
+
+def test_metadata_config_follows_the_published_config(tmp_path, monkeypatch):
+    """The command's published config is the singleton's config too."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.repomatic]\nminimum-release-age = "2 weeks"\n', encoding="UTF-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    published = Config(minimum_release_age="3 days")
+    publish_config(published)
+    assert Metadata().config is published
+
+
+def test_metadata_config_warns_once_about_an_unknown_key(tmp_path, monkeypatch, caplog):
+    """The singleton and a library helper report a stale key once between them."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.repomatic]\nmango-option = true\n", encoding="UTF-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    assert Metadata().config == load_repomatic_config()
+    assert caplog.text.count("Unknown configuration option(s)") == 1

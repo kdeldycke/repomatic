@@ -33,10 +33,10 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
+from repomatic.checks import CheckResult
 from repomatic.cli.main import repomatic as repomatic_cli
 from repomatic.github.pr_body import load_template
 from repomatic.github.token import PatPermissionResults
-from repomatic.lint_repo import CheckResult
 from repomatic.setup_guide import CANNOT_VERIFY, SETUP_STEPS
 from tests.conftest import pat_results
 

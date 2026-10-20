@@ -56,7 +56,7 @@ import logging
 import os
 from datetime import UTC, datetime, timedelta
 from enum import Enum, StrEnum
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 from random import randint
 from tempfile import mkstemp
@@ -183,6 +183,23 @@ class AnnotationLevel(Enum):
     ERROR = "error"
     WARNING = "warning"
     NOTICE = "notice"
+
+    @property
+    def glyph(self) -> str:
+        """The symbol that opens a terminal line reporting at this level.
+
+        `✗` for an error and `⚠` for a warning. A notice reads `ℹ`, the symbol
+        a skipped check prints too: neither one asks the reader to act.
+        """
+        return _ANNOTATION_GLYPHS[self]
+
+
+_ANNOTATION_GLYPHS: dict[AnnotationLevel, str] = {
+    AnnotationLevel.ERROR: "\u2717",
+    AnnotationLevel.WARNING: "\u26a0",
+    AnnotationLevel.NOTICE: "\u2139",
+}
+"""Terminal symbol per {class}`AnnotationLevel`, read by its `glyph` property."""
 
 
 class ReportAction(Enum):
@@ -444,7 +461,22 @@ def emit_annotation(level: AnnotationLevel, message: str) -> None:
     print(f"::{level.value}::{message}")
 
 
-@lru_cache(maxsize=1)
+def report_finding(level: AnnotationLevel, message: str) -> None:
+    """Report one finding in the log and as a workflow annotation.
+
+    Emits the annotation first, then prints the line the terminal reader sees,
+    opened by the {attr}`AnnotationLevel.glyph` of *level*. Every lint that
+    reports a failure goes through here, so the symbol and the annotation level
+    of a finding always agree.
+
+    :param level: Severity of the finding.
+    :param message: The finding, one line.
+    """
+    emit_annotation(level, message)
+    echo(f"{level.glyph} {message}")
+
+
+@cache
 def get_github_event() -> dict[str, Any]:
     """Load the GitHub event payload from `GITHUB_EVENT_PATH`.
 

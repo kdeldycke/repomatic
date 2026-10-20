@@ -238,7 +238,7 @@ class BuildTarget:
     One compile job per target, each on one of the six runners the test matrix
     already covers, so a published binary is built on an image the suite is
     validated against. The targets are exactly
-    {data}`~repomatic.lint_repo.KNOWN_RUNNERS`, not a separate selection: an
+    {data}`~repomatic.matrix.axes.KNOWN_RUNNERS`, not a separate selection: an
     image is added here by widening the test axes, never on its own.
     ```
     """

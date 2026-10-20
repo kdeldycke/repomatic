@@ -37,60 +37,12 @@ from click_extra import ColumnSpec
 from .bundle import get_data_content
 from .config import Config, location_path
 from .frontmatter import split_frontmatter
+from .github.urls import repo_name
+from .github.workflow_files import WORKFLOW_DIR
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Sequence
-
-GITHUB_YAML_PATTERNS: tuple[str, ...] = (
-    ".github/workflows/*.yaml",
-    ".github/workflows/*.yml",
-    ".github/actions/**/*.yaml",
-    ".github/actions/**/*.yml",
-)
-"""Globs matching every workflow and composite-action file of a repository.
-
-Rooted at the repository root rather than at `.github/`, so the same patterns
-work against the current directory and against an arbitrary target tree. Both
-`.yml` and `.yaml` are listed because GitHub accepts either, whatever this
-project's own [long-extension convention](https://repomatic.net)
-prefers: a downstream repository is free to have picked the short one.
-
-Shared by `sync_ops._workflow_and_action_files`, which reads the pins to bump,
-and `init_project._highest_upstream_pin`, which reads them to floor a new pin.
-The two must agree on which files carry a pin, or `init` would floor against a
-file `sync-workflow-pins` never bumps.
-"""
-
-
-def _config_enabled(config: object, config_key: str, config_default: bool) -> bool:
-    """Resolve a `[tool.repomatic]` gate against a `Config` object.
-
-    Returns `True` when *config_key* is empty (unconditionally enabled) or when
-    the corresponding config field is truthy. Shared by
-    {meth}`FileEntry.is_enabled` and {meth}`Component.is_enabled`.
-
-    A `[tool.repomatic]` key reaches its field one of two ways, and both are
-    tried because both are in use. `metrics.sync` is a key *on a nested schema*
-    ({class}`~repomatic.config.MetricsConfig`), reached by walking the dotted
-    path. `notification.unsubscribe` is a scalar whose dotted path is only
-    metadata, reached by flattening the whole key to one attribute name.
-    Walking first, since a nested schema is the more specific match: a gate
-    naming a nested key would otherwise flatten to an attribute nothing
-    defines and silently resolve to *config_default*, which reads as a feature
-    switched off rather than as a gate wired wrong.
-    """
-    if not config_key:
-        return True
-    parts = config_key.replace("-", "_").split(".")
-    node: object = config
-    for part in parts:
-        if not hasattr(node, part):
-            break
-        node = getattr(node, part)
-    else:
-        return bool(node)
-    return bool(getattr(config, "_".join(parts), config_default))
 
 
 class InitDefault(Enum):
@@ -216,12 +168,11 @@ class FileEntry:
     """Which repository types get this file."""
 
     config_key: str = ""
-    """`[tool.repomatic]` key that gates this entry."""
+    """`[tool.repomatic]` key that gates this entry.
 
-    config_default: bool = False
-    """Value assumed when `config_key` is absent from config. `False`
-    means opt-in (excluded unless enabled), `True` means opt-out
-    (included unless disabled)."""
+    Resolved by {meth}`~repomatic.config.Config.is_enabled`, so it names a key
+    the user writes, like `debug.sync`. A key that names no field raises.
+    """
 
     reusable: bool = True
     """Workflow-specific: supports `workflow_call` trigger."""
@@ -246,14 +197,14 @@ class FileEntry:
     ```
     """
 
-    def is_enabled(self, config: object) -> bool:
-        """Whether this entry is enabled by the given `Config` object.
+    def is_enabled(self, config: Config) -> bool:
+        """Whether *config* enables this entry.
 
-        See `_config_enabled` for the resolution rule.
+        An entry with no {attr}`config_key` is always enabled.
 
-        :param config: A {class}`~repomatic.config.Config` instance.
+        :param config: The resolved `[tool.repomatic]` configuration.
         """
-        return _config_enabled(config, self.config_key, self.config_default)
+        return not self.config_key or config.is_enabled(self.config_key)
 
     def __post_init__(self) -> None:
         """Derive `target` and `file_id` from `source` when omitted."""
@@ -291,11 +242,10 @@ class Component:
     """File entries this component manages."""
 
     config_key: str = ""
-    """`[tool.repomatic]` key that gates this component."""
+    """`[tool.repomatic]` key that gates this component.
 
-    config_default: bool = True
-    """Value assumed when `config_key` is absent from config. `True`
-    means opt-out (included unless disabled)."""
+    Resolved like {attr}`FileEntry.config_key`.
+    """
 
     keep_unmodified: bool = False
     """Preserve files on disk even when identical to the bundled default.
@@ -328,14 +278,14 @@ class Component:
     not ours to move).
     """
 
-    def is_enabled(self, config: object) -> bool:
-        """Whether this component is enabled by the given `Config` object.
+    def is_enabled(self, config: Config) -> bool:
+        """Whether *config* enables this component.
 
-        See `_config_enabled` for the resolution rule.
+        A component with no {attr}`config_key` is always enabled.
 
-        :param config: A {class}`~repomatic.config.Config` instance.
+        :param config: The resolved `[tool.repomatic]` configuration.
         """
-        return _config_enabled(config, self.config_key, self.config_default)
+        return not self.config_key or config.is_enabled(self.config_key)
 
     def resolve_target(self, target: str, config: object) -> str:
         """Rebase a declared target path onto this component's configured location.
@@ -609,9 +559,6 @@ class RemovedAsset:
 # ---------------------------------------------------------------------------
 
 
-WORKFLOW_TARGET_ROOT = ".github/workflows"
-"""Directory GitHub reads workflow files from. Not configurable."""
-
 INSTALL_GUIDE_PATH = "docs/install.md"
 """Install guide the release freeze pins download URLs in.
 
@@ -704,7 +651,7 @@ def _workflow_entry(
     filename = target or source
     return FileEntry(
         source,
-        f"{WORKFLOW_TARGET_ROOT}/{filename}",
+        (WORKFLOW_DIR / filename).as_posix(),
         scope=scope,
         reusable=reusable,
         config_key=config_key,
@@ -996,7 +943,7 @@ def _removed_workflow(
     """
     return RemovedAsset(
         "workflows",
-        f"{WORKFLOW_TARGET_ROOT}/{filename}",
+        (WORKFLOW_DIR / filename).as_posix(),
         removed_in,
         successor=successor,
     )
@@ -1245,17 +1192,7 @@ def is_awesome_repo(name: str) -> bool:
     return name.startswith("awesome-")
 
 
-def package_of(repo: str) -> str:
-    """The package name an `owner/repo` slug implies: its repository half.
-
-    The one spelling of that derivation, shared by every check and rewriter
-    that maps a `--upstream-repo` value onto the inline `package==X.Y.Z` pin
-    it governs.
-    """
-    return repo.rsplit("/", 1)[-1]
-
-
-UPSTREAM_PACKAGE: str = package_of(DEFAULT_REPO)
+UPSTREAM_PACKAGE: str = repo_name(DEFAULT_REPO)
 """Distribution name of the upstream toolkit, derived from {data}`DEFAULT_REPO`.
 
 The freeze, cooldown-exemption, and lint code that handles the `uses:` refs

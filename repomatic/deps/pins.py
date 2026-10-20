@@ -24,7 +24,7 @@ minimum-release-age` cooldown (the GitHub/PyPI/npm counterpart to uv's
 in place.
 
 The datasource adapters and version selection live here; the file I/O and
-checksum recompute that the commands drive stay in {mod}`repomatic.cli.main`. The
+checksum recompute that the commands drive stay in {mod}`repomatic.cli.deps`. The
 string-level helpers (`set_tool_version`, `find_action_pins`,
 `find_workflow_literals`, and the `apply_*` rewriters) are pure so they can be
 unit-tested without network access.

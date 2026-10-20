@@ -57,12 +57,11 @@ import logging
 from dataclasses import dataclass, field
 from urllib.parse import quote
 
-import yaml
 from click_extra import ColumnSpec
 
 from .actions import workflow_runs
 from .gh import gh_api_json
-from .workflow_sync import workflow_triggers
+from .workflow_files import load_workflows, workflow_triggers
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -318,20 +317,13 @@ def _workflow_triggers(workflow_dir: Path) -> list[tuple[str, set[str]]]:
     parse the tree twice or disagree on which files count as workflows.
 
     :param workflow_dir: Directory holding the workflow files.
-    :return: `(filename, triggers)` pairs, sorted by filename. Empty when the
+    :return: `(filename, triggers)` pairs, sorted by path. Empty when the
         directory is missing. A file that does not parse is skipped.
     """
-    if not workflow_dir.is_dir():
-        return []
-    pairs = []
-    for path in sorted(workflow_dir.glob("*.yaml")):
-        try:
-            data = yaml.safe_load(path.read_text(encoding="UTF-8"))
-        except yaml.YAMLError:
-            logging.warning(f"Could not parse {path}, skipping.")
-            continue
-        pairs.append((path.name, set(workflow_triggers(data))))
-    return pairs
+    return [
+        (path.name, set(workflow_triggers(data)))
+        for path, data in load_workflows(workflow_dir).items()
+    ]
 
 
 def workflow_files(workflow_dir: Path) -> tuple[str, ...]:

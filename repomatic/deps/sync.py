@@ -24,7 +24,7 @@ the lock), then rewrite the pin. This module turns that shape into data: one
 {class}`SyncOperation` per bumper, in {data}`SYNC_OPERATIONS`.
 
 The registry is the single source of truth consumed three ways: the thin
-`sync-*` commands and the aggregate `sync-deps` command in {mod}`repomatic.cli.main`,
+`sync-*` commands and the aggregate `sync-deps` command in {mod}`repomatic.cli.deps`,
 and the consolidated CI job emitted by {mod}`repomatic.github.workflow_sync`.
 
 ```{rubric} Resolve then apply
@@ -53,7 +53,7 @@ trace.
 The datasource adapters, version selection, and pure string rewriters live in
 {mod}`repomatic.deps.pins` and {mod}`repomatic.deps.uv`; this module composes them
 with the file I/O and checksum recompute. Terminal and PR-body rendering stay in
-{mod}`repomatic.cli.main`, fed from the {class}`SyncPlan`.
+{mod}`repomatic.cli.deps`, fed from the {class}`SyncPlan`.
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ import re
 import subprocess
 import threading
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import date
 from functools import partial
 from pathlib import Path
 
@@ -73,14 +73,14 @@ from click_extra import OperationTrail, echo, get_tool_config, resolve_jobs, run
 from ..components import (
     BUNDLED_VERBATIM_TARGETS,
     DEFAULT_REPO,
-    GITHUB_YAML_PATTERNS,
     UPSTREAM_PACKAGE,
     UPSTREAM_REPO_SLUGS,
 )
 from ..github.actions import emit_report
 from ..github.pr_body import template_docs_url
 from ..github.releases import fetch_github_release_notes, resolve_tag_to_sha
-from ..humanize import format_countdown, utc_midnight
+from ..github.workflow_files import github_yaml_paths
+from ..humanize import format_countdown, today_utc, utc_midnight
 from ..init_project import init_config, is_source_repo, upgrade_invite
 from ..npm import NPM_PACKAGE_URL
 from ..pypi import PYPI_PACKAGE_URL, get_source_url
@@ -183,14 +183,6 @@ whole duration.
 """
 
 
-def _workflow_and_action_files() -> list[Path]:
-    """Collect workflow and composite-action YAML files under `.github/`."""
-    files: list[Path] = []
-    for pattern in GITHUB_YAML_PATTERNS:
-        files.extend(Path().glob(pattern))
-    return sorted(set(files))
-
-
 def _pinnable_files() -> dict[Path, str]:
     """Read the `.github/` workflow and action files whose pins are bumpable.
 
@@ -209,7 +201,7 @@ def _pinnable_files() -> dict[Path, str]:
     in_source_repo = is_source_repo(Path.cwd())
     return {
         path: path.read_text(encoding="UTF-8")
-        for path in _workflow_and_action_files()
+        for path in github_yaml_paths(Path())
         if in_source_repo or path.as_posix() not in BUNDLED_VERBATIM_TARGETS
     }
 
@@ -316,7 +308,7 @@ class SyncPlan:
     """The resolved, not-yet-written outcome of one operation's read phase.
 
     Carries everything {attr}`SyncOperation.apply` needs to write the changes
-    and everything {mod}`repomatic.cli.main` needs to render the terminal table and
+    and everything {mod}`repomatic.cli.deps` needs to render the terminal table and
     the markdown PR body, so the write and the rendering never re-resolve.
     """
 
@@ -1270,7 +1262,7 @@ def _tool_versions_applies() -> bool:
 
 def _workflow_files_present() -> bool:
     """The pin updaters run wherever workflow or composite-action files exist."""
-    return bool(_workflow_and_action_files())
+    return bool(github_yaml_paths(Path()))
 
 
 def render_plan_markdown(plan: SyncPlan) -> str:
@@ -1518,7 +1510,7 @@ def emit_version_sync_report(
         )
     if plan.cutoff is not None:
         echo(f"minimum-release-age cutoff: {plan.cutoff:%Y-%m-%d}")
-    print_plan_tables(ctx, plan, plan.reference_date or datetime.now(UTC).date())
+    print_plan_tables(ctx, plan, plan.reference_date or today_utc())
     if plan.notes_section:
         echo("")
         echo(plan.notes_section)
@@ -1553,7 +1545,7 @@ def run_version_sync(
     op = OPERATIONS_BY_NAME[op_name]
     rc = ResolveContext(
         config=get_tool_config(ctx),
-        today=datetime.now(UTC).date(),
+        today=today_utc(),
         release_notes=release_notes,
         held_back=held_back,
     )
@@ -1593,7 +1585,7 @@ def resolve_lockfile_plan(
     op = OPERATIONS_BY_NAME[op_name]
     rc = ResolveContext(
         config=config,
-        today=datetime.now(UTC).date(),
+        today=today_utc(),
         release_notes=release_notes,
         held_back=held_back and (table or output is not None),
         lockfile=lockfile,

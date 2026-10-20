@@ -84,6 +84,22 @@ ARM, by two to three times over the x86 image, for quicker PR feedback. See
 ```
 """
 
+KNOWN_RUNNERS: Final[frozenset[str]] = frozenset(TEST_RUNNERS_FULL) | frozenset(
+    TEST_RUNNERS_PR
+)
+"""Every runner image this project has deliberately chosen.
+
+The closest thing to a curated list of images a project should be running on,
+and the one place carrying measured guidance on their relative speed and cost.
+A job naming something outside it has been picked without that guidance.
+
+The test axes are the whole list: every job runs on an image the suite is also
+validated against, so "where is the suite exercised" and "what may a job run on"
+are one question. That is deliberate, since each extra image is one more to
+track, pin and migrate. A job needing something else is a decision to make
+explicitly, by widening the axes rather than by naming an image here.
+"""
+
 TEST_PYTHON_FULL = (
     "3.11",
     "3.15",

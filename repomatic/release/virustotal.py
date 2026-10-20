@@ -47,7 +47,6 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 
 import vt
@@ -55,8 +54,9 @@ from packaging.version import Version
 
 from ..github.gh import run_gh_command
 from ..hashing import compute_file_sha256
+from ..humanize import today_utc
 from ..tabular import load_records, read_csv, render_csv, write_csv
-from ..versions import safe_version
+from ..versions import parse_tag_version
 from .binary import BINARY_ASSET_SUFFIXES
 
 TYPE_CHECKING = False
@@ -417,7 +417,7 @@ def records_from_results(
     :return: One record per result with detection statistics.
     """
     if scanned is None:
-        scanned = datetime.now(UTC).strftime("%Y-%m-%d")
+        scanned = today_utc().isoformat()
     return [
         ScanRecord(
             tag=tag,
@@ -485,7 +485,7 @@ def _record_sort_key(record: ScanRecord) -> tuple[Version, str, str, str]:
     Tags that don't parse as versions sort first under `Version("0")`, with
     the raw tag string as tie-breaker.
     """
-    version = safe_version(record.tag.removeprefix("v")) or Version("0")
+    version = parse_tag_version(record.tag) or Version("0")
     return (version, record.tag, record.filename, record.scanned)
 
 

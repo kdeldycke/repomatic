@@ -88,13 +88,12 @@ import json
 import logging
 from dataclasses import dataclass, fields
 from typing import NamedTuple
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 from click_extra import ClickException
 
-from ..http import DEFAULT_TIMEOUT
-from .gh import api_headers, resolve_gh_token, run_gh_command
+from ..checks import CheckResult
+from ..http import FetchError, request
+from .gh import GhCommandError, api_headers, resolve_gh_token, run_gh_command
 from .status import with_status_annotation
 
 TYPE_CHECKING = False
@@ -128,27 +127,26 @@ def require_token(
     return decorator
 
 
-def _classify_pat_error(stderr: str, missing_permission_msg: str) -> str:
-    """Build a permission-check failure message from a `gh` stderr.
+def _classify_pat_error(error: GhCommandError, missing_permission_msg: str) -> str:
+    """Build a permission-check failure message from a failed `gh` call.
 
-    Returns the canonical "missing permission" message only when stderr
-    actually says `HTTP 403` (the unambiguous signature of a token
-    lacking the relevant scope). For any other failure mode (401 from
-    an auth incident, 5xx from GitHub, network errors) the actual stderr
-    is surfaced so operators see the real cause instead of being misled
-    toward PAT scopes that are already correct. A
-    [githubstatus.com](https://www.githubstatus.com) annotation is
-    appended when an incident is active.
+    Returns the canonical "missing permission" message only for an `HTTP 403`
+    (the unambiguous signature of a token lacking the relevant scope). For any
+    other failure mode (401 from an auth incident, 5xx from GitHub, network
+    errors) the actual error is surfaced so operators see the real cause
+    instead of being misled toward PAT scopes that are already correct. A
+    [githubstatus.com](https://www.githubstatus.com) annotation is appended
+    when an incident is active.
 
-    :param stderr: The raw error string from {func}`run_gh_command`.
+    :param error: The failure raised by {func}`run_gh_command`.
     :param missing_permission_msg: Message to return when the failure is
         unambiguously a 403 (permission missing).
-    :return: A diagnostic string suitable for the `(passed, msg)` tuple.
+    :return: The failure message of the {class}`~repomatic.checks.CheckResult`.
     """
-    if "HTTP 403" in stderr:
+    if error.status == 403:
         msg = missing_permission_msg
     else:
-        msg = f"GitHub API call failed: {stderr.strip()}"
+        msg = f"GitHub API call failed: {str(error).strip()}"
     return with_status_annotation(msg)
 
 
@@ -238,69 +236,72 @@ PAT_PERMISSION_PROBES: tuple[PatProbe, ...] = (
 """The PAT permission probes, one per {class}`PatPermissionResults` field."""
 
 
-def probe_pat_permission(repo: str, probe: PatProbe) -> tuple[bool, str]:
+def probe_pat_permission(repo: str, probe: PatProbe) -> CheckResult:
     """Run one PAT permission probe against *repo*.
 
     :param repo: Repository in 'owner/repo' format.
     :param probe: The {class}`PatProbe` row to execute.
-    :return: Tuple of (passed, message).
+    :return: A passing result, or a failing one that names the cause.
     """
     try:
         run_gh_command(["api", probe.endpoint.format(repo=repo), "--silent"])
-    except RuntimeError as exc:
-        stderr = str(exc)
-        if probe.not_found and "HTTP 404" in stderr:
-            return False, with_status_annotation(probe.not_found.format(repo=repo))
-        return False, _classify_pat_error(
-            stderr,
-            f"Token lacks {probe.permission!r} permission. "
-            "Update the PAT to include this permission.",
+    except GhCommandError as exc:
+        if probe.not_found and exc.status == 404:
+            return CheckResult(
+                False, with_status_annotation(probe.not_found.format(repo=repo))
+            )
+        return CheckResult(
+            False,
+            _classify_pat_error(
+                exc,
+                f"Token lacks {probe.permission!r} permission. "
+                "Update the PAT to include this permission.",
+            ),
         )
-    return True, probe.success
+    return CheckResult(True, probe.success)
 
 
 @dataclass
 class PatPermissionResults:
     """Results of all PAT permission checks.
 
-    Each field holds a `(passed, message)` tuple from the corresponding
-    {data}`PAT_PERMISSION_PROBES` row.
+    Each field holds the {class}`~repomatic.checks.CheckResult` of the
+    corresponding {data}`PAT_PERMISSION_PROBES` row.
     """
 
-    administration: tuple[bool, str]
+    administration: CheckResult
     """Result of the `administration` {data}`PAT_PERMISSION_PROBES` row."""
 
-    contents: tuple[bool, str]
+    contents: CheckResult
     """Result of the `contents` {data}`PAT_PERMISSION_PROBES` row."""
 
-    issues: tuple[bool, str]
+    issues: CheckResult
     """Result of the `issues` {data}`PAT_PERMISSION_PROBES` row."""
 
-    pull_requests: tuple[bool, str]
+    pull_requests: CheckResult
     """Result of the `pull_requests` {data}`PAT_PERMISSION_PROBES` row."""
 
-    vulnerability_alerts: tuple[bool, str]
+    vulnerability_alerts: CheckResult
     """Result of the `vulnerability_alerts` {data}`PAT_PERMISSION_PROBES` row."""
 
-    workflows: tuple[bool, str]
+    workflows: CheckResult
     """Result of the `workflows` {data}`PAT_PERMISSION_PROBES` row."""
 
-    def iter_results(self) -> list[tuple[bool, str]]:
-        """Every probe's `(passed, message)` pair, in field order.
+    def iter_results(self) -> list[CheckResult]:
+        """Every probe's result, in field order.
 
-        Each field is a plain `tuple[bool, str]` filled by
-        {func}`check_all_pat_permissions`, so there is nothing optional to
-        filter: the one loop serves both the full listing and
-        {meth}`failed`'s view of it.
+        Each field is filled by {func}`check_all_pat_permissions`, so there is
+        nothing optional to filter: the one loop serves both the full listing
+        and {meth}`failed`'s view of it.
         """
         return [getattr(self, f.name) for f in fields(self)]
 
     def failed(self) -> list[tuple[str, str]]:
         """Return `(field_name, message)` pairs for each failed check."""
         return [
-            (f.name, result[1])
+            (f.name, result.message)
             for f, result in zip(fields(self), self.iter_results())
-            if not result[0]
+            if not result.passed
         ]
 
 
@@ -337,48 +338,47 @@ def validate_gh_token_env() -> None:
         raise RuntimeError(msg)
 
 
-def validate_gh_api_access() -> tuple[int, dict[str, str], str]:
-    """Smoke-test the GitHub API and return parsed response.
+GITHUB_RATE_LIMIT_URL = "https://api.github.com/rate_limit"
+"""The GitHub API endpoint {func}`validate_gh_api_access` reads.
+
+Any authenticated caller may read it, and reading it costs no rate limit.
+"""
+
+
+def _api_error_message(body: str) -> str:
+    """The `message` field of a GitHub API error body, empty when it has none."""
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return ""
+    message = payload.get("message") if isinstance(payload, dict) else None
+    return message if isinstance(message, str) else ""
+
+
+def validate_gh_api_access() -> dict[str, str]:
+    """Smoke-test the GitHub API and return the response headers.
 
     Calls `GET https://api.github.com/rate_limit` with the token from
-    environment variables.
+    environment variables, through {func}`~repomatic.http.request`. The headers
+    are what a caller reads: `X-OAuth-Scopes` is what tells a classic PAT apart
+    from a fine-grained one.
 
-    Does not go through {func}`~repomatic.http.get_json`, which returns only
-    the parsed body: this is the one caller that needs the *response headers*,
-    since `X-OAuth-Scopes` is what tells a classic PAT apart from a
-    fine-grained one. It still borrows that module's
-    {data}`~repomatic.http.DEFAULT_TIMEOUT`, so a stalled connection fails the
-    check instead of hanging the job that runs it.
-
-    :return: Tuple of `(status_code, headers, body)`.
+    :return: The response headers, keyed by lowercase name.
     :raises RuntimeError: If the API returns a 4xx/5xx status, or cannot be
         reached at all (network error, timeout).
     """
-    request = Request("https://api.github.com/rate_limit", headers=api_headers())
-
     try:
-        with urlopen(request, timeout=DEFAULT_TIMEOUT) as response:
-            status = response.status
-            headers = {k.lower(): v for k, v in response.headers.items()}
-            body = response.read().decode()
-    except HTTPError as exc:
-        message = ""
-        try:
-            message = json.loads(exc.read().decode()).get("message", "")
-        except (json.JSONDecodeError, AttributeError):
-            pass
-        detail = f"GitHub API returned an error ({exc.code})."
-        if message:
-            detail += f" GitHub says: {message}"
+        response = request(GITHUB_RATE_LIMIT_URL, headers=api_headers())
+    except FetchError as exc:
+        if exc.status is None:
+            detail = f"Could not reach the GitHub API: {exc}"
+        else:
+            detail = f"GitHub API returned an error ({exc.status})."
+            message = _api_error_message(exc.body)
+            if message:
+                detail += f" GitHub says: {message}"
         raise RuntimeError(with_status_annotation(detail)) from exc
-    except (URLError, TimeoutError) as exc:
-        # Unreachable rather than refused. Only possible to hit now that the
-        # request carries a timeout, and the caller's contract promises a
-        # RuntimeError for every failure, so it cannot escape raw.
-        detail = f"Could not reach the GitHub API: {exc}"
-        raise RuntimeError(with_status_annotation(detail)) from exc
-
-    return status, headers, body
+    return response.headers
 
 
 def validate_classic_pat_scope(required_scope: str) -> list[str]:
@@ -397,7 +397,7 @@ def validate_classic_pat_scope(required_scope: str) -> list[str]:
     :raises RuntimeError: If any check fails.
     """
     validate_gh_token_env()
-    _status_code, headers, _body = validate_gh_api_access()
+    headers = validate_gh_api_access()
 
     scopes_header = headers.get("x-oauth-scopes")
     if scopes_header is None:

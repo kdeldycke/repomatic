@@ -1969,7 +1969,7 @@ def test_init_warns_about_a_metadata_key_this_version_dropped(tmp_path, monkeypa
     target.write_text(
         _DOWNSTREAM_TESTS_YAML.replace(
             "echo hello",
-            "uvx 'repomatic==7.4.1' metadata harvest_yield test_matrix",
+            "uvx 'repomatic==7.4.1' show-metadata harvest_yield test_matrix",
         ),
         encoding="UTF-8",
     )
@@ -1984,6 +1984,32 @@ def test_init_warns_about_a_metadata_key_this_version_dropped(tmp_path, monkeypa
     assert "'harvest_yield'" in result.warnings[0]
     # The keys that do exist are not named.
     assert "test_matrix" not in result.warnings[0]
+
+
+def test_init_warns_about_the_removed_metadata_alias(tmp_path, monkeypatch):
+    """A workflow still calling the `metadata` alias is told to call `show-metadata`.
+
+    `8.0.0` removed the alias, so the call fails the job as surely as a retired
+    key does, keys or no keys.
+    """
+    target = tmp_path / ".github" / "workflows" / "tests.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        _DOWNSTREAM_TESTS_YAML.replace(
+            "echo hello", "uvx 'repomatic==7.4.1' metadata test_matrix"
+        ),
+        encoding="UTF-8",
+    )
+    monkeypatch.setattr(ip, "__version__", "7.4.2")
+    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+
+    result = run_init(
+        output_dir=tmp_path, components=("workflows/tests.yaml",), cooldown=False
+    )
+
+    assert len(result.warnings) == 1
+    assert "`repomatic metadata`" in result.warnings[0]
+    assert "`repomatic show-metadata`" in result.warnings[0]
 
 
 def test_init_skips_the_metadata_key_check_behind_a_cooldown(tmp_path, monkeypatch):
@@ -5183,52 +5209,34 @@ def test_component_names_unique() -> None:
     )
 
 
-def test_config_key_has_config_default() -> None:
-    """Entries with config_key must have an intentional config_default.
-
-    File entries default to ``False`` (opt-in). Component entries default
-    to ``True`` (opt-out). This test verifies the pairing exists — not the
-    specific default value.
-    """
-    for comp in COMPONENTS:
-        if comp.config_key:
-            # Component-level config_key exists; config_default is declared.
-            assert isinstance(comp.config_default, bool)
-        for entry in comp.files:
-            if entry.config_key:
-                assert isinstance(entry.config_default, bool)
-
-
 def test_every_config_key_gate_actually_reaches_its_field() -> None:
     """Every declared `config_key` must move its entry when the user flips it.
 
-    A gate naming a key `Config` cannot resolve does not fail: it silently
-    falls through to `config_default`, which reads as a feature switched off
-    rather than as a gate wired wrong. `metrics.sync` shipped that way, because
-    the resolver flattened every dotted key to one attribute name and could
-    not reach a key living on a nested schema.
+    `metrics.sync` once shipped as a gate that could not reach its field: the
+    resolver flattened every dotted key to one attribute name and could not
+    reach a key living on a nested schema, so the entry read as switched off.
+    `Config.is_enabled` now raises on a key with no field, and this test flips
+    each gate the way a user would write it.
 
     Written against the whole registry rather than against that one entry: the
     fault is a property of how a gate is spelled, so any future entry naming a
     nested key would repeat it.
     """
     gates = [
-        (f"{comp.name}", comp.config_key, comp.config_default)
-        for comp in COMPONENTS
-        if comp.config_key
+        (f"{comp.name}", comp.config_key) for comp in COMPONENTS if comp.config_key
     ] + [
-        (f"{comp.name}/{entry.file_id}", entry.config_key, entry.config_default)
+        (f"{comp.name}/{entry.file_id}", entry.config_key)
         for comp in COMPONENTS
         for entry in comp.files
         if entry.config_key
     ]
     assert gates, "no config-gated entry left to check"
 
-    for label, key, default in gates:
+    for label, key in gates:
         # Build the `[tool.repomatic]` table the user would write, nesting the
         # dotted key exactly as TOML would, and set it to the opposite of the
-        # entry's assumed default.
-        flipped = not default
+        # field's default.
+        flipped = not Config().is_enabled(key)
         table: dict = {}
         node = table
         parts = key.split(".")

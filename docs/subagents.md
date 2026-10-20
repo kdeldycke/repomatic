@@ -30,7 +30,7 @@ include = ["subagents"]
 subagents.location = "./dotfiles/.claude/agents/"
 ```
 
-Where they land by default follows [`[tool.repomatic.flavor] agent`](configuration.md), so the layout is the agent's, not a fixed `.claude/` path.
+Without [`subagents.location`](configuration.md), they land in `./.claude/agents/`, where Claude Code reads them.
 
 ## Available subagents
 

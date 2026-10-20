@@ -37,6 +37,7 @@ from packaging.utils import canonicalize_name
 from tomlrt import Table
 
 from ..humanize import format_countdown, parse_iso_datetime, utc_midnight
+from ..pyproject import cached_toml, load_pyproject_doc, uv_table
 from ..versions import is_newer
 from .report import (
     BYPASS_NEEDS_RELEASE,
@@ -113,32 +114,6 @@ LOCK_TIMESTAMP_SENTINEL = "0001-01-01T00:00:00Z"
 """Placeholder uv writes to `options.exclude-newer` in `uv.lock` when the
 user-configured value is a relative span. The real cutoff is in
 `options.exclude-newer-span` as an ISO 8601 duration."""
-
-
-def load_pyproject_doc(pyproject_path: Path) -> Any:
-    """Parse `pyproject.toml` into an editable, round-trippable document.
-
-    The counterpart to {func}`repomatic.pyproject.read_pyproject_toml`, which
-    returns plain data for reading. This one keeps `tomlrt`'s formatting
-    trivia, so the document can be edited and written back with the rest of
-    the file byte-identical.
-
-    :param pyproject_path: Path to the `pyproject.toml` file.
-    :return: The parsed document.
-    """
-    return tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
-
-
-def uv_table(doc: Any) -> Any:
-    """Return the `[tool.uv]` table of a parsed `pyproject.toml`.
-
-    :param doc: Document from {func}`load_pyproject_doc`.
-    :return: The `[tool.uv]` table, or an empty mapping when the project
-        declares none. Reading a key off the result is therefore always safe;
-        writing one back requires the caller to check the table exists first,
-        since the empty fallback is not attached to *doc*.
-    """
-    return doc.get("tool", {}).get("uv", {})
 
 
 def _build_inline_table(entries: dict[str, str]) -> Table:
@@ -947,44 +922,23 @@ def parse_lock_versions(lock_path: Path) -> dict[str, str]:
     return LockFile.load(lock_path).versions
 
 
-_LOCK_PARSE_CACHE: dict[Path, tuple[int, int, dict[str, Any]]] = {}
-"""Parsed `uv.lock` documents, keyed by absolute path.
-
-The same `(st_mtime_ns, st_size)` identity scheme as
-{data}`repomatic.pyproject._PARSE_CACHE`, for the same reason: a lock runs to
-hundreds of kilobytes, and one `audit --fix` used to parse the same bytes five
-times over (`lint-deps` twice). Every mid-run rewrite — `uv lock` itself, the
-byte-level snapshot restores — moves the file's identity, which is what keeps
-the cache honest across the upgrade-then-diff flows. Treat results as
-read-only: every consumer only iterates and `.get()`s.
-"""
-
-
 def load_lock_data(lock_path: Path | None = None) -> dict[str, Any]:
     """Load and parse a `uv.lock` file, memoized per file identity.
 
     The one reader of the lock: {meth}`LockFile.load` builds its views from
     this parse, so however many passes a command makes over the same lock, the
-    document is decoded once. Treat the result as read-only.
+    document is decoded once (see {func}`~repomatic.pyproject.cached_toml`).
+    Every mid-run rewrite (`uv lock` itself, the byte-level snapshot restores)
+    moves the file's identity, which keeps the cache honest across the
+    upgrade-then-diff flows. Treat the result as read-only.
 
     :param lock_path: Path to uv.lock file. If None, looks in current directory.
     :return: Parsed TOML data as a dict, or empty dict if the file does not exist.
     """
-    if lock_path is None:
-        lock_path = Path("uv.lock")
-    lock_path = lock_path.absolute()
     try:
-        stat = lock_path.stat()
-        if not lock_path.is_file():
-            return {}
-        cached = _LOCK_PARSE_CACHE.get(lock_path)
-        if cached is not None and cached[:2] == (stat.st_mtime_ns, stat.st_size):
-            return cached[2]
-        with lock_path.open("rb") as f:
-            data: dict[str, Any] = tomlrt.load(f)
+        data: dict[str, Any] = cached_toml(lock_path or Path("uv.lock"))
     except OSError:
         return {}
-    _LOCK_PARSE_CACHE[lock_path] = (stat.st_mtime_ns, stat.st_size, data)
     return data
 
 

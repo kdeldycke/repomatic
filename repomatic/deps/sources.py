@@ -75,6 +75,7 @@ from packaging.version import Version
 from ..github.actions import AnnotationLevel
 from ..humanize import format_countdown, parse_iso_datetime
 from ..pypi import get_release_dates, is_pypi_url
+from ..pyproject import load_pyproject_doc, uv_table
 from ..versions import safe_version
 from .report import (
     BYPASS_NEEDS_RELEASE,
@@ -86,10 +87,8 @@ from .uv import (
     LockFile,
     freeze_cutoff_after,
     load_lock_data,
-    load_pyproject_doc,
     resolve_exclude_newer_cutoff,
     resolve_exclude_newer_span,
-    uv_table,
 )
 
 TYPE_CHECKING = False

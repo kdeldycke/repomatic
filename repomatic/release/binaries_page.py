@@ -56,8 +56,8 @@ from pathlib import Path
 from click_extra.blocks import region_markers, replace_region
 
 from ..bundle import get_data_content
-from ..github.releases import parse_release_version
 from ..tabular import render_csv, write_csv
+from ..versions import parse_tag_version
 from .binary import BINARY_ASSET_SUFFIXES, NUITKA_BUILD_TARGETS
 from .virustotal import VIRUSTOTAL_GUI_URL
 
@@ -264,7 +264,7 @@ def render_chart_section(records: Sequence[ScanRecord]) -> str:
 
     points = []
     for tag, (date, flagged, total) in per_tag.items():
-        version = parse_release_version(tag)
+        version = parse_tag_version(tag)
         if version is None:
             continue
         if total:
@@ -350,8 +350,7 @@ def render_binaries_csv(
     versioned = [
         (version, release)
         for release in releases
-        if not release.draft
-        and (version := parse_release_version(release.tag)) is not None
+        if not release.draft and (version := parse_tag_version(release.tag)) is not None
     ]
     versioned.sort(key=lambda pair: pair[0], reverse=True)
 

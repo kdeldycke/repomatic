@@ -77,6 +77,17 @@ def parse_iso_datetime(value: str) -> datetime | None:
         return None
 
 
+def today_utc() -> date:
+    """Today's date, in UTC.
+
+    The one read of the clock behind every date this package stamps: a release
+    heading, a scan record, a cooldown reference. UTC, so a runner and a laptop
+    in another timezone agree on the day. Callers that write the date out use
+    `today_utc().isoformat()`, which is the `YYYY-MM-DD` form.
+    """
+    return datetime.now(UTC).date()
+
+
 def utc_midnight(day: date) -> datetime:
     """The UTC instant *day* starts on.
 

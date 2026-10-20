@@ -29,13 +29,12 @@ metric family.
 
 from __future__ import annotations
 
-import logging
 import urllib.parse
 from dataclasses import dataclass
 from enum import Enum
 
 from ..github.gh import gh_graphql
-from ..http import FetchError, get_json
+from ..http import get_json_soft
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -86,16 +85,6 @@ silently sampling nothing. Extend it through
 `[tool.repomatic.metrics] forges`, which a repository uses to name the
 self-hosted instances it tracks (`salsa.debian.org` runs GitLab,
 `gitlab.archlinux.org` too).
-"""
-
-FORGE_USER_AGENT = "repomatic forge metrics collector"
-"""Sent to every forge API, where a browser identity backfires.
-
-Several self-hosted GitLab instances answer a browser user-agent with a page
-rather than a payload, returning kilobytes of HTML where the same URL fetched
-under a plain agent returns a small JSON document. Nothing errors, so the
-symptom is a subject quietly missing from the readings rather than a failed
-run.
 """
 
 GITHUB_HOST = "github.com"
@@ -283,15 +272,15 @@ def forge_json(url: str) -> Any | None:
     The instances read here (GitLab and Forgejo) serve their project metadata
     to anonymous callers, so no token is involved and none is asked for.
 
+    The request identifies itself with {data}`repomatic.http.USER_AGENT`, like
+    every fetch of {mod}`repomatic.http`. Several self-hosted GitLab instances
+    answer a browser identity with an HTML page instead of the JSON payload,
+    and nothing then errors: the subject only goes missing from the readings.
+
     :param url: The API endpoint to read.
     :return: The parsed payload, or `None` when the call or the parse failed.
     """
-    try:
-        payload, _raw = get_json(url, headers={"User-Agent": FORGE_USER_AGENT})
-    except FetchError as error:
-        logging.debug(f"Could not read {url}: {error}")
-        return None
-    return payload
+    return get_json_soft(url, f"Could not read {url}")
 
 
 def github_metrics(path: str) -> ForgeMetrics:

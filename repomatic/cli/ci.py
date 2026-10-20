@@ -34,7 +34,6 @@ from click_extra import (
     pass_context,
 )
 
-from ..components import WORKFLOW_TARGET_ROOT
 from ..github.actions import (
     AnnotationLevel,
     cancel_superseded_runs,
@@ -55,13 +54,10 @@ from ..github.job_timings import (
     render_markdown,
     summarize,
 )
+from ..github.workflow_files import WORKFLOW_DIR, literal_runners
 from ..init_project import is_source_repo
-from ..lint_repo import (
-    KNOWN_RUNNERS,
-    WORKFLOW_DIR,
-    literal_runners,
-)
 from ..matrix.axes import (
+    KNOWN_RUNNERS,
     TEST_RUNNERS_FULL,
     TEST_RUNNERS_PR,
     python_version_sort_key,
@@ -194,7 +190,7 @@ class WorkflowFile(LazyChoice):
     name = "workflow"
 
     def resolve(self) -> tuple[str, ...]:
-        return workflow_files(Path(WORKFLOW_TARGET_ROOT))
+        return workflow_files(WORKFLOW_DIR)
 
 
 def matrix_axis_sort_key(axis: str, matrix_name: str) -> Callable[[str], Any] | None:

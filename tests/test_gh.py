@@ -28,8 +28,14 @@ import pytest
 from click_extra import ClickException
 
 from repomatic.github.gh import (
+    GhCommandError,
+    GhOutputError,
+    _graphql_args,
     api_headers,
+    gh_api_json,
     gh_executable,
+    gh_graphql,
+    gh_json,
     iter_graphql_nodes,
     parse_create_output,
     run_gh_command,
@@ -326,6 +332,36 @@ def test_failure_message_includes_github_status_annotation():
         assert "githubstatus.com" in str(excinfo.value)
 
 
+@pytest.mark.parametrize(
+    ("stderr", "status"),
+    (
+        pytest.param(
+            "HTTP 404: Not Found (https://api.github.com/x)", 404, id="leading"
+        ),
+        pytest.param("Resource not accessible (HTTP 403)", 403, id="trailing"),
+        pytest.param("dial tcp: lookup api.github.com: no such host", None, id="none"),
+    ),
+)
+def test_failure_carries_the_http_status(stderr, status):
+    """The raised error keeps what a caller branches on, parsed once."""
+    with patch("repomatic.github.gh.run") as mock_run:
+        mock_run.return_value = _make_result(
+            returncode=1, stdout='{"partial": true}', stderr=stderr
+        )
+        with pytest.raises(GhCommandError) as excinfo:
+            run_gh_command(["api", "repos/kiwi/orchard"])
+    assert excinfo.value.status == status
+    assert excinfo.value.stderr == stderr
+    assert excinfo.value.stdout == '{"partial": true}'
+
+
+def test_command_error_defaults_its_stderr_to_the_message():
+    """An error built from a message alone still reads its status off it."""
+    error = GhCommandError("HTTP 422: Unprocessable Entity")
+    assert error.stderr == "HTTP 422: Unprocessable Entity"
+    assert error.status == 422
+
+
 def test_failure_message_omits_status_when_no_incident():
     """The healthy status annotation (empty string) leaves the error untouched."""
     with (
@@ -592,29 +628,22 @@ def test_iter_graphql_nodes_skips_null_nodes():
     assert nodes == [{"id": "melon"}]
 
 
-def test_iter_graphql_nodes_max_nodes_shrinks_last_page():
-    """The budget caps the yield count and shrinks the final page request."""
+def test_iter_graphql_nodes_sends_the_page_size_on_every_request():
+    """Each page asks for the same size, as a typed field."""
     with patch("repomatic.github.gh.run_gh_command") as mock_gh:
         mock_gh.side_effect = [
             _page([{"id": "melon"}, {"id": "papaya"}], has_next=True, cursor="CUR1"),
-            _page([{"id": "cherry"}], has_next=True, cursor="CUR2"),
+            _page([{"id": "cherry"}]),
         ]
         nodes = list(
             iter_graphql_nodes(
-                "query",
-                ("search",),
-                page_size_var="pageSize",
-                page_size=2,
-                max_nodes=3,
+                "query", ("search",), page_size_var="pageSize", page_size=2
             )
         )
     assert [node["id"] for node in nodes] == ["melon", "papaya", "cherry"]
-    assert mock_gh.call_count == 2
-    first_args = mock_gh.call_args_list[0].args[0]
-    second_args = mock_gh.call_args_list[1].args[0]
-    assert "pageSize=2" in first_args
-    # Only one node left in the budget: the second request asks for one.
-    assert "pageSize=1" in second_args
+    for call in mock_gh.call_args_list:
+        args = call.args[0]
+        assert args[args.index("pageSize=2") - 1] == "--field"
 
 
 def test_iter_graphql_nodes_variable_flags():
@@ -632,6 +661,112 @@ def test_iter_graphql_nodes_variable_flags():
     assert args[args.index("owner=melon") - 1] == "--raw-field"
     assert args[args.index("count=5") - 1] == "--field"
     assert args[args.index("flag=True") - 1] == "--field"
+
+
+@pytest.mark.parametrize(
+    ("value", "flag"),
+    (
+        # A repository named like a number, a boolean or null stays a string.
+        pytest.param("2048", "--raw-field", id="numeric-string"),
+        pytest.param("true", "--raw-field", id="boolean-string"),
+        pytest.param("null", "--raw-field", id="null-string"),
+        pytest.param("orchard", "--raw-field", id="plain-string"),
+        # A real number or boolean keeps its GraphQL type.
+        pytest.param(5, "--field", id="int"),
+        pytest.param(True, "--field", id="bool"),
+    ),
+)
+def test_graphql_args_types_each_variable(value, flag):
+    """`--field` would read `2048` as a number, so a string rides `--raw-field`."""
+    args = _graphql_args("query", {"name": value})
+    assert args[:4] == ["api", "graphql", "--raw-field", "query=query"]
+    assert args[args.index(f"name={value}") - 1] == flag
+
+
+def test_gh_graphql_passes_a_numeric_repository_name_as_a_string():
+    """A repository named `2048` reaches a `String!` variable as a string."""
+    with patch("repomatic.github.gh.run_gh_command") as mock_gh:
+        mock_gh.return_value = json.dumps({"data": {"repository": {"name": "2048"}}})
+        data = gh_graphql("query", owner="kiwi", name="2048")
+    assert data == {"repository": {"name": "2048"}}
+    args = mock_gh.call_args.args[0]
+    assert args[args.index("name=2048") - 1] == "--raw-field"
+    assert args[args.index("owner=kiwi") - 1] == "--raw-field"
+
+
+_PARTIAL_ANSWER = json.dumps({
+    "data": {"apricot": {"id": "A"}, "cherry": None},
+    "errors": [{"message": "Could not resolve to a node", "path": ["cherry"]}],
+})
+"""A GraphQL answer that failed for one field and resolved the other."""
+
+
+def test_gh_graphql_partial_keeps_the_resolved_data():
+    """With `partial`, the data printed beside the errors is the answer."""
+    error = GhCommandError("GraphQL: Could not resolve", stdout=_PARTIAL_ANSWER)
+    with patch("repomatic.github.gh.run_gh_command", side_effect=error):
+        assert gh_graphql("query", partial=True) == {
+            "apricot": {"id": "A"},
+            "cherry": None,
+        }
+
+
+@pytest.mark.parametrize(
+    ("stdout", "partial"),
+    (
+        pytest.param(_PARTIAL_ANSWER, False, id="strict-by-default"),
+        pytest.param("", True, id="no-output"),
+        pytest.param("not json", True, id="unparsable-output"),
+        pytest.param('{"errors": []}', True, id="no-data"),
+    ),
+)
+def test_gh_graphql_raises_without_usable_data(stdout, partial):
+    """A failure with nothing to keep, or without `partial`, still raises."""
+    error = GhCommandError("GraphQL: boom", stdout=stdout)
+    with (
+        patch("repomatic.github.gh.run_gh_command", side_effect=error),
+        pytest.raises(GhCommandError, match="boom"),
+    ):
+        gh_graphql("query", partial=partial)
+
+
+@pytest.mark.parametrize("soft", (True, False))
+def test_gh_json_parses_the_output(soft):
+    """A command printing JSON hands back the parsed value, soft or not."""
+    with patch("repomatic.github.gh.run_gh_command", return_value='{"plum": 1}'):
+        assert gh_json(["api", "repos/kiwi/orchard"], soft=soft) == {"plum": 1}
+
+
+@pytest.mark.parametrize(
+    ("patch_kwargs", "error"),
+    (
+        pytest.param(
+            {"side_effect": GhCommandError("HTTP 502: Bad Gateway")},
+            GhCommandError,
+            id="command-failure",
+        ),
+        pytest.param({"return_value": "not json"}, GhOutputError, id="not-json"),
+    ),
+)
+def test_gh_json_raises_unless_soft(patch_kwargs, error):
+    """Both failure modes raise, and `soft` turns both into `None`."""
+    with patch("repomatic.github.gh.run_gh_command", **patch_kwargs):
+        with pytest.raises(error):
+            gh_json(["api", "repos/kiwi/orchard"])
+        assert gh_json(["api", "repos/kiwi/orchard"], soft=True) is None
+
+
+def test_gh_api_json_strict_raises_only_for_the_command():
+    """A strict read fails on a command that cannot run, not on odd output."""
+    with patch(
+        "repomatic.github.gh.run_gh_command",
+        side_effect=GhCommandError("HTTP 502: Bad Gateway"),
+    ):
+        with pytest.raises(GhCommandError):
+            gh_api_json(["api", "repos/kiwi/orchard"], strict=True)
+        assert gh_api_json(["api", "repos/kiwi/orchard"]) is None
+    with patch("repomatic.github.gh.run_gh_command", return_value="not json"):
+        assert gh_api_json(["api", "repos/kiwi/orchard"], strict=True) is None
 
 
 def test_iter_graphql_nodes_missing_connection_yields_nothing():

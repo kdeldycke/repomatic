@@ -52,6 +52,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from functools import partial
 
 from click_extra import (
     Choice,
@@ -66,11 +67,12 @@ from click_extra import (
     jobs_option,
     lazy_group,
     option,
+    pass_context,
     prep_path,
 )
 
 from ..changelog import resolved_changelog_path
-from ..config import Config
+from ..config import Config, publish_config
 from ..metadata.core import Metadata
 
 TYPE_CHECKING = False
@@ -265,8 +267,13 @@ group registers each section the first time an entry here names it.
     lazy_subcommands=COMMANDS,
 )
 @jobs_option()
-def repomatic() -> None:
-    pass
+@pass_context
+def repomatic(ctx: Context) -> None:
+    # Library helpers read settings through `load_repomatic_config()`. Publishing
+    # the config the CLI resolved makes them honor `--config` and the upward
+    # search too, so one command sees one configuration.
+    publish_config(get_tool_config(ctx))
+    ctx.call_on_close(partial(publish_config, None))
 
 
 def subcommand(

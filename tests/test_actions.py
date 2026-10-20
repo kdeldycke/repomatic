@@ -29,6 +29,7 @@ import pytest
 from repomatic.github.actions import (
     MAX_STEP_OUTPUT_BYTES,
     RUN_LISTING_WINDOW,
+    AnnotationLevel,
     ReportAction,
     cancel_superseded_runs,
     emit_report,
@@ -38,10 +39,36 @@ from repomatic.github.actions import (
     get_default_number,
     is_pull_request,
     read_file_output,
+    report_finding,
     trim_to_byte_budget,
     workflow_runs,
     write_output_file,
 )
+
+# -- AnnotationLevel ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("level", "glyph"),
+    (
+        (AnnotationLevel.ERROR, "✗"),
+        (AnnotationLevel.WARNING, "⚠"),
+        (AnnotationLevel.NOTICE, "ℹ"),
+    ),
+)
+def test_annotation_level_glyph(level, glyph):
+    """Each level opens its terminal line with its own symbol."""
+    assert level.glyph == glyph
+
+
+@pytest.mark.parametrize("level", AnnotationLevel)
+def test_report_finding_annotates_then_prints(level, capsys):
+    """The annotation and the terminal line always agree on the level."""
+    report_finding(level, "Mango bruised.")
+    assert capsys.readouterr().out == (
+        f"::{level.value}::Mango bruised.\n{level.glyph} Mango bruised.\n"
+    )
+
 
 # -- ReportAction -------------------------------------------------------------
 
@@ -94,7 +121,7 @@ _ISSUE_EVENT = {"issue": {"number": 12, "user": {"login": "quince"}}}
 )
 def test_event_subject_readers_agree(event, is_pr, author, number):
     """All three payload readers resolve the same subject node."""
-    # Patching the module global also sidesteps the `lru_cache` on the real one.
+    # Patching the module global also sidesteps the memo on the real one.
     with patch("repomatic.github.actions.get_github_event", return_value=event):
         assert is_pull_request() is is_pr
         assert get_default_author() == author

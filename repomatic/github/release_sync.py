@@ -35,8 +35,8 @@ from .releases import (
     GitHubReleasesUnavailable,
     edit_release_notes,
     get_github_releases,
-    owner_repo,
 )
+from .urls import parse_github_repo
 
 
 def build_expected_body(
@@ -160,7 +160,7 @@ def sync_github_releases(
         return result
 
     # Parse owner/repo for gh CLI.
-    parsed = owner_repo(repo_url)
+    parsed = parse_github_repo(repo_url)
     repository = "/".join(parsed) if parsed else ""
 
     # Iterate over released versions in the changelog.

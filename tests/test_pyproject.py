@@ -21,14 +21,19 @@ from __future__ import annotations
 from textwrap import dedent
 
 import pytest
+import tomlrt
 
+from repomatic.deps.uv import load_lock_data
 from repomatic.pyproject import (
+    cached_toml,
     dependency_group_names,
     extra_names,
     get_project_name,
     is_python_package,
     is_python_project,
+    load_pyproject_doc,
     read_pyproject_toml,
+    uv_table,
 )
 
 
@@ -228,3 +233,63 @@ def test_group_and_extra_names_are_empty_without_a_pyproject(tmp_path):
     """A directory holding no project declares neither."""
     assert dependency_group_names(tmp_path) == ()
     assert extra_names(tmp_path) == ()
+
+
+def test_cached_toml_parses_once_per_version_of_the_file(tmp_path):
+    """Reads share one parse until the bytes change."""
+    path = tmp_path / "pyproject.toml"
+    path.write_text('[project]\nname = "fig"\n', encoding="UTF-8")
+    first = cached_toml(path)
+    assert cached_toml(path) is first
+    path.write_text('[project]\nname = "figs"\n', encoding="UTF-8")
+    second = cached_toml(path)
+    assert second is not first
+    assert second["project"]["name"] == "figs"
+
+
+def test_cached_toml_raises_on_a_missing_or_broken_file(tmp_path):
+    """The cache holds parses only: each caller decides what a failure means."""
+    with pytest.raises(OSError):
+        cached_toml(tmp_path / "missing.toml")
+    broken = tmp_path / "broken.toml"
+    broken.write_text("[project\n", encoding="UTF-8")
+    with pytest.raises(tomlrt.TOMLParseError):
+        cached_toml(broken)
+
+
+def test_read_pyproject_toml_and_the_lock_share_the_cache(tmp_path):
+    """`pyproject.toml` and `uv.lock` read through the same parser."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "fig"\n', encoding="UTF-8"
+    )
+    lock = tmp_path / "uv.lock"
+    lock.write_text("version = 1\n", encoding="UTF-8")
+    assert read_pyproject_toml(tmp_path) is cached_toml(tmp_path / "pyproject.toml")
+    assert load_lock_data(lock) is cached_toml(lock)
+    assert read_pyproject_toml(tmp_path / "missing") == {}
+    assert load_lock_data(tmp_path / "missing.lock") == {}
+
+
+def test_load_pyproject_doc_is_private_and_editable(tmp_path):
+    """An edit to the editable parse never reaches the shared cached one."""
+    path = tmp_path / "pyproject.toml"
+    path.write_text("[tool.uv]\npackage = false\n", encoding="UTF-8")
+    doc = load_pyproject_doc(path)
+    assert doc is not cached_toml(path)
+    uv_table(doc)["package"] = True
+    assert cached_toml(path)["tool"]["uv"]["package"] is False
+    assert tomlrt.dumps(doc) == "[tool.uv]\npackage = true\n"
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    (
+        pytest.param("[tool.uv]\npackage = false\n", {"package": False}, id="table"),
+        pytest.param("[tool.ruff]\nfix = true\n", {}, id="no-uv-table"),
+    ),
+)
+def test_uv_table(tmp_path, content, expected):
+    """The `[tool.uv]` table reads empty when the project declares none."""
+    path = tmp_path / "pyproject.toml"
+    path.write_text(content, encoding="UTF-8")
+    assert dict(uv_table(load_pyproject_doc(path))) == expected

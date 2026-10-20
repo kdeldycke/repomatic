@@ -43,7 +43,8 @@ from typing import NamedTuple
 
 from packaging.version import Version
 
-from .versions import safe_version
+from .github.urls import parse_github_repo
+from .versions import parse_tag_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -80,13 +81,6 @@ SHORT_SHA_LENGTH = 7
 The [default is subject to change](https://stackoverflow.com/a/21015031) and
 depends on the size of the repository.
 ```
-"""
-
-GITHUB_REMOTE_PATTERN = re.compile(r"github\.com[:/](?P<slug>[^/]+/[^/]+?)(?:\.git)?$")
-"""Extracts an `owner/repo` slug from a GitHub remote URL.
-
-Handles both HTTPS (`https://github.com/owner/repo.git`) and SSH
-(`git@github.com:owner/repo.git`) formats.
 """
 
 CHANGELOG_COMMIT_PREFIX = "[changelog] "
@@ -612,7 +606,8 @@ def list_contributor_identities() -> set[str]:
 def get_repo_slug_from_remote(remote: str = "origin") -> str | None:
     """Extract the `owner/repo` slug from a git remote URL.
 
-    Parses both HTTPS and SSH GitHub remote formats. Returns `None` if the
+    Reads both HTTPS and SSH GitHub remotes, through
+    {func}`~repomatic.github.urls.parse_github_repo`. Returns `None` if the
     remote is not set, not a GitHub URL, or git is unavailable.
     """
     try:
@@ -621,8 +616,8 @@ def get_repo_slug_from_remote(remote: str = "origin") -> str | None:
         return None
     if result.returncode:
         return None
-    match = GITHUB_REMOTE_PATTERN.search(result.stdout.strip())
-    return match.group("slug") if match else None
+    parsed = parse_github_repo(result.stdout.strip())
+    return "/".join(parsed) if parsed else None
 
 
 def get_latest_tag_version() -> Version | None:
@@ -644,8 +639,8 @@ def get_latest_tag_version() -> Version | None:
         # The `--list` glob above is a shell pattern, not a PEP 440 filter, so
         # a tag like `v1.2.3_hotfix` still matches: skip what the parser
         # refuses rather than letting one odd tag break every metadata
-        # consumer (mirrors `releases.parse_release_version`).
-        parsed = safe_version(tag.removeprefix("v"))
+        # consumer.
+        parsed = parse_tag_version(tag)
         if parsed is None:
             logging.debug(f"Skipping non-PEP 440 tag: {tag}")
         else:

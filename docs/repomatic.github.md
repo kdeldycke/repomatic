@@ -28,5 +28,7 @@
    repomatic.github.status
    repomatic.github.token
    repomatic.github.unsubscribe
+   repomatic.github.urls
+   repomatic.github.workflow_files
    repomatic.github.workflow_sync
 ```

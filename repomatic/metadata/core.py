@@ -58,11 +58,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import shlex
 from collections.abc import Callable, Iterable
 from dataclasses import fields
 from enum import StrEnum
 from functools import cached_property, partial
 from pathlib import Path
+from typing import NamedTuple
 
 from click_extra import ColumnSpec, field_docstrings
 from extra_platforms import is_github_ci
@@ -84,6 +87,7 @@ from ..github.actions import (
     get_github_event,
 )
 from ..github.release_sync import build_expected_body
+from ..github.workflow_files import iter_steps
 from ..mailmap import MAILMAP_PATH
 from ..matrix.model import Matrix
 from ..pypi import PYPI_PROJECT_URL
@@ -97,6 +101,7 @@ from .project import ProjectMetadata
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Iterator, Mapping
     from typing import Any, Final, Self
 
 
@@ -286,15 +291,187 @@ METADATA_VALUE_OPTIONS: frozenset[str] = frozenset((
 ))
 """Options on the `show-metadata` command consuming the token that follows them.
 
-Needed by {func}`repomatic.lint_repo.check_metadata_keys` to tell a positional
-key from an option's value while reading a workflow's `run:` line. `--format` is
-the spelling of releases before `8.0.0`, kept so that a workflow pinned to one of
+Needed by {func}`requested_metadata_keys` to tell a positional key from an
+option's value while reading a workflow's `run:` line. `--format` is the
+spelling of releases before `8.0.0`, kept so that a workflow pinned to one of
 them still parses.
 
 Listed here rather than derived, and pinned against the real command by
 repomatic's own test suite, so an option added later cannot quietly turn its
 value into a token the lint reports as an unknown key.
 """
+
+METADATA_SUBCOMMAND: Final[str] = "show-metadata"
+"""The subcommand that prints the metadata keys a workflow asks for."""
+
+REMOVED_METADATA_ALIAS: Final[str] = "metadata"
+"""The alias of {data}`METADATA_SUBCOMMAND` that `8.0.0` removed.
+
+A workflow still calling it fails at its first job, so the readers below
+recognize it in order to report it.
+"""
+
+_METADATA_KEY_TOKEN: Final = re.compile(r"^[a-z][a-z0-9_]*$")
+"""Shape of a metadata key, used to tell one from a neighbouring shell token.
+
+Every key is a Python identifier, so a token carrying a hyphen (`github-json`),
+a dollar (`$GITHUB_OUTPUT`) or a dot is something else on the command line and
+is passed over rather than reported as unknown.
+"""
+
+_SHELL_OPERATORS: Final[frozenset[str]] = frozenset((
+    "&&",
+    "||",
+    ";",
+    "|",
+    ">",
+    ">>",
+    "<",
+    "&",
+))
+"""Tokens that end the invocation and start unrelated words.
+
+`repomatic show-metadata a b && echo done` must not report `echo` and `done` as
+metadata keys.
+"""
+
+
+def _metadata_invocations(
+    command: str, package: str
+) -> Iterator[tuple[str, list[str]]]:
+    """Yield each call of the metadata subcommand in a `run:` script.
+
+    Handles both spellings in use, the upstream
+    `uv run -- repomatic show-metadata …` and the downstream
+    `uvx 'repomatic==1.2.3' show-metadata …`, by looking for the subcommand
+    after any token naming the package. The removed {data}`REMOVED_METADATA_ALIAS`
+    spelling is recognized too, so a caller can report it.
+
+    :param command: The step's `run:` script, folded or literal.
+    :param package: Upstream package name (like `repomatic`).
+    :return: `(subcommand, arguments)` per call, the arguments stopping at the
+        first shell operator.
+    """
+    # A literal block scalar holds a whole script: read it a line at a time so
+    # a later command's words cannot be mistaken for this one's arguments.
+    # Backslash continuations are rejoined first, being one command still.
+    for line in command.replace("\\\n", " ").splitlines():
+        try:
+            tokens = shlex.split(line, comments=True)
+        except ValueError:
+            # An unbalanced quote is a line this cannot read. A shell would
+            # reject it too, so leave it to the shell to complain.
+            continue
+        seen_package = False
+        for index, token in enumerate(tokens):
+            if seen_package and token in (METADATA_SUBCOMMAND, REMOVED_METADATA_ALIAS):
+                arguments: list[str] = []
+                for argument in tokens[index + 1 :]:
+                    if argument in _SHELL_OPERATORS:
+                        break
+                    arguments.append(argument)
+                yield token, arguments
+                break
+            if token == package or token.startswith(f"{package}=="):
+                seen_package = True
+
+
+def _positional_keys(arguments: list[str]) -> list[str]:
+    """Read the positional keys out of a metadata call's arguments.
+
+    Reads them the way Click would: options are dropped along with the value
+    each one consumes, and what remains are the positional key arguments.
+    """
+    keys: list[str] = []
+    skip_next = False
+    for token in arguments:
+        if skip_next:
+            skip_next = False
+            continue
+        if token.startswith("-"):
+            # `--format=json` carries its value inline, consuming nothing.
+            skip_next = "=" not in token and token in METADATA_VALUE_OPTIONS
+            continue
+        if _METADATA_KEY_TOKEN.match(token):
+            keys.append(token)
+    return keys
+
+
+def requested_metadata_keys(command: str, package: str) -> list[str]:
+    """Positional keys a shell command passes to the `show-metadata` subcommand.
+
+    A call of the removed {data}`REMOVED_METADATA_ALIAS` requests nothing, since
+    the command it names no longer exists: {func}`unknown_metadata_keys`
+    reports it instead.
+
+    :param command: The step's `run:` script, folded or literal.
+    :param package: Upstream package name (like `repomatic`).
+    :return: The key names requested, in the order written.
+    """
+    return [
+        key
+        for subcommand, arguments in _metadata_invocations(command, package)
+        if subcommand == METADATA_SUBCOMMAND
+        for key in _positional_keys(arguments)
+    ]
+
+
+class MetadataRequest(NamedTuple):
+    """The metadata one workflow step asks for."""
+
+    path: Path
+    """The workflow file holding the step."""
+
+    job_id: str
+    """The job holding the step."""
+
+    keys: tuple[str, ...]
+    """Every key the step requests, in the order written."""
+
+    unknown: tuple[str, ...]
+    """The requested keys this version does not emit, sorted."""
+
+    removed_alias: bool
+    """Whether the step calls the {data}`REMOVED_METADATA_ALIAS` spelling."""
+
+
+def unknown_metadata_keys(
+    workflows: Mapping[Path, Mapping[str, Any]], package: str
+) -> list[MetadataRequest]:
+    """Read every metadata call of *workflows*, and the keys it gets wrong.
+
+    The one scan behind the `lint-repo` check and the `repomatic init` warning,
+    so the two verdicts cannot disagree about what a `run:` line requests.
+
+    :param workflows: Parsed workflow documents, keyed by path.
+    :param package: Upstream package name (like `repomatic`).
+    :return: One entry per step that calls the metadata subcommand with keys,
+        or that calls the removed alias at all, in workflow order. A step
+        requesting only valid keys is listed with no unknown key.
+    """
+    valid = all_metadata_keys()
+    requests: list[MetadataRequest] = []
+    for path, job_id, step in iter_steps(workflows):
+        command = step.get("run")
+        if not isinstance(command, str):
+            continue
+        keys: list[str] = []
+        removed_alias = False
+        for subcommand, arguments in _metadata_invocations(command, package):
+            removed_alias |= subcommand == REMOVED_METADATA_ALIAS
+            keys.extend(_positional_keys(arguments))
+        if not keys and not removed_alias:
+            continue
+        requests.append(
+            MetadataRequest(
+                path=path,
+                job_id=job_id,
+                keys=tuple(keys),
+                unknown=tuple(sorted(set(keys) - valid)),
+                removed_alias=removed_alias,
+            )
+        )
+    return requests
 
 
 # Silence overly verbose debug messages from py-walk logger.

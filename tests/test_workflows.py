@@ -47,13 +47,9 @@ from repomatic.git_ops import (
     VERSION_BUMP_COMMIT_PREFIXES,
 )
 from repomatic.github.pr_body import template_labels
-from repomatic.github.workflow_sync import (
-    COOLDOWN_DOCS_URL,
-    cooldown_env_block,
-    workflow_triggers,
-)
-from repomatic.lint_repo import KNOWN_RUNNERS
-from repomatic.matrix.axes import TEST_PYTHON_FULL
+from repomatic.github.workflow_files import workflow_triggers
+from repomatic.github.workflow_sync import COOLDOWN_DOCS_URL, cooldown_env_block
+from repomatic.matrix.axes import KNOWN_RUNNERS, TEST_PYTHON_FULL
 from repomatic.metadata.core import Metadata
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from repomatic.release.prepare_release import LOCAL_CLI_INVOCATION
@@ -1311,7 +1307,7 @@ def test_every_job_runs_on_a_test_axis(
 
     There is no second set to be an exception to any more: `ubuntu-slim` was the
     last image outside the axes, and it lost the A/B that justified it. Deriving
-    the expectation from {data}`~repomatic.lint_repo.KNOWN_RUNNERS` rather than
+    the expectation from {data}`~repomatic.matrix.axes.KNOWN_RUNNERS` rather than
     from a literal keeps this from failing on a fleet migration instead of on
     the drift it exists to catch.
     """
@@ -1415,7 +1411,7 @@ def test_lowest_versions_cell_runs_on_the_floor_python() -> None:
 def test_workflows_index_structured_metadata_only() -> None:
     """A workflow indexes a metadata key only when its value is a JSON structure.
 
-    `show-metadata --format github-json` joins a list of strings with spaces
+    `show-metadata --output-format github-json` joins a list of strings with spaces
     (see {meth}`~repomatic.metadata.core.Metadata.format_github_value`). An
     expression that indexes such a string gives an empty value and raises
     nothing, so a step gated on `cli_scripts[0]` is skipped on every run

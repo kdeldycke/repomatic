@@ -14,163 +14,150 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the `[tool.repomatic]` schema, focused on ecosystem flavors."""
+"""Tests for the `[tool.repomatic]` schema and its loader."""
 
 from __future__ import annotations
 
 from dataclasses import MISSING, fields as dc_fields
 
 import pytest
-from extra_platforms import ALL_AGENTS, ALL_CI
 
-from repomatic import config as config_mod
 from repomatic.config import (
-    AGENT_LAYOUTS,
-    DEFAULT_AGENT,
-    DEFAULT_CI,
     SITE_DEPLOY_TARGETS,
-    AgentLayout,
     Config,
-    FlavorConfig,
     LintRepoConfig,
+    MetricsConfig,
+    config_key_paths,
     config_reference,
     load_repomatic_config,
+    publish_config,
 )
 
-# -- Vocabulary ---------------------------------------------------------------
 
-
-def test_supported_agents_are_real_extra_platforms_traits():
-    """Every agent repomatic lays out must exist upstream.
-
-    The whole point of borrowing extra-platforms' vocabulary is that repomatic
-    never invents an ID of its own, so a typo here fails loudly.
-    """
-    known = {trait.id for trait in ALL_AGENTS}
-    assert set(AGENT_LAYOUTS) <= known, (
-        f"not extra-platforms agent IDs: {set(AGENT_LAYOUTS) - known}"
-    )
-
-
-def test_flavor_defaults_are_real_extra_platforms_traits():
-    """Both defaults must be drawn from the upstream vocabularies."""
-    assert DEFAULT_AGENT in {trait.id for trait in ALL_AGENTS}
-    assert DEFAULT_CI in {trait.id for trait in ALL_CI}
-
-
-def test_flavor_defaults():
-    """An unconfigured project targets Claude Code on GitHub Actions."""
-    flavor = FlavorConfig()
-    assert flavor.agent == DEFAULT_AGENT
-    assert flavor.ci == DEFAULT_CI
-
-
-@pytest.mark.parametrize(
-    ("field", "value", "expected"),
-    (
-        ("agent", "claude-code", "claude_code"),
-        ("agent", "  Claude_Code  ", "claude_code"),
-        ("ci", "github-ci", "github_ci"),
-        ("ci", "GITHUB_CI", "github_ci"),
-    ),
-)
-def test_flavor_normalizes_spelling(field, value, expected):
-    """Hyphens, case and padding all resolve to the upstream trait ID."""
-    assert getattr(FlavorConfig(**{field: value}), field) == expected
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    (("agent", "papaya"), ("ci", "mango"), ("agent", ""), ("ci", "kiwi_ci")),
-)
-def test_flavor_rejects_unknown_trait(field, value):
-    """A value outside the upstream vocabulary reads as a typo."""
-    with pytest.raises(ValueError, match="Unknown"):
-        FlavorConfig(**{field: value})
-
-
-@pytest.mark.parametrize(
-    ("field", "value"), (("agent", "cursor"), ("agent", "cline"), ("ci", "gitlab_ci"))
-)
-def test_flavor_rejects_unsupported_ecosystem(field, value):
-    """A real ecosystem repomatic cannot target says so, not "unknown"."""
-    with pytest.raises(ValueError, match="Unsupported"):
-        FlavorConfig(**{field: value})
-
-
-# -- Derived asset locations --------------------------------------------------
-
-
-CURSOR_LAYOUT = AgentLayout(
-    skills="./.cursor/skills/",
-    subagents="./.cursor/agents/",
-    settings="./.cursor/settings.json",
-)
-"""Stand-in layout for an agent repomatic does not target, used to prove the
-flavor actually drives the locations rather than the Claude Code defaults
-coinciding with them."""
-
-
-def test_default_locations_come_from_the_agent_layout():
-    """The layout table is the single source of truth for every default."""
+def test_default_locations_target_claude_code():
+    """Skills, subagents and settings land where Claude Code reads them."""
     config = Config()
-    layout = AGENT_LAYOUTS[DEFAULT_AGENT]
-    assert config.skills_location == layout.skills
-    assert config.subagents_location == layout.subagents
-    assert config.settings_location == layout.settings
-
-
-def test_locations_follow_the_agent_flavor(monkeypatch):
-    """Selecting another agent moves the assets to that agent's layout."""
-    monkeypatch.setitem(config_mod.AGENT_LAYOUTS, "cursor", CURSOR_LAYOUT)
-    config = Config(flavor=FlavorConfig(agent="cursor"))
-    assert config.skills_location == "./.cursor/skills/"
-    assert config.subagents_location == "./.cursor/agents/"
-    assert config.settings_location == "./.cursor/settings.json"
+    assert config.skills_location == "./.claude/skills/"
+    assert config.subagents_location == "./.claude/agents/"
+    assert config.settings_location == "./.claude/settings.json"
 
 
 @pytest.mark.parametrize(
-    ("overrides", "expected"),
+    ("key", "value", "expected"),
     (
+        # A key of a nested table.
+        pytest.param("metrics.sync", {"metrics": {"sync": True}}, True, id="nested"),
+        # A flat field whose dotted path is only metadata.
+        pytest.param("debug.sync", {"debug": {"sync": True}}, True, id="flat-dotted"),
         pytest.param(
-            {"skills_location": "./custom/skills/"},
-            {
-                "skills_location": "./custom/skills/",
-                "subagents_location": "./.cursor/agents/",
-                "settings_location": "./.cursor/settings.json",
-            },
-            id="skills",
+            "notification.unsubscribe",
+            {"notification": {"unsubscribe": True}},
+            True,
+            id="flat-dotted-other-table",
         ),
+        # A flat field named after itself.
+        pytest.param("setup-guide", {"setup-guide": False}, False, id="flat"),
         pytest.param(
-            {"subagents_location": "./custom/agents/"},
-            {
-                "skills_location": "./.cursor/skills/",
-                "subagents_location": "./custom/agents/",
-                "settings_location": "./.cursor/settings.json",
-            },
-            id="subagents",
-        ),
-        pytest.param(
-            {"settings_location": "./custom/settings.json"},
-            {
-                "skills_location": "./.cursor/skills/",
-                "subagents_location": "./.cursor/agents/",
-                "settings_location": "./custom/settings.json",
-            },
-            id="settings",
+            "awesome-template.sync",
+            {"awesome-template": {"sync": False}},
+            False,
+            id="flat-dotted-off",
         ),
     ),
 )
-def test_explicit_locations_override_the_flavor(monkeypatch, overrides, expected):
-    """An explicit location outranks whatever the agent prefers.
+def test_is_enabled_reads_the_key_the_user_writes(key, value, expected):
+    """Every shape of `[tool.repomatic]` key reaches the field that stores it."""
+    config = load_repomatic_config({"tool": {"repomatic": value}})
+    assert config.is_enabled(key) is expected
+    assert Config().is_enabled(key) is not expected
 
-    Each location is checked on its own, so overriding one never drags the
-    others off the flavor's layout.
+
+@pytest.mark.parametrize("key", ("metrics.skip", "flavor.agent", "mango.sync", ""))
+def test_is_enabled_rejects_a_key_with_no_field(key):
+    """A gate wired to a missing key raises instead of reading as switched off."""
+    with pytest.raises(ValueError, match="has no"):
+        Config().is_enabled(key)
+
+
+def test_config_key_paths_cover_every_reference_row():
+    """The gate map and the reference table agree on the set of keys."""
+    assert set(config_key_paths()) == {
+        option.strip("`") for option, *_ in config_reference()
+    }
+
+
+@pytest.mark.parametrize(
+    "table",
+    (
+        pytest.param({"flavor": {"agent": "claude_code"}}, id="flavor"),
+        pytest.param({"metrics": {"skip": {"papaya": "No forge."}}}, id="metrics-skip"),
+    ),
+)
+def test_removed_keys_warn_as_unknown(table, caplog):
+    """A key `8.0.0` removed is an unknown key, reported rather than fatal."""
+    config = load_repomatic_config({"tool": {"repomatic": table}})
+    assert isinstance(config, Config)
+    assert "Unknown configuration option(s)" in caplog.text
+    assert not hasattr(config, "flavor")
+    assert not hasattr(MetricsConfig(), "skip")
+
+
+TWO_WEEKS_COOLDOWN = """\
+[tool.repomatic]
+minimum-release-age = "2 weeks"
+"""
+"""A `pyproject.toml` whose cooldown differs from the default one."""
+
+
+def test_published_config_wins_over_the_working_directory(tmp_path, monkeypatch):
+    """A published config answers every no-argument load, whatever the file says.
+
+    The CLI resolves its configuration through click-extra (an upward search,
+    the user folder, `--config`), and a library helper reading
+    `./pyproject.toml` alone would disagree with it.
     """
-    monkeypatch.setitem(config_mod.AGENT_LAYOUTS, "cursor", CURSOR_LAYOUT)
-    config = Config(flavor=FlavorConfig(agent="cursor"), **overrides)
-    for field_name, value in expected.items():
-        assert getattr(config, field_name) == value
+    (tmp_path / "pyproject.toml").write_text(TWO_WEEKS_COOLDOWN, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    assert load_repomatic_config().minimum_release_age == "2 weeks"
+
+    published = Config(minimum_release_age="3 days")
+    publish_config(published)
+    assert load_repomatic_config() is published
+    assert load_repomatic_config(project_root=tmp_path) is published
+
+    publish_config(None)
+    assert load_repomatic_config().minimum_release_age == "2 weeks"
+
+
+def test_published_config_leaves_another_project_alone(tmp_path, monkeypatch):
+    """A project other than the working directory still reads its own file."""
+    other = tmp_path / "orchard"
+    other.mkdir()
+    (other / "pyproject.toml").write_text(TWO_WEEKS_COOLDOWN, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    publish_config(Config(minimum_release_age="3 days"))
+    assert load_repomatic_config(project_root=other).minimum_release_age == "2 weeks"
+
+
+def test_config_holds_plain_data(tmp_path, monkeypatch):
+    """A config read from the cached `tomlrt` document holds no `tomlrt` object.
+
+    The document stays shared and keeps its formatting trivia, so the config
+    built from it gets plain copies.
+    """
+    content = """\
+[tool.repomatic]
+exclude = ["skills"]
+
+[tool.repomatic.labels.file-rules]
+"🥭 mango" = ["orchard/**"]
+"""
+    (tmp_path / "pyproject.toml").write_text(content, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    config = load_repomatic_config()
+    assert type(config.exclude) is list
+    assert type(config.labels.file_rules) is dict
+    assert type(config.labels.file_rules["🥭 mango"]) is list
 
 
 def test_load_repomatic_config_defaults(tmp_path, monkeypatch):

@@ -48,10 +48,7 @@ from ..changelog import (
     load_changelog_repo,
 )
 from ..claude_plugin import ARCHIVE_NAME, pack_plugin
-from ..components import (
-    DEFAULT_REPO,
-    WORKFLOW_TARGET_ROOT,
-)
+from ..components import DEFAULT_REPO
 from ..git_ops import create_and_push_tag
 from ..github.dev_release import (
     cleanup_dev_releases,
@@ -65,8 +62,9 @@ from ..github.release_sync import (
 from ..github.releases import (
     GitHubReleasesUnavailable,
     get_releases_with_assets,
-    owner_repo,
 )
+from ..github.urls import parse_github_repo
+from ..github.workflow_files import WORKFLOW_DIR
 from ..init_project import run_init
 from ..metadata.core import Metadata
 from ..release.attestation import pack_attestation
@@ -277,7 +275,7 @@ def lint_changelog(
 @option(
     "--workflow-dir",
     type=dir_path(resolve_path=True),
-    default=WORKFLOW_TARGET_ROOT,
+    default=WORKFLOW_DIR.as_posix(),
     help="Path to the GitHub workflows directory.",
 )
 @option(
@@ -929,7 +927,7 @@ def sync_dev_release_cmd(
     changelog_path, repo_url = loaded
 
     # Parse owner/repo for gh CLI.
-    parsed = owner_repo(repo_url)
+    parsed = parse_github_repo(repo_url)
     repository = "/".join(parsed) if parsed else ""
 
     if delete:

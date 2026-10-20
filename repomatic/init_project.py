@@ -37,12 +37,11 @@ import logging
 import re
 import subprocess
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from importlib.resources import files
 from pathlib import Path
 
 import tomlrt
-import yaml
 
 from . import __git_tag_sha__, __version__
 from .bundle import get_data_content
@@ -51,7 +50,6 @@ from .components import (
     COMPONENTS,
     COMPONENTS_BY_NAME,
     DEFAULT_REPO,
-    GITHUB_YAML_PATTERNS,
     NON_REUSABLE_WORKFLOWS,
     REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
@@ -67,7 +65,6 @@ from .components import (
     WorkflowComponent,
     excluded_rel_path,
     is_awesome_repo,
-    package_of,
     parse_component_entries,
     skill_launcher,
 )
@@ -97,16 +94,23 @@ from .file_ops import unlink_with_empty_parents
 from .github.labels import extra_label_filename
 from .github.pr_body import render_template, sanitize_markdown_mentions
 from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
+from .github.urls import repo_name
+from .github.workflow_files import (
+    github_yaml_paths,
+    load_workflow,
+    load_workflows,
+    workflow_paths,
+)
 from .github.workflow_sync import (
     PathsSpec,
+    canonical_workflow,
     extract_extra_jobs,
     generate_workflow_header,
-    identify_canonical_workflow,
     render_thin_caller_for_target,
 )
 from .http import get_bytes
-from .lint_repo import requested_metadata_keys
-from .metadata.core import Metadata, all_metadata_keys
+from .humanize import today_utc
+from .metadata.core import METADATA_SUBCOMMAND, Metadata, unknown_metadata_keys
 from .pypi import PYPI_PACKAGE_URL
 from .pyproject import (
     is_python_package,
@@ -117,7 +121,7 @@ from .pyproject import (
 from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from .tooling.registry import TOOL_REGISTRY
 from .tooling.runner import find_unmodified_configs
-from .versions import is_newer, safe_version, strip_dev_suffix
+from .versions import is_newer, parse_tag_version, safe_version, strip_dev_suffix
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -689,7 +693,7 @@ def _note_cooldown(warnings: list[str] | None, note: str) -> None:
 def _highest_upstream_pin(output_dir: Path, repo: str) -> UpstreamRefPin | None:
     """The highest upstream `uses:` pin already committed under *output_dir*.
 
-    Scans {data}`~repomatic.components.GITHUB_YAML_PATTERNS` resolved against
+    Scans {data}`~repomatic.github.workflow_files.GITHUB_YAML_PATTERNS` resolved against
     *output_dir*, the same files `sync-workflow-pins` bumps, and returns the
     winning {class}`~repomatic.deps.pins.UpstreamRefPin`. Stragglers left
     behind at an older pin therefore converge upward onto the repository-wide
@@ -705,21 +709,20 @@ def _highest_upstream_pin(output_dir: Path, repo: str) -> UpstreamRefPin | None:
     :return: The highest pin found, or `None` for a repository carrying none.
     """
     best: UpstreamRefPin | None = None
-    for pattern in GITHUB_YAML_PATTERNS:
-        for path in sorted(output_dir.glob(pattern)):
-            try:
-                content = path.read_text(encoding="UTF-8")
-            except OSError:
+    for path in github_yaml_paths(output_dir):
+        try:
+            content = path.read_text(encoding="UTF-8")
+        except OSError:
+            continue
+        for pin in find_upstream_ref_pins(content, repo):
+            if best is None:
+                best = pin
                 continue
-            for pin in find_upstream_ref_pins(content, repo):
-                if best is None:
-                    best = pin
-                    continue
-                # At equal versions a SHA-pinned ref beats a bare tag one, so
-                # the floor never unpins a hardened ref.
-                hardens = pin.version == best.version and best.sha is None
-                if hardens or is_newer(pin.version, best.version):
-                    best = pin
+            # At equal versions a SHA-pinned ref beats a bare tag one, so the
+            # floor never unpins a hardened ref.
+            hardens = pin.version == best.version and best.sha is None
+            if hardens or is_newer(pin.version, best.version):
+                best = pin
     return best
 
 
@@ -805,7 +808,7 @@ def resolve_default_pin(
     if not min_age:
         return f"v{base}", build_sha
     if today is None:
-        today = datetime.now(UTC).date()
+        today = today_utc()
     repo_url = f"https://github.com/{repo}"
     stepped_back = _select_cooldown_pin(
         github_candidates(repo_url), base, min_age, today
@@ -905,8 +908,8 @@ def resolve_upgrade_target(
         )
         return None
     if today is None:
-        today = datetime.now(UTC).date()
-    package = package_of(repo)
+        today = today_utc()
+    package = repo_name(repo)
     min_age = parse_min_age(config.minimum_release_age)
     candidates = pypi_candidates(package)
     chosen = select_latest(candidates, min_age, today)
@@ -962,8 +965,8 @@ def upgrade_command(
     :return: The command line.
     """
     if today is None:
-        today = datetime.now(UTC).date()
-    package = package_of(repo)
+        today = today_utc()
+    package = repo_name(repo)
     cutoff = exclude_newer_cutoff(config.minimum_release_age, today)
     return [
         *uvx_cmd(exclude_newer=cutoff),
@@ -1123,8 +1126,8 @@ def upgrade_report(
         return None
     adopted = pin.version
     if today is None:
-        today = datetime.now(UTC).date()
-    package = package_of(repo)
+        today = today_utc()
+    package = repo_name(repo)
     repo_url = f"https://github.com/{repo}"
     package_url = PYPI_PACKAGE_URL.format(package=package)
     min_age = parse_min_age(config.minimum_release_age)
@@ -1433,7 +1436,7 @@ def run_init(
     # Auto-include awesome-template for awesome-* repositories.
     if not repo_slug:
         repo_slug = Metadata().repo_slug
-    is_awesome = bool(repo_slug and is_awesome_repo(repo_slug.split("/")[-1]))
+    is_awesome = bool(repo_slug and is_awesome_repo(repo_name(repo_slug)))
     is_python = is_python_project(output_dir)
     is_package = is_python_package(output_dir)
     logging.debug(
@@ -1855,7 +1858,7 @@ def _realign_inline_pins(
     """Realign inline `<package>==X.Y.Z` literals onto the pin just written.
 
     A workflow that reaches the upstream toolkit from a `run:` shell command
-    (`uvx 'repomatic==1.2.3' metadata`) must keep that version in lockstep with
+    (`uvx 'repomatic==1.2.3' show-metadata`) must keep that version in lockstep with
     the SHA-pinned `uses:` refs above it, which
     {func}`~repomatic.lint_repo.check_inline_pins_match_upstream` enforces.
     `init` writes those refs and is the only writer of them, so it is also the
@@ -1895,13 +1898,13 @@ def _realign_inline_pins(
     :param output_dir: Repository root, for the reported relative path.
     :param repo: Upstream `owner/repo`; its name is the inline package to match.
     """
-    package = package_of(repo)
+    package = repo_name(repo)
     pin_re = re.compile(rf"\b{re.escape(package)}==[0-9]+(?:\.[0-9]+)*")
     # A `uses:` ref names a git tag and keeps the `v`; a requirement specifier
     # names the PyPI package and must not carry it. Same number, two namespaces.
     replacement = f"{package}=={version.removeprefix('v')}"
 
-    for target in sorted(workflows_dir.glob("*.y*ml")):
+    for target in workflow_paths(workflows_dir):
         content = target.read_text(encoding="UTF-8")
         new_content = apply_self_pin_exemption(
             pin_re.sub(replacement, content), package, SELF_PIN_COOLDOWN_EXEMPTION
@@ -1918,29 +1921,6 @@ def _realign_inline_pins(
         )
 
 
-def _run_commands(workflow: Path) -> list[str]:
-    """Collect every `run:` script in a workflow file.
-
-    :param workflow: Path to a workflow YAML file.
-    :return: One entry per step carrying a `run:`. Empty when the file does not
-        parse as a workflow, which is not this function's problem to report.
-    """
-    try:
-        data = yaml.safe_load(workflow.read_text(encoding="UTF-8"))
-    except (yaml.YAMLError, OSError):
-        return []
-    if not isinstance(data, dict):
-        return []
-    commands = []
-    for job in data.get("jobs", {}).values():
-        if not isinstance(job, dict):
-            continue
-        for step in job.get("steps") or []:
-            if isinstance(step, dict) and isinstance(step.get("run"), str):
-                commands.append(step["run"])
-    return commands
-
-
 def _check_metadata_keys(
     workflows_dir: Path,
     result: InitResult,
@@ -1949,14 +1929,19 @@ def _check_metadata_keys(
     *,
     repo: str = DEFAULT_REPO,
 ) -> None:
-    """Warn when a workflow asks `metadata` for a key this version dropped.
+    """Warn when a workflow asks `show-metadata` for a key this version dropped.
 
     A workflow reaches the toolkit's metadata through a `run:` command naming
     the keys it wants, and an unknown key is a hard `UsageError`. So retiring a
     key breaks every downstream workflow still asking for it, at the first push
     after the adoption, in the job every other job hangs off: click-extra's
     whole test workflow went dark that way when `coverage_cells` left with the
-    Codecov integration.
+    Codecov integration. A call of the `metadata` alias, which `8.0.0` removed,
+    breaks the same way, and is warned about the same way.
+
+    Reads the workflows through
+    {func}`~repomatic.metadata.core.unknown_metadata_keys`, the scan the
+    `lint-repo` check runs too.
 
     `init` is where the version changes, and the job bodies holding these
     commands belong to the downstream repository, so header-only sync never
@@ -1983,7 +1968,7 @@ def _check_metadata_keys(
     # Compared on the release tuple, so a development build checks the release
     # it is heading for: the pin drops the `.devN` suffix the running version
     # carries, and string equality would skip the check on every dev checkout.
-    pinned = safe_version(version.removeprefix("v"))
+    pinned = parse_tag_version(version)
     running = safe_version(__version__)
     same_release = (
         pinned is not None and running is not None and pinned.release == running.release
@@ -1995,24 +1980,30 @@ def _check_metadata_keys(
         )
         return
 
-    package = package_of(repo)
-    valid_keys = all_metadata_keys()
-    for target in sorted(workflows_dir.glob("*.y*ml")):
-        unknown = sorted({
-            key
-            for command in _run_commands(target)
-            for key in requested_metadata_keys(command, package)
-            if key not in valid_keys
-        })
-        if not unknown:
-            continue
-        result.warnings.append(
-            f"{_relative_label(target, output_dir)} asks `{package} metadata` "
-            f"for {', '.join(repr(key) for key in unknown)}, which "
-            f"{package} {__version__} does not emit. The job will fail; drop "
-            "the key or pin an older version."
-        )
-        logging.warning(result.warnings[-1])
+    package = repo_name(repo)
+    command = f"{package} {METADATA_SUBCOMMAND}"
+    unknown: dict[Path, set[str]] = {}
+    removed_alias: set[Path] = set()
+    for request in unknown_metadata_keys(load_workflows(workflows_dir), package):
+        unknown.setdefault(request.path, set()).update(request.unknown)
+        if request.removed_alias:
+            removed_alias.add(request.path)
+    for target in sorted(unknown):
+        label = _relative_label(target, output_dir)
+        if target in removed_alias:
+            result.warnings.append(
+                f"{label} calls `{package} metadata`, an alias {package} `8.0.0`"
+                f" removed. The job will fail; call `{command}` instead."
+            )
+            logging.warning(result.warnings[-1])
+        if unknown[target]:
+            result.warnings.append(
+                f"{label} asks `{command}` for"
+                f" {', '.join(repr(key) for key in sorted(unknown[target]))}, which"
+                f" {package} {__version__} does not emit. The job will fail; drop"
+                " the key or pin an older version."
+            )
+            logging.warning(result.warnings[-1])
 
 
 def is_source_repo(output_dir: Path) -> bool:
@@ -2152,9 +2143,16 @@ def _classify_removed_workflow(path: Path) -> str:
         workflow, `"review"` when the user appended extra jobs, or `"skip"`
         when the file is not a lineage thin-caller (leave it untouched).
     """
+    try:
+        content = path.read_text(encoding="UTF-8")
+    except OSError:
+        return "skip"
+    data = load_workflow(content)
+    if data is None:
+        return "skip"
     for slug in UPSTREAM_REPO_SLUGS:
-        if identify_canonical_workflow(path, slug) == path.name:
-            extra = extract_extra_jobs(path.read_text(encoding="UTF-8"), slug)
+        if canonical_workflow(data, slug) == path.name:
+            extra = extract_extra_jobs(content, slug, data=data)
             return "review" if extra.strip() else "prune"
     return "skip"
 

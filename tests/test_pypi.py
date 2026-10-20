@@ -34,7 +34,6 @@ from repomatic.pypi import (
     get_release_dates,
     get_source_url,
     get_trusted_publishers,
-    github_repo_root,
     pypi_trusted_publisher_settings_url,
 )
 from tests.conftest import FakeResponse
@@ -45,29 +44,6 @@ def _patch_pypi_json(
 ) -> AbstractContextManager[MagicMock]:
     """Patch `_fetch_json` to return `payload`."""
     return patch("repomatic.pypi._fetch_json", return_value=payload)
-
-
-@pytest.mark.parametrize(
-    ("url", "expected"),
-    [
-        ("https://github.com/papaya/kiwi", "https://github.com/papaya/kiwi"),
-        ("https://github.com/papaya/kiwi/", "https://github.com/papaya/kiwi"),
-        ("https://github.com/papaya/kiwi.git", "https://github.com/papaya/kiwi"),
-        ("https://github.com/papaya/kiwi/issues", "https://github.com/papaya/kiwi"),
-        ("https://github.com/papaya/kiwi/releases", "https://github.com/papaya/kiwi"),
-        (
-            "https://github.com/papaya/kiwi/blob/main/CHANGELOG.md",
-            "https://github.com/papaya/kiwi",
-        ),
-        # No repository to point at.
-        ("https://github.com/papaya", None),
-        ("https://github.com/", None),
-        ("https://gitlab.com/papaya/kiwi", None),
-        ("", None),
-    ],
-)
-def test_github_repo_root(url, expected):
-    assert github_repo_root(url) == expected
 
 
 def test_get_source_url_matches_keys_case_insensitively():

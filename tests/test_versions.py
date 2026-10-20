@@ -19,8 +19,14 @@
 from __future__ import annotations
 
 import pytest
+from packaging.version import Version
 
-from repomatic.versions import is_newer, safe_version, strip_dev_suffix
+from repomatic.versions import (
+    is_newer,
+    parse_tag_version,
+    safe_version,
+    strip_dev_suffix,
+)
 
 
 @pytest.mark.parametrize(
@@ -62,3 +68,19 @@ def test_safe_version(value, expected):
 )
 def test_strip_dev_suffix(value, expected):
     assert strip_dev_suffix(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("tag", "expected"),
+    (
+        pytest.param("v1.2.3", Version("1.2.3"), id="tag"),
+        pytest.param("1.2.3", Version("1.2.3"), id="bare"),
+        pytest.param("v2.0.0.dev0", Version("2.0.0.dev0"), id="dev"),
+        pytest.param("v1.2.3_hotfix", None, id="foreign-scheme"),
+        pytest.param("nightly", None, id="not-a-version"),
+        pytest.param("", None, id="empty"),
+    ),
+)
+def test_parse_tag_version(tag, expected):
+    """A tag drops its `v` namespace, and a foreign scheme reads as `None`."""
+    assert parse_tag_version(tag) == expected

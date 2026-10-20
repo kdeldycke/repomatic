@@ -60,6 +60,7 @@ from pathlib import Path
 import tomlrt
 
 from ..github.issue import close_issue, list_issues
+from ..pyproject import load_pyproject_doc
 from ..tabular import render_markdown_table
 from .runners import (
     by_label,
@@ -168,7 +169,8 @@ def plan_runner_changes(
     it as an upgrade would be wrong.
 
     :param literal: Labels named outright in workflows, mapped to their
-        locations, as {func}`~repomatic.lint_repo.literal_runners` reports them.
+        locations, as {func}`~repomatic.github.workflow_files.literal_runners`
+        reports them.
     :param tracked: Every image this repository has a stake in.
     :param catalog: Parsed available-images table.
     :param ignore: Labels the repository has declined. A `sync-*` job
@@ -426,7 +428,7 @@ def apply_upgrade(change: RunnerChange, pyproject_path: Path) -> bool:
     """
     if not change.probe or not pyproject_path.is_file():
         return False
-    doc = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+    doc = load_pyproject_doc(pyproject_path)
     # Seeded through `Table` rather than a bare dict, which `setdefault` would
     # turn into an inline table.
     #

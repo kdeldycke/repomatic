@@ -29,6 +29,7 @@ from repomatic.humanize import (
     format_countdown,
     format_elapsed,
     format_file_size,
+    today_utc,
     utc_midnight,
 )
 
@@ -110,3 +111,11 @@ def test_format_countdown(deadline, reference, expected) -> None:
 def test_format_elapsed(instant, reference, expected) -> None:
     """The past-facing mirror drops its phrase in the other direction."""
     assert format_elapsed(instant, reference) == expected
+
+
+def test_today_utc_is_the_utc_date():
+    """The date is read on the UTC clock, not on the local one."""
+    before = datetime.now(UTC).date()
+    today = today_utc()
+    assert before <= today <= datetime.now(UTC).date()
+    assert type(today) is date

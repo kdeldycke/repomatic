@@ -28,7 +28,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import shlex
 import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -39,12 +38,11 @@ from typing import NamedTuple
 from urllib.parse import urlsplit
 
 import tomlrt
-import yaml
-from click_extra import echo
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
 from .bundle import get_data_content
+from .checks import CheckResult, report_result
 from .cloudflare.r2 import OFFLOAD_DOCS_URL, PAGES_MAX_FILE_SIZE
 from .cloudflare.redirects import (
     discarded_rules,
@@ -57,9 +55,7 @@ from .cloudflare.redirects import (
 from .components import (
     DEFAULT_REPO,
     INSTALL_GUIDE_PATH,
-    WORKFLOW_TARGET_ROOT,
     SyncMode,
-    package_of,
 )
 from .config import Config, LintRepoConfig, deploys_to
 from .deps.pins import (
@@ -75,24 +71,35 @@ from .deps.pins import (
 from .deps.uv import LockFile, exemption_admits, freeze_cutoff_after
 from .file_inventory import FileInventory
 from .frontmatter import split_frontmatter
-from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
-from .github.gh import gh_api_json, gh_graphql, run_gh_command
+from .github.actions import NULL_SHA, AnnotationLevel
+from .github.gh import GhCommandError, gh_api_json, gh_graphql, run_gh_command
 from .github.labels import LabelConfigError, declared_label_names
 from .github.pr_body import footer_opted_out
 from .github.token import PAT_PERMISSION_PROBES, check_all_pat_permissions
+from .github.urls import repo_name, split_slug
+from .github.workflow_files import (
+    WORKFLOW_DIR,
+    iter_jobs,
+    iter_steps,
+    jobs_of,
+    literal_runners,
+    load_workflows,
+    parse_workflow_texts,
+    read_workflow_texts,
+    steps_of,
+)
 from .http import FetchError
 from .humanize import format_countdown, format_file_size, utc_midnight
 from .matrix.axes import (
-    TEST_RUNNERS_FULL,
-    TEST_RUNNERS_PR,
+    KNOWN_RUNNERS,
     UNSTABLE_PYTHON_VERSIONS,
 )
 from .matrix.model import PYTHON_VERSION_AXIS
 from .metadata.core import (
-    METADATA_VALUE_OPTIONS,
+    METADATA_SUBCOMMAND,
     Dialect,
     Metadata,
-    all_metadata_keys,
+    unknown_metadata_keys,
 )
 from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
@@ -120,13 +127,6 @@ project's own keys: PEP 621 leaves the spelling to the project, so
 `Documentation`, `documentation` and `Docs` all occur in the wild. Mirrors the
 same convention `_SOURCE_URL_KEYS` in {mod}`repomatic.pypi` applies to the PyPI
 copy of the same mapping.
-"""
-
-WORKFLOW_DIR = Path(WORKFLOW_TARGET_ROOT)
-"""Directory every workflow check walks.
-
-Derived from the registry constant `repomatic init` deploys against, so the
-checks and the generator can never disagree about where a workflow lives.
 """
 
 RELEASE_DOWNLOAD_RE = re.compile(
@@ -211,20 +211,6 @@ Only the dotted ones carry a version: the bare `3` and `3 :: Only` state the
 major series, and `Implementation :: CPython` the interpreter.
 """
 
-KNOWN_RUNNERS = frozenset(TEST_RUNNERS_FULL) | frozenset(TEST_RUNNERS_PR)
-"""Every runner image this project has deliberately chosen.
-
-The closest thing to a curated list of images a project should be running on,
-and the one place carrying measured guidance on their relative speed and cost.
-A job naming something outside it has been picked without that guidance.
-
-The test axes are the whole list: every job runs on an image the suite is also
-validated against, so "where is the suite exercised" and "what may a job run on"
-are one question. That is deliberate, since each extra image is one more to
-track, pin and migrate. A job needing something else is a decision to make
-explicitly, by widening the axes rather than by naming an image here.
-"""
-
 TEMPLATE_FILE_ARG_RE = re.compile(r"--template-file[=\s]+(?P<path>\S+)")
 """A `repomatic pr-body --template-file` argument inside a workflow `run:` block.
 
@@ -268,18 +254,6 @@ here, and a branch protection rule never appears under `rulesets`. Verified on
 2026-08-27 against a repository holding both at once, which listed the branch
 protection rule here and the ruleset only there.
 """
-
-
-class CheckResult(NamedTuple):
-    """Outcome of one repository check.
-
-    `passed` is tri-state: `True` on success, `False` on failure, `None`
-    when the check could not run or does not apply (skipped). `message` is
-    the human-readable line for both terminal output and annotations.
-    """
-
-    passed: bool | None
-    message: str
 
 
 @cache
@@ -499,7 +473,7 @@ def check_funding_file(repo: str) -> CheckResult:
     if _funding_file_exists():
         return CheckResult(True, "Funding file found.")
 
-    owner, name = repo.split("/", 1)
+    owner, name = split_slug(repo)
 
     # One GraphQL query for both isFork and hasSponsorsListing, through the
     # shared runner: variables travel as GraphQL variables rather than being
@@ -843,7 +817,7 @@ def check_pat_repository_scope(repo: str) -> CheckResult:
             f" (no {PAT_SCOPE_PROBE.permission!r} access to probe with).",
         )
 
-    owner = repo.split("/", 1)[0]
+    owner = split_slug(repo)[0]
     try:
         # `gh api` sends a POST once a field is passed, which this endpoint
         # answers with a 404. One more than the limit, so that leaving this
@@ -882,8 +856,8 @@ def check_pat_repository_scope(repo: str) -> CheckResult:
     for other in other_repos:
         try:
             run_gh_command(["api", endpoint.format(repo=other), "--silent"])
-        except RuntimeError as exc:
-            if "HTTP 403" in str(exc):
+        except GhCommandError as exc:
+            if exc.status == 403:
                 refused += 1
             continue
         msg = (
@@ -938,16 +912,15 @@ def check_pat_stale_statuses_permission(repo: str) -> CheckResult:
             "state=success",
             "--silent",
         ])
-    except RuntimeError as exc:
-        stderr = str(exc)
-        if "HTTP 422" in stderr:
+    except GhCommandError as exc:
+        if exc.status == 422:
             msg = (
                 "PAT still grants the 'Commit statuses' permission, which"
                 " repomatic no longer uses. Edit the token to remove it for"
                 " least privilege."
             )
             return CheckResult(False, msg)
-        if "HTTP 403" in stderr:
+        if exc.status == 403:
             return CheckResult(
                 True, "Commit statuses: token correctly lacks the dropped scope."
             )
@@ -1230,7 +1203,7 @@ def check_classic_branch_protection(repo: str) -> CheckResult:
         read, matching the ruleset checks. Reading the rules needs admin on
         the repository, so a token without it skips rather than passes.
     """
-    owner, _, name = repo.partition("/")
+    owner, name = split_slug(repo)
     try:
         data = gh_graphql(BRANCH_PROTECTION_RULES_QUERY, owner=owner, name=name)
     except (RuntimeError, KeyError, json.JSONDecodeError) as error:
@@ -1374,7 +1347,7 @@ def check_pages_redirect_preserved(repo: str, docs_url: str | None) -> CheckResu
             " moves, every new release publishes metadata naming the old host.",
         )
 
-    owner, _, name = repo.partition("/")
+    owner, name = split_slug(repo)
     legacy_urls = f"https://{owner}.github.io/{name}/…"
 
     data = gh_api_json(["api", f"repos/{repo}/pages"])
@@ -1505,7 +1478,7 @@ def check_pypi_trusted_publisher(
             )
 
     observed = ", ".join(f"{p.repository}:{p.workflow}" for p in publishers)
-    owner, _, repository = repo.partition("/")
+    owner, repository = split_slug(repo)
     settings_url = pypi_trusted_publisher_settings_url(
         package_name,
         owner=owner,
@@ -1532,12 +1505,11 @@ def check_stale_gh_pages_branch(repo: str) -> CheckResult:
     """
     try:
         run_gh_command(["api", f"repos/{repo}/branches/gh-pages"])
-    except RuntimeError as exc:
+    except GhCommandError as exc:
         # 404: branch doesn't exist. That's the desired state. Any other
         # failure (network, auth, rate limit) means the branch could not be
-        # read at all, which is a skip, never a pass: this used to report
-        # every API failure as green, the one false-green path in the lane.
-        if "HTTP 404" in str(exc):
+        # read at all, which is a skip, never a pass.
+        if exc.status == 404:
             return CheckResult(True, "No stale gh-pages branch found.")
         return CheckResult(
             None, "Stale gh-pages branch check: skipped (could not query API)."
@@ -1588,10 +1560,10 @@ def check_workflow_permissions(
             )
         ]
     if workflows is None:
-        workflows = _load_workflows()
+        workflows = load_workflows()
 
     for wf_path, data in workflows.items():
-        has_custom_steps = any("steps" in job for _name, job in _jobs_of(data))
+        has_custom_steps = any("steps" in job for _name, job in jobs_of(data))
         # Reusable-workflow-calling jobs (a job-level `uses:`) that would
         # inherit an empty top-level `permissions: {}` because they declare no
         # `permissions:` of their own. `data.get("permissions") == {}` matches
@@ -1600,7 +1572,7 @@ def check_workflow_permissions(
         starved_calls = (
             sorted(
                 name
-                for name, job in _jobs_of(data)
+                for name, job in jobs_of(data)
                 if job.get("uses") and "permissions" not in job
             )
             if data.get("permissions") == {}
@@ -1680,109 +1652,6 @@ def check_test_matrix_excludes() -> list[CheckResult]:
         )
         results.append(CheckResult(False, msg))
     return results
-
-
-def _workflow_texts(workflow_dir: Path = WORKFLOW_DIR) -> dict[Path, str]:
-    """Read every workflow in *workflow_dir*, skipping the unreadable ones.
-
-    The raw-text half of the workflow walk, for the checks that match against
-    the file as written rather than as parsed: an argument inside a folded
-    scalar is one opaque string to a YAML parser, whichever way the file is
-    loaded.
-
-    :param workflow_dir: Directory holding the workflow files.
-    :return: A mapping of path to file content, in sorted path order.
-    """
-    texts: dict[Path, str] = {}
-    if not workflow_dir.is_dir():
-        return texts
-    # Both extensions, since GitHub accepts either: a downstream repository
-    # may have picked the short one (see registry.GITHUB_YAML_PATTERNS).
-    paths = [*workflow_dir.glob("*.yaml"), *workflow_dir.glob("*.yml")]
-    for path in sorted(paths):
-        try:
-            texts[path] = path.read_text(encoding="UTF-8")
-        except OSError as e:
-            logging.warning(f"Could not read {path}: {e}")
-    return texts
-
-
-def _parse_workflow_texts(texts: Mapping[Path, str]) -> dict[Path, dict]:
-    """Parse pre-read workflow texts, keeping the jobs-bearing documents.
-
-    The parsed half of the workflow walk. Documents that declare no `jobs:`
-    mapping are dropped, so every consumer can index `data["jobs"]` directly.
-
-    :param texts: Raw file contents keyed by path, from {func}`_workflow_texts`.
-    :return: A mapping of path to parsed document, for documents declaring jobs.
-    """
-    workflows: dict[Path, dict] = {}
-    for path, text in texts.items():
-        try:
-            data = yaml.safe_load(text)
-        except yaml.YAMLError as e:
-            logging.warning(f"Could not parse {path}: {e}")
-            continue
-        if isinstance(data, dict) and isinstance(data.get("jobs"), dict):
-            workflows[path] = data
-    return workflows
-
-
-def _load_workflows(workflow_dir: Path = WORKFLOW_DIR) -> dict[Path, dict]:
-    """Read and parse every workflow in *workflow_dir*.
-
-    The from-disk convenience over {func}`_workflow_texts` and
-    {func}`_parse_workflow_texts`, for a check invoked on its own. A full
-    `lint-repo` run reads and parses once instead, through
-    {attr}`LintContext.workflows`, and hands the result to each check.
-
-    :param workflow_dir: Directory holding the workflow files.
-    :return: A mapping of path to parsed document, for documents declaring jobs.
-    """
-    return _parse_workflow_texts(_workflow_texts(workflow_dir))
-
-
-def _jobs_of(data: dict) -> Iterator[tuple[str, dict]]:
-    """Yield `(job_id, job)` for every job mapping of one workflow.
-
-    The one place the "a job is a mapping" guard lives: a malformed job (a
-    string, a list) is skipped here, so no walker trips over it.
-
-    :param data: One parsed workflow document.
-    """
-    for job_id, job in data.get("jobs", {}).items():
-        if isinstance(job, dict):
-            yield job_id, job
-
-
-def _steps_of(job: dict) -> Iterator[dict]:
-    """Yield every step mapping of one job, same guard policy as {func}`_jobs_of`.
-
-    :param job: One job mapping.
-    """
-    for step in job.get("steps", []) or ():
-        if isinstance(step, dict):
-            yield step
-
-
-def iter_jobs(workflows: Mapping[Path, dict]) -> Iterator[tuple[Path, str, dict]]:
-    """Yield `(path, job_id, job)` for every job across *workflows*.
-
-    :param workflows: Parsed workflow documents, keyed by path.
-    """
-    for path, data in workflows.items():
-        for job_id, job in _jobs_of(data):
-            yield path, job_id, job
-
-
-def iter_steps(workflows: Mapping[Path, dict]) -> Iterator[tuple[Path, str, dict]]:
-    """Yield `(path, job_id, step)` for every step across *workflows*.
-
-    :param workflows: Parsed workflow documents, keyed by path.
-    """
-    for path, job_id, job in iter_jobs(workflows):
-        for step in _steps_of(job):
-            yield path, job_id, step
 
 
 def _advertised_python_versions(metadata: Metadata) -> list[tuple[int, int]]:
@@ -1897,7 +1766,7 @@ def check_python_version_consistency(
                 )
             )
 
-    axes = _literal_python_axes(_load_workflows() if workflows is None else workflows)
+    axes = _literal_python_axes(load_workflows() if workflows is None else workflows)
     if not axes:
         results.append(
             CheckResult(None, "Python test matrix: skipped (no literal axis found).")
@@ -1941,41 +1810,6 @@ def check_python_version_consistency(
     return results
 
 
-def literal_runners(
-    workflow_dir: Path = WORKFLOW_DIR,
-    workflows: Mapping[Path, dict] | None = None,
-) -> dict[str, list[str]]:
-    """Every runner image this repository names outright, and where.
-
-    Only literals: a value built from an expression (`${{ matrix.os }}`) names
-    no image here, and the axis it draws from is checked at its definition. A
-    thin caller declares no `steps:` and runs on whatever the reusable workflow
-    chose, which is that workflow's business rather than this repository's.
-
-    Separate from {data}`KNOWN_RUNNERS`, and deliberately so. That set is what
-    this project has *chosen*; this function reports what it is *running*, and
-    the two diverge exactly when something has been left behind. Callers wanting
-    "an image this repository has a stake in" need the union of both.
-
-    :param workflow_dir: Directory holding the workflow files. Ignored when
-        *workflows* is supplied.
-    :param workflows: Pre-parsed workflows, read from disk when `None`.
-    :return: A mapping of runner label to the `file.yaml:job-id` locations
-        naming it, empty when no job names one literally.
-    """
-    if workflows is None:
-        workflows = _load_workflows(workflow_dir)
-    seen: dict[str, list[str]] = {}
-    for path, job_id, job in iter_jobs(workflows):
-        if "steps" not in job:
-            continue
-        runner = job.get("runs-on")
-        if not isinstance(runner, str) or "${{" in runner:
-            continue
-        seen.setdefault(runner, []).append(f"{path.name}:{job_id}")
-    return seen
-
-
 def check_runner_images(
     workflows: Mapping[Path, dict] | None = None,
 ) -> list[CheckResult]:
@@ -2003,7 +1837,7 @@ def check_runner_images(
     :return: A list of `CheckResult`.
     """
     if workflows is None:
-        workflows = _load_workflows()
+        workflows = load_workflows()
     seen = literal_runners(workflows=workflows)
     if not seen:
         # The two skips are worth telling apart: no workflows at all is a
@@ -2184,7 +2018,7 @@ def check_release_path(
     # Second arm. Absent the reusable workflows there is nothing to read, which is
     # the normal downstream case rather than a failure.
     if workflows is None:
-        workflows = _load_workflows()
+        workflows = load_workflows()
     engine = {
         path.name: data
         for path, data in workflows.items()
@@ -2691,11 +2525,11 @@ def _collect_conditions(
     """
     job_pairs: list[tuple[str, str]] = []
     step_pairs: list[tuple[str, str]] = []
-    for _job_id, job in _jobs_of(workflow):
+    for _job_id, job in jobs_of(workflow):
         job_name = job.get("name", "")
         if isinstance(job_name, str):
             job_pairs.append((job_name, str(job.get("if", ""))))
-        for step in _steps_of(job):
+        for step in steps_of(job):
             step_name = step.get("name")
             if isinstance(step_name, str):
                 step_pairs.append((step_name, str(step.get("if", ""))))
@@ -2733,7 +2567,7 @@ def check_inline_pins_match_upstream(
     """Check inline upstream pins match the workflow `uses:` ref version.
 
     A workflow that pins the upstream toolkit in a `run:` shell command (like
-    `uvx 'repomatic==1.2.3' metadata`) must keep that version in lockstep with
+    `uvx 'repomatic==1.2.3' show-metadata`) must keep that version in lockstep with
     the SHA-pinned `uses:` refs. `init` realigns the inline pin whenever it
     writes the refs, so the two drift apart only when a ref is edited by hand,
     until the next `sync-workflow-pins` run. When the stale version drops
@@ -2748,13 +2582,13 @@ def check_inline_pins_match_upstream(
     :param texts: Pre-read workflow texts, read from disk when `None`.
     :return: A `CheckResult`.
     """
-    package = package_of(upstream_repo)
+    package = repo_name(upstream_repo)
     if not workflow_dir.is_dir():
         return CheckResult(
             None, f"Inline {package} pin check: skipped (no {workflow_dir.as_posix()})."
         )
     if texts is None:
-        texts = _workflow_texts(workflow_dir)
+        texts = read_workflow_texts(workflow_dir)
 
     pin_re = re.compile(rf"\b{re.escape(package)}==(?P<version>[0-9]+(?:\.[0-9]+)*)")
 
@@ -2794,7 +2628,7 @@ def check_self_pin_cooldown_exemption(
     """Check every inline upstream pin carries its cooldown exemption.
 
     A workflow pinning the upstream toolkit in a `run:` command
-    (`uvx 'repomatic==1.2.3' metadata`) resolves under the workflow-wide
+    (`uvx 'repomatic==1.2.3' show-metadata`) resolves under the workflow-wide
     `UV_EXCLUDE_NEWER`, and that pin moves in lockstep with the `uses:` refs, so
     it routinely names a release published hours ago. Without
     {data}`~repomatic.release.prepare_release.SELF_PIN_COOLDOWN_EXEMPTION` on the
@@ -2819,14 +2653,14 @@ def check_self_pin_cooldown_exemption(
     :param texts: Pre-read workflow texts, read from disk when `None`.
     :return: A `CheckResult`.
     """
-    package = package_of(upstream_repo)
+    package = repo_name(upstream_repo)
     if not workflow_dir.is_dir():
         return CheckResult(
             None,
             f"{package} cooldown exemption: skipped (no {workflow_dir.as_posix()}).",
         )
     if texts is None:
-        texts = _workflow_texts(workflow_dir)
+        texts = read_workflow_texts(workflow_dir)
 
     exemption_re = self_pin_exemption_re(package)
     unexempt: list[str] = []
@@ -2912,7 +2746,7 @@ def check_setup_uv_version_pin(
     :return: A `CheckResult`.
     """
     if workflows is None:
-        workflows = _load_workflows(workflow_dir)
+        workflows = load_workflows(workflow_dir)
     if not workflows:
         return CheckResult(None, "setup-uv version pin: skipped (no workflows).")
 
@@ -2979,7 +2813,7 @@ def check_setup_uv_checksum_coverage(
     :return: A `CheckResult`, indeterminate when the table cannot be read.
     """
     if workflows is None:
-        workflows = _load_workflows(workflow_dir)
+        workflows = load_workflows(workflow_dir)
     if not workflows:
         return CheckResult(None, "setup-uv checksum coverage: skipped (no workflows).")
 
@@ -3149,88 +2983,6 @@ def check_registry_pin_cooldown(
     return results
 
 
-_METADATA_KEY_TOKEN = re.compile(r"^[a-z][a-z0-9_]*$")
-"""Shape of a metadata key, used to tell one from a neighbouring shell token.
-
-Every key is a Python identifier, so a token carrying a hyphen (`github-json`),
-a dollar (`$GITHUB_OUTPUT`) or a dot is something else on the command line and
-is passed over rather than reported as unknown.
-"""
-
-_SHELL_OPERATORS = frozenset(("&&", "||", ";", "|", ">", ">>", "<", "&"))
-"""Tokens that end the invocation and start unrelated words.
-
-`repomatic metadata a b && echo done` must not report `echo` and `done` as
-metadata keys.
-"""
-
-_METADATA_SUBCOMMANDS = frozenset(("metadata", "show-metadata"))
-"""Spellings the metadata-dumping subcommand has carried.
-
-The bare `metadata` spelling is deprecated and will be removed in `8.0.0`, but
-a downstream job body still invokes it, so both stay readable until then.
-"""
-
-
-def requested_metadata_keys(command: str, package: str) -> list[str]:
-    """Positional keys a shell command passes to the metadata subcommand.
-
-    Reads the tail of the invocation the way Click would: options are dropped
-    along with the value each one consumes, and what remains are the positional
-    key arguments. Handles both spellings in use, the upstream
-    `uv run -- repomatic show-metadata …` and the downstream
-    `uvx 'repomatic==1.2.3' show-metadata …`, by looking for the subcommand
-    after any token naming the package. The deprecated `metadata` spelling is
-    read too, for job bodies that still call it.
-
-    Shared with {mod}`repomatic.init_project`, which asks the same question of
-    a downstream checkout at sync time rather than of this repository at lint
-    time. One parser, so the two verdicts cannot disagree about what a `run:`
-    line requests.
-
-    :param command: The step's `run:` script, folded or literal.
-    :param package: Upstream package name (like `repomatic`).
-    :return: The key names requested, in the order written.
-    """
-    keys: list[str] = []
-    # A literal block scalar holds a whole script: read it a line at a time so
-    # a later command's words cannot be mistaken for this one's arguments.
-    # Backslash continuations are rejoined first, being one command still.
-    for line in command.replace("\\\n", " ").splitlines():
-        try:
-            tokens = shlex.split(line, comments=True)
-        except ValueError:
-            # An unbalanced quote is a line this cannot read. A shell would
-            # reject it too, so leave it to the shell to complain.
-            continue
-        seen_package = False
-        tail: list[str] | None = None
-        for token in tokens:
-            if tail is not None:
-                if token in _SHELL_OPERATORS:
-                    break
-                tail.append(token)
-            elif token in _METADATA_SUBCOMMANDS and seen_package:
-                tail = []
-            elif token == package or token.startswith(f"{package}=="):
-                seen_package = True
-        if not tail:
-            continue
-
-        skip_next = False
-        for token in tail:
-            if skip_next:
-                skip_next = False
-                continue
-            if token.startswith("-"):
-                # `--format=json` carries its value inline, consuming nothing.
-                skip_next = "=" not in token and token in METADATA_VALUE_OPTIONS
-                continue
-            if _METADATA_KEY_TOKEN.match(token):
-                keys.append(token)
-    return keys
-
-
 def check_metadata_keys(
     workflow_dir: Path = WORKFLOW_DIR,
     upstream_repo: str = DEFAULT_REPO,
@@ -3241,10 +2993,12 @@ def check_metadata_keys(
     A downstream repository owns the job bodies of its header-only workflows:
     `repomatic init` syncs their `name`, `on` and `concurrency` blocks and the
     `uses:` pins, and never touches the steps below. So a key retired upstream
-    keeps being asked for by a `run:` line nothing sweeps, and the `metadata`
-    command answers a retired key with a `UsageError`. Since every other job in
-    a test workflow reaches it through `needs:`, the whole run dies at the first
-    job, on the next push, from a workflow file that looks freshly synced.
+    keeps being asked for by a `run:` line nothing sweeps, and the
+    `show-metadata` command answers a retired key with a `UsageError`. Since
+    every other job in a test workflow reaches it through `needs:`, the whole
+    run dies at the first job, on the next push, from a workflow file that
+    looks freshly synced. A step still calling the `metadata` alias, which
+    `8.0.0` removed, dies the same way.
 
     That is not hypothetical: `coverage_cells` went away with the Codecov
     integration and took a downstream test workflow down with it. Failing here
@@ -3253,42 +3007,43 @@ def check_metadata_keys(
     :param workflow_dir: Directory holding the workflow YAML files. Ignored
         when *workflows* is supplied.
     :param upstream_repo: Upstream `owner/repo`; its name is the package whose
-        `metadata` invocations are read (like `repomatic`).
+        `show-metadata` invocations are read (like `repomatic`).
     :param workflows: Pre-parsed workflows, read from disk when `None`.
     :return: A list of `CheckResult`.
     """
-    package = package_of(upstream_repo)
+    package = repo_name(upstream_repo)
     if workflows is None:
-        workflows = _load_workflows(workflow_dir)
+        workflows = load_workflows(workflow_dir)
     if not workflows:
         return [CheckResult(None, "Metadata keys check: skipped (no workflows).")]
 
-    valid = all_metadata_keys()
+    command = f"{package} {METADATA_SUBCOMMAND}"
     results: list[CheckResult] = []
-    for path, job_id, step in iter_steps(workflows):
-        command = step.get("run")
-        if not isinstance(command, str):
-            continue
-        requested = requested_metadata_keys(command, package)
-        if not requested:
-            continue
-        where = f"{path.name}:{job_id}"
-        unknown = sorted(set(requested) - valid)
-        if unknown:
-            names = ", ".join(f"`{key}`" for key in unknown)
+    for request in unknown_metadata_keys(workflows, package):
+        where = f"{request.path.name}:{request.job_id}"
+        if request.removed_alias:
             results.append(
                 CheckResult(
                     False,
-                    f"{where} asks `{package} metadata` for {names}, which"
-                    f" no longer exists. The command rejects an unknown"
-                    f" key outright, so this job fails on its next run,"
-                    f" and every job gated on it through `needs:` with"
-                    f" it. Run `{package} metadata --list-keys` for the"
-                    f" current set.",
+                    f"{where} calls `{package} metadata`, which `8.0.0` removed,"
+                    f" so this job fails on its next run, and every job gated on"
+                    f" it through `needs:` with it. Call `{command}` instead.",
+                )
+            )
+        elif request.unknown:
+            names = ", ".join(f"`{key}`" for key in request.unknown)
+            results.append(
+                CheckResult(
+                    False,
+                    f"{where} asks `{command}` for {names}, which no longer"
+                    f" exists. The command rejects an unknown key outright, so"
+                    f" this job fails on its next run, and every job gated on"
+                    f" it through `needs:` with it. Run `{command} --list-keys`"
+                    f" for the current set.",
                 )
             )
         else:
-            count = len(requested)
+            count = len(request.keys)
             plural = "" if count == 1 else "s"
             results.append(
                 CheckResult(
@@ -3299,9 +3054,7 @@ def check_metadata_keys(
             )
 
     if not results:
-        return [
-            CheckResult(None, f"Metadata keys check: no `{package} metadata` calls.")
-        ]
+        return [CheckResult(None, f"Metadata keys check: no `{command}` calls.")]
     return results
 
 
@@ -3339,7 +3092,7 @@ def check_pr_templates(
             )
         ]
     if texts is None:
-        texts = _workflow_texts(workflow_dir)
+        texts = read_workflow_texts(workflow_dir)
 
     # Map each referenced path to the workflows naming it, so a misplaced
     # template is reported against the file someone has to edit. Keys stay
@@ -3411,29 +3164,6 @@ def check_pr_templates(
             results.append(CheckResult(True, f"PR template `{raw_path}`: conforms."))
 
     return results
-
-
-def _report_result(
-    result: CheckResult, level: AnnotationLevel = AnnotationLevel.WARNING
-) -> bool:
-    """Print one check line and emit its annotation; return True when it failed.
-
-    :param result: The check outcome to render.
-    :param level: Severity for a failure. `WARNING` prints `⚠` and emits a
-        warning annotation; `ERROR` prints `✗` and emits an error annotation.
-    :return: `True` when the check failed (`passed is False`), else `False`.
-        A skipped check (`passed is None`) prints `ℹ` and emits no annotation.
-    """
-    if result.passed is None:
-        echo(f"ℹ {result.message}")
-        return False
-    if result.passed:
-        echo(f"✓ {result.message}")
-        return False
-    symbol = "✗" if level is AnnotationLevel.ERROR else "⚠"
-    emit_annotation(level, result.message)
-    echo(f"{symbol} {result.message}")
-    return True
 
 
 @dataclass
@@ -3595,12 +3325,12 @@ class LintContext:
         its own directory walk, the same way {attr}`repo_metadata` pools the
         GitHub lookup.
         """
-        return _workflow_texts()
+        return read_workflow_texts()
 
     @cached_property
     def workflows(self) -> dict[Path, dict]:
-        """The parsed jobs-bearing workflows, from {attr}`workflow_texts`."""
-        return _parse_workflow_texts(self.workflow_texts)
+        """The parsed workflows, from {attr}`workflow_texts`."""
+        return parse_workflow_texts(self.workflow_texts)
 
     def deploys_to(self, target: str) -> bool:
         """Whether this repository publishes its site to *target*.
@@ -3646,7 +3376,7 @@ class LintContext:
             configured.
         """
         if repo_name is None and repo:
-            repo_name = repo.split("/")[-1] if "/" in repo else repo
+            repo_name = split_slug(repo)[1]
         metadata = Metadata()
         project_table = metadata.pyproject_toml.get("project", {})
         return cls(
@@ -4051,8 +3781,7 @@ def _pat_permissions(ctx: LintContext) -> Iterator[CheckResult]:
         return
     if not ctx.repo:
         return
-    for passed, message in check_all_pat_permissions(ctx.repo).iter_results():
-        yield CheckResult(passed, message)
+    yield from check_all_pat_permissions(ctx.repo).iter_results()
 
 
 REPO_CHECKS: tuple[RepoCheck, ...] = (
@@ -4770,7 +4499,7 @@ def run_repo_lint(ctx: LintContext) -> int:
         if not check.applies(ctx):
             continue
         for result in check.results(ctx):
-            if _report_result(result, check.level) and check.fatal:
+            if report_result(result, check.level) and check.fatal:
                 fatal_error = True
 
     return 1 if fatal_error else 0

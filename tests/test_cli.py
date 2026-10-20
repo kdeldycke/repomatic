@@ -319,6 +319,27 @@ def test_show_metadata_warns_only_over_content(tmp_path, content, warned):
     assert "is_python_project=" in target.read_text(encoding="UTF-8")
 
 
+def test_group_publishes_the_config_it_resolved(tmp_path, monkeypatch):
+    """Library helpers see the config `--config` names, not `./pyproject.toml`.
+
+    The group callback publishes the resolved config for the duration of the
+    command, then clears the slot.
+    """
+    custom = tmp_path / "elsewhere" / "pyproject.toml"
+    custom.parent.mkdir()
+    custom.write_text(
+        '[tool.repomatic]\nminimum-release-age = "3 days"\n', encoding="UTF-8"
+    )
+    published: list = []
+    monkeypatch.setattr(cli_main, "publish_config", published.append)
+
+    result = CliRunner().invoke(repomatic, ["--config", str(custom), "cache", "path"])
+
+    assert result.exit_code == 0, result.output
+    assert published[0].minimum_release_age == "3 days"
+    assert published[-1] is None
+
+
 RELEASED_CHANGELOG = dedent("""\
     # Changelog
 

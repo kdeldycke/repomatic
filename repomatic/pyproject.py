@@ -37,15 +37,13 @@ if TYPE_CHECKING:
     from .config import Config
 
 
-_PARSE_CACHE: dict[Path, tuple[int, int, dict[str, Any]]] = {}
-"""Parsed `pyproject.toml` documents, keyed by absolute path.
+_TOML_CACHE: dict[Path, tuple[int, int, Any]] = {}
+"""Parsed TOML documents, keyed by absolute path.
 
 Each value pairs the parse with the `(st_mtime_ns, st_size)` identity of the
 bytes it came from, so an edited file (a test rewriting its fixture, a sync
-job upserting a key) re-parses while the dozens of reads a single invocation
-makes (every `load_repomatic_config()` call re-reads the file) hit the cache.
-Safe to share unguarded: no consumer mutates the returned mapping, and
-click-extra's schema callable copies its input before normalizing it.
+job upserting a key, `uv lock` rewriting the lock) re-parses, while the dozens
+of reads a single invocation makes hit the cache.
 """
 
 _EMPTY_PYPROJECT: dict[str, Any] = {}
@@ -59,10 +57,40 @@ as the cached parses above.
 """
 
 
+def cached_toml(path: Path) -> Any:
+    """Parse the TOML file at *path*, once per version of its bytes.
+
+    The one parser behind {func}`read_pyproject_toml` and
+    {func}`repomatic.deps.uv.load_lock_data`: a lock runs to hundreds of
+    kilobytes, and a single command reads the same `pyproject.toml` many times
+    over.
+
+    ```{caution}
+    The `tomlrt` document is shared by every caller, so treat it as read-only.
+    It keeps the formatting trivia of the file (the tool runner relies on it),
+    which a caller editing the file must not touch: {func}`load_pyproject_doc`
+    returns a private, editable parse instead.
+    ```
+
+    :param path: The TOML file to read.
+    :return: The parsed document.
+    :raises OSError: When the file is missing or cannot be read.
+    :raises tomlrt.TOMLParseError: When the file is not valid TOML.
+    """
+    path = path.absolute()
+    stat = path.stat()
+    cached = _TOML_CACHE.get(path)
+    if cached is not None and cached[:2] == (stat.st_mtime_ns, stat.st_size):
+        return cached[2]
+    document = tomlrt.loads(path.read_text(encoding="UTF-8"))
+    _TOML_CACHE[path] = (stat.st_mtime_ns, stat.st_size, document)
+    return document
+
+
 def read_pyproject_toml(project_root: Path | None = None) -> dict[str, Any]:
     """Parse `pyproject.toml` from *project_root*.
 
-    Parses are cached per file identity (absolute path, mtime, size), since a
+    Parses are cached per file identity (see {func}`cached_toml`), since a
     single CLI invocation reads the same document many times over: treat the
     result as read-only.
 
@@ -73,23 +101,42 @@ def read_pyproject_toml(project_root: Path | None = None) -> dict[str, Any]:
     """
     if project_root is None:
         project_root = Path()
-    pyproject_path = (project_root / "pyproject.toml").absolute()
-    # `OSError` from the stat or the read covers a file that is missing,
-    # unreadable, or gone between the two calls (the default *project_root* is
-    # relative, so the working directory itself can vanish mid-call). The
-    # missing-file outcome this promises is the same either way.
+    pyproject_path = project_root / "pyproject.toml"
+    # `OSError` covers a file that is missing, unreadable, a directory, or gone
+    # between the stat and the read (the default *project_root* is relative, so
+    # the working directory itself can vanish mid-call). The missing-file
+    # outcome this promises is the same either way.
     try:
-        stat = pyproject_path.stat()
-        if not pyproject_path.is_file():
-            return _EMPTY_PYPROJECT
-        cached = _PARSE_CACHE.get(pyproject_path)
-        if cached is not None and cached[:2] == (stat.st_mtime_ns, stat.st_size):
-            return cached[2]
-        data: dict[str, Any] = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+        data: dict[str, Any] = cached_toml(pyproject_path)
     except (tomlrt.TOMLParseError, OSError):
         return _EMPTY_PYPROJECT
-    _PARSE_CACHE[pyproject_path] = (stat.st_mtime_ns, stat.st_size, data)
     return data
+
+
+def load_pyproject_doc(pyproject_path: Path) -> Any:
+    """Parse a TOML file into a private, editable, round-trippable document.
+
+    The counterpart to {func}`read_pyproject_toml`, whose cached document is
+    shared and read-only. This one is parsed afresh on every call and keeps
+    `tomlrt`'s formatting trivia, so the document can be edited and written back
+    with the rest of the file byte-identical.
+
+    :param pyproject_path: Path to the `pyproject.toml` (or other TOML) file.
+    :return: The parsed document.
+    """
+    return tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+
+
+def uv_table(doc: Any) -> Any:
+    """Return the `[tool.uv]` table of a parsed `pyproject.toml`.
+
+    :param doc: Document from {func}`load_pyproject_doc`.
+    :return: The `[tool.uv]` table, or an empty mapping when the project
+        declares none. Reading a key off the result is therefore always safe;
+        writing one back requires the caller to check the table exists first,
+        since the empty fallback is not attached to *doc*.
+    """
+    return doc.get("tool", {}).get("uv", {})
 
 
 def dependency_group_names(project_root: Path | None = None) -> tuple[str, ...]:

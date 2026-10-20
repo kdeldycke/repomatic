@@ -101,12 +101,8 @@ def get_github_status() -> GitHubStatus | None:
     underlying error they were trying to annotate.
     """
     try:
-        payload, _raw = get_json(
-            GITHUB_STATUS_SUMMARY_URL, timeout=_PROBE_TIMEOUT_SECONDS
-        )
-    # OSError on top of FetchError: the probe runs from an error path, so
-    # even an exotic local failure must never mask the error being annotated.
-    except (FetchError, OSError) as exc:
+        payload = get_json(GITHUB_STATUS_SUMMARY_URL, timeout=_PROBE_TIMEOUT_SECONDS)
+    except FetchError as exc:
         logging.debug(f"GitHub Status probe failed: {exc}")
         return None
     status = payload.get("status") if isinstance(payload, dict) else None

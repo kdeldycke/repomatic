@@ -37,16 +37,17 @@ from repomatic.components import (
 )
 from repomatic.config import Config, WorkflowConfig
 from repomatic.github import workflow_sync as ws
-from repomatic.github.actions import AnnotationLevel
+from repomatic.github.workflow_files import load_workflow, workflow_triggers
 from repomatic.github.workflow_sync import (
-    LintResult,
     PathsSpec,
     WorkflowTriggerInfo,
     _adapt_trigger_paths,
+    _canonical,
     _needs_yaml_quote,
     _split_yaml_quote,
     _substitute_source_paths,
     canonical_caller_permissions,
+    canonical_workflow,
     check_has_workflow_dispatch,
     check_secrets_passed,
     check_triggers_match,
@@ -57,9 +58,9 @@ from repomatic.github.workflow_sync import (
     generate_thin_caller,
     generate_workflow_header,
     identify_canonical_workflow,
+    lint_workflow,
     render_thin_caller_for_target,
     run_workflow_lint,
-    workflow_triggers,
 )
 from repomatic.init_project import get_data_content
 from repomatic.lint_repo import check_workflow_permissions
@@ -1030,88 +1031,61 @@ def test_thin_caller_sync_preserves_extra_jobs(tmp_path: Path) -> None:
     assert "# Custom packaging job." in result
 
 
+def _parsed(text: str) -> dict:
+    """Parse a workflow fixture, failing the test when it is not a mapping."""
+    data = load_workflow(text)
+    assert data is not None
+    return data
+
+
 @pytest.mark.parametrize(
-    ("body", "is_issue", "needle", "level"),
+    ("body", "passed", "needle"),
     [
         pytest.param(
-            '---\n"on":\n  workflow_dispatch:\n  push:\n',
-            False,
-            "",
-            AnnotationLevel.WARNING,
-            id="present",
+            '---\n"on":\n  workflow_dispatch:\n  push:\n', True, "has", id="present"
         ),
-        pytest.param(
-            '---\n"on":\n  push:\n',
-            True,
-            "missing",
-            AnnotationLevel.WARNING,
-            id="absent",
-        ),
-        # Unparsable YAML is an error, not a warning: nothing downstream can
-        # read the file either.
-        pytest.param(
-            "{{invalid",
-            True,
-            "",
-            AnnotationLevel.ERROR,
-            id="invalid-yaml",
-        ),
+        pytest.param('---\n"on":\n  push:\n', False, "missing", id="absent"),
     ],
 )
 def test_check_has_workflow_dispatch(
-    tmp_path: Path, body: str, is_issue: bool, needle: str, level: AnnotationLevel
+    tmp_path: Path, body: str, passed: bool, needle: str
 ) -> None:
-    """The `workflow_dispatch` check reports presence, absence and unreadability."""
-    wf = tmp_path / "candidate.yaml"
-    wf.write_text(body, encoding="UTF-8")
-    result = check_has_workflow_dispatch(wf)
-    assert result.is_issue is is_issue
+    """The `workflow_dispatch` check reports presence and absence."""
+    result = check_has_workflow_dispatch(tmp_path / "candidate.yaml", _parsed(body))
+    assert result.passed is passed
     assert needle in result.message
-    assert result.level == level
 
 
 @pytest.mark.parametrize(
-    ("ref", "is_issue", "needle"),
+    ("ref", "passed", "needle"),
     [
-        pytest.param("v5.8.0", False, "", id="version-tag"),
-        pytest.param("main", True, "@main", id="floating-branch"),
+        pytest.param("v5.8.0", True, "", id="version-tag"),
+        pytest.param("main", False, "@main", id="floating-branch"),
     ],
 )
 def test_check_version_pinned(
-    tmp_path: Path, ref: str, is_issue: bool, needle: str
+    tmp_path: Path, ref: str, passed: bool, needle: str
 ) -> None:
     """A caller must pin the upstream workflow to a tag, never to a branch."""
-    wf = tmp_path / "lint.yaml"
-    wf.write_text(
-        f"    uses: {DEFAULT_REPO}/.github/workflows/lint.yaml@{ref}\n",
-        encoding="UTF-8",
-    )
-    result = check_version_pinned(wf)
-    assert result.is_issue is is_issue
+    content = f"    uses: {DEFAULT_REPO}/.github/workflows/lint.yaml@{ref}\n"
+    result = check_version_pinned(tmp_path / "lint.yaml", content)
+    assert result.passed is passed
     assert needle in result.message
 
 
 def test_matching_triggers(tmp_path: Path) -> None:
     """Pass when triggers match canonical."""
     # lint.yaml has: workflow_dispatch, push, pull_request.
-    wf = tmp_path / "lint.yaml"
-    wf.write_text(
-        '---\n"on":\n  workflow_dispatch:\n  push:\n  pull_request:\n',
-        encoding="UTF-8",
-    )
-    result = check_triggers_match(wf, "lint.yaml")
-    assert result.is_issue is False
+    data = _parsed('---\n"on":\n  workflow_dispatch:\n  push:\n  pull_request:\n')
+    result = check_triggers_match(tmp_path / "lint.yaml", data, "lint.yaml")
+    assert result.passed is True
 
 
 def test_missing_trigger(tmp_path: Path) -> None:
     """Fail when a trigger is missing."""
-    wf = tmp_path / "lint.yaml"
-    wf.write_text(
-        '---\n"on":\n  push:\n',
-        encoding="UTF-8",
-    )
-    result = check_triggers_match(wf, "lint.yaml")
-    assert result.is_issue is True
+    data = _parsed('---\n"on":\n  push:\n')
+    result = check_triggers_match(tmp_path / "lint.yaml", data, "lint.yaml")
+    assert result.passed is False
     assert "missing:" in result.message
 
 
@@ -1130,10 +1104,11 @@ def test_extra_trigger(tmp_path: Path) -> None:
                     on_lines.append(f"    {k}: {v}")
     on_lines.append("  workflow_dispatch:")
     body = "\n".join(on_lines)
-    wf = tmp_path / "cancel-runs.yaml"
-    wf.write_text(f"---\n{body}\n", encoding="UTF-8")
-    result = check_triggers_match(wf, "cancel-runs.yaml")
-    assert result.is_issue is True
+    data = _parsed(f"---\n{body}\n")
+    result = check_triggers_match(
+        tmp_path / "cancel-runs.yaml", data, "cancel-runs.yaml"
+    )
+    assert result.passed is False
     assert "extra: workflow_dispatch" in result.message
 
 
@@ -1151,8 +1126,8 @@ def test_caller_with_synthetic_triggers_for_call_only_canonical(
     wf.write_text(content, encoding="UTF-8")
     canonical = identify_canonical_workflow(wf)
     assert canonical == "_release-engine.yaml"
-    result = check_triggers_match(wf, canonical)
-    assert result.is_issue is False
+    result = check_triggers_match(wf, _parsed(content), canonical)
+    assert result.passed is True
 
 
 ALL_RELEASE_SECRETS = (
@@ -1228,15 +1203,13 @@ def test_check_secrets_passed(
     needle: str,
 ) -> None:
     """A caller must forward every secret its canonical workflow declares."""
-    wf = tmp_path / f"{caller}.yaml"
-    wf.write_text(
+    data = _parsed(
         f"---\njobs:\n  {caller}:\n"
         f"    uses: {DEFAULT_REPO}/.github/workflows/{caller}.yaml@v5.8.0\n"
-        f"{secrets_block}",
-        encoding="UTF-8",
+        f"{secrets_block}"
     )
-    result = check_secrets_passed(wf, canonical)
-    assert result.is_issue is is_issue
+    result = check_secrets_passed(tmp_path / f"{caller}.yaml", data, canonical)
+    assert result.passed is not is_issue
     assert needle in result.message
 
 
@@ -1249,6 +1222,12 @@ CLEAN_WORKFLOW = (
 DISPATCHLESS_WORKFLOW = '---\n"on":\n  push:\n'
 """A workflow missing `workflow_dispatch`, the linter's mildest complaint."""
 
+UNPARSABLE_WORKFLOW = "{{invalid"
+"""A file that is not YAML at all: an error, since nothing can read it."""
+
+SCALAR_WORKFLOW = "just a sentence\n"
+"""A file that is YAML but no mapping, so no workflow either."""
+
 
 @pytest.mark.parametrize(
     ("body", "fatal", "exit_code"),
@@ -1258,6 +1237,8 @@ DISPATCHLESS_WORKFLOW = '---\n"on":\n  push:\n'
         # The severity knob only moves the exit code, never the diagnosis.
         pytest.param(DISPATCHLESS_WORKFLOW, False, 0, id="issue-warning-mode"),
         pytest.param(DISPATCHLESS_WORKFLOW, True, 1, id="issue-fatal-mode"),
+        pytest.param(UNPARSABLE_WORKFLOW, True, 1, id="unparsable"),
+        pytest.param(SCALAR_WORKFLOW, True, 1, id="not-a-mapping"),
     ],
 )
 def test_run_workflow_lint(
@@ -1331,16 +1312,48 @@ def test_non_reusable_workflow_refuses_to_render(tmp_path: Path) -> None:
         sync_caller("tests.yaml", tmp_path / "tests.yaml")
 
 
-def test_default_level() -> None:
-    """Verify default annotation level is WARNING."""
-    result = LintResult(message="test", is_issue=True)
-    assert result.level == AnnotationLevel.WARNING
+@pytest.mark.parametrize(
+    ("body", "checks"),
+    [
+        pytest.param(CLEAN_WORKFLOW, 1, id="standalone"),
+        pytest.param(
+            f"---\njobs:\n  lint:\n    uses: {DEFAULT_REPO}/.github/workflows/"
+            "lint.yaml@v5.8.0\n",
+            3,
+            id="thin-caller",
+        ),
+    ],
+)
+def test_lint_workflow_picks_the_checks(tmp_path: Path, body: str, checks: int) -> None:
+    """A standalone workflow gets the dispatch check, a thin caller the other three."""
+    results = lint_workflow(tmp_path / "lint.yaml", body, _parsed(body), DEFAULT_REPO)
+    assert len(results) == checks
 
 
-def test_custom_level() -> None:
-    """Verify custom annotation level."""
-    result = LintResult(message="test", is_issue=True, level=AnnotationLevel.ERROR)
-    assert result.level == AnnotationLevel.ERROR
+def test_run_workflow_lint_reports_the_unparsable_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A file that does not parse is an error annotation naming the file."""
+    (tmp_path / "broken.yaml").write_text(UNPARSABLE_WORKFLOW, encoding="UTF-8")
+    assert run_workflow_lint(tmp_path) == 0
+    out = capsys.readouterr().out
+    assert "::error::broken.yaml" in out
+    assert "\u2717 broken.yaml" in out
+
+
+def test_run_workflow_lint_reads_the_short_extension(tmp_path: Path) -> None:
+    """A `.yml` workflow is linted like a `.yaml` one: GitHub reads both."""
+    (tmp_path / "candidate.yml").write_text(DISPATCHLESS_WORKFLOW, encoding="UTF-8")
+    assert run_workflow_lint(tmp_path, fatal=True) == 1
+
+
+def test_canonical_workflow_reads_a_parse(tmp_path: Path) -> None:
+    """The parsed form answers what the file form does, without a read."""
+    content = generate_thin_caller("lint.yaml", version="v5.8.0")
+    wf = tmp_path / "lint.yaml"
+    wf.write_text(content, encoding="UTF-8")
+    assert canonical_workflow(_parsed(content)) == identify_canonical_workflow(wf)
+    assert canonical_workflow(_parsed(content)) == "lint.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -1494,10 +1507,8 @@ def test_identify_canonical_workflow_sha_pinned(tmp_path: Path) -> None:
 def test_check_version_pinned_sha(tmp_path: Path) -> None:
     """``check_version_pinned`` passes for SHA-pinned refs."""
     content = generate_thin_caller("lint.yaml", version="v6.8.0", commit_sha=FAKE_SHA)
-    wf = tmp_path / "lint.yaml"
-    wf.write_text(content, encoding="UTF-8")
-    result = check_version_pinned(wf)
-    assert not result.is_issue
+    result = check_version_pinned(tmp_path / "lint.yaml", content)
+    assert result.passed is True
 
 
 # ---------------------------------------------------------------------------
@@ -2146,9 +2157,9 @@ def test_canonical_caller_permissions_keeps_most_permissive(
     monkeypatch.setattr(
         "repomatic.github.workflow_sync.get_data_content", lambda _name: stub
     )
-    # The function memoizes per filename, so each parametrization's stub needs
+    # The parse is memoized per filename, so each parametrization's stub needs
     # a clean slate under the shared "stub.yaml" key.
-    canonical_caller_permissions.cache_clear()
+    _canonical.cache_clear()
     assert canonical_caller_permissions("stub.yaml") == {"contents": expected}
 
 

@@ -34,13 +34,13 @@ from functools import cached_property
 from click_extra import TableFormat, render_table
 
 from .changelog import resolved_changelog_path
+from .checks import CheckResult
 from .config import deploys_to
 from .github import token
 from .github.gh import run_gh_command
 from .github.issue import BOT_ISSUE_LABEL, manage_issue_lifecycle
 from .github.pr_body import render_template
 from .lint_repo import (
-    CheckResult,
     check_branch_ruleset_on_default,
     check_fork_pr_approval_policy,
     check_immutable_releases,
@@ -323,7 +323,7 @@ class SetupStep:
     probe: Callable[[GuideContext], bool | None] = lambda ctx: False
     """Read the step's completion state.
 
-    Tri-state, per {class}`~repomatic.lint_repo.CheckResult`.
+    Tri-state, per {class}`~repomatic.checks.CheckResult`.
     """
 
     applies: Callable[[GuideContext], bool] = lambda ctx: True

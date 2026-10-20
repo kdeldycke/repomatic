@@ -91,6 +91,7 @@ from extra_platforms import (
 from packaging.requirements import Requirement
 
 from .. import __version__
+from ..github.urls import parse_github_repo
 from ..npm import NPM_PACKAGE_URL
 from ..pypi import PYPI_PACKAGE_URL
 
@@ -2178,12 +2179,6 @@ mdformat has zero GitHub Releases; mypy only has pre-releases.
 """
 
 
-def _github_repo(url: str | None) -> str | None:
-    """Extract ``owner/repo`` from a GitHub URL."""
-    m = re.match(r"https?://github\.com/([^/]+/[^/]+)", url or "")
-    return m.group(1) if m else None
-
-
 def _tool_badges(key: str, spec: ToolSpec) -> str:
     """Render the Stars and Last release badges of a tool's section.
 
@@ -2194,7 +2189,8 @@ def _tool_badges(key: str, spec: ToolSpec) -> str:
     (in the retired comparison table, column headers played that role).
     """
     badges = []
-    repo = _github_repo(spec.source_url)
+    parsed = parse_github_repo(spec.source_url or "")
+    repo = "/".join(parsed) if parsed else None
     if repo:
         badges.append(
             f"![Stars](https://img.shields.io/github/stars/{repo}?style=flat-square)"
