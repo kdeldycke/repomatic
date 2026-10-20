@@ -3388,8 +3388,8 @@ def test_check_description_opens_on_its_severity(check):
 def test_workflows_page_renders_every_check():
     """The `lint-repo` job docs render the roster rather than a hand-kept list."""
     page = (PROJECT_ROOT / "docs" / "workflows.md").read_text(encoding="UTF-8")
-    job = page.partition("#### 🏠 Lint repository metadata (`lint-repo`)")[2]
-    job = job.partition("\n#### ")[0]
+    job = page.partition("### 🏠 Lint repository metadata (`lint-repo`)")[2]
+    job = job.partition("\n### ")[0]
     assert "print(repo_check_reference())" in job
     rendered = repo_check_reference().splitlines()
     assert rendered == [f"- {check.description}" for check in REPO_CHECKS]

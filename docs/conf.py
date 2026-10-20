@@ -216,6 +216,13 @@ manpages_url = "man/{page}.{section}.html"
 
 exclude_patterns = ["_build", "_linkcheck", "html", "Thumbs.db", ".DS_Store"]
 
+suppress_warnings = [
+    # Example: "Document headings start at H2, not H1"
+    # Explanation: readme.md starts at H2 because GitHub supplies the H1 from the
+    # repository name, and docs/index.md includes it as it is.
+    "myst.header",
+]
+
 nitpicky = True
 # The test suite's fixture annotations name pytest's private modules, which its
 # published inventory does not carry: it documents the same classes as

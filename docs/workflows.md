@@ -2,7 +2,7 @@
 
 The `repomatic` CLI is invoked in CI from [reusable GitHub Actions workflows](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows). You configure behavior via [`[tool.repomatic]`](configuration.md) in `pyproject.toml`; the workflows trigger jobs and wire their outputs together, the CLI does the work.
 
-### Example usage
+## Example usage
 
 The fastest way to adopt these workflows is with `repomatic init` (see [Quick start](install.md#quick-start)). It generates all the thin-caller workflow files for you.
 
@@ -19,7 +19,7 @@ jobs:
     uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.17.1
 ```
 
-### GitHub Actions limitations
+## GitHub Actions limitations
 
 GitHub Actions has several design limitations that the workflows work around:
 
@@ -48,7 +48,7 @@ GitHub Actions has several design limitations that the workflows work around:
 | [`actionlint` false positives for runtime env vars](https://github.com/rhysd/actionlint/issues/57)                                                                               | 🚫 Not addressable | Linter limitation, not GitHub's                                                                                                                                                                                                         |
 | [No default `timeout-minutes`, so an uncapped job runs 6 hours](https://docs.github.com/en/actions/reference/limits)                                                             | ✅ Addressed       | [Per-job runtime caps](#job-runtime-caps), enforced by `tests/test_workflows.py::test_every_job_caps_its_runtime`                                                                                                                       |
 
-### Job runtime caps
+## Job runtime caps
 
 Every job that occupies a runner declares `timeout-minutes`. GitHub offers no workflow-level or organization-level default for it, so the key has to be repeated on each job, and a job that omits it runs until the platform's [6-hour ceiling](https://docs.github.com/en/actions/reference/limits). That default is the wrong shape for a shared account: the macOS and Windows runner pools are capped per account and shared by every repository in it, so one hung cell starves all the others for the rest of those six hours. The cost of the omission lands on projects that have nothing to do with the workflow that hung.
 
@@ -67,13 +67,13 @@ Downstream repositories inherit all of this: the caps live on the reusable workf
 
 (github-workflows-autofix-yaml-jobs)=
 
-### 🪄 [`.github/workflows/autofix.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/autofix.yaml)
+## 🪄 [`.github/workflows/autofix.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/autofix.yaml)
 
 This workflow runs on every push to `main` and on a **weekly schedule** so quiet repos that see few pushes still receive dependency and pin updates automatically. Version-bump pushes (a release's `[changelog]` pair, manual major/minor bumps) skip every job: those commits are machine-generated and ship-gated, and any drift they could introduce is caught by the next ordinary push or the weekly sweep.
 
 *Setup* — guide new users through initial configuration:
 
-#### 📖 Setup guide (`setup-guide`)
+### 📖 Setup guide (`setup-guide`)
 
 - Detects missing `REPOMATIC_PAT` secret and opens an issue with step-by-step setup instructions
 - When the PAT is present, validates all required permissions (administration, contents, issues, pull requests, Dependabot alerts, workflows) using the same checks as `lint-repo`
@@ -88,7 +88,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
   - upstream `kdeldycke/repomatic` repo, `workflow_call` events
   - `setup-guide = false` in `[tool.repomatic]`
 
-#### 🖥️ Sync runner images (`sync-runner-images`)
+### 🖥️ Sync runner images (`sync-runner-images`)
 
 - Looks every runner label this repository runs up in the [*Available Images* table](https://github.com/actions/runner-images#available-images), and opens a pull request carrying the mechanical half of whatever it finds, so the decision is made against a real CI run rather than against a description
 - A **retirement** rewrites every literal `runs-on:` naming a deprecated image onto its successor. A released image always wins over a preview, since a forced move should not trade a known deadline for an unknown one; a newer preview passed over is named in the pull request body rather than taken
@@ -108,7 +108,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 
 *Formatters* — rewrite files to enforce canonical style:
 
-#### 🐍 Format Python (`format-python`)
+### 🐍 Format Python (`format-python`)
 
 - Auto-formats Python code using [`autopep8`](https://github.com/hhatto/autopep8) (comment wrapping) and [`ruff`](https://github.com/astral-sh/ruff) (linting and formatting)
 - When the project has no `[tool.ruff]` section or `ruff.toml`, [repomatic's bundled defaults](https://github.com/kdeldycke/repomatic/blob/main/repomatic/data/ruff.toml) are applied at runtime
@@ -120,26 +120,26 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 Collapse the job's two Ruff steps, `check` then `format`, into one invocation once Ruff unifies linting and formatting behind a single command: [astral-sh/ruff#8232](https://github.com/astral-sh/ruff/issues/8232). The `autopep8` step goes the same way once Ruff wraps long comments: [astral-sh/ruff#7414](https://github.com/astral-sh/ruff/issues/7414).
 ```
 
-#### 📐 Format `pyproject.toml` (`format-pyproject`)
+### 📐 Format `pyproject.toml` (`format-pyproject`)
 
 - Auto-formats `pyproject.toml` using [`pyproject-fmt`](https://github.com/tox-dev/pyproject-fmt)
 - **Requires**:
   - Python package with a `pyproject.toml` file
 
-#### ✍️ Format Markdown (`format-markdown`)
+### ✍️ Format Markdown (`format-markdown`)
 
 - Auto-formats Markdown files using [`mdformat`](https://github.com/hukkin/mdformat) and its plugins
 - On an `awesome-*` repository, follows up with `repomatic fix-awesome-toc` to delete the table-of-contents entries [awesome-lint forbids](https://github.com/sindresorhus/awesome-lint/blob/v2.2.2/rules/toc.js#L14-L18), from `readme.md` and from every `readme.{lang}.md` translation beside it
 - **Requires**:
   - Markdown files (`**/*.{markdown,mdown,mkdn,mdwn,mkd,md,mdtxt,mdtext,mdx}`) in the repository
 
-#### 🐚 Format Shell (`format-shell`)
+### 🐚 Format Shell (`format-shell`)
 
 - Auto-formats shell scripts using [`shfmt`](https://github.com/mvdan/sh)
 - **Requires**:
   - Shell files (`**/*.{bash,bats,ksh,mksh,sh}`) or bash dotfiles (`.bashrc`, `.bash_profile`, `.profile`, etc.) in the repository. A file whose shebang names zsh is excluded and goes to [`lint-zsh`](#lint-zsh-lint-zsh) instead, since `shfmt` misparses common Zsh constructs
 
-#### 🔧 Format JSON (`format-json`)
+### 🔧 Format JSON (`format-json`)
 
 - Auto-formats JSON, JSONC, and JSON5 files using [Biome](https://github.com/biomejs/biome)
 - **Requires**:
@@ -147,12 +147,12 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 
 *Fixers* — correct or improve existing content in-place:
 
-#### ✏️ Fix typos (`fix-typos`)
+### ✏️ Fix typos (`fix-typos`)
 
 - Automatically fixes typos in the codebase using [`typos`](https://github.com/crate-ci/typos)
 - Checks hidden files and directories too (`.github/`, `.claude/`) in a repository that [adopted](configuration.md#adopting-a-tool-config) the bundled `[tool.typos]` config. It skips `.git`, and the `.gitignore` and `.mailmap` files that sync jobs maintain.
 
-#### 🛡️ Fix vulnerable dependencies (`fix-vulnerable-deps`)
+### 🛡️ Fix vulnerable dependencies (`fix-vulnerable-deps`)
 
 - Invokes [`repomatic audit --fix`](cli.md#repomatic-audit), which detects vulnerable packages from two advisory sources, unioned and deduplicated per package by advisory identity (a shared `advisory_id` or a cross-referenced CVE/GHSA/PYSEC alias):
   - [`uv audit`](https://docs.astral.sh/uv/reference/cli/#uv-audit) against the [Python Packaging Advisory Database](https://github.com/pypa/advisory-database) (OSV-backed). Works locally and in CI without a GitHub token.
@@ -167,7 +167,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 - **Skipped if**:
   - `vulnerable-deps.sync = false` in `[tool.repomatic]`
 
-#### 🖼️ Format images (`format-images`)
+### 🖼️ Format images (`format-images`)
 
 - Losslessly compresses PNG and JPEG images using [`repomatic format-images`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/images.py) with `oxipng` and `jpegoptim`
 - Skips files where savings are below `--min-savings` (percentage, default 5%) or `--min-savings-bytes` (absolute, default 1024 bytes)
@@ -176,7 +176,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 
 *Syncers* — regenerate files from external sources or project state:
 
-#### 🙈 Sync `.gitignore` (`sync-gitignore`)
+### 🙈 Sync `.gitignore` (`sync-gitignore`)
 
 - Regenerates `.gitignore` from [gitignore.io](https://github.com/toptal/gitignore.io) templates using [`repomatic sync-gitignore`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/sync.py)
 - **Requires**:
@@ -185,7 +185,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
   - `gitignore.sync = false` in `[tool.repomatic]`
 - **Fails if**: the rebuild would drop a rule the committed `.gitignore` carries, since the generated file replaces it whole. The job lists the rules and stops without opening a pull request; move them into `gitignore.extra-content`, or add `--drop-orphans` to the step to discard them
 
-#### 🔄 Sync bumpversion config (`sync-bumpversion`)
+### 🔄 Sync bumpversion config (`sync-bumpversion`)
 
 - Re-derives the `[tool.bumpversion]` configuration in `pyproject.toml` from the bundled template on every run using [`repomatic sync-bumpversion`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/sync.py), overwriting canonical entries while preserving local-only additions
 - **Requires**:
@@ -193,7 +193,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 - **Skipped if**:
   - `bumpversion.sync = false` in `[tool.repomatic]`
 
-#### 🔄 Sync repomatic (`sync-repomatic`)
+### 🔄 Sync repomatic (`sync-repomatic`)
 
 - Runs [`repomatic init --upgrade --delete-unmodified --delete-excluded`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/init_project.py) to sync all repomatic-managed files: thin-caller workflows, configuration files, and skill definitions
 - Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v7.17.1`
@@ -204,7 +204,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 - In the upstream repository, regenerates bundled data files from the project's own config (workflows are excluded via `[tool.repomatic]`)
 - The upgrade pull request gives the command launching the [`/repomatic-upgrade`](agent-skills.md) skill with both versions filled in. The skill applies what the new release lets the repository adopt, reuse or drop, and leaves the changes uncommitted. A manual `repomatic init` that moves the upstream pin prints the same command as its last next step
 
-#### 📬 Sync `.mailmap` (`sync-mailmap`)
+### 📬 Sync `.mailmap` (`sync-mailmap`)
 
 - Keeps `.mailmap` file up to date with contributors using [`repomatic sync-mailmap`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/mailmap.py)
 - **Requires**:
@@ -212,14 +212,14 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 - **Skipped if**:
   - `mailmap.sync = false` in `[tool.repomatic]`
 
-#### 🔗 Sync dependencies (`sync-deps`)
+### 🔗 Sync dependencies (`sync-deps`)
 
 One consolidated job runs four dependency updaters on a shared runner, sharing a single `actions/checkout`, `astral-sh/setup-uv`, and a cached `~/.cache/repomatic` directory (repomatic's TTL-gated HTTP cache of PyPI/GitHub/npm release metadata) across all four updaters.
 Each updater still opens its own pull request on its own branch (`sync-dep-sources`, `sync-uv-lock`, `sync-action-pins`, `sync-workflow-pins`), all labelled `🔗 dependencies`.
 The working tree is reset (`git checkout -- .`) before each updater so their diffs never bleed together, keeping review and revert independent.
 To run all enabled updaters locally, or a named subset, use [`repomatic sync-deps`](cli.md#repomatic-sync-deps).
 
-##### 🔀 `sync-dep-sources` updater
+#### 🔀 `sync-dep-sources` updater
 
 - Swaps a dependency tracked from a git branch back to its released version using [`repomatic sync-dep-sources`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps/dep_sources.py)
 - Manages one idiom: a `[tool.uv.sources]` entry tracking a git **branch**, paired with a `.dev` version floor naming the awaited release (like `mango>=2.1.0.dev0`); path or workspace sources, `rev`/`tag` pins, and floor-less branch tracks are never touched
@@ -231,7 +231,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 - **Skipped if**:
   - `dep-sources.sync = false` in `[tool.repomatic]`
 
-##### ⛓️ `sync-uv-lock` updater
+#### ⛓️ `sync-uv-lock` updater
 
 - Runs `uv lock --upgrade` to update transitive dependencies to their latest allowed versions using [`repomatic sync-uv-lock`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps/uv.py)
 - Syncs the canonical `[tool.uv]` pins (`required-version`, `exclude-newer`) from the bundled template into `pyproject.toml`, so the lock resolves against the pinned uv floor and cooldown, while leaving every other project-owned `[tool.uv]` key untouched
@@ -244,7 +244,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 - **Skipped if**:
   - `uv-lock.sync = false` in `[tool.repomatic]`
 
-##### 📌 `sync-action-pins` updater
+#### 📌 `sync-action-pins` updater
 
 - Bumps SHA-pinned GitHub Actions (`uses: owner/repo@<sha> # vX.Y.Z`) to the latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-action-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/sync.py)
 - Handles the SHA-to-semver mapping automatically: reads the trailing `# vX.Y.Z` comment, fetches the latest release, resolves it to a commit SHA, and rewrites the `uses:` line
@@ -255,7 +255,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 - **Skipped if**:
   - `action-pins.sync = false` in `[tool.repomatic]`
 
-##### 🔢 `sync-workflow-pins` updater
+#### 🔢 `sync-workflow-pins` updater
 
 - Bumps npm `pkg@x.y.z` version literals and `uvx 'pkg==x.y.z'` PyPI pins embedded in workflow YAML to their latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-workflow-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/sync.py)
 - Targets inline version literals that `sync-action-pins` does not cover (action `uses:` lines are handled there; `npm install`, `npx` and `uvx` pins are handled here). Flags sitting between the command and the package (`npx --yes pkg@1.2.3`) are skipped over, and scoped npm names are matched
@@ -273,7 +273,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yaml-jobs), shares this family but not this job: it rewrites repomatic's own tool registry, so it lives in the upstream-only [`self-maintenance.yaml`](#github-workflows-self-maintenance-yaml-jobs).
 ```
 
-#### 🕸️ Update dependency graph (`update-dep-graph`)
+### 🕸️ Update dependency graph (`update-dep-graph`)
 
 - Generates a Mermaid dependency graph of the Python project using [`repomatic update-dep-graph`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps/dep_graph.py), and opens a PR with the refreshed diagram
 - Keeps the graph current between releases: it shows no package versions, so a lock refresh changes it only when the dependency tree changes shape or a declared version requirement changes
@@ -283,7 +283,7 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 - **Skipped if**:
   - `dependency-graph.update = false` in `[tool.repomatic]`
 
-#### 📚 Update docs (`update-docs`)
+### 📚 Update docs (`update-docs`)
 
 - Regenerates Sphinx autodoc files using [`sphinx-apidoc`](https://github.com/sphinx-doc/sphinx), converting the generated RST stubs to [MyST markdown](https://myst-parser.readthedocs.io/) when the docs tree uses it
 - Lists every generated page in the `toctree` of its parent index page (`Subpackages` for a package, `Submodules` for a module), so a module added later never sits orphaned. An index page lacking the section a new page needs is left alone and named in the job log
@@ -297,9 +297,9 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 
 (github-workflows-autolock-yaml-jobs)=
 
-### 🔒 [`.github/workflows/autolock.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/autolock.yaml)
+## 🔒 [`.github/workflows/autolock.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/autolock.yaml)
 
-#### 🔒 Lock inactive threads (`lock`)
+### 🔒 Lock inactive threads (`lock`)
 
 - Automatically locks closed issues and PRs after 90 days of inactivity with `repomatic lock-threads`
 - Counts the 90 days from a thread's last update, so a closed thread people are still replying to is left alone
@@ -307,11 +307,11 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 
 (github-workflows-debug-yaml-jobs)=
 
-### 🩺 [`.github/workflows/debug.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/debug.yaml)
+## 🩺 [`.github/workflows/debug.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/debug.yaml)
 
 Opt-in: `repomatic init` only materializes this file for a repository that set `debug.sync = true`. Its output answers a question a maintainer asks while chasing a runner difference and nothing else reads, so a repository not asking it should not spend a monthly matrix of runners producing logs.
 
-#### 🩺 Dump context (`dump-context`)
+### 🩺 Dump context (`dump-context`)
 
 - Dumps the GitHub Actions contexts, the environment variables, and the runner's kernel, disk, CPU and memory across all build targets
 - Reads only what each runner image already ships, installing nothing
@@ -326,9 +326,9 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 (github-workflows-cancel-runs-yaml-jobs)=
 
-### ✂️ [`.github/workflows/cancel-runs.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/cancel-runs.yaml)
+## ✂️ [`.github/workflows/cancel-runs.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/cancel-runs.yaml)
 
-#### ✂️ Cancel PR runs (`cancel-runs`)
+### ✂️ Cancel PR runs (`cancel-runs`)
 
 - Cancels all in-progress and queued workflow runs for a PR's branch when the PR is closed using [`repomatic cancel-runs`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/github/actions.py). A run whose head commit carries `[changelog] Release` is spared, so pointing the sweep at a default branch cannot kill a release matrix
 - Prevents wasted CI resources from long-running jobs (e.g. Nuitka binary builds) that continue after a PR is closed
@@ -336,9 +336,9 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 (github-workflows-changelog-yaml-jobs)=
 
-### 🆙 [`.github/workflows/changelog.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/changelog.yaml)
+## 🆙 [`.github/workflows/changelog.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/changelog.yaml)
 
-#### 🆙 Bump version (`bump-version`)
+### 🆙 Bump version (`bump-version`)
 
 - Creates PRs for minor and major version bumps using [`bump-my-version`](https://github.com/callowayproject/bump-my-version)
 - Runs `uv lock --upgrade` to refresh `uv.lock` in the same commit (matches the [`sync-uv-lock`](#github-workflows-autofix-yaml-jobs) updater in the `sync-deps` job, so transitive marker drift does not produce a redundant follow-up PR)
@@ -351,7 +351,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
   - Manual dispatch
   - After `release.yaml` workflow completes successfully (via `workflow_run` trigger, to ensure tags exist before checking bump eligibility). Checks out the latest `main` HEAD, not the triggering workflow's commit.
 
-#### 📋 Fix changelog (`fix-changelog`)
+### 📋 Fix changelog (`fix-changelog`)
 
 - Checks and fixes changelog dates, availability admonitions, and orphaned versions using [`repomatic lint-changelog --fix`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/changelog.py)
 - Warns without failing about each unreleased entry longer than [`changelog.bullet-word-threshold`](configuration.md#changelog-bullet-word-threshold) words (`40` by default, and `0` disables the check). An entry is a release note, not a commit message. Write one sentence of 10 to 25 words that names what changed for a reader. Add a second sentence only for a breaking change or a migration step. Mechanism, rationale and history belong in the commit, the pull request, a code comment or `docs/`. Released sections are immutable and never flagged
@@ -361,7 +361,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
   - Push to `main` when `changelog.md`, a `pyproject.toml`, `uv.lock`, a workflow file, a Python file or a file under `docs/` changes. Skipped during release cycles.
   - After `release.yaml` workflow completes successfully (via `workflow_run` trigger), when the GitHub release is published and visible to the public API.
 
-#### 🎬 Prepare release (`prepare-release`)
+### 🎬 Prepare release (`prepare-release`)
 
 - Creates a release PR with two commits: a **freeze commit** that freezes everything to the release version, and an **unfreeze commit** that reverts to development references and bumps the patch version
 - The PR body's `How-to release` checklist opens with two review links, the draft dev pre-release and the full changes against `main`, before the merge instructions; each is omitted when its GitHub data is unavailable (no dev pre-release, no prior release, or an unauthenticated run)
@@ -380,7 +380,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 (github-workflows-docs-yaml-jobs)=
 
-### 📚 [`.github/workflows/docs.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/docs.yaml)
+## 📚 [`.github/workflows/docs.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/docs.yaml)
 
 Beside its push triggers, the workflow runs monthly, and the thin callers mirror that schedule downstream. The cron is the heartbeat for two things a push-only trigger cannot surface on a quiet repository: a lapsed Cloudflare API token (Cloudflare warns about neither an approaching expiry nor a passed one, so the first symptom must be a red run and its email), and the link rot `check-broken-links` only sees when it runs.
 
@@ -396,7 +396,7 @@ docs = [
 ]
 ```
 
-#### 📖 Deploy Sphinx doc (`deploy-docs`)
+### 📖 Deploy Sphinx doc (`deploy-docs`)
 
 - Builds Sphinx-based documentation and publishes it to GitHub Pages using [`sphinx`](https://github.com/sphinx-doc/sphinx), [`upload-pages-artifact`](https://github.com/actions/upload-pages-artifact) and [`deploy-pages`](https://github.com/actions/deploy-pages)
 - Builder is `sphinx.builder` in `[tool.repomatic]`, defaulting to `html`; set it to `dirhtml` to publish extension-less URLs (`/page/` instead of `/page.html`)
@@ -407,7 +407,7 @@ docs = [
   - Sphinx configuration file at `docs/conf.py`
   - Pages deployment source set to **GitHub Actions** (the setup guide issue walks through it)
 
-#### 📖 Deploy Sphinx doc to Cloudflare Pages (`deploy-docs-cloudflare`)
+### 📖 Deploy Sphinx doc to Cloudflare Pages (`deploy-docs-cloudflare`)
 
 - Same build as the job above, uploaded to a [Cloudflare Pages](https://developers.cloudflare.com/pages/) project with `wrangler pages deploy` instead of the Pages artifact pair. Cloudflare never builds anything and needs no access to the repository; see the [Cloudflare Pages guide](cloudflare.md) for how this hosting model works
 - Runs only when `site.deploy` is `cloudflare-pages`. The job holds no `id-token`, no `pages` scope and no environment, since it authenticates against Cloudflare rather than the repository's own deployment surface
@@ -421,7 +421,7 @@ docs = [
 - `CLOUDFLARE_API_TOKEN` is a prerequisite, not an enhancement: the job fails without it, so `lint-repo` warns about the gap and the setup guide issue stays open until it is set. Give the token a one-year TTL and let the machinery watch it: the workflow's monthly run turns a lapsed token into a red run and an email, and the drift job below starts warning a month ahead
 - The account is derived from the token at run time, and a credential reaching several accounts resolves it by which one owns the project. See [§ The token](cloudflare.md#the-token)
 
-#### 🌩️ Check Cloudflare config drift (`cloudflare-config-drift`)
+### 🌩️ Check Cloudflare config drift (`cloudflare-config-drift`)
 
 - Runs [`repomatic cloudflare-pages --check`](cloudflare.md#the-drift-check) against the live Pages project, diffing it against the `[tool.repomatic] site.*` declarations: the compatibility date, Smart Placement, the build image floor, and the Direct Upload invariants (no attached git source, no build command)
 - Exists because those settings live only server-side, where they drift with nothing watching: they are invisible until they misbehave, and one project's compatibility date sat three years behind the live value that way
@@ -429,7 +429,7 @@ docs = [
 - Runs for every repository whose `site.deploy` is `cloudflare-pages`, Sphinx or not: a site built by the repository's own workflow drifts the same way
 - Deliberately a job of its own rather than a step of the deploy: drifted settings should be loud, but they must never hold up publishing
 
-#### 💔 Check broken links (`check-broken-links`)
+### 💔 Check broken links (`check-broken-links`)
 
 - Checks for broken links in documentation with two complementary scanners, then files a single combined issue via `repomatic broken-links`:
   - [`lychee`](https://github.com/lycheeverse/lychee) scans every documentation file for dead external URLs
@@ -445,11 +445,11 @@ docs = [
 
 (github-workflows-labels-yaml-jobs)=
 
-### 🏷️ [`.github/workflows/labels.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/labels.yaml)
+## 🏷️ [`.github/workflows/labels.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/labels.yaml)
 
 None of these jobs read a label config committed to the repository. `labels.toml` is [ephemeral](configuration.md#ephemeral-components), regenerated from `[tool.repomatic]` right before labelmaker reads it, and the labeller rules live in the package rather than in any file at all. The only thing a downstream repository maintains is its `pyproject.toml`.
 
-#### 🔄 Sync labels (`sync-labels`)
+### 🔄 Sync labels (`sync-labels`)
 
 - Synchronizes repository labels using [`repomatic sync-labels`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/sync.py) and [`labelmaker`](https://github.com/jwodder/labelmaker)
 - Uses [`labels.toml`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/data/labels.toml) with multiple profiles:
@@ -458,7 +458,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - **Skipped if**:
   - `labels.sync = false` in `[tool.repomatic]`
 
-#### 🏷️ Apply labels (`apply-labels`)
+### 🏷️ Apply labels (`apply-labels`)
 
 - Labels freshly opened issues and PRs with `repomatic apply-labels`: content rules match the title and body, file rules match a pull request's changed paths
 - Rules are configured as `[tool.repomatic.labels]` tables mapping each label to its patterns, overlaid on the bundled defaults
@@ -467,7 +467,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
   - `prepare-release`, `major-version-increment` and `minor-version-increment` branches
   - Bot-created PRs
 
-#### 💝 Tag sponsors (`sponsor-label`)
+### 💝 Tag sponsors (`sponsor-label`)
 
 - Adds a `💖 sponsor` label to issues and PRs from sponsors using the GitHub GraphQL API, and is the only job that sets it
 - **Skipped for**:
@@ -476,9 +476,9 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 (github-workflows-lint-yaml-jobs)=
 
-### 🧹 [`.github/workflows/lint.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/lint.yaml)
+## 🧹 [`.github/workflows/lint.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/lint.yaml)
 
-#### 🏠 Lint repository metadata (`lint-repo`)
+### 🏠 Lint repository metadata (`lint-repo`)
 
 - Validates repository metadata and settings using [`repomatic lint-repo`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/lint.py), which reads `pyproject.toml` directly. Its checks, in report order:
   ```{python:render}
@@ -489,7 +489,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - **Requires**:
   - Python package (with a `pyproject.toml` file)
 
-#### 🔤 Lint types (`lint-types`)
+### 🔤 Lint types (`lint-types`)
 
 - Type-checks Python code using [`mypy`](https://github.com/python/mypy)
 - **Requires**:
@@ -497,7 +497,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - **Skipped for**:
   - `prepare-release` branch
 
-#### 📄 Lint YAML (`lint-yaml`)
+### 📄 Lint YAML (`lint-yaml`)
 
 - Lints YAML files using [`yamllint`](https://github.com/adrienverge/yamllint)
 - **Requires**:
@@ -506,7 +506,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
   - `prepare-release` branch
   - Bot-created PRs
 
-#### 🐚 Lint Zsh (`lint-zsh`)
+### 🐚 Lint Zsh (`lint-zsh`)
 
 - Syntax-checks Zsh scripts using `zsh --no-exec`
 - **Requires**:
@@ -515,7 +515,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
   - `prepare-release` branch
   - Bot-created PRs
 
-#### ⚡ Lint GitHub Actions (`lint-github-actions`)
+### ⚡ Lint GitHub Actions (`lint-github-actions`)
 
 - Lints workflow files using [`actionlint`](https://github.com/rhysd/actionlint) and [`shellcheck`](https://github.com/koalaman/shellcheck)
 - **Requires**:
@@ -524,7 +524,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
   - `prepare-release` branch
   - Bot-created PRs
 
-#### 🔒 Lint workflow security (`lint-workflow-security`)
+### 🔒 Lint workflow security (`lint-workflow-security`)
 
 - Audits workflow files for security issues using [`zizmor`](https://github.com/zizmorcore/zizmor) (template injection, excessive permissions, supply chain risks, etc.)
 - **Requires**:
@@ -533,7 +533,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
   - `prepare-release` branch
   - Bot-created PRs
 
-#### 🌟 Lint Awesome list (`lint-awesome`)
+### 🌟 Lint Awesome list (`lint-awesome`)
 
 - Lints awesome lists using [`awesome-lint`](https://github.com/sindresorhus/awesome-lint)
 - **Requires**:
@@ -541,7 +541,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - **Skipped for**:
   - `prepare-release` branch
 
-#### 🔐 Lint secrets (`lint-secrets`)
+### 🔐 Lint secrets (`lint-secrets`)
 
 - Scans for leaked secrets using [`gitleaks`](https://github.com/gitleaks/gitleaks)
 - **Skipped for**:
@@ -550,7 +550,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 (github-workflows-release-yaml-jobs)=
 
-### 🚀 [`.github/workflows/release.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/release.yaml)
+## 🚀 [`.github/workflows/release.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/release.yaml)
 
 This is the **entry** workflow. It owns the `push` and `workflow_dispatch` triggers and wires three jobs: a `build` call to the `_release-build.yaml` fast lane, the `publish-pypi` job, and a `release` call to the `_release-engine.yaml` engine. Both `publish-pypi` and the engine lane depend on `build`. Because `publish-pypi` needs only the build lane, the wheel reaches PyPI as soon as it is built instead of after the whole engine (binary compilation, scanning) completes. The engine also waits on `build` so its `create-release` and `sync-dev-release` jobs can download the run-scoped wheel. Every downstream repo (repomatic included) has its own `release.yaml` that follows this same shape.
 
@@ -561,7 +561,7 @@ The `publish-pypi` job lives here rather than inside a reusable lane so each rep
 - It carries the same deny-by-default top-level `permissions: {}` as every other generated workflow, with each managed lane declaring only the scopes its reusable workflow needs. Without it, a consumer job appended below the managed lanes would run with the repository's default token scopes.
 - Extra `needs:` edges a consumer declares on the `release` lane survive the sync. That is what lets a caller-side asset build job gate the engine, as [§ Extra release assets](#extra-release-assets-extra-assets) instructs. An edge naming a managed lane (already in the canonical set), a job that no longer exists, or a job that exists only in the upstream workflow is dropped: the last would make GitHub reject the workflow at startup.
 
-#### 🐍 Publish to PyPI (`publish-pypi`)
+### 🐍 Publish to PyPI (`publish-pypi`)
 
 - Uploads packages to PyPI with attestations using [`uv publish --trusted-publishing automatic`](https://github.com/astral-sh/uv) over OIDC.
 - The job lives in each repo's own `release.yaml` entry, never in the `_release-engine.yaml` reusable: repomatic and downstreams alike publish from a `release.yaml` (the same filename everywhere). It invokes the [`publish-pypi`](https://github.com/kdeldycke/repomatic/blob/main/.github/actions/publish-pypi/action.yaml) composite action. Composite actions inherit the calling job's OIDC context, so the token's `job_workflow_ref` claim resolves to that `release.yaml`: the path each repo registers with PyPI as a Trusted Publisher. This works around [pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096), where a job inside the reusable engine would claim the upstream path and fail the publisher match.
@@ -574,7 +574,7 @@ The `publish-pypi` job lives here rather than inside a reusable lane so each rep
 - The job touches only PyPI; it does not edit the GitHub release. The PyPI availability admonition is baked into the release notes by the engine's `create-release` job at draft creation, which removes the cross-lane race where editing the release from this fast lane ran before the engine had created it (and silently dropped the admonition under `continue-on-error`).
 - Runs on `ubuntu-26.04`.
 
-#### 🧩 Pack Claude Code plugin (`pack-plugin`)
+### 🧩 Pack Claude Code plugin (`pack-plugin`)
 
 ```{note}
 Repomatic-only. This job is not part of the shape `repomatic init` generates: it exists in the upstream `release.yaml` alone, as the reference consumer of the `release-assets` handoff described under [§ Extra release assets](#extra-release-assets-extra-assets). A downstream repository that wants its own extra asset writes an equivalent job of its own.
@@ -587,11 +587,11 @@ Repomatic-only. This job is not part of the shape `repomatic init` generates: it
 
 (github-workflows-release-build-yaml-jobs)=
 
-### 📦 [`.github/workflows/_release-build.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-build.yaml)
+## 📦 [`.github/workflows/_release-build.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-build.yaml)
 
 The release **fast lane**: it runs the squash-merge guard and the dependency shippability gate, computes project metadata, and builds (and signs) the Python wheel and sdist. The entry `release.yaml` calls it first so the `publish-pypi` job can ship to PyPI the moment the wheel exists, without waiting for the engine's binary compilation. It exposes the `package_built` and `release_commits_matrix` outputs that `publish-pypi` consumes.
 
-#### 🧯 Detect squash merge (`detect-squash-merge`)
+### 🧯 Detect squash merge (`detect-squash-merge`)
 
 - Detects squash-merged release PRs, opens a GitHub issue to notify the maintainer, and fails the workflow
 - Running it in the build lane fails fast: `release.yaml` gates the engine on `needs: build`, so a detected squash merge skips the engine (binaries, tag, release) entirely
@@ -600,7 +600,7 @@ The release **fast lane**: it runs the squash-merge guard and the dependency shi
 - **Runs on**:
   - Push to `main` only
 
-#### 🔗 Lint deps (`lint-deps`)
+### 🔗 Lint deps (`lint-deps`)
 
 - Runs `repomatic lint-deps` against the tree being released, refusing to publish a project whose dependencies do not all resolve from the index its users install from
 - Also reports version-policy warnings (upper bounds, missing floors, unsorted lists, misplaced type stubs, uncommented floors, over-long floor comments) alongside the shippability findings; these never affect the gate, see [§ What is checked automatically](dependencies.md#what-is-checked-automatically)
@@ -611,7 +611,7 @@ The release **fast lane**: it runs the squash-merge guard and the dependency shi
 - **Requires**:
   - Python project with a `pyproject.toml` file
 
-#### 📦 Build package (`build-package`)
+### 📦 Build package (`build-package`)
 
 - Builds Python wheel and sdist packages using [`uv build`](https://github.com/astral-sh/uv), then signs each distribution with a PEP 740 attestation
 - The signed artifact is shared run-scoped with both `publish-pypi` (PyPI upload) and the engine's `create-release` (GitHub release), so a single build feeds both
@@ -621,7 +621,7 @@ The release **fast lane**: it runs the squash-merge guard and the dependency shi
 
 (github-workflows-release-engine-yaml-jobs)=
 
-### 🚀 [`.github/workflows/_release-engine.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-engine.yaml)
+## 🚀 [`.github/workflows/_release-engine.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-engine.yaml)
 
 [Release Engineering is a full-time job, and full of edge-cases](https://web.archive.org/web/20250126113318/https://blog.axo.dev/2023/02/cargo-dist) that nobody wants to deal with. This workflow automates most of it for Python projects. The entry `release.yaml` gates it on `needs: build`, so it starts once the fast lane's wheel is ready (binary compilation therefore begins roughly one package build after the push).
 
@@ -653,7 +653,7 @@ flowchart TD
     nuitka -. assets .-> dev
 ```
 
-#### ✅ Compile binaries (`compile-binaries`)
+### ✅ Compile binaries (`compile-binaries`)
 
 - Compiles standalone binaries using [`Nuitka`](https://github.com/Nuitka/Nuitka) for Linux/macOS/Windows on `x86_64`/`aarch64`
 - Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so binaries keep the [documented OS floors](binaries.md#minimum-os-requirements) instead of inheriting the runner image's
@@ -673,7 +673,7 @@ flowchart TD
   - `sync-mailmap` (`.mailmap` sync)
   - `update-dep-graph` (dependency graph docs)
 
-#### ✅ Test binaries (`test-binaries`)
+### ✅ Test binaries (`test-binaries`)
 
 - Runs test suites against compiled binaries using [`click-extra test-suite`](https://kdeldycke.github.io/click-extra/test-suite.html)
 - Release commits only: re-validates each published artifact on a pristine VM, through the same upload/download round-trip a user's binary takes; non-release builds self-test inside `compile-binaries` instead of paying a second runner-queue slot per target
@@ -684,14 +684,14 @@ flowchart TD
 - **Skipped for**:
   - Same branches as `compile-binaries`
 
-#### 📌 Create tag (`create-tag`)
+### 📌 Create tag (`create-tag`)
 
 - Creates a Git tag for the release version
 - **Requires**:
   - Push to `main` branch
   - Release commits matrix from [`repomatic show-metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py)
 
-#### 🐙 Create release draft (`create-release`)
+### 🐙 Create release draft (`create-release`)
 
 - Creates a GitHub release **draft** with the Python package attached using `gh release create`
 - The draft notes carry the PyPI availability admonition from the start (baked in via [`repomatic show-metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py)'s `release_notes_with_admonition`), so it never depends on a later cross-lane edit; non-PyPI projects fall back to the plain release notes
@@ -699,7 +699,7 @@ flowchart TD
 - **Requires**:
   - Successful `create-tag` job
 
-#### 📖 Man pages (`manpages`)
+### 📖 Man pages (`manpages`)
 
 - Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra wrap --help-format man --output-dir man "${SCRIPT}"` against the consumer's already-synced venv
 - Bundles the pages as a single `<asset-name>.tar.gz` and uploads them to the GitHub release **draft** via `gh release upload --clobber`, before `publish-release` publishes and locks the release
@@ -712,7 +712,7 @@ flowchart TD
 - **Skipped if**:
   - `manpages.script` is empty (the default), which keeps the job silent for every project that has not opted in
 
-#### 📎 Extra release assets (`extra-assets`)
+### 📎 Extra release assets (`extra-assets`)
 
 - Attaches consumer-built assets declared by the `release-assets` filename list in `[tool.repomatic]`: each file must be uploaded as a `release-asset-<filename>` run artifact by a job the consumer defines in its own release workflow, the same caller-side handoff the wheel's `build` lane uses
 - The build code therefore stays in the downstream repository as regular workflow code, reviewed and linted there: the engine never executes consumer-supplied commands, it only downloads, attests, verifies, and uploads
@@ -726,7 +726,7 @@ flowchart TD
 - **Skipped if**:
   - `release-assets` is empty (the default), which keeps the job silent for every project that has not opted in
 
-#### 🎉 Publish release (`publish-release`)
+### 🎉 Publish release (`publish-release`)
 
 - Publishes the draft GitHub release after all assets (Python package, binaries, man pages, extra assets) have been uploaded
 - Attaches the compiled binaries and their attestation bundles itself, from the run artifacts [`compile-binaries`](#compile-binaries-compile-binaries) left behind. [`repomatic pack-binaries`](cli.md) copies each versioned binary to a versionless alias (`repomatic-linux-x64.bin`) so the `releases/latest/download` URLs keep resolving, then prints the upload list, leaving out the Python distributions `create-release` already attached
@@ -738,7 +738,7 @@ flowchart TD
   - Successful `create-release` job (draft must exist)
   - Waits for `compile-binaries`, `manpages` and `extra-assets` so every asset is attached before the release locks
 
-#### 🛡️ VirusTotal scan (`scan-virustotal`)
+### 🛡️ VirusTotal scan (`scan-virustotal`)
 
 - Downloads the release's versioned binaries (`.bin` and `.exe`) with `repomatic scan-virustotal --download`, which first waits for a freshly published release to list its assets
 - Uploads those binaries to [VirusTotal](https://www.virustotal.com/), polls for analysis completion, and records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.csv`
@@ -755,7 +755,7 @@ flowchart TD
 > [!IMPORTANT]
 > The recording lands in one long-lived pull request every release appends to, merged whenever you like. The detection counts are a trend read across releases rather than a verdict on any one of them, so nothing is lost by leaving it open: only the published binaries page lags. See [§ Scanning accumulates in one pull request](operation-contracts.md#scanning-accumulates-in-one-pull-request) for the full rationale, and set `binaries.sync = false` to disable the recording while keeping the scan.
 
-#### 🔄 Sync dev pre-release (`sync-dev-release`)
+### 🔄 Sync dev pre-release (`sync-dev-release`)
 
 - Maintains a rolling dev pre-release on GitHub that mirrors the unreleased changelog section
 - Attaches binaries and Python packages from build jobs via `--upload-assets`
@@ -769,13 +769,13 @@ flowchart TD
 
 (github-workflows-self-maintenance-yaml-jobs)=
 
-### 🔧 [`.github/workflows/self-maintenance.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/self-maintenance.yaml)
+## 🔧 [`.github/workflows/self-maintenance.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/self-maintenance.yaml)
 
 This workflow maintains repomatic's own package source and is the one file in `.github/workflows/` that `repomatic init` never materializes downstream. Because a consumer's repository never receives it, its jobs need no `github.repository` guard and it can pick a schedule without spending downstream CI on runs that would skip every step.
 
 (github-workflows-sync-tool-versions-yaml-jobs)=
 
-#### 🔼 Sync tool versions (`sync-tool-versions`)
+### 🔼 Sync tool versions (`sync-tool-versions`)
 
 - **Upstream-only**: rewrites `repomatic/tooling/tool_registry.py`, which exists only in this repository; downstream repos receive updated tool versions when they sync against a new repomatic release
 - Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gh, gitleaks, labelmaker, lychee, oxipng, shfmt, typos), the npm registry for npm tools (awesome-lint), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
@@ -790,11 +790,11 @@ This workflow maintains repomatic's own package source and is the one file in `.
 
 (github-workflows-metrics-yaml-jobs)=
 
-### 📈 [`.github/workflows/metrics.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/metrics.yaml)
+## 📈 [`.github/workflows/metrics.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/metrics.yaml)
 
 Opt-in: `repomatic init` only materializes this file for a repository that set `metrics.sync = true`, since an accumulating store is a commitment rather than a default.
 
-#### 📈 Sample forge metrics (`sample-metrics`)
+### 📈 Sample forge metrics (`sample-metrics`)
 
 - Reads every repository in `[tool.repomatic.metrics] subjects` through whichever API its host speaks (GitHub, GitLab or Forgejo) with [`repomatic sample-metrics`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metrics.py), and appends one CSV row per subject, metric and date
 - A counter like the star count accrues, so its curve can be charted; an attribute like the date of the newest release or commit keeps a single row, restamped only when it moves, so a quiet week leaves the file untouched
@@ -810,9 +810,9 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 (github-workflows-tests-yaml-jobs)=
 
-### 🔬 [`.github/workflows/tests.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/tests.yaml)
+## 🔬 [`.github/workflows/tests.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/tests.yaml)
 
-#### 📦 Package install (`test-package-install`)
+### 📦 Package install (`test-package-install`)
 
 - Verifies the package can be installed and all CLI entry points run correctly via every install method: `uvx`, `uvx --from`, `uv run --with`, module invocation (`-m`), `uv tool install`, and `pipx run`
 - Tests both the latest PyPI release and the current `main` branch from GitHub
@@ -820,7 +820,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 - **Requires**:
   - `cli_scripts` from `metadata` job (skipped if no `[project.scripts]` entries)
 
-#### 🔬 Run tests (`tests`)
+### 🔬 Run tests (`tests`)
 
 - Runs the test suite across a matrix of OS (Linux/macOS/Windows × `x86_64`/`aarch64`) and Python versions: `3.10`, `3.14`, and the `continue-on-error` development `3.15` on every runner, plus the free-threaded `3.14t` as a stable single-runner smoke test (see [test matrix](test-matrix.md))
 - Installs all optional extras (`--all-extras`) to catch incompatibilities between optional dependency groups
@@ -829,13 +829,13 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 - Runs self-tests against the CLI test suite, through both the console script and `python -m`
 - Job names prefixed with **✅** (stable) or **⁉️** (unstable, e.g., unreleased Python versions)
 
-#### 1️⃣ Run-once tests (`once-tests`)
+### 1️⃣ Run-once tests (`once-tests`)
 
 - Runs the `once`-marked tests (CLI invocability, plugin registration, metadata checks) on a single stable runner: their outcome does not vary across the OS/Python matrix
 - The matrix `tests` job excludes them with `pytest -m "not once"`
 - Opts out of the coverage floor with `--cov-fail-under=0`: this slice alone covers a fraction of the package, so the matrix job owns the ratchet
 
-#### 🖥️ Validate architecture (`validate-arch`)
+### 🖥️ Validate architecture (`validate-arch`)
 
 - Checks that the detected CPU architecture matches what the runner image advertises
 - Ensures runners are not silently using emulation (e.g., x86_64 on aarch64)
@@ -844,9 +844,9 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 (github-workflows-unsubscribe-yaml-jobs)=
 
-### 🔕 [`.github/workflows/unsubscribe.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/unsubscribe.yaml)
+## 🔕 [`.github/workflows/unsubscribe.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/unsubscribe.yaml)
 
-#### 🔕 Unsubscribe from closed threads (`unsubscribe-threads`)
+### 🔕 Unsubscribe from closed threads (`unsubscribe-threads`)
 
 - Unsubscribes from notification threads of closed issues and pull requests after a configurable inactivity period (default: 3 months)
 - Asks the API for the threads last updated before the cutoff and inspects them all, oldest first. Only the unsubscribes are capped (default: 200 per run, set with `[tool.repomatic] notification.max-unsubscribes`), since each one costs two REST calls where fifty inspections cost one GraphQL point
@@ -860,7 +860,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 (what-is-this-metadata-job)=
 
-### 🧬 What is this `metadata` job?
+## 🧬 What is this `metadata` job?
 
 Most jobs in this repository depend on a shared parent job called `metadata`. It runs first to extract contextual information, reconcile and combine it, and expose it for downstream jobs to consume.
 
