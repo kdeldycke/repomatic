@@ -13,21 +13,23 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-"""GitHub issue and pull request commands of the `repomatic` CLI.
+"""GitHub commands of the `repomatic` CLI: issues, pull requests and labels.
 
-Every command here registers onto the `repomatic` group through a
-section object imported from {mod}`repomatic.cli.main`, which pulls this
-module in at startup.
+{data}`repomatic.cli.main.COMMANDS` registers each command here, and files it
+under its help section.
 """
 
 from __future__ import annotations
 
+import logging
+import os
+import tempfile
 from pathlib import Path
 
 from click_extra import (
+    STDOUT_SENTINEL,
     Choice,
     ClickException,
-    Context,
     IntRange,
     UsageError,
     echo,
@@ -35,31 +37,21 @@ from click_extra import (
     get_tool_config,
     option,
     pass_context,
-    prep_path,
 )
 
 from ..broken_links import manage_combined_broken_links_issue
-from ..config import (
-    Config,
-    load_repomatic_config,
-)
+from ..config import Config
+from ..deps.sources import build_release_readiness
 from ..git_ops import current_branch
 from ..github import token as _token_mod, unsubscribe as _unsub_mod
 from ..github.actions import (
-    AnnotationLevel,
-    cancel_superseded_runs,
-    emit_annotation,
     format_multiline_output,
     get_default_author,
     get_default_number,
     get_event_subject,
     get_github_event,
     is_pull_request,
-)
-from ..github.ci_status import (
-    CI_STATUS_HEADER_DEFS,
-    monitored_workflows,
-    read_ci_status,
+    read_file_output,
 )
 from ..github.gh import gh_api_json
 from ..github.issue import (
@@ -73,25 +65,29 @@ from ..github.issue import (
     add_labels,
     lock_stale_threads,
 )
-from ..github.job_timings import (
-    JOB_TIMINGS_HEADER_DEFS,
-    fetch_job_timings,
-    format_duration,
-    render_markdown,
-    summarize,
-)
 from ..github.labels import (
+    apply_labels,
     match_content_rules,
     match_file_rules,
     resolve_content_rules,
     resolve_file_rules,
 )
 from ..github.pr import (
+    close_open_prs_on_branch,
     list_changed_files,
     upsert_pr,
 )
 from ..github.pr_body import (
+    build_pr_body,
+    build_release_review_steps,
+    generate_pr_metadata_block,
+    generate_refresh_tip,
     get_template_names,
+    render_commit_message,
+    render_template,
+    render_title,
+    template_args,
+    template_docs_url,
     template_draft,
     template_labels,
     template_stem,
@@ -102,35 +98,15 @@ from ..github.sponsor import (
 )
 from ..github.token import require_token
 from ..github.unsubscribe import (
-    render_report as _render_report,
-    unsubscribe_threads as _unsubscribe_threads,
+    render_report,
+    unsubscribe_threads,
 )
-from ..init_project import is_source_repo
-from ..lint_repo import (
-    KNOWN_RUNNERS,
-    WORKFLOW_DIR,
-    literal_runners,
-)
-from ..matrix.runner_sync import (
-    apply_axes_retirement,
-    apply_literal_rewrite,
-    apply_upgrade,
-    close_legacy_issue,
-    plan_runner_changes,
-    render_change_table,
-)
-from ..matrix.runners import fetch_catalog
-from ..metadata.core import (
-    Metadata,
-)
+from ..init_project import run_init
+from ..metadata.core import Metadata
+from ..metadata.project import is_version_bump_allowed
 from ..setup_guide import manage_setup_guide
+from ..versions import BUMP_PARTS, strip_dev_suffix
 from .main import (
-    WorkflowFile,
-    _ci_status_sort,
-    _job_timings_sort,
-    _render_pr_content,
-    _section_ci,
-    _section_github,
     dry_run_option,
     exit_if_disabled,
     has_cloudflare_api_token_option,
@@ -138,23 +114,214 @@ from .main import (
     has_notifications_pat_option,
     has_pat_option,
     has_virustotal_key_option,
-    log_output_target,
-    repo_slug_option,
-    repomatic,
-    stdout_output_option,
-    template_arg_file_option,
-    template_arg_option,
-    template_part_option,
-    template_version_option,
+    repo_name_option,
+    repo_option,
+    report_options,
+    subcommand,
+    write_output,
 )
 
 TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from click_extra import Context
 
 
-@repomatic.command(
-    name="apply-labels",
+# The template-feeding options shared verbatim by `pr-body` and `pr-sync`; their
+# `--template`/`--template-file` options stay per-command, whose help texts
+# document command-specific derivations.
+template_arg_option = option(
+    "--template-arg",
+    "template_args_cli",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help=(
+        "Pass an arbitrary key/value pair to the template. Repeat to provide"
+        " multiple. Use this to feed template variables not covered by the"
+        " dedicated --version / --part / --pr-ref flags. Example:"
+        " --template-arg channel=Nix."
+    ),
+)
+template_arg_file_option = option(
+    "--template-arg-file",
+    "template_arg_files",
+    multiple=True,
+    metavar="KEY=PATH",
+    help=(
+        "Read a template value from a file. Repeat to provide multiple. Use"
+        " this for a value with no ceiling on its size, like a generated table:"
+        " a report travels as a path rather than inline. Example:"
+        " --template-arg-file summary=proposal.md."
+    ),
+)
+template_version_option = option(
+    "--version",
+    "version",
+    default=None,
+    help="Version string passed to the template (e.g. 1.2.0).",
+)
+template_part_option = option(
+    "--part",
+    type=Choice(BUMP_PARTS, case_sensitive=False),
+    default=None,
+    help="Version part passed to the bump-version template.",
+)
+
+
+def _render_pr_content(
+    config: Config,
+    prefix: str = "",
+    prefix_file: Path | None = None,
+    template: str | None = None,
+    template_file: Path | None = None,
+    template_args_cli: tuple[str, ...] = (),
+    template_arg_files: tuple[str, ...] = (),
+    version: str | None = None,
+    part: str | None = None,
+    pr_ref: str | None = None,
+) -> tuple[str, str, str]:
+    """Render a pull request's title, body and commit message.
+
+    The rendering core shared by `pr-body` (which emits the three as step
+    outputs for external consumption) and `pr-sync` (which feeds them straight
+    to {func}`~repomatic.github.pr.upsert_pr`, skipping the `$GITHUB_OUTPUT`
+    round-trip and its 32 KiB step-output ceiling entirely).
+
+    :param config: The resolved `[tool.repomatic]` configuration.
+    :return: A `(title, body, commit_message)` tuple; title and commit message
+        are empty when no template supplies them.
+    :raises UsageError: When a template argument cannot be resolved.
+    """
+    if prefix_file:
+        prefix = prefix_file.read_text(encoding="UTF-8")
+
+    # One Metadata for the whole render: the review steps, the `repo_url`
+    # template arg and the metadata block must all read the same CI state.
+    md = Metadata()
+
+    def _auto_version() -> str:
+        """Read current_version from bumpversion config and strip .dev suffix."""
+        ver = Metadata.get_current_version()
+        if not ver:
+            msg = "Cannot auto-detect version: no bumpversion config found."
+            raise ClickException(msg)
+        ver = strip_dev_suffix(ver)
+        logging.info(f"Auto-detected version: {ver}")
+        return ver
+
+    def _resolve_version() -> str:
+        """Resolve the release version from --version, else the bumpversion config."""
+        return version if version is not None else _auto_version()
+
+    # The prepare-release checklist's two review steps share one GitHub
+    # releases lookup; memoize it so both template args reuse a single fetch,
+    # and so no other template pays for it (only prepare-release declares them).
+    review_steps: dict[str, str] = {}
+
+    def _review_step(key: str) -> str:
+        if not review_steps:
+            dev_review, changes_review = build_release_review_steps(
+                md, _resolve_version()
+            )
+            review_steps["dev_release_review"] = dev_review
+            review_steps["changes_review"] = changes_review
+        return review_steps[key]
+
+    cli_extra_args: dict[str, str | None] = {}
+    for entry in template_args_cli:
+        if "=" not in entry:
+            msg = f"--template-arg expects KEY=VALUE, got {entry!r}."
+            raise UsageError(msg)
+        key, _, raw_value = entry.partition("=")
+        cli_extra_args[key.strip()] = raw_value
+    # Read after the inline pairs, so a file wins on a key given both ways.
+    for entry in template_arg_files:
+        if "=" not in entry:
+            msg = f"--template-arg-file expects KEY=PATH, got {entry!r}."
+            raise UsageError(msg)
+        key, _, raw_path = entry.partition("=")
+        path = Path(raw_path)
+        if not path.is_file():
+            msg = f"--template-arg-file cannot read {raw_path!r}."
+            raise UsageError(msg)
+        cli_extra_args[key.strip()] = path.read_text(encoding="UTF-8").strip()
+
+    # Map argument names to their values or callables. CLI-provided extras
+    # override built-in flag-driven sources so callers can pass any name.
+    def _release_readiness() -> str:
+        # Pinned to the commit the body was rendered from, so the line the
+        # banner points at is the line that was read. A branch ref would drift
+        # onto whatever `main` holds when the maintainer clicks it.
+        blob_url = f"{md.repo_url}/blob/{md.sha}" if md.repo_url and md.sha else None
+        return build_release_readiness(
+            Path("pyproject.toml"),
+            Path("uv.lock"),
+            config.minimum_release_age,
+            allow=config.lint_deps.allow,
+            source_url=blob_url,
+            repo_url=md.repo_url or None,
+        )
+
+    arg_sources: dict[str, str | Callable[[], str | None] | None] = {
+        "changes_review": lambda: _review_step("changes_review"),
+        "dev_release_review": lambda: _review_step("dev_release_review"),
+        "diff_table": read_file_output("REPOMATIC_DIFF_TABLE"),
+        "part": part,
+        "pr_ref": pr_ref,
+        "release_readiness": _release_readiness,
+        # Callable, will be invoked if needed.
+        "repo_url": lambda: md.repo_url,
+        # Step outputs of `init --upgrade`, relayed by the `sync-repomatic` job.
+        "upgrade_report": read_file_output("REPOMATIC_UPGRADE_REPORT"),
+        "upgrade_version": os.getenv("REPOMATIC_UPGRADE_VERSION"),
+        "version": version if version is not None else _auto_version,
+    }
+    arg_sources.update(cli_extra_args)
+
+    title_str = ""
+    commit_msg_str = ""
+
+    template_ref: str | Path | None = template or template_file
+
+    if template_ref:
+        kwargs: dict[str, str | None] = {}
+        for arg in template_args(template_ref):
+            value = arg_sources.get(arg)
+            if value is None:
+                msg = f"--{arg} is required for template {template_ref!r}"
+                raise UsageError(msg)
+            # Call if callable, otherwise use the value directly.
+            kwargs[arg] = value() if callable(value) else value
+
+        template_content = render_template(template_ref, **kwargs)
+        # Combine the --prefix content with the template content.
+        if prefix:
+            prefix = prefix + "\n\n" + template_content
+        else:
+            prefix = template_content
+        title_str = render_title(template_ref, **kwargs)
+        commit_msg_str = render_commit_message(template_ref, **kwargs)
+
+    # Surface the template's job documentation deep link in the metadata
+    # block, standing in for the description section PR bodies used to carry.
+    docs_url = ""
+    docs_name = ""
+    if template_ref:
+        docs_url = template_docs_url(template_ref)
+        if template:
+            docs_name = template
+        elif template_file:
+            docs_name = template_stem(template_file.name)
+    metadata_block = generate_pr_metadata_block(
+        md, docs_url=docs_url, docs_name=docs_name
+    )
+    body = build_pr_body(prefix, metadata_block, refresh_tip=generate_refresh_tip(md))
+    return title_str, body, commit_msg_str
+
+
+@subcommand(
     short_help="Label an issue or PR from its content and changed files",
-    section=_section_github,
     examples=(
         (
             "Preview what the current event's issue or PR would earn",
@@ -178,15 +345,15 @@ TYPE_CHECKING = False
     default=None,
     help="Specify issue or pull request. Auto-detected from $GITHUB_EVENT_PATH.",
 )
-@repo_slug_option
-@dry_run_option
+@repo_option()
+@dry_run_option(default=True)
 @require_token(_token_mod, "validate_gh_token_env")
 @pass_context
 def apply_labels_cmd(
     ctx: Context,
     number: int | None,
     is_pr: bool | None,
-    repo: str | None,
+    repo: str,
     dry_run: bool,
 ) -> None:
     """Label a freshly opened issue or pull request from the project's rules.
@@ -210,16 +377,13 @@ def apply_labels_cmd(
     """
     config = get_tool_config(ctx)
 
-    if repo is None:
-        repo = Metadata().repo_slug
     if number is None:
         number = get_default_number()
     if is_pr is None:
         is_pr = is_pull_request()
-    if not repo or not number:
+    if not number:
         raise UsageError(
-            "Missing --repo or --number, and neither could be auto-detected"
-            " from the environment."
+            "Missing --number, and it could not be auto-detected from the environment."
         )
 
     kind = "pr" if is_pr else "issue"
@@ -266,9 +430,8 @@ def apply_labels_cmd(
     echo(f"Labelled {thread} #{number} with: {', '.join(labels)}")
 
 
-@repomatic.command(
+@subcommand(
     short_help="Manage broken links issue lifecycle",
-    section=_section_github,
     examples=(
         (
             "In GitHub Actions, with every default auto-detected",
@@ -304,12 +467,7 @@ def apply_labels_cmd(
     help="Base URL for linking filenames and line numbers in the Sphinx report. "
     "Example: https://github.com/owner/repo/blob/<sha>/docs",
 )
-@option(
-    "--repo-name",
-    default=None,
-    help="Repository name (for label selection)."
-    " Defaults to $GITHUB_REPOSITORY name component.",
-)
+@repo_name_option
 @require_token(_token_mod, "validate_gh_token_env")
 def broken_links(
     lychee_exit_code: int | None,
@@ -321,7 +479,8 @@ def broken_links(
     """Manage the broken links issue lifecycle.
 
     Combines Lychee and Sphinx linkcheck results into a single "Broken links"
-    issue. Creates, updates, or closes the issue based on results.
+    issue. Creates, updates, or closes the issue based on results. The
+    repository name selects the labels the issue carries.
 
     Requires the gh CLI to be authenticated.
 
@@ -342,345 +501,59 @@ def broken_links(
     )
 
 
-@repomatic.command(
-    name="ci-status",
-    short_help="Report which CI jobs are red, and which of them gate a merge",
-    section=_section_ci,
-    params=[_ci_status_sort],
+@subcommand(
+    short_help="Close a stale version-bump PR",
     examples=(
-        ("What is red on main right now", "repomatic ci-status"),
         (
-            "One workflow, without failing the shell",
-            "repomatic ci-status --workflow tests.yaml --no-fatal",
+            "Close a stale minor-bump pull request",
+            "repomatic close-stale-bump-pr --part minor",
+        ),
+        (
+            "Close a stale major-bump pull request",
+            "repomatic close-stale-bump-pr --part major",
         ),
     ),
 )
 @option(
-    "--branch",
-    default="main",
-    show_default=True,
-    help="Branch whose latest run of each workflow to read.",
-)
-@option(
-    "--workflow",
-    "workflows",
-    type=WorkflowFile(),
-    # A dozen file names spelled into the choice metavar overflow the help
-    # column. The help text below points at the directory holding them, the
-    # shell completes them, and a rejected value lists every one.
-    metavar="WORKFLOW",
-    multiple=True,
-    help=(
-        "Workflow file to read, repeatable. Defaults to every workflow a push"
-        " can start, derived from .github/workflows/."
-    ),
-)
-@option(
-    "--fatal/--no-fatal",
-    default=True,
-    help="Exit non-zero when a required job failed.",
-)
-@pass_context
-def ci_status(
-    ctx: Context, branch: str, workflows: tuple[str, ...], fatal: bool
-) -> None:
-    """Report the latest CI run of each workflow, and what is actually broken.
-
-    Reads jobs rather than runs, so a crashed allowed-failure probe cannot
-    hide inside a green run conclusion and a run still reading "queued"
-    cannot hide the dozen jobs of it that already finished.
-
-    A job whose name carries the unstable glyph anywhere is allowed to fail
-    and never affects the exit code. Every other job is required, including
-    the non-matrix ones that carry no glyph at all.
-
-    A run that was cancelled, or that ran no job, is reported as such and never
-    as green: it has no result for its commit. A workflow that ran no job on
-    the tip is read on the last commit whose run of it was not skipped.
-    """
-    names = list(workflows) or monitored_workflows(WORKFLOW_DIR)
-    if not names:
-        echo("No workflow to read.")
-        ctx.exit(0)
-
-    status = read_ci_status(names, branch)
-    if not status.runs:
-        echo(f"No run found on {branch!r} for: {', '.join(names)}.")
-        ctx.exit(0)
-
-    rows = [
-        (
-            run.workflow,
-            run.head_sha[:8],
-            run.status,
-            run.verdict,
-        )
-        for run in status.runs
-    ]
-    ctx.print_table(rows, CI_STATUS_HEADER_DEFS)
-
-    for run in status.runs:
-        if run.workflow_level_failure:
-            message = (
-                f"{run.workflow}: run {run.run_id} failed with no failed job. "
-                "This is a workflow-level error (an invalid matrix expression, "
-                "malformed YAML, a missing secret): read the run's error "
-                "annotations, there is no job log."
-            )
-            emit_annotation(AnnotationLevel.ERROR, message)
-            echo(f"✗ {message}")
-        for job in run.failed_required:
-            message = f"{run.workflow}: required job failed: {job.name}"
-            emit_annotation(AnnotationLevel.ERROR, message)
-            echo(f"✗ {message}")
-        for job in run.failed_probes:
-            echo(f"⚠ {run.workflow}: allowed-failure probe failed: {job.name}")
-        if run.inconclusive:
-            reason = (
-                "was cancelled before its required jobs finished"
-                if run.cancelled
-                else "ran no job"
-            )
-            echo(
-                f"⚠ {run.workflow}: run {run.run_id} {reason}, so"
-                f" {run.head_sha[:8]} has no result from it."
-            )
-
-    if status.skipped_on_tip:
-        echo(
-            f"… no job ran on the tip of {branch!r} ({status.tip_sha[:8]}) for:"
-            f" {', '.join(status.skipped_on_tip)}. Each one is read on an earlier"
-            " commit."
-        )
-    elif status.tip_sha and not status.runs_on_tip:
-        echo(
-            f"… no run on the tip of {branch!r} ({status.tip_sha[:8]}) yet: every"
-            " run above belongs to an earlier commit."
-        )
-    if not status.settled:
-        echo("… some jobs have not settled yet.")
-
-    ctx.exit(1 if status.blocking and fatal else 0)
-
-
-@repomatic.command(
-    name="sync-runner-images",
-    short_help="Move runner images forward as GitHub retires and supersedes them",
-    section=_section_ci,
-    examples=(
-        (
-            "What would change, without touching the tree",
-            "repomatic sync-runner-images --dry-run",
-        ),
-    ),
-)
-@option(
-    # Same spelling as the shared `dry_run_option`, so `--live` works on every
-    # command that has a dry-run mode; only the default differs (this one runs
-    # live, since CI calls it to write the proposal).
-    "--dry-run/--live",
-    default=False,
-    help="Report the changes without writing them.",
-)
-@option(
-    "--output",
-    type=file_path(writable=True, resolve_path=True),
-    help=(
-        "Write the proposal as a Markdown table to this file, for feeding a"
-        " pull request body through `pr-sync --template-arg-file`."
-    ),
-)
-@pass_context
-def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None:
-    """Move retiring runner images forward, and probe superseding ones.
-
-    Every label this repository runs is looked up in GitHub's available-images
-    table. A **retirement** rewrites each literal `runs-on:` naming a deprecated
-    image onto its successor, because those jobs carry an end date. An
-    **upgrade** adds a strictly newer *version* to the full test matrix as a
-    `continue-on-error` probe rather than migrating onto it: nothing is bet on
-    it, but the suite starts exercising it at once, which surfaces a dependency
-    breaking there while there is runway to report it upstream.
-
-    Strictly newer by version is what separates an upgrade from a flavour. A
-    same-version variant carrying a different toolchain is not a newer image and
-    is never proposed as one.
-
-    Merging is the decision; the CI run this triggers is the evidence for it.
-    To decline a proposal for good, name the label in
-    `[tool.repomatic.sync-runner-images] ignore`: closing the pull request
-    alone brings it back on the next run.
-    """
-    config = load_repomatic_config()
-    # Retires the issue the announcement feed used to maintain. Harmless where
-    # there never was one, and the only moment a repository adopting this
-    # release can be noticed.
-    if not dry_run:
-        close_legacy_issue()
-
-    literal = literal_runners()
-    changes = plan_runner_changes(
-        literal,
-        set(KNOWN_RUNNERS) | set(literal),
-        fetch_catalog(),
-        config.sync_runner_images.ignore,
-    )
-    if not changes:
-        echo("No runner image change to propose.")
-        if output:
-            # An empty file rather than none: the workflow step feeding it to
-            # `pr-sync` should not have to branch on whether it exists.
-            output.write_text("", encoding="UTF-8")
-        ctx.exit(0)
-
-    for change in changes:
-        echo(f"{change.kind}: {change.summary}")
-        echo(f"  because {change.reason}")
-        if change.alternative:
-            echo(f"  passed over: {change.alternative} (preview)")
-        if dry_run:
-            continue
-        # Both kinds move the jobs naming the image outright: a retirement
-        # because the image is going away, an upgrade because a literal
-        # `runs-on:` is the one the matrix probe below cannot reach.
-        for path in apply_literal_rewrite(change, WORKFLOW_DIR):
-            echo(f"  rewrote {path.name}")
-        if change.kind == "retirement":
-            # Only here do the curated axes exist to move. Downstream they
-            # arrive through the pin, so a repo consuming repomatic picks the
-            # new matrix up when it adopts a release.
-            axes = Path("repomatic/matrix/axes.py")
-            if is_source_repo(Path.cwd()) and apply_axes_retirement(change, axes):
-                echo(f"  rewrote {axes.name} (every downstream matrix follows)")
-        elif apply_upgrade(change, Path("pyproject.toml")):
-            echo("  added a continue-on-error probe to pyproject.toml")
-
-    if output:
-        output.write_text(render_change_table(changes), encoding="UTF-8")
-        echo(f"Wrote {output}")
-
-
-@repomatic.command(
-    name="job-timings",
-    short_help="Measure how long each runner image takes, from finished runs",
-    section=_section_ci,
-    params=[_job_timings_sort],
-    examples=(
-        ("Which image is holding the matrix up", "repomatic job-timings"),
-        (
-            "A wider sample, written out for documentation",
-            "repomatic job-timings --limit 10 --output timings.md",
-        ),
-    ),
-)
-@option(
-    "--workflow",
-    type=WorkflowFile(),
-    metavar="WORKFLOW",
-    default="tests.yaml",
-    show_default=True,
-    help="Workflow file whose runs to sample, from .github/workflows/.",
-)
-@option(
-    "--branch",
-    default="main",
-    show_default=True,
-    help="Branch whose runs to sample.",
-)
-@option(
-    "--limit",
-    default=5,
-    show_default=True,
-    type=int,
-    help="How many recent successful runs to sample.",
-)
-@option(
-    "--output",
-    type=file_path(writable=True, resolve_path=True),
-    help="Write the report as a Markdown table to this file, for documentation.",
-)
-@pass_context
-def job_timings(
-    ctx: Context, workflow: str, branch: str, limit: int, output: Path | None
-) -> None:
-    """Report median whole-job wall-clock per runner image.
-
-    Runner choice is supposed to rest on measurement, and the measurement that
-    matters is whole-job: this repository once kept a lean image for years on a
-    benchmark that timed only the tool pass, where it looked near-parity, while
-    end to end it was 20-56% slower. The jobs API reports start and end
-    timestamps, so what this reads is whole-job by construction.
-
-    Only successful runs are sampled, because a failed run's jobs stop early
-    and time where the failure landed rather than what the image costs. The
-    figure is a median across several runs, which is what turns a queue stall
-    into noise instead of a verdict.
-    """
-    timings = fetch_job_timings(workflow, branch, limit)
-    if not timings:
-        echo(
-            f"No finished job found in the last {limit} successful "
-            f"{workflow!r} run(s) on {branch!r}."
-        )
-        ctx.exit(0)
-
-    reports = summarize(timings)
-    ctx.print_table(
-        [
-            (
-                report.runner,
-                str(report.job_count),
-                format_duration(report.median_seconds),
-                report.slowest_job,
-                format_duration(report.slowest_seconds),
-            )
-            for report in reports
-        ],
-        JOB_TIMINGS_HEADER_DEFS,
-    )
-
-    if output:
-        output.write_text(render_markdown(reports, workflow, limit), encoding="UTF-8")
-        echo(f"Wrote {output}")
-
-
-@repomatic.command(
-    name="cancel-runs",
-    short_help="Cancel in-progress workflow runs for a branch",
-    section=_section_ci,
-    examples=(
-        (
-            "From the cancel-runs workflow, sparing its own run",
-            'repomatic cancel-runs --branch "$BRANCH"',
-        ),
-    ),
-)
-@option(
-    "--branch",
+    "--part",
+    type=Choice(BUMP_PARTS, case_sensitive=False),
     required=True,
-    help="Head branch whose in-progress and queued runs to cancel.",
+    help="The version part whose bump PR should be reconciled.",
 )
-@option(
-    "--current-run-id",
-    default="",
-    envvar="GITHUB_RUN_ID",
-    help="Run ID to spare (the cancelling run itself). Defaults to $GITHUB_RUN_ID.",
-)
-def cancel_runs(branch: str, current_run_id: str) -> None:
-    """Cancel the in-progress and queued workflow runs of a branch.
+def close_stale_bump_pr(part: str) -> None:
+    """Close the minor/major version-increment PR when a bump is no longer allowed.
 
-    Fired when a pull request closes: GitHub does not cancel PR-triggered
-    runs on close, so the branch's live runs would burn CI minutes to
-    completion. The repository is resolved by the gh CLI from GH_REPO or
-    the current checkout.
+    The changelog workflow's bump-version job opens a draft PR on the
+    "<part>-version-increment" branch whenever a bump is allowed. A scheduled
+    run that started before a competing push can open this PR against a main
+    branch that has already advanced past the target, leaving an orphan that
+    subsequent scheduled runs cannot refresh.
+
+    This command reconciles that state: it re-evaluates the gate against the
+    current checkout and, when the bump is no longer allowed, closes any open
+    PR on the matching branch (deleting the branch). When the bump is still
+    allowed, it leaves the PR alone so the standard bump flow can update it.
+
+    Idempotent: a no-op when no open PR exists on the target branch.
     """
-    cancelled = cancel_superseded_runs(branch, current_run_id)
-    echo(f"Cancelled {cancelled} run(s) for branch {branch!r}.")
+    if is_version_bump_allowed(part):  # type: ignore[arg-type]
+        logging.info(f"{part} bump still allowed, leaving any open PR untouched.")
+        return
+    branch = f"{part}-version-increment"
+    closed = close_open_prs_on_branch(
+        branch,
+        comment=(
+            f"Closing stale {part} version-bump PR: `main` already advanced "
+            f"past the target version, so this branch no longer represents a "
+            f"valid bump."
+        ),
+    )
+    if closed:
+        logging.info(f"Closed {len(closed)} stale {part} bump PR(s): {closed}")
 
 
-@repomatic.command(
+@subcommand(
     short_help="Lock closed, inactive issues and PRs",
-    section=_section_github,
     examples=(
         ("Preview what a run would lock", "repomatic lock-threads"),
         ("Lock them, as the autolock workflow does", "repomatic lock-threads --live"),
@@ -725,8 +598,8 @@ def cancel_runs(branch: str, current_run_id: str) -> None:
     default=LOCK_REASON,
     help="Reason recorded with the lock.",
 )
-@repo_slug_option
-@dry_run_option
+@repo_option()
+@dry_run_option(default=True)
 @require_token(_token_mod, "validate_gh_token_env")
 @pass_context
 def lock_threads(
@@ -737,7 +610,7 @@ def lock_threads(
     exclude_labels: tuple[str, ...],
     limit: int,
     reason: str,
-    repo: str | None,
+    repo: str,
     dry_run: bool,
 ) -> None:
     """Lock closed issues and pull requests left inactive too long.
@@ -755,11 +628,6 @@ def lock_threads(
 
     Requires the gh CLI to be authenticated.
     """
-    if repo is None:
-        repo = Metadata().repo_slug
-    if not repo:
-        raise ClickException("Cannot detect repository.")
-
     rows = lock_stale_threads(
         repo,
         inactive_days=inactive_days,
@@ -776,9 +644,8 @@ def lock_threads(
     ctx.print_table(rows, LOCK_THREADS_HEADER_DEFS)
 
 
-@repomatic.command(
+@subcommand(
     short_help="Generate PR body with workflow metadata",
-    section=_section_github,
     examples=(
         ("Preview metadata block locally", "repomatic pr-body"),
         (
@@ -794,28 +661,23 @@ def lock_threads(
             "repomatic pr-body --template-file path/to/template.md --template-arg fruit=mango --template-arg crate=10",
         ),
         (
-            "With a prefix via environment variable",
-            'GHA_PR_BODY_PREFIX="Fix formatting" repomatic pr-body',
+            "With a prefix above the metadata block",
+            'repomatic pr-body --prefix "Fix formatting"',
         ),
     ),
 )
 @option(
     "--prefix",
-    envvar="GHA_PR_BODY_PREFIX",
     default="",
-    help="Content to prepend before the metadata details block. "
-    "Can also be set via the GHA_PR_BODY_PREFIX environment variable.",
+    help="Content to prepend before the metadata details block.",
 )
 @option(
     "--prefix-file",
     "prefix_file",
     type=file_path(exists=True, readable=True, resolve_path=True),
-    envvar="GHA_PR_BODY_PREFIX_FILE",
     default=None,
     help="Read the prefix from a file instead of --prefix, for a report too "
-    "large to travel in an environment variable. "
-    "Can also be set via the GHA_PR_BODY_PREFIX_FILE environment variable. "
-    "Wins over --prefix when both are given.",
+    "large to pass as an argument. Wins over --prefix when both are given.",
 )
 @option(
     "--template",
@@ -847,18 +709,14 @@ def lock_threads(
     default=None,
     help="PR reference passed to detect-squash-merge template (e.g. #2316).",
 )
-@stdout_output_option
-@option(
-    "--output-format",
-    type=Choice(["markdown", "github-actions"]),
-    default="markdown",
-    help=(
-        "Format for --output."
-        " 'github-actions' wraps body, title, and commit_message"
-        " as step output variables."
-    ),
+@report_options(
+    "Write the PR body to this file. github-actions writes the body, title and"
+    " commit message as step outputs.",
+    default=STDOUT_SENTINEL,
 )
+@pass_context
 def pr_body(
+    ctx: Context,
     prefix: str,
     prefix_file: Path | None,
     template: str | None,
@@ -878,10 +736,9 @@ def pr_body(
     commit, job, workflow, run).
 
     The prefix can be set via --template (built-in templates), --prefix
-    (arbitrary content, also via GHA_PR_BODY_PREFIX env var) or --prefix-file
-    (the same content read from a file, also via GHA_PR_BODY_PREFIX_FILE). If
-    a template and a prefix are both given, the prefix is prepended before the
-    rendered template content.
+    (arbitrary content) or --prefix-file (the same content read from a file).
+    If a template and a prefix are both given, the prefix is prepended before
+    the rendered template content.
     """
 
     if template and template_file:
@@ -889,6 +746,7 @@ def pr_body(
         raise UsageError(msg)
 
     title_str, body, commit_msg_str = _render_pr_content(
+        config=get_tool_config(ctx),
         prefix=prefix,
         prefix_file=prefix_file,
         template=template,
@@ -910,14 +768,11 @@ def pr_body(
     else:
         content = body
 
-    log_output_target("PR body", output)
-
-    echo(content, file=prep_path(output))
+    write_output("PR body", content, output)
 
 
-@repomatic.command(
+@subcommand(
     short_help="Create, refresh or retire an automation PR",
-    section=_section_github,
     examples=(
         (
             "Refresh an autofix job's pull request",
@@ -962,25 +817,19 @@ def pr_body(
 )
 @option(
     "--title",
-    envvar="GHA_PR_TITLE",
     default=None,
-    help="Pull-request title, when not using a template. "
-    "Can also be set via the GHA_PR_TITLE environment variable.",
+    help="Pull-request title, when not using a template.",
 )
 @option(
     "--body",
-    envvar="GHA_PR_BODY",
     default=None,
-    help="Rendered markdown body, when not using a template. "
-    "Can also be set via the GHA_PR_BODY environment variable.",
+    help="Rendered markdown body, when not using a template.",
 )
 @option(
     "--commit-message",
     "commit_message",
-    envvar="GHA_PR_COMMIT_MESSAGE",
     default=None,
-    help="Commit message, when not using a template. "
-    "Can also be set via the GHA_PR_COMMIT_MESSAGE environment variable.",
+    help="Commit message, when not using a template.",
 )
 @option(
     "--base",
@@ -1000,7 +849,7 @@ def pr_body(
     "--assignee",
     "assignees",
     multiple=True,
-    envvar=["GHA_PR_ASSIGNEE", "GITHUB_ACTOR"],
+    envvar="GITHUB_ACTOR",
     help="Assignee to attach. Repeat to provide multiple. Defaults to the "
     "workflow actor via the ambient GITHUB_ACTOR variable. Best-effort: "
     "github-actions[bot] cannot be assigned and only warns.",
@@ -1022,7 +871,9 @@ def pr_body(
     "job also provisions tooling into the checkout, so an installed package "
     "or a rewritten lock file cannot ride along.",
 )
+@pass_context
 def pr_sync(
+    ctx: Context,
     template: str | None,
     template_file: Path | None,
     template_args_cli: tuple[str, ...],
@@ -1076,6 +927,7 @@ def pr_sync(
             )
             raise UsageError(msg)
         title, body, commit_message = _render_pr_content(
+            config=get_tool_config(ctx),
             template=template,
             template_file=template_file,
             template_args_cli=template_args_cli,
@@ -1124,9 +976,8 @@ def pr_sync(
         echo(f"{result.operation}: {result.branch}")
 
 
-@repomatic.command(
+@subcommand(
     short_help="Manage setup guide issue lifecycle",
-    section=_section_github,
     examples=(
         ("No secret: create or reopen the setup issue", "repomatic setup-guide"),
         (
@@ -1140,7 +991,7 @@ def pr_sync(
 @has_notifications_pat_option
 @has_pat_option
 @has_virustotal_key_option
-@repo_slug_option
+@repo_option(detect=False)
 @require_token(_token_mod, "validate_gh_token_env")
 @pass_context
 def setup_guide(
@@ -1181,9 +1032,8 @@ def setup_guide(
     )
 
 
-@repomatic.command(
+@subcommand(
     short_help="Label issues/PRs from GitHub sponsors",
-    section=_section_github,
     examples=(
         (
             "In GitHub Actions, with every default auto-detected",
@@ -1207,7 +1057,7 @@ def setup_guide(
     help="GitHub username of the issue/PR author to check. "
     "Defaults to author from $GITHUB_EVENT_PATH.",
 )
-@repo_slug_option
+@repo_option()
 @option(
     "--number",
     type=IntRange(min=1),
@@ -1231,7 +1081,7 @@ def setup_guide(
 def sponsor_label(
     owner: str | None,
     author: str | None,
-    repo: str | None,
+    repo: str,
     number: int | None,
     label: str,
     is_pr: bool | None,
@@ -1264,8 +1114,6 @@ def sponsor_label(
         missing.append("--owner")
     if not author:
         missing.append("--author")
-    if not repo:
-        missing.append("--repo")
     if not number:
         missing.append("--number")
 
@@ -1276,7 +1124,7 @@ def sponsor_label(
         )
 
     # Type narrowing for mypy.
-    assert owner and author and repo and number
+    assert owner and author and number
 
     if is_sponsor(owner, author):
         if add_labels(repo, number, [label], is_pr=is_pr):
@@ -1287,9 +1135,43 @@ def sponsor_label(
         echo(f"Author {author!r} is not a sponsor of {owner!r}")
 
 
-@repomatic.command(
+@subcommand(short_help="Sync repository labels via labelmaker")
+@repo_option()
+@pass_context
+def sync_labels(ctx: Context, repo: str) -> None:
+    """Sync repository labels from bundled definitions using labelmaker.
+
+    Exports label definitions to a scratch directory, then applies them to the
+    repository using labelmaker. Applies the default profile to all
+    repositories, plus the awesome profile for awesome-* repos.
+
+    Authentication follows the canonical token resolution (REPOMATIC_PAT,
+    then GH_TOKEN, then GITHUB_TOKEN). Downloads labelmaker automatically via
+    the tool registry.
+    """
+    config = get_tool_config(ctx)
+    exit_if_disabled(ctx, config.labels.sync, "labels.sync")
+
+    # Dump label files somewhere disposable: they are labelmaker inputs, not
+    # repository content, so syncing labels leaves the working tree untouched.
+    with tempfile.TemporaryDirectory(prefix="repomatic-labels-") as tmpdir:
+        labels_dir = Path(tmpdir)
+        result = run_init(output_dir=labels_dir, components=("labels",), config=config)
+        for path in [*result.created, *result.updated]:
+            logging.info(f"Exported: {path}")
+
+        try:
+            apply_labels(
+                config, repo, is_awesome=Metadata().is_awesome, labels_dir=labels_dir
+            )
+        except RuntimeError as e:
+            raise ClickException(str(e))
+
+    echo("Labels synced.")
+
+
+@subcommand(
     short_help="Unsubscribe from closed, inactive notification threads",
-    section=_section_github,
     examples=(
         (
             "Dry run to preview what would be unsubscribed",
@@ -1317,9 +1199,9 @@ def sponsor_label(
     default=Config.notification_max_unsubscribes,
     help="Maximum unsubscribes per phase. Inspection is not capped.",
 )
-@dry_run_option
+@dry_run_option(default=True)
 @require_token(_unsub_mod, "_validate_notifications_token")
-def unsubscribe_threads(months: int, max_unsubscribes: int, dry_run: bool) -> None:
+def unsubscribe_threads_cmd(months: int, max_unsubscribes: int, dry_run: bool) -> None:
     """Unsubscribe from closed, inactive GitHub notification threads.
 
     Processes notifications in two phases:
@@ -1334,5 +1216,5 @@ def unsubscribe_threads(months: int, max_unsubscribes: int, dry_run: bool) -> No
       Searches for closed issues/PRs the user is involved in and
       unsubscribes via the updateSubscription mutation.
     """
-    result = _unsubscribe_threads(months, max_unsubscribes, dry_run)
-    echo(_render_report(result, Metadata().repo_url))
+    result = unsubscribe_threads(months, max_unsubscribes, dry_run)
+    echo(render_report(result, Metadata().repo_url))

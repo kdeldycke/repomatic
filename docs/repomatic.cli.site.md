@@ -1,7 +1,7 @@
-# `repomatic.cli.sample` module
+# `repomatic.cli.site` module
 
 ```{eval-rst}
-.. automodule:: repomatic.cli.sample
+.. automodule:: repomatic.cli.site
    :members:
    :show-inheritance:
    :undoc-members:

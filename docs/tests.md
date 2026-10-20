@@ -26,6 +26,7 @@
    tests.test_checksums
    tests.test_ci_status
    tests.test_claude_assets
+   tests.test_cli
    tests.test_cloudflare
    tests.test_cloudflare_r2
    tests.test_config

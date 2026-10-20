@@ -1,7 +1,7 @@
-# `repomatic.cli.setup` module
+# `tests.test_cli` module
 
 ```{eval-rst}
-.. automodule:: repomatic.cli.setup
+.. automodule:: tests.test_cli
    :members:
    :show-inheritance:
    :undoc-members:

@@ -31,9 +31,9 @@ from click.testing import CliRunner
 from packaging.version import InvalidVersion, Version
 
 from repomatic import __version__, init_project as ip
-from repomatic.cli import setup as cli_setup
+from repomatic.cli import repo as cli_repo
 from repomatic.cli.main import repomatic
-from repomatic.cli.setup import init_project
+from repomatic.cli.repo import init as init_command
 from repomatic.components import (
     ALL_COMPONENTS,
     ALL_WORKFLOW_FILES,
@@ -265,7 +265,7 @@ def test_repo_scope_matches(
 
 def test_init_help_lists_all_components() -> None:
     """Verify the init command help text lists every registered component."""
-    help_text = init_project.help
+    help_text = init_command.help
     assert help_text is not None
     for name in ALL_COMPONENTS:
         assert name in help_text, f"Component {name!r} missing from init help text"
@@ -1636,7 +1636,7 @@ def test_init_upgrade_hands_off_to_the_newest_cleared_release(
             " kiwi\nUpdated 6 existing file(s):\n",
         )
 
-    monkeypatch.setattr(cli_setup, "run_upgrade", child)
+    monkeypatch.setattr(cli_repo, "run_upgrade", child)
     github_output = tmp_path / "github-output"
 
     result = CliRunner().invoke(
@@ -1687,7 +1687,7 @@ def test_init_upgrade_fails_with_the_child(tmp_path, monkeypatch, pin_build):
     pin_build(version="7.11.0", sha="c" * 40)
     run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
     monkeypatch.setattr(
-        cli_setup,
+        cli_repo,
         "run_upgrade",
         lambda command, _output_dir: subprocess.CompletedProcess(
             command, 1, stdout="No solution found.\n"
@@ -1718,7 +1718,7 @@ def test_init_upgrade_runs_in_process_on_the_target(tmp_path, monkeypatch, pin_b
     pin_build(version="7.11.0", sha="c" * 40)
     run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
     pin_build(version="7.15.0", sha="d" * 40)
-    monkeypatch.setattr(cli_setup, "run_upgrade", lambda *_args: pytest.fail("child"))
+    monkeypatch.setattr(cli_repo, "run_upgrade", lambda *_args: pytest.fail("child"))
     monkeypatch.setattr(
         ip, "github_candidates", lambda _url: pytest.fail("second verdict")
     )

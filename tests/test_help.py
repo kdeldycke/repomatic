@@ -30,6 +30,7 @@ blocks Click will rewrap into prose.
 from __future__ import annotations
 
 import inspect
+from importlib import import_module
 from pathlib import Path
 
 import click
@@ -37,7 +38,7 @@ import pytest
 import tomlrt
 from click_extra.testing import CliRunner
 
-from repomatic.cli.main import LazyChoice, repomatic
+from repomatic.cli.main import COMMANDS, LazyChoice, repomatic
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -154,7 +155,13 @@ def test_every_preformatted_block_carries_its_own_marker() -> None:
 
 
 def _lazy_choice_types() -> list[type[LazyChoice]]:
-    """Every concrete `LazyChoice` in the package, for the checks below."""
+    """Every concrete `LazyChoice` in the package, for the checks below.
+
+    A subclass registers only once its module runs, and the group imports a
+    command module only when a run needs it, so every one is imported first.
+    """
+    for spec in COMMANDS.values():
+        import_module(spec.import_path.rpartition(".")[0])
     return list(LazyChoice.__subclasses__())
 
 

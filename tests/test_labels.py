@@ -35,6 +35,7 @@ import yaml
 from click.testing import CliRunner
 
 from repomatic.bundle import get_data_content
+from repomatic.cli.github import sponsor_label
 from repomatic.cli.main import repomatic
 from repomatic.config import Config, LabelsConfig, load_repomatic_config
 from repomatic.deps.sync import DEPENDENCY_LABEL
@@ -250,9 +251,7 @@ def test_default_rule_labels_exist_in_the_label_registry():
     assert rule_labels <= defined, rule_labels - defined
 
     sponsor_default = next(
-        param.default
-        for param in repomatic.commands["sponsor-label"].params
-        if param.name == "label"
+        param.default for param in sponsor_label.params if param.name == "label"
     )
     assert sponsor_default in defined
 

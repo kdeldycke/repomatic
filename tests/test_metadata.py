@@ -33,7 +33,7 @@ from click_extra import Context
 from click_extra.testing import CliRunner
 from extra_platforms import is_windows
 
-from repomatic.cli.main import (
+from repomatic.cli.ci import (
     JOB_COUNT_MARK,
     TEST_MATRIX_STATE_DISPLAY,
     UNIVERSAL_AXIS_KEYS,
@@ -41,8 +41,9 @@ from repomatic.cli.main import (
     flat_matrix_table,
     format_matrix_cell,
     matrix_axis_keys,
-    repomatic,
+    show_test_matrix,
 )
+from repomatic.cli.main import repomatic
 from repomatic.config import (
     Config,
 )
@@ -1257,10 +1258,11 @@ def test_metadata_command_renders_under_captured_runner():
     in-memory runner, which is Click's default `capture="sys"` mode: its stdout has
     no `fileno()`. `prep_path` must degrade to that stream rather than reopening its
     descriptor, and a bare stdout run must stay silent (no spurious overwrite
-    warning) so the rendered block is pure JSON. See `repomatic.cli.main.prep_path`.
+    warning) so the rendered block is pure JSON. See
+    `repomatic.cli.main.write_output`.
     """
     result = CliRunner().invoke(
-        repomatic, ["show-metadata", "test_matrix", "--format", "json"]
+        repomatic, ["show-metadata", "test_matrix", "--output-format", "json"]
     )
     assert result.exit_code == 0, result.output
     # A `prep_path` crash (exit 1) or a leaked warning line both break this parse.
@@ -1511,7 +1513,7 @@ def test_matrix_axis_falls_back_to_the_universal_keys(monkeypatch):
 
 def test_matrix_axis_completes_the_keys_it_lists():
     """Shell completion offers the same keys, filtered on what is typed."""
-    command = repomatic.commands["show-test-matrix"]
+    command = show_test_matrix
     param = next(p for p in command.params if "--row-axis" in p.opts)
     assert isinstance(param.type, MatrixAxis)
     with Context(command) as ctx:

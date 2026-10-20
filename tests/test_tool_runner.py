@@ -55,6 +55,7 @@ from extra_platforms import (
 
 from repomatic.cache import cached_binary_path
 from repomatic.cli.main import repomatic
+from repomatic.cli.tools import run as run_command
 from repomatic.file_inventory import FileInventory
 from repomatic.images import _check_tool
 from repomatic.matrix.axes import (
@@ -3534,7 +3535,7 @@ def test_run_rejects_an_unknown_tool_as_a_usage_error():
 
 def test_run_offers_every_registered_tool():
     """The argument's choices are the registry, so neither can drift."""
-    command = repomatic.commands["run"]
+    command = run_command
     param = next(p for p in command.params if p.name == "tool_name")
     assert isinstance(param.type, Choice)
     assert tuple(param.type.choices) == tuple(sorted(TOOL_REGISTRY))

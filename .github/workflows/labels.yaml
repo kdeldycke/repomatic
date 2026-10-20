@@ -67,7 +67,7 @@ jobs:
         id: metadata
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
-          --format github-json --output "$GITHUB_OUTPUT"
+          --output-format github-json --output "$GITHUB_OUTPUT"
           is_bot
 
   sync-labels:

@@ -34,6 +34,7 @@ from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
+from click_extra import Context
 
 from repomatic.cli.main import repomatic
 from repomatic.components import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComponent
@@ -86,7 +87,7 @@ AUTOFIX_WORKFLOW = (
 
 def test_sync_deps_and_family_are_registered() -> None:
     """`sync-deps` and every updater it drives are CLI commands."""
-    commands = repomatic.commands
+    commands = repomatic.list_commands(Context(repomatic))
     assert "sync-deps" in commands
     for name in OPERATION_NAMES:
         assert name in commands, f"{name} is not a registered command"
@@ -97,7 +98,7 @@ def test_operation_identity_is_coherent(op: SyncOperation) -> None:
     """Command, branch, and template names are identical (naming rule 3)."""
     assert op.branch == op.name
     assert op.template == op.name
-    assert op.name in repomatic.commands
+    assert op.name in repomatic.list_commands(Context(repomatic))
 
 
 @pytest.mark.parametrize("op", SYNC_OPERATIONS, ids=OPERATION_NAMES)

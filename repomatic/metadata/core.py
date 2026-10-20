@@ -281,14 +281,15 @@ METADATA_VALUE_OPTIONS: frozenset[str] = frozenset((
     "--format",
     "-o",
     "--output",
+    "--output-format",
     "--sort-by",
 ))
 """Options on the `show-metadata` command consuming the token that follows them.
 
 Needed by {func}`repomatic.lint_repo.check_metadata_keys` to tell a positional
-key from an option's value while reading a workflow's `run:` line. The command
-itself is not importable from there: {mod}`repomatic.cli.main` reads `sys.stdout.name`
-at import time, so importing it under a test that has replaced stdout raises.
+key from an option's value while reading a workflow's `run:` line. `--format` is
+the spelling of releases before `8.0.0`, kept so that a workflow pinned to one of
+them still parses.
 
 Listed here rather than derived, and pinned against the real command by
 repomatic's own test suite, so an option added later cannot quietly turn its

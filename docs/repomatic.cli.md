@@ -13,11 +13,12 @@
 .. toctree::
    :maxdepth: 4
 
+   repomatic.cli.ci
+   repomatic.cli.deps
    repomatic.cli.github
-   repomatic.cli.lint
    repomatic.cli.main
    repomatic.cli.release
-   repomatic.cli.sample
-   repomatic.cli.setup
-   repomatic.cli.sync
+   repomatic.cli.repo
+   repomatic.cli.site
+   repomatic.cli.tools
 ```

@@ -1,0 +1,1021 @@
+# Copyright Kevin Deldycke <kevin@deldycke.com> and contributors.
+#
+# This program is Free Software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+"""Dependency commands of the `repomatic` CLI: audit, lint, graph and updates.
+
+{data}`repomatic.cli.main.COMMANDS` registers each command here, and files it
+under its help section.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import UTC, datetime
+from pathlib import Path
+
+from click_extra import (
+    STDOUT_SENTINEL,
+    Choice,
+    IntRange,
+    SortByOption,
+    argument,
+    echo,
+    file_path,
+    get_tool_config,
+    option,
+    option_group,
+    pass_context,
+)
+
+from ..deps.audit import (
+    AUDIT_HEADER_DEFS,
+    AdvisorySource,
+    collect_vulnerable_packages,
+    fix_vulnerable_deps,
+    format_vulnerability_table,
+)
+from ..deps.graph import (
+    SubgraphKind,
+    generate_dependency_graph,
+    resolve_subgraph_selection,
+)
+from ..deps.policy import scan_policy
+from ..deps.sources import (
+    LINT_DEPS_HEADER_DEFS,
+    format_blocker_section,
+    scan_project,
+)
+from ..deps.sync import (
+    OPERATIONS_BY_NAME,
+    ResolveContext,
+    emit_lockfile_sync_report,
+    print_plan_tables,
+    render_plan_markdown,
+    resolve_lockfile_plan,
+    run_sync_operations,
+    run_version_sync,
+    selected_operations,
+)
+from ..github.actions import (
+    AnnotationLevel,
+    emit_annotation,
+    emit_report,
+)
+from ..pyproject import (
+    dependency_group_names,
+    extra_names,
+    get_project_name,
+)
+from .main import (
+    LazyChoice,
+    dry_run_option,
+    exit_if_disabled,
+    log_output_target,
+    output_option,
+    repo_option,
+    report_options,
+    subcommand,
+    write_output,
+)
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from click_extra import Context
+
+
+class DependencyGroup(LazyChoice):
+    """A group declared in the project's `[dependency-groups]`.
+
+    `uv` refuses an undeclared group, so the set is closed and naming one it
+    does not hold is always a typo.
+    """
+
+    name = "group"
+
+    def resolve(self) -> tuple[str, ...]:
+        return dependency_group_names()
+
+
+class ProjectExtra(LazyChoice):
+    """An extra declared in the project's `[project.optional-dependencies]`."""
+
+    name = "extra"
+
+    def resolve(self) -> tuple[str, ...]:
+        return extra_names()
+
+
+lockfile_option = option(
+    "--lockfile",
+    type=file_path(resolve_path=True),
+    default="uv.lock",
+    help="Path to the uv.lock file.",
+)
+# The lockfile pair (sync-uv-lock, sync-dep-sources) probes held-back releases
+# with a second uv resolution rather than from an already-fetched candidate list,
+# so its help text names that cost where the version-sync trio's does not.
+lock_held_back_option = option(
+    "--held-back/--no-held-back",
+    default=True,
+    help="Report newer releases withheld by the exclude-newer cooldown "
+    "(runs a second uv resolution).",
+)
+# Shared opt-in flags for the three version-sync updaters (sync-tool-versions,
+# sync-action-pins, sync-workflow-pins), mirroring sync-uv-lock. Held-back is
+# free here (the candidates are already fetched), so it defaults on; release
+# notes cost GitHub API calls, so they stay opt-in and CI passes the flag.
+sync_release_notes_option = option(
+    "--release-notes/--no-release-notes",
+    default=False,
+    help="Fetch release notes from GitHub (markdown, appended after the table).",
+)
+sync_held_back_option = option(
+    "--held-back/--no-held-back",
+    default=True,
+    help="Report newer releases withheld by the minimum-release-age cooldown.",
+)
+sync_table_option = option(
+    "--table/--no-table",
+    default=True,
+    help="Print a summary table of updated packages.",
+)
+
+
+@subcommand(
+    short_help="Report (and optionally fix) vulnerable dependencies",
+    params=[SortByOption(*AUDIT_HEADER_DEFS, default="package")],
+    examples=(
+        ("Report known vulnerabilities (read-only)", "repomatic audit"),
+        ("Machine-readable output", "repomatic --table-format json audit"),
+        (
+            "Upgrade fixable packages (mutates uv.lock and pyproject.toml)",
+            "repomatic audit --fix",
+        ),
+        (
+            "CI autofix job: write the markdown report as a step output",
+            'repomatic audit --fix --repo owner/name --output "$GITHUB_OUTPUT" --output-format github-actions',
+        ),
+    ),
+)
+@lockfile_option
+@repo_option(
+    "Repository in owner/repo format, for the GitHub Advisory Database source.",
+    detect=False,
+)
+@option(
+    "--fix/--no-fix",
+    default=False,
+    help=(
+        "Upgrade fixable packages and persist cooldown exemptions"
+        " (mutates uv.lock and pyproject.toml). Default: report only."
+    ),
+)
+@option(
+    "--exit-zero/--no-exit-zero",
+    default=False,
+    help="In report mode, exit 0 even when vulnerabilities are found.",
+)
+@report_options("Write a markdown report to this file.")
+@pass_context
+def audit(
+    ctx: Context,
+    lockfile: Path,
+    repo: str | None,
+    fix: bool,
+    exit_zero: bool,
+    output: Path | None,
+    output_format: str,
+) -> None:
+    """Scan locked dependencies for known security vulnerabilities.
+
+    \b
+    Read-only by default: queries every advisory database enabled in
+    [tool.repomatic] vulnerable-deps.sources (default: uv-audit and
+    github-advisories), unions and deduplicates the results, and prints
+    them. The GitHub Advisory Database needs a repository, so it is skipped
+    without --repo. The table respects the global --table-format option
+    (github, json, csv, etc.), so --table-format json yields a
+    machine-readable report. Report mode exits 1 when any vulnerability is
+    found (use --exit-zero to override), so it can gate CI.
+
+    \b
+    With --fix, upgrades each fixable package with uv lock --upgrade-package
+    and:
+      - bypasses the exclude-newer cooldown for security fixes
+      - persists exclude-newer-package entries in pyproject.toml
+      - prints a markdown report of vulnerabilities and version changes
+    """
+    config = get_tool_config(ctx)
+
+    # The parsed list goes to the library as is, even when empty: the library
+    # skips a source it cannot query, and only `None` means "every source".
+    sources: list[AdvisorySource] = []
+    for raw in config.vulnerable_deps.sources:
+        try:
+            sources.append(AdvisorySource(raw))
+        except ValueError:
+            logging.warning(
+                f"Unknown vulnerable-deps source {raw!r};"
+                f" expected one of {[s.value for s in AdvisorySource]}."
+            )
+
+    if fix:
+        # vulnerable-deps.sync gates the autofix (mutation), not reporting.
+        exit_if_disabled(ctx, config.vulnerable_deps.sync, "vulnerable-deps.sync")
+
+        has_fixes, diff_table = fix_vulnerable_deps(
+            lockfile, repo=repo, sources=sources
+        )
+        if not has_fixes:
+            echo("No fixable vulnerabilities found.")
+            ctx.exit(0)
+
+        echo("Upgraded vulnerable packages.")
+        if diff_table:
+            echo(diff_table)
+        # Keep the github-actions key as `diff_table`: the autofix
+        # workflow's pr-metadata step reads steps.fix.outputs.diff_table_file.
+        emit_report(diff_table, output, output_format)
+        ctx.exit(0)
+
+    # Report mode (default, read-only).
+    vulns = collect_vulnerable_packages(lockfile, repo=repo, sources=sources)
+    if not vulns:
+        echo("No known vulnerabilities found.")
+        ctx.exit(0)
+
+    rows = [
+        (
+            v.name,
+            v.current_version,
+            v.advisory_id,
+            v.fixed_version or "unknown",
+            ", ".join(sorted(s.value for s in v.sources)) or "—",
+        )
+        for v in vulns
+    ]
+    ctx.print_table(rows, AUDIT_HEADER_DEFS)
+
+    if output:
+        emit_report(
+            format_vulnerability_table(vulns), output, output_format, key="vuln_table"
+        )
+
+    ctx.exit(0 if exit_zero else 1)
+
+
+@subcommand(
+    short_help="Check dependencies resolve from the public index",
+    params=[SortByOption(*LINT_DEPS_HEADER_DEFS, default="package")],
+    examples=(
+        ("Check the current project", "repomatic lint-deps"),
+        (
+            "Report without failing, for an ordinary CI push",
+            "repomatic lint-deps --no-fatal",
+        ),
+        (
+            "Emit a markdown report for a PR body",
+            "repomatic lint-deps --no-fatal --output report.md",
+        ),
+    ),
+)
+@option(
+    "--pyproject",
+    "pyproject_path",
+    type=file_path(resolve_path=True),
+    default="pyproject.toml",
+    help="Path to the pyproject.toml file.",
+)
+@lockfile_option
+@option(
+    "--fatal/--no-fatal",
+    default=True,
+    help=(
+        "Exit non-zero when a finding blocks a release. Pass --no-fatal to"
+        " report without failing, for continuous visibility on ordinary"
+        " pushes."
+    ),
+)
+@option(
+    "--policy/--no-policy",
+    default=True,
+    help=(
+        "Also report declarations departing from the project's version"
+        " policy: upper bounds, missing floors, unsorted lists, misplaced"
+        " type stubs, uncommented and over-long floor comments. Never blocks"
+        " a release."
+    ),
+)
+@report_options("Write a markdown report of the blocking findings to this file.")
+@pass_context
+def lint_deps(
+    ctx: Context,
+    pyproject_path: Path,
+    lockfile: Path,
+    fatal: bool,
+    policy: bool,
+    output: Path | None,
+    output_format: str,
+) -> None:
+    """Check that every dependency resolves from the index users install from.
+
+    A dependency is shippable when whoever installs the published artifact
+    gets the same code the release was tested against. A git branch, a local
+    path, a fork, a direct URL or a private index all break that, and most of
+    them break it silently: a `[tool.uv.sources]` override never reaches the
+    published metadata, so the wheel builds and uploads exactly as it would
+    have, and only the install fails.
+
+    Runs entirely offline, reading pyproject.toml and uv.lock. The lockfile
+    pass is what catches a source override on a package no table names, since
+    it records the resolved origin of the whole tree.
+
+    Reads lint-deps.allow from [tool.repomatic] for packages exempted by
+    name, each mapped to the reason it is safe, and
+    lint-deps.comment-word-threshold for the length a floor comment may run to.
+
+    \b
+    Output symbols:
+        ✗  Blocks a release
+        ⚠  Warning, does not block
+        ℹ  Covered by lint-deps.allow
+
+    \b
+    Exit codes:
+        0  Nothing blocks a release, or --no-fatal was passed.
+        1  At least one finding blocks a release.
+    """
+    config = get_tool_config(ctx)
+    findings = scan_project(
+        pyproject_path,
+        lockfile,
+        config.minimum_release_age,
+        allow=config.lint_deps.allow,
+    )
+
+    policy_findings = (
+        scan_policy(pyproject_path, config.lint_deps.comment_word_threshold)
+        if policy
+        else []
+    )
+
+    # The clean bill of health covers shippability alone, so it prints whenever
+    # there is no source finding, style findings or not: a policy warning is
+    # not a claim about where a dependency resolves from.
+    if not findings:
+        echo("✓ Every dependency resolves from the public package index.")
+        if not policy_findings:
+            ctx.exit(0)
+    else:
+        rows = [
+            (
+                finding.package,
+                str(finding.kind),
+                finding.location,
+                finding.verdict,
+            )
+            for finding in findings
+        ]
+        ctx.print_table(rows, LINT_DEPS_HEADER_DEFS)
+
+    blocking = [finding for finding in findings if finding.blocking]
+    for finding in findings:
+        if finding.allowed:
+            echo(f"ℹ {finding.message}")
+        elif finding.blocking:
+            emit_annotation(AnnotationLevel.ERROR, finding.message)
+            echo(f"✗ {finding.message}")
+        else:
+            emit_annotation(AnnotationLevel.WARNING, finding.message)
+            echo(f"⚠ {finding.message}")
+
+    # Style findings render after the shippability ones and never reach the
+    # exit code: a release is not held for an uncommented floor.
+    for policy_finding in policy_findings:
+        emit_annotation(AnnotationLevel.WARNING, policy_finding.message)
+        echo(f"⚠ {policy_finding.message}")
+
+    if output:
+        log_output_target("dependency blockers", output)
+        emit_report(
+            format_blocker_section(findings),
+            output,
+            output_format,
+            key="release_blockers",
+        )
+
+    ctx.exit(1 if blocking and fatal else 0)
+
+
+@subcommand(
+    short_help="Generate dependency graph from uv lockfile",
+    examples=(
+        ("Generate Mermaid graph", "repomatic update-dep-graph"),
+        ("Include test dependencies", "repomatic update-dep-graph --group test"),
+        (
+            "Include all groups and extras",
+            "repomatic update-dep-graph --all-groups --all-extras",
+        ),
+        (
+            "Include all groups except typing",
+            "repomatic update-dep-graph --all-groups --no-group typing",
+        ),
+        (
+            "Include all extras except one",
+            "repomatic update-dep-graph --all-extras --no-extra json5",
+        ),
+        (
+            "Show only test group dependencies (no main deps)",
+            "repomatic update-dep-graph --only-group test",
+        ),
+        (
+            "Show only a specific extra's dependencies",
+            "repomatic update-dep-graph --only-extra xml",
+        ),
+        (
+            "Focus on a specific package",
+            "repomatic update-dep-graph --package click-extra",
+        ),
+        ("Limit graph depth to 2 levels", "repomatic update-dep-graph --level 2"),
+        (
+            "Save to file",
+            "repomatic update-dep-graph --output ./docs/assets/dependencies.mmd",
+        ),
+    ),
+)
+@option(
+    "-p",
+    "--package",
+    help="Focus on a specific package's dependency tree.",
+)
+@option_group(
+    "Group filtering",
+    option(
+        "-g",
+        "--group",
+        "groups",
+        type=DependencyGroup(),
+        multiple=True,
+        help="Include dependencies from the specified group. Can be repeated.",
+    ),
+    option(
+        "--all-groups",
+        is_flag=True,
+        default=False,
+        help="Include all dependency groups from pyproject.toml.",
+    ),
+    option(
+        "--no-group",
+        "excluded_groups",
+        type=DependencyGroup(),
+        multiple=True,
+        help="Exclude the specified group. Takes precedence over --all-groups "
+        "and --group. Can be repeated.",
+    ),
+    option(
+        "--only-group",
+        "only_groups",
+        type=DependencyGroup(),
+        multiple=True,
+        help="Only include dependencies from the specified group, excluding main "
+        "dependencies. Can be repeated.",
+    ),
+)
+@option_group(
+    "Extra filtering",
+    option(
+        "-e",
+        "--extra",
+        "extras",
+        type=ProjectExtra(),
+        multiple=True,
+        help="Include dependencies from the specified extra. Can be repeated.",
+    ),
+    option(
+        "--all-extras",
+        is_flag=True,
+        default=False,
+        help="Include all optional extras from pyproject.toml.",
+    ),
+    option(
+        "--no-extra",
+        "excluded_extras",
+        type=ProjectExtra(),
+        multiple=True,
+        help="Exclude the specified extra, if --all-extras is supplied. "
+        "Can be repeated.",
+    ),
+    option(
+        "--only-extra",
+        "only_extras",
+        type=ProjectExtra(),
+        multiple=True,
+        help="Only include dependencies from the specified extra, excluding main "
+        "dependencies. Can be repeated.",
+    ),
+)
+@option(
+    "--frozen/--no-frozen",
+    default=True,
+    help="Use --frozen to skip lock file updates.",
+)
+@option(
+    "-l",
+    "--level",
+    type=IntRange(min=1),
+    default=None,
+    help="Maximum depth of the dependency graph. "
+    "1 = directly-declared deps only, 2 = adds their deps, etc.",
+)
+@output_option(
+    "Write the graph to this file. Defaults to [tool.repomatic]"
+    " dependency-graph.output, then to stdout."
+)
+@pass_context
+def update_dep_graph(
+    ctx: Context,
+    package: str | None,
+    groups: tuple[str, ...],
+    all_groups: bool,
+    excluded_groups: tuple[str, ...],
+    only_groups: tuple[str, ...],
+    extras: tuple[str, ...],
+    all_extras: bool,
+    excluded_extras: tuple[str, ...],
+    only_extras: tuple[str, ...],
+    frozen: bool,
+    level: int | None,
+    output: Path | None,
+) -> None:
+    """Generate a Mermaid dependency graph from the project's uv lockfile.
+
+    Parses the CycloneDX SBOM export from uv and renders it as a Mermaid
+    flowchart for documentation. Version specifiers from uv.lock are shown
+    as edge labels.
+    """
+    config = get_tool_config(ctx)
+    exit_if_disabled(ctx, config.dependency_graph.update, "dependency-graph.update")
+
+    # Auto-detect package name from [project].name.
+    if package is None:
+        package = get_project_name()
+        if package:
+            logging.info(f"Auto-detected package from pyproject.toml: {package}")
+
+    # Resolve output: CLI > config > stdout.
+    if output is None:
+        if config.dependency_graph.output:
+            output = Path(config.dependency_graph.output).resolve()
+        else:
+            output = Path(STDOUT_SENTINEL)
+
+    if level is None:
+        level = config.dependency_graph.level
+
+    # --only-group/--only-extra select an exclusive mode: no main deps.
+    exclude_base = bool(only_groups or only_extras)
+
+    resolved_groups = resolve_subgraph_selection(
+        SubgraphKind.GROUP,
+        groups,
+        all_groups,
+        excluded_groups,
+        only_groups,
+        config.dependency_graph.all_groups,
+        config.dependency_graph.no_groups,
+    )
+    resolved_extras = resolve_subgraph_selection(
+        SubgraphKind.EXTRA,
+        extras,
+        all_extras,
+        excluded_extras,
+        only_extras,
+        config.dependency_graph.all_extras,
+        config.dependency_graph.no_extras,
+    )
+
+    graph = generate_dependency_graph(
+        package=package,
+        groups=resolved_groups,
+        extras=resolved_extras,
+        frozen=frozen,
+        depth=level,
+        exclude_base=exclude_base,
+    )
+
+    write_output("graph", graph, output)
+
+
+@subcommand(
+    short_help="Update dependencies, all or a named subset",
+    examples=(
+        ("Update everything enabled", "repomatic sync-deps"),
+        (
+            "Only the lockfile and action pins",
+            "repomatic sync-deps sync-uv-lock sync-action-pins",
+        ),
+        ("Preview without writing", "repomatic sync-deps --dry-run"),
+    ),
+)
+@argument(
+    "operations",
+    nargs=-1,
+    type=Choice(list(OPERATIONS_BY_NAME)),
+)
+@report_options(
+    "Write a combined markdown report (one section per updater) to this file."
+)
+@sync_release_notes_option
+@sync_held_back_option
+# `sync-deps` is the "do it" aggregate, so it runs live unless asked not to.
+@dry_run_option(default=False)
+@pass_context
+def sync_deps(
+    ctx: Context,
+    operations: tuple[str, ...],
+    output: Path | None,
+    output_format: str,
+    release_notes: bool,
+    held_back: bool,
+    dry_run: bool,
+) -> None:
+    """Update project dependencies, the whole set or a named subset.
+
+    \b
+    The single entry point for dependency updates. It drives
+    sync-dep-sources, sync-uv-lock, sync-action-pins, sync-workflow-pins, and
+    sync-tool-versions: their network discovery runs concurrently (one shared
+    HTTP cache, one spinner), then the file rewrites apply serially because
+    three of them touch the same workflow files. Name one or more updaters to
+    run just those; with none named, every enabled updater runs.
+
+    \b
+    The [tool.repomatic] feature flags are always authoritative: a disabled
+    updater never runs. With no names, updaters not meaningful in the current
+    working tree are skipped too (sync-tool-versions outside the repomatic
+    checkout, the pin updaters without workflow files); naming one runs it
+    regardless of the working tree.
+
+    \b
+    Each updater still opens its own PR in CI; this is the local one-shot, and
+    the shared engine the consolidated autofix job drives.
+    """
+    config = get_tool_config(ctx)
+    selected = selected_operations(config, names=list(operations) or None)
+    if not selected:
+        if operations:
+            echo("None of the named updaters are enabled in [tool.repomatic].")
+        else:
+            echo("No dependency updaters are enabled for this repository.")
+        ctx.exit(0)
+
+    rc = ResolveContext(
+        config=config,
+        today=datetime.now(UTC).date(),
+        release_notes=release_notes,
+        held_back=held_back,
+        dry_run=dry_run,
+    )
+    results = run_sync_operations(
+        selected, rc, spinner_label="Resolving dependency updates"
+    )
+
+    changed = [
+        (op, plan) for op, plan in results if plan is not None and plan.has_changes
+    ]
+    failed = [op.name for op, plan in results if plan is None]
+
+    if not changed:
+        echo("All dependencies are up to date.")
+    verb = "Would update" if dry_run else "Updated"
+    for op, plan in changed:
+        echo(f"{verb} {len(plan.changes)} via {op.name}:")
+        print_plan_tables(ctx, plan, rc.today)
+
+    if output:
+        sections = [
+            body for _op, plan in changed if (body := render_plan_markdown(plan))
+        ]
+        emit_report("\n\n".join(sections), output, output_format)
+
+    if failed:
+        echo(f"Failed to resolve: {', '.join(failed)}", err=True)
+        ctx.exit(1)
+
+
+@subcommand(
+    short_help="Re-lock dependencies and roll cooldown overrides forward",
+    examples=(
+        ("Upgrade and show changes", "repomatic sync-uv-lock"),
+        ("With release notes", "repomatic sync-uv-lock --release-notes"),
+        (
+            "Render the report as a GitHub-flavored table",
+            "repomatic --table-format github sync-uv-lock",
+        ),
+        ("Render the report as JSON", "repomatic --table-format json sync-uv-lock"),
+        (
+            "CI: write markdown report as a GitHub Actions step output",
+            'repomatic sync-uv-lock --no-table --release-notes --output "$GITHUB_OUTPUT" --output-format github-actions',
+        ),
+    ),
+)
+@lockfile_option
+@sync_table_option
+@sync_release_notes_option
+@lock_held_back_option
+@report_options("Write a markdown report (table and release notes) to this file.")
+@pass_context
+def sync_uv_lock(
+    ctx: Context,
+    lockfile: Path,
+    table: bool,
+    release_notes: bool,
+    held_back: bool,
+    output: Path | None,
+    output_format: str,
+) -> None:
+    """Upgrade all dependencies and clean up stale cooldown overrides.
+
+    \b
+    Wraps uv lock --upgrade and:
+      - syncs the repomatic-owned [tool.uv] policy pins (required-version,
+        exclude-newer) in pyproject.toml from the bundled template, so every
+        machine resolves the lockfile against the same uv floor and cooldown
+      - prunes exclude-newer-package entries from pyproject.toml whose held
+        version has aged past the exclude-newer cutoff, or whose own cutoff
+        has when the lock holds no version, then freezes the survivors at
+        their locked version (a fixed date) so the upgrade holds them
+        instead of tracking newer releases
+      - prints a table of updated packages with upload dates
+      - reports the cooldown-bypass lifecycle: entries pruned or frozen by
+        the run, and each active freeze with the date it expires
+      - optionally fetches release notes from GitHub (markdown)
+      - optionally reports newer releases held back by the cooldown, with the
+        date each ages out of the exclude-newer window (--held-back)
+
+    \b
+    The table respects the global --table-format option (github, json,
+    csv, etc.). Release notes are always rendered as markdown.
+    """
+    config = get_tool_config(ctx)
+    exit_if_disabled(ctx, config.uv_lock_sync, "uv-lock.sync")
+
+    op, rc, plan = resolve_lockfile_plan(
+        "sync-uv-lock",
+        config,
+        lockfile=lockfile,
+        table=table,
+        output=output,
+        release_notes=release_notes,
+        held_back=held_back,
+    )
+
+    if plan.uv_project.pins_synced:
+        echo("Synced [tool.uv] policy pins from the bundled template.")
+
+    if not plan.has_changes:
+        echo("No dependency changes.")
+        ctx.exit(0)
+
+    op.apply(plan)
+
+    if plan.changes:
+        echo(f"{len(plan.changes)} package(s) updated.")
+    if plan.uv_project.pruned_bypasses:
+        echo(
+            "Expired cooldown bypass(es) cleared from pyproject.toml: "
+            + ", ".join(forecast.name for forecast in plan.uv_project.pruned_bypasses)
+        )
+    if plan.uv_project.frozen_bypasses:
+        echo(
+            "Cooldown bypass(es) frozen at their locked version: "
+            + ", ".join(plan.uv_project.frozen_bypasses)
+        )
+
+    emit_lockfile_sync_report(
+        ctx,
+        plan,
+        reference_date=rc.today,
+        table=table,
+        output=output,
+        output_format=output_format,
+    )
+
+
+@subcommand(
+    short_help="Swap git-tracked dependencies to their released versions",
+    examples=(
+        ("Swap whatever is ready and show changes", "repomatic sync-dep-sources"),
+        (
+            "CI: write markdown report as a GitHub Actions step output",
+            'repomatic sync-dep-sources --no-table --release-notes --output "$GITHUB_OUTPUT" --output-format github-actions',
+        ),
+    ),
+)
+@lockfile_option
+@sync_table_option
+@sync_release_notes_option
+@lock_held_back_option
+@report_options("Write a markdown report (table and release notes) to this file.")
+@pass_context
+def sync_dep_sources(
+    ctx: Context,
+    lockfile: Path,
+    table: bool,
+    release_notes: bool,
+    held_back: bool,
+    output: Path | None,
+    output_format: str,
+) -> None:
+    """Swap git-tracked dependencies back to their released versions.
+
+    \b
+    Manages one idiom: a [tool.uv.sources] entry tracking a git branch,
+    paired with a .dev version floor naming the awaited release (like
+    'mango>=2.1.0.dev0'). Once a stable release satisfying the floor ships
+    on PyPI, the swap:
+      - drops the [tool.uv.sources] override
+      - tightens the .dev floor to its base release
+      - freezes the adopted release through the exclude-newer cooldown
+        (an exclude-newer-package entry the ordinary sync-uv-lock lifecycle
+        prunes once it ages out)
+      - re-locks and verifies the adopted version landed
+
+    \b
+    Overrides outside the idiom (path or workspace sources, rev/tag pins,
+    floor-less branch tracks) are never touched. A resolution conflict or a
+    lock landing on an unexpected version restores the project untouched.
+    """
+    config = get_tool_config(ctx)
+    exit_if_disabled(ctx, config.dep_sources_sync, "dep-sources.sync")
+
+    op, rc, plan = resolve_lockfile_plan(
+        "sync-dep-sources",
+        config,
+        lockfile=lockfile,
+        table=table,
+        output=output,
+        release_notes=release_notes,
+        held_back=held_back,
+    )
+
+    if not plan.has_changes:
+        echo("No awaited release shipped.")
+        ctx.exit(0)
+
+    op.apply(plan)
+
+    for swap in plan.uv_project.source_swaps:
+        echo(
+            f"Swapped {swap.name} from git branch {swap.branch!r} to released"
+            f" {swap.release}, frozen until it clears the cooldown."
+        )
+    if plan.changes:
+        echo(f"{len(plan.changes)} package(s) updated.")
+
+    emit_lockfile_sync_report(
+        ctx,
+        plan,
+        reference_date=rc.today,
+        table=table,
+        output=output,
+        output_format=output_format,
+    )
+
+
+@subcommand(
+    short_help="Bump registry tool versions from upstream releases",
+    examples=(
+        ("Bump every registry tool past the cooldown", "repomatic sync-tool-versions"),
+        (
+            "CI: write a markdown report as a GitHub Actions step output",
+            'repomatic sync-tool-versions --output "$GITHUB_OUTPUT" --output-format github-actions',
+        ),
+    ),
+)
+@report_options("Write a markdown report (version table) to this file.")
+@sync_release_notes_option
+@sync_held_back_option
+@pass_context
+def sync_tool_versions(
+    ctx: Context,
+    output: Path | None,
+    output_format: str,
+    release_notes: bool,
+    held_back: bool,
+) -> None:
+    """Bump every `repomatic run` tool to its latest eligible release.
+
+    \b
+    For each registry tool, finds the highest version that has cleared the
+    [tool.repomatic] minimum-release-age cooldown (GitHub releases for binary
+    tools, PyPI otherwise), writes it into tooling/registry.py, recomputes binary
+    checksums in the same pass, and keeps the actionlint matcher URL in
+    lint.yaml in lockstep.
+
+    \b
+    Upstream-only: it rewrites repomatic's own package source, so invoke it with
+    `uv run` (editable), never `uvx` (whose isolated wheel is discarded).
+    """
+    exit_if_disabled(ctx, get_tool_config(ctx).tool_versions_sync, "tool-versions.sync")
+    run_version_sync(
+        ctx,
+        "sync-tool-versions",
+        output,
+        output_format,
+        release_notes,
+        held_back,
+        "All tools are up to date.",
+    )
+
+
+@subcommand(
+    short_help="Bump SHA-pinned GitHub Actions to their latest release",
+    examples=(
+        (
+            "Bump every SHA-pinned action past the cooldown",
+            "repomatic sync-action-pins",
+        ),
+    ),
+)
+@report_options("Write a markdown report (version table) to this file.")
+@sync_release_notes_option
+@sync_held_back_option
+@pass_context
+def sync_action_pins(
+    ctx: Context,
+    output: Path | None,
+    output_format: str,
+    release_notes: bool,
+    held_back: bool,
+) -> None:
+    """Bump SHA-pinned GitHub Actions across `.github/` to their latest release.
+
+    \b
+    Scans workflow and composite-action files for
+    `uses: owner/repo@<sha> # vX.Y.Z` pins, resolves each action's latest
+    release passing the [tool.repomatic] minimum-release-age cooldown to its
+    commit SHA, and rewrites the SHA and version comment. repomatic's own
+    reusable-workflow refs are left to `repomatic init`.
+    """
+    exit_if_disabled(ctx, get_tool_config(ctx).action_pins_sync, "action-pins.sync")
+    run_version_sync(
+        ctx,
+        "sync-action-pins",
+        output,
+        output_format,
+        release_notes,
+        held_back,
+        "All action pins are up to date.",
+    )
+
+
+@subcommand(
+    short_help="Bump npm/PyPI version literals in workflow YAML",
+    examples=(
+        (
+            "Bump every workflow version literal past the cooldown",
+            "repomatic sync-workflow-pins",
+        ),
+    ),
+)
+@report_options("Write a markdown report (version table) to this file.")
+@sync_release_notes_option
+@sync_held_back_option
+@pass_context
+def sync_workflow_pins(
+    ctx: Context,
+    output: Path | None,
+    output_format: str,
+    release_notes: bool,
+    held_back: bool,
+) -> None:
+    """Bump npm and PyPI version literals embedded in workflow YAML.
+
+    \b
+    Scans workflow and composite-action files for `npm install pkg@x` and
+    `uvx '<pkg>==x'` pins, resolves each to its latest release passing the
+    [tool.repomatic] minimum-release-age cooldown, and rewrites the literal.
+    """
+    exit_if_disabled(ctx, get_tool_config(ctx).workflow_pins_sync, "workflow-pins.sync")
+    run_version_sync(
+        ctx,
+        "sync-workflow-pins",
+        output,
+        output_format,
+        release_notes,
+        held_back,
+        "All workflow pins are up to date.",
+    )

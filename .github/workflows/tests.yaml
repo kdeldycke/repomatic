@@ -90,7 +90,7 @@ jobs:
         id: metadata
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
-          --format github-json --output "$GITHUB_OUTPUT"
+          --output-format github-json --output "$GITHUB_OUTPUT"
           build_targets cli_scripts package_name
           test_matrix test_matrix_pr
 

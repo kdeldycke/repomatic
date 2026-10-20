@@ -716,10 +716,10 @@ def test_ci_status_command_reports_a_run_without_a_result():
     )
     with (
         patch(
-            "repomatic.cli.github.monitored_workflows",
+            "repomatic.cli.ci.monitored_workflows",
             return_value=["tests.yaml", "docs.yaml", "lint.yaml"],
         ),
-        patch("repomatic.cli.github.read_ci_status", return_value=status),
+        patch("repomatic.cli.ci.read_ci_status", return_value=status),
     ):
         result = CliRunner().invoke(repomatic, ["ci-status"])
 

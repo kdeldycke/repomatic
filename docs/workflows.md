@@ -178,7 +178,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 
 ### 🙈 Sync `.gitignore` (`sync-gitignore`)
 
-- Regenerates `.gitignore` from [gitignore.io](https://github.com/toptal/gitignore.io) templates using [`repomatic sync-gitignore`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/sync.py)
+- Regenerates `.gitignore` from [gitignore.io](https://github.com/toptal/gitignore.io) templates using [`repomatic sync-gitignore`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/repo.py)
 - **Requires**:
   - A `.gitignore` file in the repository
 - **Skipped if**:
@@ -187,7 +187,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 
 ### 🔄 Sync bumpversion config (`sync-bumpversion`)
 
-- Re-derives the `[tool.bumpversion]` configuration in `pyproject.toml` from the bundled template on every run using [`repomatic sync-bumpversion`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/sync.py), overwriting canonical entries while preserving local-only additions
+- Re-derives the `[tool.bumpversion]` configuration in `pyproject.toml` from the bundled template on every run using [`repomatic sync-bumpversion`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/release.py), overwriting canonical entries while preserving local-only additions
 - **Requires**:
   - A Python project that builds a distributable, gated on the `is_python_package` metadata key rather than `is_python_project`: a uv virtual project (`[tool.uv] package = false`) has a `[project]` table but nothing to version
 - **Skipped if**:
@@ -246,7 +246,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 #### 📌 `sync-action-pins` updater
 
-- Bumps SHA-pinned GitHub Actions (`uses: owner/repo@<sha> # vX.Y.Z`) to the latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-action-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/sync.py)
+- Bumps SHA-pinned GitHub Actions (`uses: owner/repo@<sha> # vX.Y.Z`) to the latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-action-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/deps.py)
 - Handles the SHA-to-semver mapping automatically: reads the trailing `# vX.Y.Z` comment, fetches the latest release, resolves it to a commit SHA, and rewrites the `uses:` line
 - Leaves pins owned by `sync-repomatic` untouched: upstream `kdeldycke/repomatic` refs and any `uses:` line inside a file `repomatic init` deploys verbatim (like the `publish-pypi` composite action). Bumping those here would be reset on the next init sync, ping-ponging the two pull requests
 - PR body lists each updated action with old and new versions
@@ -257,7 +257,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 #### 🔢 `sync-workflow-pins` updater
 
-- Bumps npm `pkg@x.y.z` version literals and `uvx 'pkg==x.y.z'` PyPI pins embedded in workflow YAML to their latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-workflow-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/sync.py)
+- Bumps npm `pkg@x.y.z` version literals and `uvx 'pkg==x.y.z'` PyPI pins embedded in workflow YAML to their latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-workflow-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/deps.py)
 - Targets inline version literals that `sync-action-pins` does not cover (action `uses:` lines are handled there; `npm install`, `npx` and `uvx` pins are handled here). Flags sitting between the command and the package (`npx --yes pkg@1.2.3`) are skipped over, and scoped npm names are matched
 - The upstream toolkit's own pin (like `uvx 'repomatic==x.y.z'`) is exempt from the cooldown: the repomatic `uses:` refs are its source of truth (kept current by `repomatic init`'s thin-caller regeneration), and the `lint-repo` job fails on any drift between them, so the pin aligns to those refs in lockstep. Because that alignment ignores the cooldown, the rewrite also splices `--exclude-newer-package {package}=P0D` in ahead of the pin: `uvx` reads no per-package exemption from the environment, from `pyproject.toml`, or from an adjacent `uv.toml` ([astral-sh/uv#20995](https://github.com/astral-sh/uv/issues/20995) tracks the missing environment variable), so the flag has to ride on the command line for the workflow's own `UV_EXCLUDE_NEWER` not to withhold the version just written. Its PR table row shows a `⛓️ lockstep` marker in the `Released` column instead of a PyPI upload date, since no cooldown-checked release listing was consulted
 - Backfills that same `--exclude-newer-package` flag even on a run that moves no pin version at all, so a repository already pinned at the newest release still gets the splice instead of carrying a broken pin indefinitely. A PR opening for the splice alone carries a `🩹 Restored cooldown exemption` section in place of the usual pin-diff table
@@ -451,7 +451,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 ### 🔄 Sync labels (`sync-labels`)
 
-- Synchronizes repository labels using [`repomatic sync-labels`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/sync.py) and [`labelmaker`](https://github.com/jwodder/labelmaker)
+- Synchronizes repository labels using [`repomatic sync-labels`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/github.py) and [`labelmaker`](https://github.com/jwodder/labelmaker)
 - Uses [`labels.toml`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/data/labels.toml) with multiple profiles:
   - `default` profile applied to all repositories
   - `awesome` profile additionally applied to `awesome-*` repositories
@@ -480,7 +480,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 ### 🏠 Lint repository metadata (`lint-repo`)
 
-- Validates repository metadata and settings using [`repomatic lint-repo`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/lint.py), which reads `pyproject.toml` directly. Its checks, in report order:
+- Validates repository metadata and settings using [`repomatic lint-repo`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/repo.py), which reads `pyproject.toml` directly. Its checks, in report order:
   ```{python:render}
   from repomatic.lint_repo import repo_check_reference
 
@@ -743,7 +743,7 @@ flowchart TD
 - Downloads the release's versioned binaries (`.bin` and `.exe`) with `repomatic scan-virustotal --download`, which first waits for a freshly published release to list its assets
 - Uploads those binaries to [VirusTotal](https://www.virustotal.com/), polls for analysis completion, and records each binary's `flagged / total` snapshot in `docs/assets/virustotal-scans.csv`
 - Seeds AV vendor databases to reduce false positive detections for downstream distributors (Chocolatey, Scoop, etc.)
-- Regenerates the binaries catalog (`docs/assets/binaries.csv` and its `docs/binaries.md` page) from the GitHub Releases API and the scan history via `repomatic sync-binaries` (with `--backfill-records` recovering snapshots from legacy release-notes tables), then publishes the files through the job's pull request via `repomatic pr-sync`. Release notes stay clean: raw detection counts next to a download link read as a malware verdict without the context the page provides
+- Regenerates the binaries catalog (`docs/assets/binaries.csv` and its `docs/binaries.md` page) from the GitHub Releases API and the scan history via `repomatic sync-binaries`, then publishes the files through the job's pull request via `repomatic pr-sync`. Release notes stay clean: raw detection counts next to a download link read as a malware verdict without the context the page provides
 - **Requires**:
   - `VIRUSTOTAL_API_KEY` repository secret ([free API key](https://www.virustotal.com/gui/my-apikey))
   - Successful `publish-release` job

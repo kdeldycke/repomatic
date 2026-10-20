@@ -16,6 +16,7 @@
 
 """The `repomatic` command-line interface.
 
-`main` holds the group, its help sections and the shared plumbing;
-each sibling module carries one help section's commands and
-registers them onto the group at import time."""
+`main` holds the group, its help sections and the shared plumbing. Each other
+module holds the commands of one domain, and the group imports it only when a
+run needs one of its commands.
+"""

@@ -1,7 +1,7 @@
-# `repomatic.cli.lint` module
+# `repomatic.cli.tools` module
 
 ```{eval-rst}
-.. automodule:: repomatic.cli.lint
+.. automodule:: repomatic.cli.tools
    :members:
    :show-inheritance:
    :undoc-members:

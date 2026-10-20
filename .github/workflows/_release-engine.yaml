@@ -67,7 +67,7 @@ jobs:
         id: metadata
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
-          --format github-json --output "$GITHUB_OUTPUT"
+          --output-format github-json --output "$GITHUB_OUTPUT"
           new_commits_matrix release_commits_matrix build_targets nuitka_matrix
           nuitka_extras is_python_project package_name current_version
           released_version release_notes release_notes_with_admonition
@@ -897,7 +897,6 @@ jobs:
           --repo "${{ github.repository }}"
           --page docs/binaries.md
           --records docs/assets/virustotal-scans.csv
-          --backfill-records
       - name: Sync pull request
         # One long-lived pull request every release appends to, not a direct
         # push: the records are a trend read across releases, so nothing is

@@ -53,7 +53,7 @@ jobs:
         id: metadata
         run: >
           uv --no-progress run --frozen -- repomatic --verbosity DEBUG show-metadata
-          --format github-json --output "$GITHUB_OUTPUT"
+          --output-format github-json --output "$GITHUB_OUTPUT"
           build_targets
       # Unwraps the nested JSON string the metadata output carries. Every job
       # runs on a test axis, so the build targets already span the fleet.

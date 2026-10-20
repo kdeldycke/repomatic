@@ -62,7 +62,7 @@ Both views honor the global `--table-format` option, so the same jobs render as 
 For the matrix the [`metadata` job](workflows.md) hands to CI, request the `test_matrix_pr` (or `test_matrix`) key from [`repomatic show-metadata`](cli.md). The pull-request matrix holds the `os` and `python-version` axes plus the `include`/`exclude` directives that shape them:
 
 ```{click:run}
-invoke(repomatic, args=['show-metadata', 'test_matrix_pr', '--format', 'json'])
+invoke(repomatic, args=['show-metadata', 'test_matrix_pr', '--output-format', 'json'])
 ```
 
 A full matrix that carries a [`full-include`](configuration.md) row has another shape: a flat list with one entry per job, which GitHub runs as written. This repository's `test_matrix` is one.

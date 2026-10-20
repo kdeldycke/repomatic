@@ -91,7 +91,7 @@ jobs:
         id: metadata
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
-          --format github-json --output "$GITHUB_OUTPUT"
+          --output-format github-json --output "$GITHUB_OUTPUT"
           is_python_project is_sphinx doc_files sphinx_builder
           site_deploy site_cloudflare_project
 

@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from click_extra import Context
 
 from repomatic import __version__
 from repomatic.cli.main import repomatic
@@ -745,8 +746,10 @@ def test_templates_list_the_switch_of_their_command() -> None:
     templates = set(get_template_names())
     checked = 0
     missing = []
-    for name, command in sorted(repomatic.commands.items()):
-        if name not in templates or command.callback is None:
+    ctx = Context(repomatic)
+    for name in repomatic.list_commands(ctx):
+        command = repomatic.get_command(ctx, name)
+        if name not in templates or command is None or command.callback is None:
             continue
         switch = SWITCH_KEY_RE.search(inspect.getsource(command.callback))
         _, body = load_template(name)
@@ -1139,8 +1142,6 @@ def _invoke_pr_body(
     """
     for key in GITHUB_ENV_VARS:
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.delenv("GHA_PR_BODY_PREFIX", raising=False)
-    monkeypatch.delenv("GHA_PR_BODY_PREFIX_FILE", raising=False)
     return CliRunner().invoke(
         repomatic,
         ["pr-body", "--output", str(output_path), *args],
@@ -1180,7 +1181,7 @@ def test_cli_template_file(tmp_path, monkeypatch):
 
 
 def test_cli_prefix_file_reads_the_prefix_from_disk(tmp_path, monkeypatch):
-    """`--prefix-file` carries a report too large to pass through the env."""
+    """`--prefix-file` carries a report too large to pass as an argument."""
     prefix_path = tmp_path / "harvest.md"
     prefix_path.write_text("### Crates packed\n\nmango, kiwi.\n", encoding="UTF-8")
 

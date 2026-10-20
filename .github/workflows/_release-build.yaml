@@ -131,7 +131,7 @@ jobs:
         id: metadata
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
-          --format github-json --output "$GITHUB_OUTPUT"
+          --output-format github-json --output "$GITHUB_OUTPUT"
           new_commits_matrix release_commits_matrix build_targets nuitka_matrix
           is_python_project cli_scripts package_name current_version released_version
           release_notes release_notes_with_admonition skip_binary_build

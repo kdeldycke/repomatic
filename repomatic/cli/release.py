@@ -13,24 +13,23 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-"""Release and versioning commands of the `repomatic` CLI.
+"""Release commands of the `repomatic` CLI: changelog, freeze, tag and assets.
 
-One module per help section: every command here registers onto the
-`repomatic` group through the section object both import from
-{mod}`repomatic.cli.main`, which pulls this module in at startup.
+{data}`repomatic.cli.main.COMMANDS` registers each command here, and files it
+under its help section.
 """
 
 from __future__ import annotations
 
 import logging
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 from click_extra import (
-    STDOUT_SENTINEL,
     Choice,
     ClickException,
-    Context,
     IntRange,
     UsageError,
     argument,
@@ -38,33 +37,38 @@ from click_extra import (
     echo,
     file_path,
     get_tool_config,
+    is_stdout,
     option,
     pass_context,
-    prep_path,
 )
 
 from ..changelog import (
     Changelog,
-    resolved_changelog_path,
+    lint_changelog_dates,
+    load_changelog_repo,
 )
 from ..claude_plugin import ARCHIVE_NAME, pack_plugin
 from ..components import (
     DEFAULT_REPO,
     WORKFLOW_TARGET_ROOT,
 )
-from ..git_ops import commit_and_push_files, create_and_push_tag
-from ..github.pr import (
-    carry_pr_branch_paths,
-    close_open_prs_on_branch,
+from ..git_ops import create_and_push_tag
+from ..github.dev_release import (
+    cleanup_dev_releases,
+    sync_dev_release,
+)
+from ..github.pr import carry_pr_branch_paths
+from ..github.release_sync import (
+    render_sync_report,
+    sync_github_releases,
 )
 from ..github.releases import (
     GitHubReleasesUnavailable,
     get_releases_with_assets,
+    owner_repo,
 )
-from ..metadata.core import (
-    Metadata,
-)
-from ..metadata.project import is_version_bump_allowed
+from ..init_project import run_init
+from ..metadata.core import Metadata
 from ..release.attestation import pack_attestation
 from ..release.binaries_page import (
     render_binaries_csv,
@@ -74,7 +78,10 @@ from ..release.binaries_page import (
 )
 from ..release.binary import (
     BINARY_ASSET_SUFFIXES,
+    NUITKA_BUILD_TARGETS,
     pack_binary_assets,
+    verify_binary_arch,
+    verify_binary_floor,
 )
 from ..release.prepare_release import PrepareRelease
 from ..release.virustotal import (
@@ -82,31 +89,33 @@ from ..release.virustotal import (
     download_release_binaries,
     load_scan_records,
     poll_detection_stats,
-    records_from_release_notes,
     records_from_results,
     scan_files,
     upsert_scan_records,
 )
-from ..versions import BUMP_PARTS
 from .main import (
-    _section_release,
+    changelog_option,
+    dry_run_option,
     exit_if_disabled,
-    log_output_target,
-    repomatic,
+    output_option,
+    repo_option,
+    subcommand,
+    write_output,
 )
 
 TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from click_extra import Context
 
 
-@repomatic.command(
-    short_help="Maintain a Markdown-formatted changelog", section=_section_release
+@subcommand(
+    short_help="Maintain a Markdown-formatted changelog",
+    examples=(
+        ("Open the next release's section, in place", "repomatic changelog"),
+        ("Print the result instead", "repomatic changelog -"),
+    ),
 )
-@option(
-    "--source",
-    type=file_path(exists=True, readable=True, resolve_path=True),
-    default=None,
-    help="Changelog source file. Defaults to the configured changelog.location.",
-)
+@changelog_option
 @option(
     "--default-branch",
     default="main",
@@ -114,173 +123,241 @@ TYPE_CHECKING = False
     help="Branch name the unreleased comparison URL points at.",
 )
 @argument(
-    "changelog_path",
+    "output",
     type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default=STDOUT_SENTINEL,
+    required=False,
 )
 @pass_context
 def changelog(
     ctx: Context,
-    source: Path | None,
-    default_branch: str,
     changelog_path: Path,
+    default_branch: str,
+    output: Path | None,
 ) -> None:
-    """Stamp the changelog with the current version's release header."""
-    if source is None:
-        source = resolved_changelog_path(get_tool_config(ctx))
-    initial_content = None
-    if source.exists():
-        logging.info(f"Read initial changelog from {source}")
-        initial_content = source.read_text(encoding="UTF-8")
+    """Add an unreleased section for the current version to the changelog.
 
-    changelog = Changelog(initial_content, Metadata.get_current_version())
-    content = changelog.update(default_branch=default_branch)
-    if content == initial_content:
+    Writes the result back to the changelog, unless OUTPUT names another
+    file. Pass - as OUTPUT to print the result instead.
+    """
+    initial_content = None
+    if changelog_path.exists():
+        logging.info(f"Read initial changelog from {changelog_path}")
+        initial_content = changelog_path.read_text(encoding="UTF-8")
+
+    content = Changelog(initial_content, Metadata.get_current_version()).update(
+        default_branch=default_branch
+    )
+    if output is None:
+        output = changelog_path
+    # The update strips the trailing newline the file ends with, and the write
+    # adds it back, so compare without it.
+    if (
+        output == changelog_path
+        and initial_content is not None
+        and content == initial_content.rstrip()
+    ):
         logging.warning("Changelog already up to date. Do nothing.")
         ctx.exit()
 
-    log_output_target("updated changelog", changelog_path)
-    echo(content, file=prep_path(changelog_path))
+    write_output("updated changelog", content, output)
 
 
-@repomatic.command(
-    short_help="Close a stale version-bump PR",
-    section=_section_release,
+@subcommand(
+    short_help="Check changelog dates against release dates",
     examples=(
         (
-            "Close a stale minor-bump pull request",
-            "repomatic close-stale-bump-pr --part minor",
+            "Check the default changelog.md (auto-detects PyPI package)",
+            "repomatic lint-changelog",
         ),
-        (
-            "Close a stale major-bump pull request",
-            "repomatic close-stale-bump-pr --part major",
-        ),
+        ("Fix dates and add admonitions", "repomatic lint-changelog --fix"),
+        ("Explicit package name", "repomatic lint-changelog --package repomatic"),
     ),
 )
+@changelog_option
 @option(
-    "--part",
-    type=Choice(BUMP_PARTS, case_sensitive=False),
-    required=True,
-    help="The version part whose bump PR should be reconciled.",
-)
-def close_stale_bump_pr(part: str) -> None:
-    """Close the minor/major version-increment PR when a bump is no longer allowed.
-
-    The changelog workflow's bump-version job opens a draft PR on the
-    "<part>-version-increment" branch whenever a bump is allowed. A scheduled
-    run that started before a competing push can open this PR against a main
-    branch that has already advanced past the target, leaving an orphan that
-    subsequent scheduled runs cannot refresh.
-
-    This command reconciles that state: it re-evaluates the gate against the
-    current checkout and, when the bump is no longer allowed, closes any open
-    PR on the matching branch (deleting the branch). When the bump is still
-    allowed, it leaves the PR alone so the standard bump flow can update it.
-
-    Idempotent: a no-op when no open PR exists on the target branch.
-    """
-    if is_version_bump_allowed(part):  # type: ignore[arg-type]
-        logging.info(f"{part} bump still allowed, leaving any open PR untouched.")
-        return
-    branch = f"{part}-version-increment"
-    closed = close_open_prs_on_branch(
-        branch,
-        comment=(
-            f"Closing stale {part} version-bump PR: `main` already advanced "
-            f"past the target version, so this branch no longer represents a "
-            f"valid bump."
-        ),
-    )
-    if closed:
-        logging.info(f"Closed {len(closed)} stale {part} bump PR(s): {closed}")
-
-
-@repomatic.command(
-    name="git-commit-push",
-    short_help="Commit files and push, rebasing on rejection",
-    section=_section_release,
-    examples=(
-        (
-            "Commit two files and push",
-            'repomatic git-commit-push --message "Record v1.2.3 binaries" docs/binaries.md docs/assets/virustotal-scans.csv',
-        ),
-        (
-            "Commit every change in the tree",
-            'repomatic git-commit-push --message "Sample star counts" --all-changes',
-        ),
-    ),
+    "--package",
+    default=None,
+    help="PyPI package name for date lookups. Auto-detected from pyproject.toml.",
 )
 @option(
-    "--message",
-    required=True,
-    help="Commit message.",
-)
-@option(
-    "--remote",
-    default="origin",
-    show_default=True,
-    help="Remote to push to.",
-)
-@option(
-    "--branch",
-    default="main",
-    show_default=True,
-    help="Remote branch to push to.",
-)
-@option(
-    "--all-changes/--no-all-changes",
+    "--fix",
+    is_flag=True,
     default=False,
-    help="Stage every change in the working tree instead of named files, for a "
-    "job whose output paths come from configuration.",
+    help="Fix date mismatches and add PyPI admonitions to the changelog.",
 )
-@argument(
-    "paths",
-    nargs=-1,
-    required=False,
-    type=file_path(exists=True, resolve_path=True),
-)
-def git_commit_push(
-    message: str,
-    remote: str,
-    branch: str,
-    all_changes: bool,
-    paths: tuple[Path, ...],
+@pass_context
+def lint_changelog(
+    ctx: Context,
+    changelog_path: Path,
+    package: str | None,
+    fix: bool,
 ) -> None:
-    """Commit the given files and push them to a remote branch.
+    """Verify that changelog release dates match canonical release dates.
 
-    Idempotent: exits successfully without creating a commit when the files
-    are unchanged. A rejected push (something else pushed meanwhile) is
-    retried after rebasing onto the fresh remote tip, so release jobs can
-    publish generated files to the default branch without racing other
-    pushes. Works from a detached HEAD.
+    Uses PyPI upload dates as the canonical reference when the project is
+    published to PyPI. Falls back to git tag dates for non-PyPI projects.
 
-    With --all-changes, everything the working tree carries is staged rather
-    than a named list. Reserved for a job whose writers are the steps right
-    before it and whose output paths only its configuration knows.
+    PyPI timestamps are immutable and reflect the actual publication date,
+    making them more reliable than git tags which can be recreated.
+
+    Also detects orphaned versions: versions that exist as git tags,
+    GitHub releases, or PyPI packages but have no corresponding changelog
+    entry. Orphans cause a non-zero exit code.
+
+    Reads pypi-package-history from [tool.repomatic] to fetch
+    releases published under former package names (for renamed projects).
+
+    Reads abandoned-versions from [tool.repomatic] to skip
+    "not found on PyPI" warnings for releases that were frozen but
+    never published (skip-and-move-forward releases).
+
+    Reads changelog.bullet-word-threshold from [tool.repomatic] to warn,
+    non-fatally, about unreleased changelog bullets longer than that many
+    words. A changelog entry is a release note, not a commit message.
+
+    Warns, non-fatally, about a released section holding no entry: a
+    published release heading with nothing under it reads as broken to
+    anyone scanning the notes for that version.
+
+    \b
+    Output symbols:
+        ✓  Dates match
+        ⚠  Version not found on reference source (warning, non-fatal)
+        ✗  Date mismatch (error, fatal)
+
+    \b
+    With --fix, the command also:
+        - Corrects mismatched dates to match the canonical source.
+        - Adds a PyPI link admonition under each released version.
+        - Adds a CAUTION admonition for yanked releases.
+        - Adds a WARNING admonition for versions not on PyPI.
+        - Inserts placeholder sections for orphaned versions.
+
+    \b
+    Exit codes:
+        0  All dates match, or --fix corrected the file.
+        1  Date mismatch or orphan detected without --fix.
+        2  Sanity gate refused to rewrite: upstream lookup (PyPI or
+           GitHub Releases) looks unhealthy and the existing changelog
+           has substantial coverage that would be silently stripped.
+           Re-run when the API is reachable.
     """
-    if bool(paths) == all_changes:
-        raise UsageError("Pass either PATHS or --all-changes, not both or neither.")
-    try:
-        pushed = commit_and_push_files(
-            paths, message, remote=remote, branch=branch, all_changes=all_changes
-        )
-    except RuntimeError as e:
-        raise ClickException(str(e))
-    except subprocess.CalledProcessError as e:
-        msg = f"Git operation failed: {e}"
-        if e.stderr:
-            msg += f"\n{e.stderr.strip()}"
-        raise ClickException(msg)
+    config = get_tool_config(ctx)
+    archive_location = config.changelog_archive_location
+    exit_code = lint_changelog_dates(
+        changelog_path,
+        package=package,
+        fix=fix,
+        archive_path=Path(archive_location) if archive_location else None,
+        pypi_package_history=config.pypi_package_history,
+        abandoned_versions=config.abandoned_versions,
+        bullet_word_threshold=config.changelog_bullet_word_threshold,
+    )
+    ctx.exit(exit_code)
 
-    if pushed:
-        echo(f"Pushed to {remote}/{branch}.")
+
+@subcommand(
+    short_help="Freeze version, changelog and pins for a release",
+    examples=(
+        ("Prepare release (changelog + citation)", "repomatic prepare-release"),
+        (
+            "Post-release: retarget workflows to main branch",
+            "repomatic prepare-release --post-release",
+        ),
+    ),
+)
+@changelog_option
+@option(
+    "--citation",
+    "citation_path",
+    type=file_path(readable=True, writable=True, resolve_path=True),
+    default="citation.cff",
+    help="Path to the citation file.",
+)
+@option(
+    "--workflow-dir",
+    type=dir_path(resolve_path=True),
+    default=WORKFLOW_TARGET_ROOT,
+    help="Path to the GitHub workflows directory.",
+)
+@option(
+    "--default-branch",
+    default="main",
+    help="Name of the default branch for workflow URL updates.",
+)
+@option(
+    "--update-workflows/--no-update-workflows",
+    default=None,
+    help="Update workflow URLs to use versioned tag instead of default branch."
+    " Defaults to True when $GITHUB_REPOSITORY is the canonical workflows repo.",
+)
+@option(
+    "--post-release",
+    is_flag=True,
+    default=False,
+    help="Run post-release steps (retarget workflow URLs to default branch).",
+)
+def prepare_release(
+    changelog_path: Path,
+    citation_path: Path,
+    workflow_dir: Path,
+    default_branch: str,
+    update_workflows: bool | None,
+    post_release: bool,
+) -> None:
+    """Prepare files for a release or post-release version bump.
+
+    This command consolidates all release preparation steps:
+
+    \b
+    - Set release date in changelog (replaces "(unreleased)" with today's date).
+    - Set release date in citation.cff.
+    - Update changelog comparison URL from "...main" to "...v{version}".
+    - Remove the "[!WARNING]" development warning block from changelog.
+    - Optionally update workflow URLs to use versioned tag.
+
+    \b
+    When running in GitHub Actions, --update-workflows is auto-detected:
+    it defaults to True when $GITHUB_REPOSITORY matches the canonical
+    workflows repository (kdeldycke/repomatic).
+
+    For post-release (after the release commit), use --post-release to retarget
+    workflow URLs back to the default branch.
+    """
+    # Auto-detect --update-workflows from CI context.
+    if update_workflows is None:
+        repo_slug = Metadata().repo_slug
+        update_workflows = repo_slug == DEFAULT_REPO
+        if update_workflows:
+            logging.info(
+                f"Auto-detected --update-workflows: repo_slug={repo_slug!r}"
+                f" matches canonical repo {DEFAULT_REPO!r}"
+            )
+
+    prep = PrepareRelease(
+        changelog_path=changelog_path,
+        citation_path=citation_path if citation_path.exists() else None,
+        workflow_dir=workflow_dir,
+        default_branch=default_branch,
+    )
+
+    if post_release:
+        modified = prep.post_release(update_workflows=update_workflows)
+        action = "Post-release"
     else:
-        echo("No changes to commit.")
+        modified = prep.prepare_release(update_workflows=update_workflows)
+        action = "Release preparation"
+
+    if modified:
+        logging.info(f"{action} complete. Modified {len(modified)} file(s):")
+        for path in modified:
+            echo(f"  {path}")
+    else:
+        logging.warning(f"{action}: no files were modified.")
 
 
-@repomatic.command(
+@subcommand(
     short_help="Create and push a Git tag",
-    section=_section_release,
     examples=(
         ("Create and push a tag", "repomatic git-tag --tag v1.2.3"),
         ("Tag a specific commit", "repomatic git-tag --tag v1.2.3 --commit abc123def"),
@@ -312,13 +389,7 @@ def git_commit_push(
     default=True,
     help="Skip silently if tag exists, or fail with an error.",
 )
-@option(
-    "-o",
-    "--output",
-    type=file_path(writable=True, resolve_path=True, allow_dash=True),
-    default=None,
-    help="Output file for created=true/false (e.g., $GITHUB_OUTPUT).",
-)
+@output_option("Write created=true or created=false to this file, like $GITHUB_OUTPUT.")
 def git_tag(
     tag: str,
     commit: str | None,
@@ -353,12 +424,11 @@ def git_tag(
         echo(f"Tag {tag!r} already exists, skipped.")
 
     if output:
-        echo(f"created={'true' if created else 'false'}", file=prep_path(output))
+        write_output("tag result", f"created={'true' if created else 'false'}", output)
 
 
-@repomatic.command(
+@subcommand(
     short_help="Name an attestation bundle after the asset it attests",
-    section=_section_release,
     examples=(
         (
             "Single asset, named papaya.tar.gz.attestation.json",
@@ -410,9 +480,8 @@ def pack_attestation_cmd(
         echo(path)
 
 
-@repomatic.command(
+@subcommand(
     short_help="Pack compiled binaries and their versionless aliases",
-    section=_section_release,
     examples=(
         (
             "Pack the binaries a build run downloaded",
@@ -449,9 +518,8 @@ def pack_binaries(version_str: str, dist_dir: Path) -> None:
         echo(path)
 
 
-@repomatic.command(
+@subcommand(
     short_help="Pack the skills and agents as a Claude Code plugin",
-    section=_section_release,
     examples=(
         (
             "Pack into the default ./repomatic-claude-plugin.zip",
@@ -463,13 +531,7 @@ def pack_binaries(version_str: str, dist_dir: Path) -> None:
         ),
     ),
 )
-@option(
-    "--output",
-    type=file_path(writable=True, resolve_path=True),
-    default=f"./{ARCHIVE_NAME}",
-    show_default=True,
-    help="Destination path of the plugin archive.",
-)
+@output_option("Write the plugin archive to this file.", default=f"./{ARCHIVE_NAME}")
 def pack_plugin_cmd(output: Path) -> None:
     """Pack the bundled skills and agents into a Claude Code plugin archive.
 
@@ -482,125 +544,20 @@ def pack_plugin_cmd(output: Path) -> None:
     To load a packed plugin without a marketplace, unzip the archive and point
     `claude --plugin-dir` at the extracted folder.
     """
+    if is_stdout(output):
+        # The packer writes to a path, so the archive goes through a scratch
+        # file on its way to stdout.
+        with tempfile.TemporaryDirectory(prefix="repomatic-plugin-") as scratch:
+            archive = Path(scratch) / ARCHIVE_NAME
+            pack_plugin(Path.cwd(), archive)
+            sys.stdout.buffer.write(archive.read_bytes())
+        return
     members = pack_plugin(Path.cwd(), output)
     echo(f"Packed {len(members)} files into {output}")
 
 
-@repomatic.command(
-    short_help="Freeze version, changelog and pins for a release",
-    section=_section_release,
-    examples=(
-        ("Prepare release (changelog + citation)", "repomatic prepare-release"),
-        (
-            "Post-release: retarget workflows to main branch",
-            "repomatic prepare-release --post-release",
-        ),
-    ),
-)
-@option(
-    "--changelog",
-    "changelog_path",
-    type=file_path(exists=True, readable=True, writable=True, resolve_path=True),
-    default=None,
-    help="Path to the changelog file. Defaults to the configured changelog.location.",
-)
-@option(
-    "--citation",
-    "citation_path",
-    type=file_path(readable=True, writable=True, resolve_path=True),
-    default="citation.cff",
-    help="Path to the citation file.",
-)
-@option(
-    "--workflow-dir",
-    type=dir_path(resolve_path=True),
-    default=WORKFLOW_TARGET_ROOT,
-    help="Path to the GitHub workflows directory.",
-)
-@option(
-    "--default-branch",
-    default="main",
-    help="Name of the default branch for workflow URL updates.",
-)
-@option(
-    "--update-workflows/--no-update-workflows",
-    default=None,
-    help="Update workflow URLs to use versioned tag instead of default branch."
-    " Defaults to True when $GITHUB_REPOSITORY is the canonical workflows repo.",
-)
-@option(
-    "--post-release",
-    is_flag=True,
-    default=False,
-    help="Run post-release steps (retarget workflow URLs to default branch).",
-)
-@pass_context
-def prepare_release(
-    ctx: Context,
-    changelog_path: Path | None,
-    citation_path: Path,
-    workflow_dir: Path,
-    default_branch: str,
-    update_workflows: bool | None,
-    post_release: bool,
-) -> None:
-    """Prepare files for a release or post-release version bump.
-
-    This command consolidates all release preparation steps:
-
-    \b
-    - Set release date in changelog (replaces "(unreleased)" with today's date).
-    - Set release date in citation.cff.
-    - Update changelog comparison URL from "...main" to "...v{version}".
-    - Remove the "[!WARNING]" development warning block from changelog.
-    - Optionally update workflow URLs to use versioned tag.
-
-    \b
-    When running in GitHub Actions, --update-workflows is auto-detected:
-    it defaults to True when $GITHUB_REPOSITORY matches the canonical
-    workflows repository (kdeldycke/repomatic).
-
-    For post-release (after the release commit), use --post-release to retarget
-    workflow URLs back to the default branch.
-    """
-    # Auto-detect --update-workflows from CI context.
-    if update_workflows is None:
-        repo_slug = Metadata().repo_slug
-        update_workflows = repo_slug == DEFAULT_REPO
-        if update_workflows:
-            logging.info(
-                f"Auto-detected --update-workflows: repo_slug={repo_slug!r}"
-                f" matches canonical repo {DEFAULT_REPO!r}"
-            )
-
-    if changelog_path is None:
-        changelog_path = resolved_changelog_path(get_tool_config(ctx))
-    prep = PrepareRelease(
-        changelog_path=changelog_path,
-        citation_path=citation_path if citation_path.exists() else None,
-        workflow_dir=workflow_dir,
-        default_branch=default_branch,
-    )
-
-    if post_release:
-        modified = prep.post_release(update_workflows=update_workflows)
-        action = "Post-release"
-    else:
-        modified = prep.prepare_release(update_workflows=update_workflows)
-        action = "Release preparation"
-
-    if modified:
-        logging.info(f"{action} complete. Modified {len(modified)} file(s):")
-        for path in modified:
-            echo(f"  {path}")
-    else:
-        logging.warning(f"{action}: no files were modified.")
-
-
-@repomatic.command(
-    name="scan-virustotal",
+@subcommand(
     short_help="Upload release binaries to VirusTotal",
-    section=_section_release,
     examples=(
         (
             "Scan the binaries attached to a tag",
@@ -639,11 +596,9 @@ def prepare_release(
     help="Download the tag's versioned binaries from its GitHub release into "
     "--binaries-dir first, waiting for the release to list its assets.",
 )
-@option(
-    "--repo",
-    envvar="GITHUB_REPOSITORY",
-    default=None,
-    help="Repository in owner/repo format that --download reads the release from.",
+@repo_option(
+    "Repository in owner/repo format that --download reads the release from.",
+    detect=False,
 )
 @option(
     "--rate-limit",
@@ -762,27 +717,70 @@ def scan_virustotal(
             echo(f"Scan records in {records} already up to date.")
 
 
-@repomatic.command(
-    name="sync-binaries",
+@subcommand(
+    short_help="Verify binary architecture and OS floor",
+    examples=(
+        (
+            "Verify a Linux ARM64 binary",
+            "repomatic verify-binary --target linux-arm64 --binary ./mpm-linux-arm64.bin",
+        ),
+        (
+            "Verify a Windows x64 binary",
+            "repomatic verify-binary --target windows-x64 --binary ./mpm-windows-x64.exe",
+        ),
+    ),
+)
+@option(
+    "--target",
+    type=Choice(sorted(NUITKA_BUILD_TARGETS), case_sensitive=False),
+    required=True,
+    help="Target platform.",
+)
+@option(
+    "--binary",
+    "binary_path",
+    type=file_path(exists=True, readable=True, resolve_path=True),
+    required=True,
+    help="Path to the binary file to verify.",
+)
+@option(
+    "--dist-dir",
+    "dist_dirs",
+    type=dir_path(exists=True, resolve_path=True),
+    multiple=True,
+    help="Nuitka dist directory to include in the OS floor scan. Repeatable. "
+    "Defaults to every *.dist directory in the working directory.",
+)
+def verify_binary(target: str, binary_path: Path, dist_dirs: tuple[Path, ...]) -> None:
+    """Verify a compiled binary's architecture and minimum-OS floor.
+
+    Parses the executable headers natively (ELF, Mach-O, PE), with no
+    external tool: the architecture is checked on every platform, then the
+    glibc floor on Linux and the deployment target on macOS are measured
+    over the binary plus the Nuitka dist directories whose content its
+    onefile payload repacks.
+    """
+    verify_binary_arch(target, binary_path)
+    echo(f"Binary architecture verified for {target}: {binary_path}")
+    scan_dirs = list(dist_dirs) or sorted(Path.cwd().glob("*.dist"))
+    verify_binary_floor(target, binary_path, scan_dirs)
+    echo(f"OS floor verified for {target}.")
+
+
+@subcommand(
     short_help="Regenerate the binaries catalog page",
-    section=_section_release,
     examples=(
         (
             "Regenerate the binaries catalog page",
             "repomatic sync-binaries --repo owner/repo",
         ),
         (
-            "Backfill the scan records store first",
-            "repomatic sync-binaries --repo owner/repo --records docs/assets/virustotal-scans.csv --backfill-records",
+            "With the detection snapshots of a scan history",
+            "repomatic sync-binaries --records docs/assets/virustotal-scans.csv",
         ),
     ),
 )
-@option(
-    "--repo",
-    required=True,
-    envvar="GITHUB_REPOSITORY",
-    help="Repository in owner/repo format.",
-)
+@repo_option()
 @option(
     "--page",
     type=file_path(resolve_path=True),
@@ -794,13 +792,7 @@ def scan_virustotal(
     "--records",
     type=file_path(resolve_path=True),
     default=None,
-    help="JSON scan history file written by scan-virustotal.",
-)
-@option(
-    "--backfill-records/--no-backfill-records",
-    default=False,
-    help="Recover detection snapshots from legacy release-notes tables into "
-    "the records file (requires --records).",
+    help="CSV scan history written by scan-virustotal.",
 )
 @pass_context
 def sync_binaries(
@@ -808,7 +800,6 @@ def sync_binaries(
     repo: str,
     page: Path,
     records: Path | None,
-    backfill_records: bool,
 ) -> None:
     """Regenerate the binaries catalog from the GitHub Releases API.
 
@@ -818,17 +809,9 @@ def sync_binaries(
     is given. The page renders the CSV through a csv-table directive and is
     created from a default template when missing; only its chart region is
     rewritten afterwards, so the prose can be edited per repository.
-
-    With --backfill-records, detection snapshots are first recovered from the
-    VirusTotal tables that release notes carried before the history file
-    existed, and merged into the records file. Release notes are immutable,
-    so the backfill converges.
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.binaries_sync, "binaries.sync")
-
-    if backfill_records and not records:
-        raise UsageError("--backfill-records requires --records.")
 
     try:
         releases = get_releases_with_assets(f"https://github.com/{repo}")
@@ -840,18 +823,6 @@ def sync_binaries(
     csv_path = page.parent / "assets" / "binaries.csv"
 
     try:
-        if backfill_records and records:
-            legacy = [
-                record
-                for release in releases
-                if not release.draft and release.date
-                for record in records_from_release_notes(
-                    release.body, release.tag, release.date
-                )
-            ]
-            if legacy and upsert_scan_records(records, legacy):
-                echo(f"Backfilled {len(legacy)} snapshot(s) from release notes.")
-
         scan_records = load_scan_records(records) if records else []
         csv_changed = update_binaries_csv(
             csv_path, render_binaries_csv(repo, releases, scan_records)
@@ -867,3 +838,137 @@ def sync_binaries(
             echo(f"Updated {path}.")
         else:
             echo(f"{path} already up to date.")
+
+
+@subcommand(short_help="Sync bumpversion config from bundled template")
+@pass_context
+def sync_bumpversion(ctx: Context) -> None:
+    """Sync [tool.bumpversion] config in pyproject.toml from the bundled
+    template.
+
+    Overwrites the [tool.bumpversion] section with the canonical template
+    bundled in repomatic. Designed for the sync-bumpversion autofix job.
+    The repomatic init bumpversion command remains available for interactive
+    bootstrapping.
+    """
+    config = get_tool_config(ctx)
+    exit_if_disabled(ctx, config.bumpversion_sync, "bumpversion.sync")
+
+    result = run_init(
+        output_dir=Path("."),
+        components=("bumpversion",),
+        config=config,
+    )
+    changed = [*result.created, *result.updated]
+    if changed:
+        for path in changed:
+            echo(f"Updated: {path}")
+    else:
+        echo("bumpversion config is up to date.")
+
+
+@subcommand(
+    short_help="Sync rolling dev pre-release on GitHub",
+    examples=(
+        (
+            "Dry run to preview what would be synced",
+            "repomatic sync-dev-release --dry-run",
+        ),
+        ("Create or update the dev pre-release", "repomatic sync-dev-release --live"),
+        (
+            "Create or update with asset upload",
+            "repomatic sync-dev-release --live --upload-assets release_assets/",
+        ),
+        (
+            "Delete the dev pre-release, as a real release does",
+            "repomatic sync-dev-release --live --delete",
+        ),
+    ),
+)
+@dry_run_option(default=True)
+@option(
+    "--delete/--no-delete",
+    default=False,
+    help="Delete-only mode: remove the dev pre-release without recreating.",
+)
+@option(
+    "--upload-assets",
+    type=dir_path(exists=True, resolve_path=True),
+    default=None,
+    help="Directory containing assets (binaries, packages) to upload.",
+)
+@pass_context
+def sync_dev_release_cmd(
+    ctx: Context,
+    dry_run: bool,
+    delete: bool,
+    upload_assets: Path | None,
+) -> None:
+    """Sync a rolling dev pre-release on GitHub.
+
+    Maintains a single pre-release that mirrors the unreleased changelog
+    section. The dev tag is force-updated to point to the latest main
+    commit.
+
+    In --delete mode, removes the dev pre-release without recreating
+    it. This is used during real releases to clean up.
+    """
+    config = get_tool_config(ctx)
+    exit_if_disabled(ctx, config.dev_release_sync, "dev-release.sync")
+
+    if delete and upload_assets:
+        raise UsageError("--delete and --upload-assets are mutually exclusive.")
+    version = Metadata.get_current_version()
+    if not version:
+        logging.warning("Could not determine current version.")
+        return
+
+    loaded = load_changelog_repo(config)
+    if loaded is None:
+        return
+    changelog_path, repo_url = loaded
+
+    # Parse owner/repo for gh CLI.
+    parsed = owner_repo(repo_url)
+    repository = "/".join(parsed) if parsed else ""
+
+    if delete:
+        if dry_run:
+            echo("[dry-run] Would delete all dev releases.")
+            return
+        cleanup_dev_releases(repository)
+        echo("Deleted all dev releases.")
+        return
+
+    if sync_dev_release(
+        changelog_path, version, repository, dry_run, asset_dir=upload_assets
+    ):
+        mode = "dry-run" if dry_run else "live"
+        echo(f"[{mode}] Dev release v{version} synced.")
+
+
+@subcommand(
+    short_help="Sync GitHub release notes from changelog",
+    examples=(
+        (
+            "Dry run to preview what would be updated",
+            "repomatic sync-github-releases --dry-run",
+        ),
+        ("Update drifted release notes", "repomatic sync-github-releases --live"),
+    ),
+)
+@dry_run_option(default=True)
+@pass_context
+def sync_github_releases_cmd(ctx: Context, dry_run: bool) -> None:
+    """Sync GitHub release notes from changelog.md.
+
+    Compares each GitHub release body against the corresponding
+    changelog.md section and updates any that have drifted.
+    """
+    loaded = load_changelog_repo(get_tool_config(ctx))
+    if loaded is None:
+        return
+    changelog_path, repo_url = loaded
+
+    result = sync_github_releases(repo_url, changelog_path, dry_run)
+    echo(render_sync_report(result))

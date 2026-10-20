@@ -1,7 +1,7 @@
-# `repomatic.cli.sync` module
+# `repomatic.cli.repo` module
 
 ```{eval-rst}
-.. automodule:: repomatic.cli.sync
+.. automodule:: repomatic.cli.repo
    :members:
    :show-inheritance:
    :undoc-members:

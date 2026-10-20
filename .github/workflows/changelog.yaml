@@ -89,7 +89,7 @@ jobs:
         id: metadata
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
-          --format github-json --output "$GITHUB_OUTPUT"
+          --output-format github-json --output "$GITHUB_OUTPUT"
           minor_bump_allowed major_bump_allowed release_commits_matrix
 
   fix-changelog:
@@ -201,7 +201,7 @@ jobs:
       - name: Close stale ${{ matrix.part }} bump PR
         # Runs on the inverse path: when a bump is no longer allowed, reconcile
         # any orphan PR left by an earlier run that raced a competing merge.
-        # See repomatic/cli/main.py::close_stale_bump_pr for rationale.
+        # See repomatic/cli/github.py::close_stale_bump_pr for rationale.
         if: ${{ !fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)] }}
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
@@ -278,7 +278,7 @@ jobs:
         if: github.repository == 'kdeldycke/repomatic'
         run: uv --no-progress run --frozen -- repomatic prepare-release --post-release
       - name: Add new changelog entry
-        run: uv --no-progress run --frozen -- repomatic changelog ./changelog.md
+        run: uv --no-progress run --frozen -- repomatic changelog
       - name: Version bump
         run: >
           uv --no-progress run --frozen -- repomatic

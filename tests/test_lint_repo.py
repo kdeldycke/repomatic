@@ -33,7 +33,7 @@ from click_extra.testing import CliRunner
 from repomatic import lint_repo
 from repomatic.bundle import get_data_content
 from repomatic.cli.main import repomatic
-from repomatic.cli.setup import show_metadata
+from repomatic.cli.repo import show_metadata
 from repomatic.cloudflare.r2 import PAGES_MAX_FILE_SIZE
 from repomatic.components import (
     COMPONENTS,
@@ -3070,7 +3070,8 @@ def _metadata_step(command):
     [
         # Upstream spelling: the CLI comes from the project's own lockfile.
         pytest.param(
-            "uv --no-progress run --frozen -- repomatic show-metadata --format github-json"
+            "uv --no-progress run --frozen -- repomatic show-metadata"
+            " --output-format github-json"
             ' --output "$GITHUB_OUTPUT" cli_scripts package_name',
             ["cli_scripts", "package_name"],
             id="uv-run",
@@ -3082,7 +3083,8 @@ def _metadata_step(command):
             ["cli_scripts", "package_name"],
             id="uvx-pinned",
         ),
-        # The deprecated spelling stays readable for one release cycle.
+        # The spelling of releases before 8.0.0, still read for a workflow
+        # pinned to one.
         pytest.param(
             "repomatic metadata --format github-json current_version",
             ["current_version"],
@@ -3093,6 +3095,11 @@ def _metadata_step(command):
             "repomatic metadata --format=json current_version",
             ["current_version"],
             id="inline-option-value",
+        ),
+        pytest.param(
+            "repomatic show-metadata --output-format json current_version",
+            ["current_version"],
+            id="separate-option-value",
         ),
         pytest.param(
             "repomatic metadata -o out current_version",
@@ -3162,11 +3169,13 @@ def test_metadata_keys_skips_a_repo_that_never_calls_it(tmp_path, monkeypatch):
 
 
 def test_metadata_value_options_match_the_command():
-    """The hand-listed value options are the ones the command really declares.
+    """The hand-listed value options cover every one the command declares.
 
     `check_metadata_keys` cannot import the CLI to ask (see
     `METADATA_VALUE_OPTIONS`), so the list is pinned here instead: an option
     gaining a value would otherwise make the lint read that value as a key.
+    The list may hold more, since a workflow pinned to an older release still
+    spells that release's options.
     """
     declared = {
         opt
@@ -3175,7 +3184,7 @@ def test_metadata_value_options_match_the_command():
         for opt in (*param.opts, *param.secondary_opts)
         if opt.startswith("-")
     }
-    assert declared == set(METADATA_VALUE_OPTIONS)
+    assert declared <= set(METADATA_VALUE_OPTIONS)
 
 
 def test_metadata_keys_covers_every_workflow_of_this_repo():

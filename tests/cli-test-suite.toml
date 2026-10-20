@@ -60,7 +60,7 @@ cli_parameters = "--verbosity INFO show-metadata"
 # UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f64f' in
 # position 39913: character maps to <undefined>
 skip_platforms = "windows"
-stderr_contains = ["info: Print show-metadata to <stdout>"]
+stderr_contains = ["info: Print metadata to <stdout>"]
 # Note: new_commits and new_commits_matrix are empty locally, but contain commit
 # SHAs when running in GitHub Actions CI. Use stdout_contains for key checks
 # instead of fullmatch since release_notes content varies.
@@ -90,7 +90,7 @@ stdout_regex_matches = [
 
 # Test changelog output.
 [[cases]]
-cli_parameters = ["--verbosity", "INFO", "changelog"]
+cli_parameters = ["--verbosity", "INFO", "changelog", "-"]
 # XXX This command fails on Windows as it tries to print emojis to the console:
 # UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f64f' in
 # position 39913: character maps to <undefined>
@@ -113,9 +113,9 @@ only_platforms = ["linux", "macOS", "windows"]
 exit_code = 0
 stderr_regex_matches = [
   'info: Read initial mapping from \S+\.mailmap',
-  # Both branches of `log_output_target`: a file destination narrates the path,
-  # a `-` destination names the stdout stream.
-  'info: (Write|Print) updated mailmap to \S+',
+  # The destination defaults to the source: a run either rewrites it, or
+  # finds nothing to add and writes nothing.
+  '(info: Write updated mailmap to \S+|warning: Nothing to update, stop the sync process\.)',
 ]
 
 # Every command and subcommand must render its --help screen without crashing.
@@ -202,12 +202,6 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic format-images"
 
 [[cases]]
-cli_parameters = "git-commit-push --help"
-exit_code = 0
-strip_ansi = true
-stdout_contains = "Usage: repomatic git-commit-push"
-
-[[cases]]
 cli_parameters = "git-tag --help"
 exit_code = 0
 strip_ansi = true
@@ -259,12 +253,6 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic lint-repo"
 
 [[cases]]
-cli_parameters = "lint-workflows --help"
-exit_code = 0
-strip_ansi = true
-stdout_contains = "Usage: repomatic lint-workflows"
-
-[[cases]]
 cli_parameters = "cloudflare-pages --help"
 exit_code = 0
 strip_ansi = true
@@ -296,19 +284,6 @@ skip_platforms = "windows"
 exit_code = 0
 strip_ansi = true
 stdout_contains = "Usage: repomatic lock-threads"
-
-[[cases]]
-cli_parameters = "metadata --help"
-exit_code = 0
-strip_ansi = true
-stdout_contains = "Usage: repomatic metadata"
-
-# The deprecated alias still runs the command, warning on stderr.
-[[cases]]
-cli_parameters = "metadata --list-keys"
-exit_code = 0
-strip_ansi = true
-stderr_contains = "repomatic metadata is deprecated and will be removed in 8.0.0. Use repomatic show-metadata."
 
 [[cases]]
 cli_parameters = "show-metadata --help"
@@ -505,21 +480,3 @@ cli_parameters = "verify-binary --help"
 exit_code = 0
 strip_ansi = true
 stdout_contains = "Usage: repomatic verify-binary"
-
-[[cases]]
-cli_parameters = "workflow --help"
-exit_code = 0
-strip_ansi = true
-stdout_contains = "Usage: repomatic workflow"
-
-[[cases]]
-cli_parameters = "workflow help --help"
-exit_code = 0
-strip_ansi = true
-stdout_contains = "Usage: repomatic workflow help"
-
-[[cases]]
-cli_parameters = "workflow lint --help"
-exit_code = 0
-strip_ansi = true
-stdout_contains = "Usage: repomatic workflow lint"

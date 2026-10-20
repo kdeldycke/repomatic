@@ -93,7 +93,7 @@ jobs:
         id: metadata
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
-          --format github-json --output "$GITHUB_OUTPUT"
+          --output-format github-json --output "$GITHUB_OUTPUT"
           is_bot is_python_project python_files
           yaml_changed zsh_changed zsh_files
           workflows_changed npm_min_release_age_days
