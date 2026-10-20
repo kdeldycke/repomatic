@@ -49,7 +49,7 @@ Every skill and agent, and nothing else: the 19 skills listed on the [skills pag
 
 That directory is what the marketplace publishes and what the archive mirrors, so `claude --plugin-dir .claude` in a checkout loads exactly what an install gives you. A marketplace install shows that tree back to you, read-only:
 
-![The installed plugin's Contents tab, listing plugin.json, three agents and seventeen skill folders](assets/desktop-plugin-contents.png)
+![The installed plugin's Contents tab, listing plugin.json, three agents and nineteen skill folders](assets/desktop-plugin-contents.png)
 
 ```{warning}
 Do not add an `agents` path to the manifest to publish the assets from somewhere else. `claude plugin validate --strict` accepts one and Claude Code then loads **zero** agents, with no error anywhere. This was measured against Claude Code 2.1.220: `claude plugin details` reported `Agents (0)` for the custom-path layout and `Agents (3)` for the default one.
@@ -145,7 +145,7 @@ That is the only panel the archive goes through. The **Customize > Skills** uplo
 
 Every skill and agent arrives in that single upload, listed under the plugin's **Skills** and **Agents** tabs and invocable by typing `/` in chat. The marketplace route below populates the same two tabs:
 
-![The Skills tab listing seventeen slash commands](assets/desktop-plugin-skills.png)
+![The Skills tab listing nineteen slash commands](assets/desktop-plugin-skills.png)
 
 ![The Agents tab listing grunt-qa, qa-engineer and sphinx-docs](assets/desktop-plugin-agents.png)
 
