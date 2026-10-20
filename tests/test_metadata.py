@@ -861,53 +861,53 @@ expected: dict[str, Any] = {
     "test_matrix": {
         "include": [
             {"state": "stable", "os": "ubuntu-26.04-arm", "python-version": "3.10"},
-            {"state": "stable", "os": "ubuntu-26.04-arm", "python-version": "3.14"},
+            {"state": "stable", "os": "ubuntu-26.04-arm", "python-version": "3.15"},
             {
                 "state": "unstable",
                 "os": "ubuntu-26.04-arm",
-                "python-version": "3.15",
-                "python-label": "3.15-dev",
+                "python-version": "3.16",
+                "python-label": "3.16-dev",
             },
             {"state": "stable", "os": "ubuntu-26.04", "python-version": "3.10"},
-            {"state": "stable", "os": "ubuntu-26.04", "python-version": "3.14"},
+            {"state": "stable", "os": "ubuntu-26.04", "python-version": "3.15"},
             {
                 "state": "unstable",
                 "os": "ubuntu-26.04",
-                "python-version": "3.15",
-                "python-label": "3.15-dev",
+                "python-version": "3.16",
+                "python-label": "3.16-dev",
             },
             {"state": "stable", "os": "macos-26", "python-version": "3.10"},
-            {"state": "stable", "os": "macos-26", "python-version": "3.14"},
+            {"state": "stable", "os": "macos-26", "python-version": "3.15"},
             {
                 "state": "unstable",
                 "os": "macos-26",
-                "python-version": "3.15",
-                "python-label": "3.15-dev",
+                "python-version": "3.16",
+                "python-label": "3.16-dev",
             },
             {"state": "stable", "os": "macos-26-intel", "python-version": "3.10"},
-            {"state": "stable", "os": "macos-26-intel", "python-version": "3.14"},
+            {"state": "stable", "os": "macos-26-intel", "python-version": "3.15"},
             {
                 "state": "unstable",
                 "os": "macos-26-intel",
-                "python-version": "3.15",
-                "python-label": "3.15-dev",
+                "python-version": "3.16",
+                "python-label": "3.16-dev",
             },
-            {"state": "stable", "os": "windows-11-arm", "python-version": "3.14"},
+            {"state": "stable", "os": "windows-11-arm", "python-version": "3.15"},
             {
                 "state": "unstable",
                 "os": "windows-11-arm",
-                "python-version": "3.15",
-                "python-label": "3.15-dev",
+                "python-version": "3.16",
+                "python-label": "3.16-dev",
             },
             {"state": "stable", "os": "windows-2025", "python-version": "3.10"},
-            {"state": "stable", "os": "windows-2025", "python-version": "3.14"},
+            {"state": "stable", "os": "windows-2025", "python-version": "3.15"},
             {
                 "state": "unstable",
                 "os": "windows-2025",
-                "python-version": "3.15",
-                "python-label": "3.15-dev",
+                "python-version": "3.16",
+                "python-label": "3.16-dev",
             },
-            {"state": "stable", "os": "ubuntu-26.04-arm", "python-version": "3.14t"},
+            {"state": "stable", "os": "ubuntu-26.04-arm", "python-version": "3.15t"},
             {
                 "state": "stable",
                 "os": "ubuntu-26.04-arm",
@@ -924,7 +924,7 @@ expected: dict[str, Any] = {
         ],
         "python-version": [
             "3.10",
-            "3.14",
+            "3.15",
         ],
         "include": [
             {"state": "stable"},
@@ -1947,7 +1947,7 @@ test-matrix.full-include = [
 def test_full_include_backfills_probe_defaults(tmp_path, monkeypatch):
     """Free-threaded probe jobs inherit the single-key default includes.
 
-    The 3.14t probe is a standalone include pinned to one runner, appended by
+    The 3.15t probe is a standalone include pinned to one runner, appended by
     ``solve()`` and never augmented by GitHub's include algorithm. The flat
     full-include matrix backfills the matrix defaults onto it, so it never
     emits an empty ``click-version``/``cloup-version`` that GitHub would expand
@@ -1967,7 +1967,7 @@ test-matrix.include = [
   { "cloup-version" = "released" },
 ]
 test-matrix.full-include = [
-  { "os" = "ubuntu-26.04-arm", "python-version" = "3.14", "click-version" = "main" },
+  { "os" = "ubuntu-26.04-arm", "python-version" = "3.15", "click-version" = "main" },
 ]
 """,
     )
@@ -1975,10 +1975,10 @@ test-matrix.full-include = [
     # equivalent matrix()["include"] widens to a union that defeats indexing.
     rows = Metadata().test_matrix.include
 
-    probe = next(r for r in rows if r["python-version"] == "3.14t")
+    probe = next(r for r in rows if r["python-version"] == "3.15t")
     assert probe == {
         "os": "ubuntu-26.04-arm",
-        "python-version": "3.14t",
+        "python-version": "3.15t",
         "click-version": "released",
         "cloup-version": "released",
         "state": "stable",
@@ -2279,11 +2279,11 @@ unstable = [
     # At a stable Python the marking is what flips state: colorama is unstable
     # while released stays stable (released only goes unstable at a development
     # Python, via the separate built-in rule).
-    colorama_stable_py = [j for j in colorama_jobs if j["python-version"] == "3.14"]
+    colorama_stable_py = [j for j in colorama_jobs if j["python-version"] == "3.15"]
     released_stable_py = [
         j
         for j in full_jobs
-        if j.get("click-version") == "released" and j["python-version"] == "3.14"
+        if j.get("click-version") == "released" and j["python-version"] == "3.15"
     ]
     assert colorama_stable_py and released_stable_py
     assert all(j["state"] == "unstable" for j in colorama_stable_py)
@@ -2333,7 +2333,7 @@ def test_unstable_python_versions_carry_a_prerelease_label(tmp_path, monkeypatch
     """Each in-development Python gets a display label; the axis keeps the version.
 
     The label is what the CI job name shows, so an unstable cell reads
-    `py3.15-dev` and says why it may fail rather than looking like any released
+    `py3.16-dev` and says why it may fail rather than looking like any released
     one. Adding a version to UNSTABLE_PYTHON_VERSIONS and forgetting its label
     is the failure this catches.
 

@@ -86,14 +86,14 @@ ARM, by two to three times over the x86 image, for quicker PR feedback. See
 
 TEST_PYTHON_FULL = (
     "3.10",
-    "3.14",
     "3.15",
+    "3.16",
 )
 """Python versions tested across every runner in the full matrix.
 
 Spans the supported range: the floor (`3.10`), the latest stable release
-(`3.14`), and the in-development version (`3.15`, flagged `continue-on-error`
-via {data}`UNSTABLE_PYTHON_VERSIONS`). Intermediate releases (3.11, 3.12, 3.13)
+(`3.15`), and the in-development version (`3.16`, flagged `continue-on-error`
+via {data}`UNSTABLE_PYTHON_VERSIONS`). Intermediate releases (3.11 to 3.14)
 are skipped to reduce CI load. Released build *flavors* (free-threaded) are not
 full-spread; they get a single-runner smoke test instead, see
 {data}`SINGLE_RUNNER_PYTHON_VERSIONS`.
@@ -101,7 +101,7 @@ full-spread; they get a single-runner smoke test instead, see
 
 TEST_PYTHON_PR = (
     "3.10",
-    "3.14",
+    "3.15",
 )
 """Reduced Python version set for pull request test matrices.
 
@@ -110,7 +110,7 @@ in-development version and released build flavors (free-threaded) are left to
 the full matrix.
 """
 
-UNSTABLE_PYTHON_VERSIONS: Final[frozenset[str]] = frozenset({"3.15"})
+UNSTABLE_PYTHON_VERSIONS: Final[frozenset[str]] = frozenset({"3.16"})
 """Python versions still in development.
 
 Jobs using these versions run with `continue-on-error` in CI. Contrast with
@@ -122,30 +122,30 @@ PRERELEASE_LABEL_SUFFIX: Final[str] = "-dev"
 
 Appended to each {data}`UNSTABLE_PYTHON_VERSIONS` member to form the
 `python-label` matrix key, so a `continue-on-error` cell states *why* it may
-fail: `⁉️ ubuntu-26.04 / py3.15-dev` rather than a bare `py3.15` indistinguishable
+fail: `⁉️ ubuntu-26.04 / py3.16-dev` rather than a bare `py3.16` indistinguishable
 from a released one. Being a plain suffix append, it composes with the
-free-threaded flavor the way both tools below spell it: `3.15t` reads
-`3.15t-dev`.
+free-threaded flavor the way both tools below spell it: `3.16t` reads
+`3.16t-dev`.
 
 The spelling is borrowed, not invented. pyenv ships version definitions named
-`3.15-dev` and `3.15t-dev` that build from the CPython branch tip, and
+`3.16-dev` and `3.16t-dev` that build from the CPython branch tip, and
 [`actions/setup-python`](https://github.com/actions/setup-python/blob/main/docs/advanced-usage.md)
 documents an `x.y-dev` syntax resolving to "the latest patch version of Python,
 alpha, beta and rc (release candidate) releases included". Anyone reading a
 GitHub Actions job name has met it in one of the two.
 
 ```{warning} A label, never a uv request
-uv does not implement the syntax. `uv python find 3.15` parses as a version
-request ("No interpreter found for Python 3.15"), while `uv python find
-3.15-dev` falls through to the executable-name branch ("No interpreter found
-for executable name `3.15-dev`"). The workflow hands `python-version` straight
+uv does not implement the syntax. `uv python find 3.16` parses as a version
+request ("No interpreter found for Python 3.16"), while `uv python find
+3.16-dev` falls through to the executable-name branch ("No interpreter found
+for executable name `3.16-dev`"). The workflow hands `python-version` straight
 to `uv venv --python`, so the axis value stays the bare version and this suffix
 reaches the job `name:` alone. Writing it into a
 `[tool.repomatic.test-matrix]` directive matches no cell.
 ```
 """
 
-SINGLE_RUNNER_PYTHON_VERSIONS: Final[dict[str, str]] = {"3.14t": "ubuntu-26.04-arm"}
+SINGLE_RUNNER_PYTHON_VERSIONS: Final[dict[str, str]] = {"3.15t": "ubuntu-26.04-arm"}
 """Released Python build flavors smoke-tested on a single runner, mapped to it.
 
 A free-threaded build (the `t` suffix, made officially supported in 3.14 by

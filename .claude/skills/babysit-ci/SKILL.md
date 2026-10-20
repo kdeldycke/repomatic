@@ -226,7 +226,7 @@ Report the union explicitly: which cells passed in CI, which you closed locally,
 ## Stable vs. unstable
 
 - **Stable jobs** (✅): must pass. So does every job carrying no stability glyph at all (`🛡️ Lint types`, `1️⃣ Run-once tests`, `📦 Package install`): the test is the *absence* of `⁉️` anywhere in the name, never the presence of a `✅` prefix.
-- **Unstable jobs** (⁉️): allowed to fail (an in-development Python, currently 3.15). Their failures never gate the loop; a release context still fixes the repo-fixable ones (see [error triage discipline](#error-triage-discipline), rule 1).
+- **Unstable jobs** (⁉️): allowed to fail (an in-development Python, currently 3.16). Their failures never gate the loop; a release context still fixes the repo-fixable ones (see [error triage discipline](#error-triage-discipline), rule 1).
 
 The workflow uses `continue-on-error` for unstable jobs, so the run can succeed even when they fail.
 

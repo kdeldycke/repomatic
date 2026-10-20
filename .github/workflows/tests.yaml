@@ -108,7 +108,7 @@ jobs:
         && fromJSON(needs.metadata.outputs.metadata).test_matrix
         || fromJSON(needs.metadata.outputs.metadata).test_matrix_pr }}
     # `python-label` is set by repomatic show-metadata only where the plain version
-    # would hide why a cell is continue-on-error (a prerelease reads `3.15-dev`);
+    # would hide why a cell is continue-on-error (a prerelease reads `3.16-dev`);
     # every other cell falls back to the version itself. See
     # repomatic/matrix_axes.py for why the label never replaces the axis value.
     # A cell carrying a `resolution` key appends it, which tells that cell from
@@ -223,7 +223,7 @@ jobs:
         with:
           version: "0.13.0"
       - name: Install Python
-        run: uv --no-progress venv --python 3.14
+        run: uv --no-progress venv --python 3.15
       - name: Install project
         run: uv --no-progress sync --frozen --all-extras --group test
       - name: Run-once unittests
@@ -267,7 +267,7 @@ jobs:
         with:
           version: "0.13.0"
       - name: Install Python
-        run: uv --no-progress venv --python 3.14
+        run: uv --no-progress venv --python 3.15
       - name: Run stable CLI
         run: |
           for script in $CLI_SCRIPTS; do

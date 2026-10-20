@@ -29,7 +29,7 @@ from repomatic.cli.main import repomatic
 invoke(repomatic, args=['show-test-matrix', 'full'])
 ```
 
-This is the built-in default plus one row. The default holds the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.15` prerelease flagged `unstable`, the free-threaded `3.14t` build pinned to a single runner as a stable smoke test, and `windows-11-arm` dropped on `3.10`. The row with a `resolution` value is this repository's own: see [§ Run every declared floor in one cell](#run-every-declared-floor-in-one-cell).
+This is the built-in default plus one row. The default holds the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.16` prerelease flagged `unstable`, the free-threaded `3.15t` build pinned to a single runner as a stable smoke test, and `windows-11-arm` dropped on `3.10`. The row with a `resolution` value is this repository's own: see [§ Run every declared floor in one cell](#run-every-declared-floor-in-one-cell).
 
 The reduced pull-request matrix keeps one runner per OS and two Python versions, for faster feedback:
 
@@ -79,13 +79,13 @@ The combination your users actually install — released dependencies on a stabl
 
 Anything not yet shipped is an early-warning signal, not a support promise: a prerelease Python, a dependency's development branch, an unreleased build. Run each on a *single* runner. If it breaks you want a heads-up, not a cross-platform report, and once that version ships the broad shipped-config coverage picks it up anyway. Flag these jobs `continue-on-error` through [`test-matrix.unstable`](configuration.md) so an expected breakage does not fail the build.
 
-A prerelease Python says so in its job title. `repomatic` attaches a `python-label` key to those cells, spelling the version the way [pyenv](https://github.com/pyenv/pyenv) and [`actions/setup-python`](https://github.com/actions/setup-python/blob/main/docs/advanced-usage.md) name a development build, so the job reads `⁉️ ubuntu-26.04 / py3.15-dev` and its `continue-on-error` marking carries its own explanation. That label is display-only: `uv` does not parse the `-dev` form, so the `python-version` axis keeps the bare `3.15`, and `3.15` remains the value a `test-matrix` directive has to name.
+A prerelease Python says so in its job title. `repomatic` attaches a `python-label` key to those cells, spelling the version the way [pyenv](https://github.com/pyenv/pyenv) and [`actions/setup-python`](https://github.com/actions/setup-python/blob/main/docs/advanced-usage.md) name a development build, so the job reads `⁉️ ubuntu-26.04 / py3.16-dev` and its `continue-on-error` marking carries its own explanation. That label is display-only: `uv` does not parse the `-dev` form, so the `python-version` axis keeps the bare `3.16`, and `3.16` remains the value a `test-matrix` directive has to name.
 
 (smoke-test-released-build-flavors-on-one-runner)=
 
 ### Smoke-test released build flavors on one runner
 
-A free-threaded build (the `t` suffix, [officially supported since 3.14](https://peps.python.org/pep-0779/)) is a released *flavor* of a version the shipped-config slice already covers on every platform: the same interpreter, just compiled without the GIL. Because it is released, it is expected to work, so it runs **stable**, not `continue-on-error` like a prerelease. But re-running the whole suite on every platform buys little: one runner catches a free-threading-specific break, and the base version's cross-platform coverage handles the rest. So a flavor takes the narrow spread of a forward-looking probe with the stable outcome of shipped config. `repomatic` pins `3.14t` to its fastest Linux runner by default; to add another flavor, give it a `python-version` variation pinned to one runner with `exclude` (the worked example's pattern) and leave it *out* of `test-matrix.unstable`.
+A free-threaded build (the `t` suffix, [officially supported since 3.14](https://peps.python.org/pep-0779/)) is a released *flavor* of a version the shipped-config slice already covers on every platform: the same interpreter, just compiled without the GIL. Because it is released, it is expected to work, so it runs **stable**, not `continue-on-error` like a prerelease. But re-running the whole suite on every platform buys little: one runner catches a free-threading-specific break, and the base version's cross-platform coverage handles the rest. So a flavor takes the narrow spread of a forward-looking probe with the stable outcome of shipped config. `repomatic` pins `3.15t` to its fastest Linux runner by default; to add another flavor, give it a `python-version` variation pinned to one runner with `exclude` (the worked example's pattern) and leave it *out* of `test-matrix.unstable`.
 
 ### Pin the dependency floor and any known-regression release
 
@@ -112,13 +112,13 @@ test-matrix.exclude = [
   { "os" = "ubuntu-26.04", "acme-version" = "4.2" },
   { "os" = "macos-26", "acme-version" = "4.2" },
   { "os" = "windows-2025", "acme-version" = "4.2" },
-  { "python-version" = "3.14", "acme-version" = "4.2" },
   { "python-version" = "3.15", "acme-version" = "4.2" },
+  { "python-version" = "3.16", "acme-version" = "4.2" },
   { "os" = "ubuntu-26.04", "acme-version" = "5.0" },
   { "os" = "macos-26", "acme-version" = "5.0" },
   { "os" = "windows-2025", "acme-version" = "5.0" },
-  { "python-version" = "3.14", "acme-version" = "5.0" },
   { "python-version" = "3.15", "acme-version" = "5.0" },
+  { "python-version" = "3.16", "acme-version" = "5.0" },
 ]
 ```
 
@@ -214,7 +214,7 @@ Faster at two of three versions, tied at the third, with nothing failing. That i
 While the pair was in preview, the residual risk was capacity, not correctness. GitHub warns that a preview image's capacity "will be balanced only throughout the next weeks", so queue time could be worse than the runtimes above suggest, and queue time already dominates this project's CI. That risk was weighed against fleet homogeneity and lost: keeping the release binaries on their own GA images meant maintaining a second Linux pair purely to hedge a queue, and every extra image is one more to track, pin and migrate. The Linux Nuitka builds therefore run on the same axes as the suite. A project that would rather stay on the previous images can pin them back with one line: `test-matrix.replace.os = { "ubuntu-26.04-arm" = "ubuntu-24.04-arm" }`.
 ```
 
-The same reasoning is what keeps `3.15` flagged `unstable` while these runners are not: a prerelease Python can still change before its final release, so its cells are an early-warning signal rather than a verdict. A runner image that passes the suite today is simply passing the suite.
+The same reasoning is what keeps `3.16` flagged `unstable` while these runners are not: a prerelease Python can still change before its final release, so its cells are an early-warning signal rather than a verdict. A runner image that passes the suite today is simply passing the suite.
 
 ### Speed tendencies
 
@@ -327,7 +327,7 @@ test-matrix.exclude = [
 test-matrix.unstable = [{ "acme-version" = "main" }]
 ```
 
-On top of the built-in `3.14t` flavor smoke test (stable, on `ubuntu-26.04-arm` with released `acme`), the `acme` config resolves to three slices:
+On top of the built-in `3.15t` flavor smoke test (stable, on `ubuntu-26.04-arm` with released `acme`), the `acme` config resolves to three slices:
 
 | Slice                                  | Runs on                                    | `continue-on-error` |
 | :------------------------------------- | :----------------------------------------- | :------------------ |

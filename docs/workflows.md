@@ -822,7 +822,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 ### 🔬 Run tests (`tests`)
 
-- Runs the test suite across a matrix of OS (Linux/macOS/Windows × `x86_64`/`aarch64`) and Python versions: `3.10`, `3.14`, and the `continue-on-error` development `3.15` on every runner, plus the free-threaded `3.14t` as a stable single-runner smoke test (see [test matrix](test-matrix.md))
+- Runs the test suite across a matrix of OS (Linux/macOS/Windows × `x86_64`/`aarch64`) and Python versions: `3.10`, `3.15`, and the `continue-on-error` development `3.16` on every runner, plus the free-threaded `3.15t` as a stable single-runner smoke test (see [test matrix](test-matrix.md))
 - Installs all optional extras (`--all-extras`) to catch incompatibilities between optional dependency groups
 - Resolves the project again in any cell that carries a `resolution` matrix key, so a `lowest-direct` cell runs every declared dependency floor (see [test matrix § Run every declared floor in one cell](test-matrix.md#run-every-declared-floor-in-one-cell))
 - Runs `pytest` under the `[tool.coverage] report.fail_under` coverage floor, excluding `once`-marked tests (covered by the dedicated `once-tests` job)

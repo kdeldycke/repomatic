@@ -436,7 +436,7 @@ run.source = [ "repomatic" ]
 run.branch = true
 # Coverage ratchet: the suite fails below this. The matrix floor sits near
 # 81.6%, since the only cell-dependent tests (tests/test_sphinx_crossrefs.py)
-# run on Linux + Python 3.14 alone and push that cell *up*; the package holds
+# run on Linux + Python 3.15 alone and push that cell *up*; the package holds
 # four platform-conditional lines total, so the OS spread is noise. ~1.6 points
 # of margin absorbs that without waving a real regression through.
 #
