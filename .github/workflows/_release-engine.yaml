@@ -211,18 +211,7 @@ jobs:
         # macOS version and drags every bundled library's floor up to it, and
         # /opt/python inside manylinux containers ships no libpython for
         # Nuitka to link against.
-        # Windows keeps the runner's system CPython: before `0.13.0`, uv ranks
-        # its managed x86_64 interpreter above the aarch64 one on Windows
-        # ARM64, so forcing managed python on the arm64 runner resolves to
-        # x86_64 and Nuitka emits an x64 binary (caught by verify-binary). The
-        # system CPython is the canonical Windows build, matching the
-        # documented floor.
-        # XXX: retry --managed-python on Windows once the uv pin above reaches
-        # `0.13.0`. See https://repomatic.net/upstream#test-matrix
-        run: >
-          uv --no-progress
-          ${{ matrix.platform_id != 'windows' && '--managed-python' || '' }}
-          venv --python 3.14
+        run: uv --no-progress --managed-python venv --python 3.14
       - name: Sync optional-dependencies for Nuitka build
         # Install the [project.optional-dependencies] extras listed in
         # [tool.repomatic] nuitka.extras into the build venv, so Nuitka can

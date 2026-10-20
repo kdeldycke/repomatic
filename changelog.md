@@ -7,6 +7,7 @@
 
 - The setup guide issue now stays open while `REPOMATIC_PAT` also has access to another repository of its owner, and the token step names it.
 - The bundled `tests.yaml` drops its step that forced a native Python on Windows ARM64, since uv `0.13.0` picks it unaided. A downstream copy can drop the same step.
+- The Windows binaries now build on uv's managed Python, like the binaries of the other platforms.
 - The bundled `benchmark-update` skill now grades each cell ✅, 🟡 or ❌, links it to its evidence, and audits blank cells against quoted sources.
 - The bundled `repomatic-upgrade` skill now runs the newly pinned `mypy` and `ruff` on the untouched tree, since the changelog often leaves a tool bump out.
 - The bundled `repomatic-upgrade` skill now tells a local edit that upstream already holds from one the upgrade drops, with a three-way merge.
