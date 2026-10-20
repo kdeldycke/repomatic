@@ -54,8 +54,8 @@ from repomatic.git_ops import (
     stage_all,
     tree_sha,
 )
-from repomatic.metadata.core import Metadata
 from repomatic.metadata.project import is_version_bump_allowed
+from repomatic.pyproject import get_current_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -334,7 +334,7 @@ def test_is_version_bump_allowed_current_repo():
     This test verifies the correct behavior based on comparing current version
     in pyproject.toml against the latest Git tag.
     """
-    current_version_str = Metadata.get_current_version()
+    current_version_str = get_current_version()
     assert current_version_str is not None
     current = Version(current_version_str)
 

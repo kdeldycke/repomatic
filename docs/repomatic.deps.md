@@ -14,10 +14,14 @@
    :maxdepth: 4
 
    repomatic.deps.audit
+   repomatic.deps.cooldown
    repomatic.deps.graph
+   repomatic.deps.lockfile
    repomatic.deps.pins
    repomatic.deps.policy
    repomatic.deps.report
+   repomatic.deps.requirements
+   repomatic.deps.shippable
    repomatic.deps.sources
    repomatic.deps.sync
    repomatic.deps.uv

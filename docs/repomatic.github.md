@@ -13,19 +13,22 @@
 .. toctree::
    :maxdepth: 4
 
-   repomatic.github.actions
    repomatic.github.ci_status
    repomatic.github.dev_release
+   repomatic.github.event
    repomatic.github.gh
    repomatic.github.issue
    repomatic.github.job_timings
    repomatic.github.labels
+   repomatic.github.outputs
    repomatic.github.pr
    repomatic.github.pr_body
    repomatic.github.release_sync
    repomatic.github.releases
+   repomatic.github.runs
    repomatic.github.sponsor
    repomatic.github.status
+   repomatic.github.threads
    repomatic.github.token
    repomatic.github.unsubscribe
    repomatic.github.urls

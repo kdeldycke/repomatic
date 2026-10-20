@@ -38,7 +38,6 @@ from click_extra import (
 )
 
 from ..broken_links import manage_combined_broken_links_issue
-from ..components import is_awesome_repo
 from ..config import Config
 from ..github import token as _token_mod, unsubscribe as _unsub_mod
 from ..github.event import (
@@ -75,6 +74,7 @@ from ..metadata.core import Metadata
 from ..metadata.project import is_version_bump_allowed
 from ..setup_guide import manage_setup_guide
 from ..templating import PrTemplate, get_template_names
+from ..upstream import is_awesome_repo
 from ..versions import BUMP_PARTS
 from .main import (
     dry_run_option,

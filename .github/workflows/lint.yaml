@@ -72,9 +72,9 @@ jobs:
     # so the entire workflow costs zero runner minutes for version-bump
     # PRs (head_ref check) AND their post-merge `push` to main / downstream
     # workflow_call invocations (commit-message check). The PR branch list
-    # must stay in sync with repomatic.git_ops.VERSION_BUMP_BRANCHES; the
+    # must stay in sync with repomatic.release.protocol.VERSION_BUMP_BRANCHES; the
     # single commit-message clause relies on
-    # repomatic.git_ops.CHANGELOG_COMMIT_PREFIX marking every machine-authored
+    # repomatic.release.protocol.CHANGELOG_COMMIT_PREFIX marking every machine-authored
     # version-machinery commit. Both enforced by repomatic's own test suite.
     if: >
       !contains(fromJSON('["major-version-increment","minor-version-increment","prepare-release"]'),

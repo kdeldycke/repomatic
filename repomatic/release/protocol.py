@@ -56,7 +56,7 @@ than the full pattern here, because the question is "does this push carry a
 release" rather than "which version is it", and answering it must not depend
 on the version number parsing.
 
-{func}`repomatic.github.actions.cancel_superseded_runs` applies the same test
+{func}`repomatic.github.runs.cancel_superseded_runs` applies the same test
 from the API side, which is the half GitHub's own concurrency mechanism
 cannot cover: a manual sweep of a branch's live runs enters no concurrency
 group at all.

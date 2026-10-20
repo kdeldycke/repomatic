@@ -61,15 +61,15 @@ import yaml
 
 from .. import __version__
 from ..bundle import get_data_content
-from ..components import (
+from ..components import WORKFLOW_SOURCES
+from ..config import Config
+from ..deps.pins import min_release_age_days
+from ..upstream import (
     DEFAULT_REPO,
     UPSTREAM_ASSET_GLOB,
     UPSTREAM_SOURCE_GLOB,
     UPSTREAM_SOURCE_PREFIX,
-    WORKFLOW_SOURCES,
 )
-from ..config import Config
-from ..deps.pins import min_release_age_days
 from .workflow_files import load_workflow, workflow_triggers
 
 TYPE_CHECKING = False
@@ -633,7 +633,7 @@ def _as_workflow_file(lines: list[str]) -> str:
     line. `release.yaml` is the one caller shaped that way, and it shipped that
     stray line to every downstream repository.
 
-    Nothing further down collapses it: {func}`~repomatic.init_project._write_managed`
+    Nothing further down collapses it: `repomatic.init.run._InitRun.write`
     writes generated callers with `normalize=False`, because their exact bytes
     carry downstream-owned jobs verbatim. So the generator has to settle its own
     trailing whitespace, the way the extras path does before grafting a fragment

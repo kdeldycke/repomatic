@@ -86,7 +86,7 @@ from ..release.binary import (
 from .env import EnvironmentMetadata
 from .git import GitMetadata
 from .matrix import MatrixMetadata
-from .output import Dialect, format_github_value
+from .output import Dialect
 from .project import ProjectMetadata
 
 TYPE_CHECKING = False
@@ -439,9 +439,6 @@ class Metadata(
         """
         cls._instance = None
 
-    # 8.0.0 shim: re-export for callers not migrated yet.
-    format_github_value = staticmethod(format_github_value)
-
     @cached_property
     def mailmap_exists(self) -> bool:
         return MAILMAP_PATH.is_file()
@@ -456,30 +453,6 @@ class Metadata(
         keys read the inventory attribute of the same name.
         """
         return FileInventory()
-
-    # 8.0.0 shim: re-export for callers not migrated yet.
-    @property
-    def image_files(self) -> list[Path]:
-        """Images the optimizer can losslessly shrink."""
-        return self.files.image_files
-
-    # 8.0.0 shim: re-export for callers not migrated yet.
-    @property
-    def workflow_files(self) -> list[Path]:
-        """GitHub workflow definitions."""
-        return self.files.workflow_files
-
-    # 8.0.0 shim: re-export for callers not migrated yet.
-    @property
-    def yaml_files(self) -> list[Path]:
-        """YAML files."""
-        return self.files.yaml_files
-
-    # 8.0.0 shim: re-export for callers not migrated yet.
-    @property
-    def zsh_files(self) -> list[Path]:
-        """Zsh scripts, by extension or shebang."""
-        return self.files.zsh_files
 
     @cached_property
     def current_version(self) -> str | None:

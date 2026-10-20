@@ -53,11 +53,8 @@ from repomatic.config import (
     publish_config,
 )
 from repomatic.file_inventory import FileInventory
-from repomatic.github.actions import (
-    MAX_STEP_OUTPUT_BYTES,
-    NULL_SHA,
-    WorkflowEvent,
-)
+from repomatic.github.event import NULL_SHA, WorkflowEvent
+from repomatic.github.outputs import MAX_STEP_OUTPUT_BYTES
 from repomatic.matrix.axes import (
     PRERELEASE_LABEL_SUFFIX,
     SINGLE_RUNNER_PYTHON_VERSIONS,

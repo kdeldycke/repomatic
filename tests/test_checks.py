@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 
 from repomatic.checks import CheckResult, report_result
-from repomatic.github.actions import AnnotationLevel
+from repomatic.github.outputs import AnnotationLevel
 
 
 def test_check_result_unpacks_as_a_pair():

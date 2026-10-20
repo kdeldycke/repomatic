@@ -48,16 +48,6 @@ from packaging.version import Version
 
 from .github.urls import parse_github_repo
 from .release import protocol
-
-# 8.0.0 shim: re-export for callers not migrated yet.
-from .release.protocol import (  # noqa: F401
-    CHANGELOG_COMMIT_PREFIX,
-    MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
-    RELEASE_COMMIT_PATTERN,
-    RELEASE_COMMIT_PREFIX,
-    VERSION_BUMP_BRANCHES,
-    VERSION_BUMP_COMMIT_PREFIXES,
-)
 from .versions import parse_tag_version
 
 TYPE_CHECKING = False

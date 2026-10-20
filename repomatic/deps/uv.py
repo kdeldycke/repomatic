@@ -26,13 +26,11 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from importlib import import_module
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
-    from typing import Any
 
 
 def uv_cmd(
@@ -141,27 +139,3 @@ def run_uv(
     if check and result.returncode:
         raise UvError(result.returncode, cmd, result.stdout, result.stderr)
     return result
-
-
-# 8.0.0 shim: re-export for callers not migrated yet.
-_MOVED_NAMES = {
-    "LockFile": ("lockfile", "LockFile"),
-    "exemption_admits": ("cooldown", "exemption_admits"),
-    "freeze_cutoff_after": ("cooldown", "freeze_cutoff_after"),
-    "load_lock_data": ("lockfile", "_read_lock"),
-}
-
-
-# 8.0.0 shim: re-export for callers not migrated yet.
-def __getattr__(name: str) -> Any:
-    """Serve the names other modules still import from here.
-
-    Resolved on first access: {mod}`repomatic.deps.cooldown` imports this
-    module, and an eager import would also load the lock machinery into every
-    caller that only builds a command line.
-    """
-    if name not in _MOVED_NAMES:
-        msg = f"module {__name__!r} has no attribute {name!r}"
-        raise AttributeError(msg)
-    module, attribute = _MOVED_NAMES[name]
-    return getattr(import_module(f"{__package__}.{module}"), attribute)

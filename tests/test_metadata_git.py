@@ -26,7 +26,7 @@ from types import SimpleNamespace
 import pytest
 
 from repomatic.git_ops import NULL_SHA, GitError, head_sha
-from repomatic.github.actions import WorkflowEvent
+from repomatic.github.event import WorkflowEvent
 from repomatic.metadata.core import Metadata
 from repomatic.metadata.git import commit_matrix, version_at
 from tests.conftest import metadata_from_pyproject

@@ -35,8 +35,9 @@ from datetime import UTC, datetime
 
 from click_extra import TableFormat, render_table
 
-from .github.issue import BOT_ISSUE_LABEL, manage_issue_lifecycle
+from .github.issue import manage_issue_lifecycle
 from .github.pr_body import render_template
+from .github.threads import BOT_ISSUE_LABEL
 from .lint_repo.settings import (
     check_branch_ruleset_on_default,
     check_fork_pr_approval_policy,

@@ -128,9 +128,9 @@ jobs:
     # workflow costs no runner minutes on version-bump pushes: those commits are
     # machine-generated and ship-gated, and any drift they could introduce is
     # caught by the next ordinary push or the weekly scheduled sweep. The PR
-    # branch list must stay in sync with repomatic.git_ops.VERSION_BUMP_BRANCHES;
+    # branch list must stay in sync with repomatic.release.protocol.VERSION_BUMP_BRANCHES;
     # the single commit-message clause relies on
-    # repomatic.git_ops.CHANGELOG_COMMIT_PREFIX marking every machine-authored
+    # repomatic.release.protocol.CHANGELOG_COMMIT_PREFIX marking every machine-authored
     # version-machinery commit. Both enforced by repomatic's own test suite.
     if: >
       !contains(fromJSON('["major-version-increment","minor-version-increment","prepare-release"]'),
@@ -449,7 +449,7 @@ jobs:
         with:
           version: "0.13.0"
       # `--upgrade` moves the repository to the newest repomatic release past the
-      # cooldown, if any. See repomatic/init_project.py for rationale.
+      # cooldown, if any. See repomatic/init/upgrade.py for rationale.
       - name: Sync repomatic-managed files
         id: sync
         env:

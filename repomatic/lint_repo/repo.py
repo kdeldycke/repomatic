@@ -32,8 +32,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from ..checks import CheckResult
-from ..components import INSTALL_GUIDE_PATH
 from ..github.gh import gh_graphql, gh_json
+from ..upstream import INSTALL_GUIDE_PATH
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:

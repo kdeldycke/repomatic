@@ -43,7 +43,6 @@ from click_extra import (
 
 from ..changelog import Changelog, load_changelog_repo
 from ..claude_plugin import ARCHIVE_NAME, pack_plugin
-from ..components import DEFAULT_REPO
 from ..file_ops import write_if_changed
 from ..git_ops import GitError, create_and_push_tag
 from ..github.dev_release import (
@@ -64,6 +63,7 @@ from ..github.workflow_files import WORKFLOW_DIR
 from ..init.tool_config import init_config
 from ..lint_changelog import lint_changelog_dates
 from ..metadata.core import Metadata
+from ..pyproject import get_current_version
 from ..release.attestation import pack_attestation
 from ..release.binaries_page import update_catalog
 from ..release.binary import (
@@ -83,6 +83,7 @@ from ..release.virustotal import (
     scan_files,
     upsert_scan_records,
 )
+from ..upstream import DEFAULT_REPO
 from .main import (
     changelog_option,
     dry_run_option,
@@ -134,7 +135,7 @@ def changelog(
         logging.info(f"Read initial changelog from {changelog_path}")
         initial_content = changelog_path.read_text(encoding="UTF-8")
 
-    changelog = Changelog(initial_content, Metadata.get_current_version())
+    changelog = Changelog(initial_content, get_current_version())
     updated = changelog.update(default_branch=default_branch)
     if output is None:
         output = changelog_path
@@ -890,7 +891,7 @@ def sync_dev_release_cmd(
 
     if delete and upload_assets:
         raise UsageError("--delete and --upload-assets are mutually exclusive.")
-    version = Metadata.get_current_version()
+    version = get_current_version()
     if not version:
         logging.warning("Could not determine current version.")
         return

@@ -35,18 +35,6 @@ from .config import Config, location_path
 from .file_ops import normalize_text
 from .github.workflow_files import WORKFLOW_DIR
 
-# 8.0.0 shim: re-export for callers not migrated yet.
-from .upstream import (  # noqa: F401
-    DEFAULT_REPO,
-    INSTALL_GUIDE_PATH,
-    UPSTREAM_ASSET_GLOB,
-    UPSTREAM_PACKAGE,
-    UPSTREAM_REPO_SLUGS,
-    UPSTREAM_SOURCE_GLOB,
-    UPSTREAM_SOURCE_PREFIX,
-    is_awesome_repo,
-)
-
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Sequence

@@ -32,9 +32,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from ..checks import CheckResult
-from ..components import DEFAULT_REPO
 from ..frontmatter import split_frontmatter
-from ..github.pr_body import footer_opted_out
 from ..github.urls import repo_name
 from ..github.workflow_files import (
     iter_jobs,
@@ -47,6 +45,8 @@ from ..github.workflow_sync import canonical_workflow, extract_trigger_info
 from ..matrix.axes import KNOWN_RUNNERS, UNSTABLE_PYTHON_VERSIONS
 from ..matrix.model import PYTHON_VERSION_AXIS
 from ..metadata.core import METADATA_SUBCOMMAND, Dialect, unknown_metadata_keys
+from ..templating import footer_opted_out
+from ..upstream import DEFAULT_REPO
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -961,7 +961,7 @@ def check_pr_templates(ctx: LintContext) -> list[CheckResult]:
     2. A workflow references a path that does not exist, which the job only
        discovers when it runs and `pr-body` rejects the missing file.
     3. The frontmatter lacks a `title`, or does not opt out of the attribution
-       footer the way {func}`~repomatic.github.pr_body.footer_opted_out` reads
+       footer the way {func}`~repomatic.templating.footer_opted_out` reads
        it. An absent field, `'False'`, and every other value keep the footer,
        and the failure is silent: the rendered body carries it twice.
 

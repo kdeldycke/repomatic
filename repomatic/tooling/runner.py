@@ -81,12 +81,6 @@ if sys.platform == "win32":
 else:
     import fcntl
 
-# 8.0.0 shim: re-export for callers not migrated yet.
-ensure_binary = binaries.ensure_binary
-
-# 8.0.0 shim: re-export for callers not migrated yet.
-get_data_file_path = bundle.get_data_file_path
-
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator, Sequence

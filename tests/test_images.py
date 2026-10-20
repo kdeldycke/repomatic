@@ -63,7 +63,7 @@ def test_format_images_reports_an_install_failure(tmp_path: Path) -> None:
             side_effect=BinaryInstallError("Cannot download oxipng"),
         ),
     ):
-        mock_metadata.return_value.image_files = [image]
+        mock_metadata.return_value.files.image_files = [image]
         result = CliRunner().invoke(repomatic, ["format-images"])
 
     assert result.exit_code == 1, result.output

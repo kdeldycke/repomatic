@@ -17,5 +17,6 @@
    repomatic.metadata.env
    repomatic.metadata.git
    repomatic.metadata.matrix
+   repomatic.metadata.output
    repomatic.metadata.project
 ```

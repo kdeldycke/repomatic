@@ -39,6 +39,7 @@ import pytest
 from click.testing import CliRunner
 from click_extra import Context
 
+from repomatic.bundle import get_data_content
 from repomatic.cli.main import repomatic
 from repomatic.components import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComponent
 from repomatic.config import Config, config_key_paths
@@ -72,10 +73,9 @@ from repomatic.deps.sync import (
     selected_operations,
 )
 from repomatic.github.labels import DEFAULT_CONTENT_RULES, DEFAULT_FILE_RULES
-from repomatic.github.pr_body import get_template_names, template_labels
-from repomatic.init_project import get_data_content
 from repomatic.pypi import PyPIRelease
 from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from repomatic.templating import PrTemplate, get_template_names
 from repomatic.tooling.registry import TOOL_REGISTRY
 from repomatic.versions import is_newer
 from tests.conftest import load_workflow
@@ -374,7 +374,7 @@ def _pr_labels(step: dict) -> set[str]:
     the CLI resolves them.
     """
     explicit = set(re.findall(r'--label "(?P<label>[^"]+)"', step["run"]))
-    return explicit or set(template_labels(_pr_template(step)))
+    return explicit or set(PrTemplate.load(_pr_template(step)).labels)
 
 
 @pytest.mark.repo_maintenance

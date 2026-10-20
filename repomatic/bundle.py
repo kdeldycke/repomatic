@@ -24,14 +24,10 @@ the init command validates names against the exportable-file registry, and
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from functools import cache
 from importlib.resources import as_file, files
 
 TYPE_CHECKING = False
-if TYPE_CHECKING:
-    from collections.abc import Generator
-    from pathlib import Path
 
 
 @cache
@@ -55,19 +51,3 @@ def get_data_content(filename: str) -> str:
 
     msg = f"Data file not found: {filename}"
     raise FileNotFoundError(msg)
-
-
-# 8.0.0 shim: re-export for callers not migrated yet.
-@contextmanager
-def get_data_file_path(filename: str) -> Generator[Path, None, None]:
-    """Yield the filesystem path of a bundled data file.
-
-    Every caller reads the file, which {func}`get_data_content` does in one
-    call: use it instead. The path is valid only within the context manager.
-    """
-    data_files = files("repomatic.data")
-    with as_file(data_files.joinpath(filename)) as path:
-        if not path.exists():
-            msg = f"Bundled data file not found: {filename}"
-            raise FileNotFoundError(msg)
-        yield path

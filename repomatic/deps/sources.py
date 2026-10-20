@@ -65,9 +65,6 @@ from .cooldown import freeze_cutoff_after
 from .report import format_released, link_name, markdown_section
 from .requirements import dev_floor, requirement_arrays
 
-# 8.0.0 shim: re-export for callers not migrated yet.
-from .shippable import RELEASE_READY_SENTENCE, build_release_readiness  # noqa: F401
-
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Mapping

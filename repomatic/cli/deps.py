@@ -73,11 +73,7 @@ from ..deps.sync import (
     run_sync_operations,
     selected_operations,
 )
-from ..github.actions import (
-    AnnotationLevel,
-    emit_annotation,
-    emit_report,
-)
+from ..github.outputs import AnnotationLevel, emit_annotation, emit_report
 from ..humanize import today_utc
 from ..pyproject import (
     dependency_group_names,

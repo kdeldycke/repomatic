@@ -70,13 +70,14 @@ from pathlib import Path
 
 from ..changelog import Changelog, resolved_changelog_path
 from ..claude_plugin import MARKETPLACE_PATH, REPO_MANIFEST_PATH
-from ..components import INSTALL_GUIDE_PATH, UPSTREAM_PACKAGE
 from ..config import load_repomatic_config
 from ..deps.pins import frozen_cli_invocation
 from ..file_ops import write_if_changed
 from ..github.workflow_files import WORKFLOW_DIR, workflow_paths
 from ..humanize import today_utc
 from ..metadata.core import Metadata
+from ..pyproject import get_current_version
+from ..upstream import INSTALL_GUIDE_PATH, UPSTREAM_PACKAGE
 from .binary import binary_filename_re
 
 TYPE_CHECKING = False
@@ -213,10 +214,10 @@ class PrepareRelease:
     def current_version(self) -> str:
         """Extract current version from the bump-my-version config.
 
-        Delegates discovery to {meth}`.ProjectMetadata.get_current_version`, which
+        Delegates discovery to {func}`repomatic.pyproject.get_current_version`, which
         searches `.bumpversion.toml` then `pyproject.toml`.
         """
-        version = Metadata.get_current_version()
+        version = get_current_version()
         if version is None:
             raise RuntimeError(
                 "No bump-my-version config found "

@@ -38,12 +38,12 @@ from itertools import groupby
 from operator import attrgetter
 from pathlib import Path
 
-from .components import is_awesome_repo
 from .github.issue import manage_issue_lifecycle
 from .markdown import sanitize_markdown_mentions
 from .metadata.core import Metadata
 from .tabular import render_markdown_table
 from .templating import render_template
+from .upstream import is_awesome_repo
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:

@@ -28,8 +28,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from ..changelog import GITHUB_RELEASE_URL, Changelog
-from ..tabular import render_markdown_table
-from .actions import ReportAction
+from ..tabular import ReportAction, render_markdown_table
 from .pr_body import render_template
 from .releases import (
     GitHubReleasesUnavailable,

@@ -89,7 +89,7 @@ from repomatic.init.upgrade import (
 )
 from repomatic.skills import SKILL_PHASE_ORDER, SKILL_PHASES
 from repomatic.tooling.registry import TOOL_REGISTRY
-from repomatic.tooling.runner import get_data_file_path, run_tool
+from repomatic.tooling.runner import run_tool
 from tests.conftest import (
     assert_shipped_text_reads_true_downstream,
     skip_unless_tool_runs,
@@ -5742,8 +5742,7 @@ def test_init_reports_unmodified_configs(
     )
     monkeypatch.chdir(tmp_path)
 
-    with get_data_file_path("yamllint.yaml") as bundled:
-        content = bundled.read_text(encoding="UTF-8")
+    content = get_data_content("yamllint.yaml")
     (tmp_path / ".yamllint.yaml").write_text(content, encoding="UTF-8")
 
     result = run_init(output_dir=tmp_path, config=load_repomatic_config())

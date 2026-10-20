@@ -37,26 +37,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .. import __version__
-from ..deps.sources import build_release_readiness
+from ..deps.shippable import build_release_readiness
+from ..pyproject import get_current_version
 from ..templating import PrTemplate, render_template
 from ..versions import strip_dev_suffix
 from .event import extract_workflow_filename
 from .outputs import read_file_output, trim_to_budget
 from .releases import release_review_steps
-
-# isort: split
-# 8.0.0 shim: re-export for callers not migrated yet.
-from ..markdown import (  # noqa: F401
-    demote_markdown_headings,
-    sanitize_markdown_mentions,
-)
-
-# 8.0.0 shim: re-export for callers not migrated yet.
-from ..templating import (  # noqa: F401
-    footer_opted_out,
-    get_template_names,
-    template_stem,
-)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -314,7 +301,7 @@ def _arg_sources(
         """The release version, `--version` first, else the bumpversion config."""
         if version is not None:
             return version
-        current = md.get_current_version()
+        current = get_current_version()
         if not current:
             msg = "Cannot auto-detect version: no bumpversion config found."
             raise TemplateArgumentError(msg)
@@ -423,31 +410,3 @@ def render_pr(
     )
     body = build_pr_body(prefix, metadata_block, refresh_tip=generate_refresh_tip(md))
     return PrContent(title, body, commit_message)
-
-
-# 8.0.0 shim: re-export for callers not migrated yet.
-def load_template(name: str | Path) -> tuple[dict[str, object], str]:
-    """Load a template's frontmatter and body.
-
-    See {meth}`repomatic.templating.PrTemplate.load`.
-    """
-    template = PrTemplate.load(name)
-    return dict(template.meta), template.body
-
-
-# 8.0.0 shim: re-export for callers not migrated yet.
-def template_docs_url(name: str | Path) -> str:
-    """A template's documentation link.
-
-    See {attr}`repomatic.templating.PrTemplate.docs_url`.
-    """
-    return PrTemplate.load(name).docs_url
-
-
-# 8.0.0 shim: re-export for callers not migrated yet.
-def template_labels(name: str | Path) -> list[str]:
-    """A template's pull request labels.
-
-    See {attr}`repomatic.templating.PrTemplate.labels`.
-    """
-    return list(PrTemplate.load(name).labels)

@@ -23,7 +23,6 @@ from unittest.mock import patch
 import pytest
 
 from repomatic.changelog import Changelog
-from repomatic.github.actions import ReportAction
 from repomatic.github.release_sync import (
     SyncResult,
     SyncRow,
@@ -33,6 +32,7 @@ from repomatic.github.release_sync import (
     sync_github_releases,
 )
 from repomatic.github.releases import GitHubRelease
+from repomatic.tabular import ReportAction
 
 SAMPLE_CHANGELOG = """\
 # Changelog

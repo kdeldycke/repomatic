@@ -37,7 +37,7 @@ from ..cloudflare.api import CloudflareError, resolve_project
 from ..cloudflare.pages import PagesMode, run_cloudflare_pages
 from ..cloudflare.r2 import R2Mode, run_cloudflare_r2, run_offload
 from ..docs import DocsPhase, PhaseStatus, update_docs
-from ..github.actions import emit_report
+from ..github.outputs import emit_report
 from .main import report_options, subcommand
 
 TYPE_CHECKING = False

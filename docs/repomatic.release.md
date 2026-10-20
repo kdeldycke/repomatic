@@ -17,5 +17,7 @@
    repomatic.release.binaries_page
    repomatic.release.binary
    repomatic.release.prepare_release
+   repomatic.release.protocol
+   repomatic.release.verify
    repomatic.release.virustotal
 ```

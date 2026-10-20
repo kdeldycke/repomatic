@@ -40,10 +40,6 @@ from .gh import gh_json, parse_create_output, run_gh_command
 from .pr_body import fit_github_body, generate_pr_metadata_block, temp_body_file
 from .threads import repo_args, run_unlocking
 
-# isort: split
-# 8.0.0 shim: re-export for callers not migrated yet.
-from .threads import BOT_ISSUE_LABEL  # noqa: F401
-
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Sequence

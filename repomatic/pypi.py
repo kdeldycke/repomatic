@@ -322,10 +322,6 @@ def pypi_release_dates(
     return result
 
 
-# 8.0.0 shim: re-export for callers not migrated yet.
-get_release_dates = pypi_release_dates
-
-
 def get_source_url(package: str) -> str | None:
     """Discover the GitHub repository URL for a PyPI package.
 

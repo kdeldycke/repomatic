@@ -28,7 +28,7 @@ from collections.abc import Iterable
 from enum import StrEnum
 from pathlib import Path
 
-from ..github.actions import format_multiline_output
+from ..github.outputs import format_multiline_output
 from ..matrix.model import Matrix
 
 TYPE_CHECKING = False

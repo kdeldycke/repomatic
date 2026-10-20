@@ -55,7 +55,7 @@ from repomatic.cloudflare.r2 import (
     sign_v4,
 )
 from repomatic.cloudflare.redirects import MAX_STATIC_RULES, parse_redirects
-from repomatic.github.actions import ReportAction
+from repomatic.tabular import ReportAction
 
 DOMAIN = "files.example.com"
 

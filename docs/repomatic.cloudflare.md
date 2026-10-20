@@ -13,6 +13,7 @@
 .. toctree::
    :maxdepth: 4
 
+   repomatic.cloudflare.api
    repomatic.cloudflare.pages
    repomatic.cloudflare.r2
    repomatic.cloudflare.redirects

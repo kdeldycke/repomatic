@@ -13,6 +13,7 @@
 .. toctree::
    :maxdepth: 4
 
+   repomatic.tooling.binaries
    repomatic.tooling.checksums
    repomatic.tooling.registry
    repomatic.tooling.runner

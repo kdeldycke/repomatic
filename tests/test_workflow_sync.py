@@ -24,15 +24,12 @@ from pathlib import Path
 import pytest
 import yaml
 
+from repomatic.bundle import get_data_content
 from repomatic.components import (
     ALL_WORKFLOW_FILES,
-    DEFAULT_REPO,
     NON_REUSABLE_WORKFLOWS,
     RELEASE_ENGINE_WORKFLOWS,
     REUSABLE_WORKFLOWS,
-    UPSTREAM_ASSET_GLOB,
-    UPSTREAM_SOURCE_GLOB,
-    UPSTREAM_SOURCE_PREFIX,
     WORKFLOW_SOURCES,
 )
 from repomatic.config import Config, WorkflowConfig
@@ -56,11 +53,16 @@ from repomatic.github.workflow_sync import (
     identify_canonical_workflow,
     render_thin_caller_for_target,
 )
-from repomatic.init_project import get_data_content
 from repomatic.lint_repo.context import LintContext
 from repomatic.lint_repo.workflows import check_workflow_permissions
 from repomatic.pyproject import derive_source_paths, resolve_source_paths
 from repomatic.tooling.runner import run_tool
+from repomatic.upstream import (
+    DEFAULT_REPO,
+    UPSTREAM_ASSET_GLOB,
+    UPSTREAM_SOURCE_GLOB,
+    UPSTREAM_SOURCE_PREFIX,
+)
 from tests.conftest import (
     PROJECT_ROOT,
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,
@@ -176,7 +178,7 @@ def test_thin_caller_workflow_call_inputs_stay_minimal() -> None:
     """No reusable workflow may grow its forwarded workflow_call inputs unreviewed.
 
     Every input a thin caller forwards widens the blast radius of the cooldown
-    step-back in {func}`repomatic.init_project.resolve_default_pin`: that pin can
+    step-back in {func}`repomatic.init.upgrade.resolve_default_pin`: that pin can
     reference a reusable workflow one release older than the caller was generated
     from, and GitHub rejects a forwarded input the older workflow does not yet
     declare. Locking the surface keeps a new input a deliberate act, weighed
@@ -252,7 +254,7 @@ def test_generated_caller_ends_with_one_newline(filename: str) -> None:
     """Every generated caller ends with exactly one trailing newline.
 
     Nothing downstream of the generator collapses trailing whitespace:
-    `repomatic.init_project._write_managed` writes callers with
+    `repomatic.init.run._InitRun.write` writes callers with
     `normalize=False`, because their exact bytes carry downstream-owned jobs
     verbatim. A stray blank line therefore reaches every consuming repository.
 

@@ -25,7 +25,7 @@ permissions: {}
 # No concurrency block: the push-triggered release.yaml entry owns the
 # concurrency group. A block here would join its group behind the caller's
 # `needs: build` gate, too late to cancel queued runs, and would contend with
-# the entry's group. See repomatic/github/actions.py for rationale.
+# the entry's group. See https://repomatic.net/workflows#concurrency-strategies.
 
 # Supply-chain cooldown: no package published within the window can be resolved by
 # any command in this workflow. Set here, not per command, so it also covers the

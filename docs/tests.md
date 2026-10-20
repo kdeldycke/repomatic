@@ -14,10 +14,10 @@
    :maxdepth: 4
 
    tests.conftest
-   tests.test_actions
    tests.test_attestation
    tests.test_awesome_template
    tests.test_awesome_toc
+   tests.test_binaries
    tests.test_binaries_page
    tests.test_binary
    tests.test_broken_links
@@ -38,6 +38,8 @@
    tests.test_dev_release
    tests.test_docs
    tests.test_docstrings
+   tests.test_event
+   tests.test_file_ops
    tests.test_forge
    tests.test_frontmatter
    tests.test_gh
@@ -53,12 +55,16 @@
    tests.test_issue
    tests.test_job_timings
    tests.test_labels
+   tests.test_lint_changelog
    tests.test_lint_repo
    tests.test_mailmap
+   tests.test_markdown
    tests.test_matrix
    tests.test_metadata
+   tests.test_metadata_git
    tests.test_metrics
    tests.test_npm
+   tests.test_outputs
    tests.test_pages_redirects
    tests.test_platform_keys
    tests.test_plugin
@@ -66,6 +72,7 @@
    tests.test_pr
    tests.test_pr_body
    tests.test_prepare_release
+   tests.test_protocol
    tests.test_pypi
    tests.test_pyproject
    tests.test_readme
@@ -73,19 +80,25 @@
    tests.test_releases
    tests.test_runner_catalog
    tests.test_runner_sync
+   tests.test_runs
    tests.test_setup_guide
    tests.test_skills
    tests.test_sphinx_crossrefs
+   tests.test_sponsor
    tests.test_status
    tests.test_suite_hygiene
    tests.test_sync_ops
    tests.test_tabular
+   tests.test_templating
+   tests.test_threads
    tests.test_todolist
    tests.test_token
    tests.test_tool_runner
    tests.test_unsubscribe
+   tests.test_upstream
    tests.test_urls
    tests.test_uv
+   tests.test_verify
    tests.test_version_sync
    tests.test_versions
    tests.test_virustotal

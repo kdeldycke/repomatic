@@ -32,7 +32,8 @@ from packaging.utils import canonicalize_name
 from packaging.version import Version
 
 from ..checks import CheckResult
-from ..components import DEFAULT_REPO
+from ..deps.cooldown import exemption_admits, freeze_cutoff_after
+from ..deps.lockfile import LockFile
 from ..deps.pins import (
     SETUP_UV_SLUG,
     cleared_cooldown,
@@ -43,12 +44,12 @@ from ..deps.pins import (
     setup_uv_verified_versions,
     tool_candidates,
 )
-from ..deps.uv import LockFile, exemption_admits, freeze_cutoff_after
 from ..github.urls import repo_name
 from ..github.workflow_files import iter_steps
 from ..humanize import format_countdown, utc_midnight
 from ..release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from ..tooling.registry import TOOL_REGISTRY
+from ..upstream import DEFAULT_REPO
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:

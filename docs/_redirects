@@ -20,7 +20,9 @@
 /repomatic.deps.dep_sources  /repomatic.deps.sources  301
 /repomatic.deps.vulnerable_deps  /repomatic.deps.audit  301
 /repomatic.forge  /repomatic.metrics.forge  301
+/repomatic.github.actions  /repomatic.github.outputs  301
 /repomatic.github.matrix  /repomatic.matrix.model  301
+/repomatic.init_project  /repomatic.init  301
 /repomatic.labels  /repomatic.github.labels  301
 /repomatic.matrix_axes  /repomatic.matrix.axes  301
 /repomatic.metric_chart  /repomatic.metrics.chart  301

@@ -85,10 +85,10 @@ from urllib.parse import quote
 
 from click_extra import echo
 
-from ..github.actions import AnnotationLevel, ReportAction, emit_annotation
+from ..github.outputs import AnnotationLevel, emit_annotation
 from ..hashing import compute_file_sha256
 from ..humanize import format_file_size
-from ..tabular import render_markdown_table
+from ..tabular import ReportAction, render_markdown_table
 from . import api
 from .api import (
     CloudflareError,

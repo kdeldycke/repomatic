@@ -879,7 +879,7 @@ def find_upstream_ref_pins(content: str, upstream_repo: str) -> list[UpstreamRef
 
     Shared by `lint-repo`'s inline-pin lockstep check, `sync-workflow-pins`'
     upstream-pin alignment and `init`'s pin floor
-    (`repomatic.init_project._highest_upstream_pin`), so all three read
+    ({func}`repomatic.init.upgrade.highest_upstream_pin`), so all three read
     the refs the same way.
     """
     pattern = _upstream_ref_re(upstream_repo)

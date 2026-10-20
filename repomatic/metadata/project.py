@@ -176,12 +176,6 @@ class ProjectMetadata:
     sphinx_conf_path = Path() / "docs" / "conf.py"
     """The Sphinx configuration file."""
 
-    # 8.0.0 shim: re-export for callers not migrated yet.
-    @staticmethod
-    def get_current_version() -> str | None:
-        """See {func}`repomatic.pyproject.get_current_version`."""
-        return get_current_version()
-
     @cached_property
     def is_python_project(self) -> bool:
         """Returns `True` if repository is a Python project.

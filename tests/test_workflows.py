@@ -38,7 +38,14 @@ from repomatic.components import (
 )
 from repomatic.config import SITE_DEPLOY_TARGETS
 from repomatic.deps.pins import find_workflow_literals
-from repomatic.git_ops import (
+from repomatic.github.workflow_files import workflow_triggers
+from repomatic.github.workflow_sync import COOLDOWN_DOCS_URL, cooldown_env_block
+from repomatic.matrix.axes import KNOWN_RUNNERS, TEST_PYTHON_FULL
+from repomatic.metadata.core import Metadata
+from repomatic.metadata.output import format_github_value
+from repomatic.release.binary import NUITKA_BUILD_TARGETS
+from repomatic.release.prepare_release import LOCAL_CLI_INVOCATION
+from repomatic.release.protocol import (
     CHANGELOG_COMMIT_PREFIX,
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
     RELEASE_COMMIT_PATTERN,
@@ -46,13 +53,7 @@ from repomatic.git_ops import (
     VERSION_BUMP_BRANCHES,
     VERSION_BUMP_COMMIT_PREFIXES,
 )
-from repomatic.github.pr_body import template_labels
-from repomatic.github.workflow_files import workflow_triggers
-from repomatic.github.workflow_sync import COOLDOWN_DOCS_URL, cooldown_env_block
-from repomatic.matrix.axes import KNOWN_RUNNERS, TEST_PYTHON_FULL
-from repomatic.metadata.core import Metadata
-from repomatic.release.binary import NUITKA_BUILD_TARGETS
-from repomatic.release.prepare_release import LOCAL_CLI_INVOCATION
+from repomatic.templating import PrTemplate
 from repomatic.versions import BUMP_PARTS
 from tests.conftest import (
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,
@@ -1030,7 +1031,7 @@ def test_pr_sync_templates_declare_their_labels() -> None:
             continue
         template = re.search(r"--template (\S+)", run)
         assert template, f"{workflow}::{job} pr-sync step names no template"
-        assert template_labels(template.group(1)), (
+        assert list(PrTemplate.load(template.group(1)).labels), (
             f"template {template.group(1)!r} (used by {workflow}::{job}) "
             "declares no labels in its frontmatter"
         )
@@ -1412,7 +1413,7 @@ def test_workflows_index_structured_metadata_only() -> None:
     """A workflow indexes a metadata key only when its value is a JSON structure.
 
     `show-metadata --output-format github-json` joins a list of strings with spaces
-    (see {meth}`~repomatic.metadata.core.Metadata.format_github_value`). An
+    (see {func}`~repomatic.metadata.output.format_github_value`). An
     expression that indexes such a string gives an empty value and raises
     nothing, so a step gated on `cli_scripts[0]` is skipped on every run
     without a word.
@@ -1425,7 +1426,7 @@ def test_workflows_index_structured_metadata_only() -> None:
             if key not in factories:
                 unreadable.append(f"{path.name}: {key} is not a metadata key")
                 continue
-            value = Metadata.format_github_value(factories[key]())
+            value = format_github_value(factories[key]())
             try:
                 parsed = json.loads(value)
             except json.JSONDecodeError:

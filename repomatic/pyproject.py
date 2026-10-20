@@ -73,7 +73,7 @@ def cached_toml(path: Path) -> Any:
     """Parse the TOML file at *path*, once per version of its bytes.
 
     The one parser behind {func}`read_pyproject_toml` and
-    {func}`repomatic.deps.uv.load_lock_data`: a lock runs to hundreds of
+    {meth}`repomatic.deps.lockfile.LockFile.load`: a lock runs to hundreds of
     kilobytes, and a single command reads the same `pyproject.toml` many times
     over.
 

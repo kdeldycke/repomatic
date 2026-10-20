@@ -29,16 +29,13 @@ from functools import cached_property
 
 from extra_platforms import is_github_ci
 
-from ..components import is_awesome_repo
 from ..git_ops import (
     get_repo_slug_from_remote,
 )
-from ..github.actions import (
-    WorkflowEvent,
-    get_github_event,
-)
+from ..github.event import WorkflowEvent, get_github_event
 from ..github.gh import run_gh_command
 from ..github.urls import repo_name, split_slug
+from ..upstream import is_awesome_repo
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -59,7 +56,7 @@ class EnvironmentMetadata:
         GitHub Actions sets `GITHUB_EVENT_PATH` to a JSON file holding the
         complete webhook event payload.
 
-        Delegates to {func}`repomatic.github.actions.get_github_event`, the one
+        Delegates to {func}`repomatic.github.event.get_github_event`, the one
         loader of the payload, which reads a missing file as an empty payload.
         Only the warning about a CI run missing the variable lives here, since
         the shared loader serves callers outside CI too.
@@ -78,7 +75,7 @@ class EnvironmentMetadata:
 
         Maps {attr}`event_name` (the `GITHUB_EVENT_NAME` variable, set by
         GitHub Actions on every run) onto its
-        {class}`~repomatic.github.actions.WorkflowEvent` member, so `schedule`
+        {class}`~repomatic.github.event.WorkflowEvent` member, so `schedule`
         and `workflow_dispatch` runs resolve to their own event instead of
         falling in a `None` hole that nulls every commit matrix.
 
@@ -154,7 +151,7 @@ class EnvironmentMetadata:
 
         Reads `GITHUB_EVENT_NAME`. This is the raw event name (`"push"`,
         `"pull_request"`, `"workflow_run"`), which {attr}`event_type` resolves
-        to a {class}`~repomatic.github.actions.WorkflowEvent` member.
+        to a {class}`~repomatic.github.event.WorkflowEvent` member.
         """
         return os.environ.get("GITHUB_EVENT_NAME") or None
 

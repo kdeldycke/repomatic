@@ -29,9 +29,9 @@ from click_extra import Context
 from repomatic import __version__
 from repomatic.cli.main import repomatic
 from repomatic.config import config_reference
-from repomatic.deps.sources import RELEASE_READY_SENTENCE
+from repomatic.deps.shippable import RELEASE_READY_SENTENCE
 from repomatic.frontmatter import split_frontmatter
-from repomatic.git_ops import (
+from repomatic.release.protocol import (
     CHANGELOG_COMMIT_PREFIX,
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
     VERSION_BUMP_COMMIT_PREFIXES,
@@ -890,8 +890,8 @@ def test_template_commit_subject_claims_no_bracket_prefix(name: str) -> None:
     """A `[bracketed]` prefix is reserved for machine-parsed mechanisms.
 
     The one family templates may emit is
-    {data}`repomatic.git_ops.CHANGELOG_COMMIT_PREFIX`, which
-    {data}`repomatic.git_ops.VERSION_BUMP_COMMIT_PREFIXES` matches back
+    {data}`repomatic.release.protocol.CHANGELOG_COMMIT_PREFIX`, which
+    {data}`repomatic.release.protocol.VERSION_BUMP_COMMIT_PREFIXES` matches back
     (`bump-version` is the template that earns it). Any other bracket would
     either collide with that matcher or invent a label nothing reads. See
     docs/commit-messages.md.

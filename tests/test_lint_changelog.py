@@ -67,7 +67,7 @@ def _github_unavailable(_repo_url, force_refresh=False):
 
 
 def _pypi_mock(releases, package="my-package", fresh=None):
-    """Build a monkeypatch-compatible mock for ``get_pypi_release_dates``.
+    """Build a monkeypatch-compatible mock for ``pypi_release_dates``.
 
     Each value in *releases* is a ``(date, yanked)`` tuple, optionally
     extended with a yank reason. The *package* argument is injected as the
@@ -139,7 +139,7 @@ def _patch_sources(
     :param github_fresh: Same, for GitHub releases.
     """
     monkeypatch.setattr(
-        "repomatic.lint_changelog.get_pypi_release_dates",
+        "repomatic.lint_changelog.pypi_release_dates",
         pypi
         if callable(pypi)
         else _pypi_mock(pypi or {}, package or "my-package", pypi_fresh),

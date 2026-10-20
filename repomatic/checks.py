@@ -28,7 +28,7 @@ from typing import NamedTuple
 
 from click_extra import echo
 
-from .github.actions import AnnotationLevel, report_finding
+from .github.outputs import AnnotationLevel, report_finding
 
 
 class CheckResult(NamedTuple):
@@ -49,7 +49,7 @@ def report_result(
     """Print one check line, and annotate it when the check failed.
 
     A pass prints `✓` and a skip prints `ℹ`, neither with an annotation. A
-    failure goes through {func}`~repomatic.github.actions.report_finding` at
+    failure goes through {func}`~repomatic.github.outputs.report_finding` at
     *level*.
 
     :param result: The check outcome to render.

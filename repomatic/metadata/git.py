@@ -43,7 +43,7 @@ from ..git_ops import (
     list_commits,
     show_file,
 )
-from ..github.actions import WorkflowEvent
+from ..github.event import WorkflowEvent
 from ..matrix.model import Matrix
 from ..pyproject import resolve_source_paths
 from ..release.protocol import (

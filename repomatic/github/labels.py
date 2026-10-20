@@ -52,7 +52,7 @@ from wcmatch import glob
 
 from ..bundle import get_data_content
 from ..http import FetchError, get_bytes
-from ..tooling.runner import ensure_binary
+from ..tooling.binaries import ensure_binary
 from .event import get_event_subject
 from .gh import gh_env, gh_json
 from .pr import list_changed_files

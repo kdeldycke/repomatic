@@ -28,7 +28,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote, urlencode
 
-from ..git_ops import RELEASE_COMMIT_PREFIX
+from ..release.protocol import RELEASE_COMMIT_PREFIX
 from .gh import GhCommandError, gh_api_pages, gh_json, run_gh_command
 
 TYPE_CHECKING = False
@@ -187,7 +187,7 @@ def cancel_superseded_runs(branch: str, current_run_id: str) -> int:
 
     Every listed run is cancelled except two: *current_run_id* (the
     cancelling run itself), and any run whose head commit carries
-    {data}`~repomatic.git_ops.RELEASE_COMMIT_PREFIX`. A run that fails to
+    {data}`~repomatic.release.protocol.RELEASE_COMMIT_PREFIX`. A run that fails to
     cancel (already finished, insufficient token scope) is logged and
     skipped so one straggler never aborts the sweep.
 

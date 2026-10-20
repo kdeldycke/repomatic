@@ -69,23 +69,25 @@ from pathlib import Path
 
 from click_extra import OperationTrail, run_jobs
 
-from ..components import (
-    BUNDLED_VERBATIM_TARGETS,
-    DEFAULT_REPO,
-    UPSTREAM_PACKAGE,
-    UPSTREAM_REPO_SLUGS,
-)
+from ..components import BUNDLED_VERBATIM_TARGETS
 from ..file_ops import write_if_changed
-from ..github.pr_body import template_docs_url
 from ..github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from ..github.workflow_files import github_yaml_paths
 from ..humanize import format_countdown, utc_midnight
-from ..init_project import init_config, is_source_repo, upgrade_invite
+from ..init.tool_config import init_config
+from ..init.upgrade import upgrade_invite
 from ..pypi import PYPI_PACKAGE_URL, get_source_url
 from ..release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from ..templating import PrTemplate
 from ..tooling import registry as tool_registry
 from ..tooling.checksums import update_registry_checksums
 from ..tooling.registry import TOOL_REGISTRY
+from ..upstream import (
+    DEFAULT_REPO,
+    UPSTREAM_PACKAGE,
+    UPSTREAM_REPO_SLUGS,
+    is_source_repo,
+)
 from ..versions import is_newer
 from .cooldown import (
     UvSettings,
@@ -179,13 +181,13 @@ def _pinnable_files() -> dict[Path, str]:
     ({data}`~repomatic.components.BUNDLED_VERBATIM_TARGETS`): their `uses:` pins are
     owned by the bundled template, so a bump here is undone by the next
     `sync-repomatic` and the two pull requests ping-pong. This is the per-file
-    counterpart to the per-slug {data}`~repomatic.components.UPSTREAM_REPO_SLUGS`
+    counterpart to the per-slug {data}`~repomatic.upstream.UPSTREAM_REPO_SLUGS`
     skip in `_resolve_action_pins`.
 
     In the source repo the exclusion lifts: there the bundled template is a symlink
     to the in-tree file, so init rewrites nothing and the pin is a normal
     source-of-truth ref that upstream keeps bumping (see
-    {func}`~repomatic.init_project.is_source_repo`).
+    {func}`~repomatic.upstream.is_source_repo`).
     """
     in_source_repo = is_source_repo(Path.cwd())
     return {
@@ -1078,7 +1080,7 @@ def _docs_marker(marker: str) -> str:
     :param marker: The emoji and words shown in the table cell.
     :return: The marker as a link, or bare when the template names no docs.
     """
-    docs_url = template_docs_url("sync-workflow-pins")
+    docs_url = PrTemplate.load("sync-workflow-pins").docs_url
     return f"[{marker}]({docs_url})" if docs_url else marker
 
 
@@ -1089,8 +1091,8 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
     it is aligned to the newest `uses:` ref version instead of the newest
     cooldown-eligible PyPI release. The refs are its source of truth: they are
     written by `repomatic init` alone, which weighs the cooldown itself (see
-    {func}`~repomatic.init_project.resolve_default_pin` and
-    {func}`~repomatic.init_project.resolve_upgrade_target`) and is skipped here
+    {func}`~repomatic.init.upgrade.resolve_default_pin` and
+    {func}`~repomatic.init.upgrade.resolve_upgrade_target`) and is skipped here
     and in `_resolve_action_pins`. Re-judging their outcome against PyPI would
     leave `lint-repo`'s lockstep check red for a full cooldown window after
     every refs bump.

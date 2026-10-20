@@ -62,11 +62,7 @@ from ..config import (
     config_reference,
 )
 from ..file_ops import generated_header, strip_generated_header
-from ..github.actions import (
-    AnnotationLevel,
-    emit_annotation,
-    emit_report,
-)
+from ..github.outputs import AnnotationLevel, emit_annotation, emit_report
 from ..github.pr import carry_pr_branch_paths
 from ..gitignore import build_gitignore, orphaned_rules
 from ..images import (
@@ -905,7 +901,7 @@ def format_images(
         registry, once per run. jpegoptim has to be on $PATH:
         sudo apt-get install jpegoptim
     """
-    image_files = Metadata().image_files
+    image_files = Metadata().files.image_files
     if not image_files:
         echo("No image files found.")
         return

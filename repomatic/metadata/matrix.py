@@ -26,9 +26,7 @@ from __future__ import annotations
 import logging
 from functools import cached_property
 
-from ..github.actions import (
-    WorkflowEvent,
-)
+from ..github.event import WorkflowEvent
 from ..matrix.axes import (
     PRERELEASE_LABEL_SUFFIX,
     SINGLE_RUNNER_PYTHON_VERSIONS,

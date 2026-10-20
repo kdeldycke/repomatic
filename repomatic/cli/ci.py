@@ -52,7 +52,6 @@ from ..github.job_timings import (
 from ..github.outputs import AnnotationLevel, report_finding
 from ..github.runs import cancel_superseded_runs
 from ..github.workflow_files import WORKFLOW_DIR, literal_runners
-from ..init_project import is_source_repo
 from ..matrix.axes import (
     KNOWN_RUNNERS,
     MatrixName,
@@ -70,6 +69,7 @@ from ..matrix.runner_sync import (
 )
 from ..matrix.runners import fetch_catalog
 from ..metadata.core import Metadata
+from ..upstream import is_source_repo
 from .main import (
     LazyChoice,
     dry_run_option,

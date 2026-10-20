@@ -59,7 +59,7 @@ Workflows on `main` run the CLI from the lockfile rather than resolving it fresh
 
 Running from the lockfile creates its own hazard: **a floor inside the window is now invisible here and breaks only the people installing the release** (downstream repos running a frozen workflow's `uvx 'repomatic==X.Y.Z'`, and `uvx repomatic` users). `tests/test_dep_sources.py` is what catches it, so treat that test failing as "this release is not shippable yet", not as a local annoyance to wait out.
 
-When adding a tool that repomatic shells out to, register it and reach it through {func}`repomatic.tooling.runner.ensure_binary` rather than `$PATH`: a registry binary carries the cooldown, the pin and the checksum at once, and `$PATH` carries none of the three.
+When adding a tool that repomatic shells out to, register it and reach it through {func}`repomatic.tooling.binaries.ensure_binary` rather than `$PATH`: a registry binary carries the cooldown, the pin and the checksum at once, and `$PATH` carries none of the three.
 
 ### Documented exemptions this repository claims
 
@@ -72,7 +72,7 @@ Four installs deliberately bypass the window. The first three are per-package an
 
 ### Commit messages: the `[changelog]` prefix invariant
 
-Only `[changelog] …` qualifies as a parsed bracket prefix here, and it is an invariant, not a convention: {data}`repomatic.git_ops.CHANGELOG_COMMIT_PREFIX` states it, and `tests/test_workflows.py::test_changelog_prefix_is_the_machinery_invariant` holds the prefix set, the gates, and the emitting template together.
+Only `[changelog] …` qualifies as a parsed bracket prefix here, and it is an invariant, not a convention: {data}`repomatic.release.protocol.CHANGELOG_COMMIT_PREFIX` states it, and `tests/test_workflows.py::test_changelog_prefix_is_the_machinery_invariant` holds the prefix set, the gates, and the emitting template together.
 
 ### Directives are written in Simplified Technical English
 

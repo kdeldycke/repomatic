@@ -35,9 +35,9 @@ from click.testing import CliRunner
 
 from repomatic.checks import CheckResult
 from repomatic.cli.main import repomatic as repomatic_cli
-from repomatic.github.pr_body import load_template
 from repomatic.github.token import PatPermissionResults
 from repomatic.setup_guide import CANNOT_VERIFY, SETUP_STEPS
+from repomatic.templating import PrTemplate
 from tests.conftest import pat_results
 
 TYPE_CHECKING = False
@@ -868,7 +868,7 @@ GITHUB_ALERT = re.compile(
     (
         *(
             pytest.param(
-                step.template, load_template(step.template)[1], id=step.template
+                step.template, PrTemplate.load(step.template).body, id=step.template
             )
             for step in SETUP_STEPS
         ),
@@ -894,7 +894,7 @@ def test_setup_step_placeholders_match_the_template():
     and `string.Template.substitute` raises on a template placeholder no step
     fills, so the two rosters have to agree exactly.
     """
-    _meta, body = load_template("setup-guide")
+    body = PrTemplate.load("setup-guide").body
     declared = set(re.findall(r"\$([_a-z][_a-z0-9]*)", body))
     filled = {step.placeholder for step in SETUP_STEPS}
     assert filled <= declared, f"steps fill unknown placeholders: {filled - declared}"

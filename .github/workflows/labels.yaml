@@ -46,8 +46,8 @@ jobs:
     name: 🧬 Project metadata
     # Skipping this job propagates to every `needs: metadata` job below.
     # The PR branch list must stay in sync with
-    # repomatic.git_ops.VERSION_BUMP_BRANCHES; the single commit-message clause
-    # relies on repomatic.git_ops.CHANGELOG_COMMIT_PREFIX marking every
+    # repomatic.release.protocol.VERSION_BUMP_BRANCHES; the single commit-message clause
+    # relies on repomatic.release.protocol.CHANGELOG_COMMIT_PREFIX marking every
     # machine-authored version-machinery commit. Both enforced by repomatic's
     # own test suite.
     if: >

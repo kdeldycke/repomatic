@@ -48,7 +48,7 @@ from .changelog import (
 )
 from .file_ops import write_if_changed
 from .git_ops import GitError, get_all_version_tags
-from .github.actions import AnnotationLevel, emit_annotation
+from .github.outputs import AnnotationLevel, emit_annotation
 from .github.pr_body import render_template
 from .github.releases import (
     GitHubRelease,
@@ -59,7 +59,7 @@ from .pypi import (
     PYPI_LABEL,
     PYPI_PROJECT_URL,
     PyPIRelease,
-    get_release_dates as get_pypi_release_dates,
+    pypi_release_dates,
 )
 from .pyproject import get_project_name
 from .versions import safe_version
@@ -151,11 +151,9 @@ def _load_pypi_releases(
     """
     releases: dict[str, PyPIRelease] = {}
     if package:
-        releases = get_pypi_release_dates(package, force_refresh=force_refresh)
+        releases = pypi_release_dates(package, force_refresh=force_refresh)
     for former_package in history:
-        former_data = get_pypi_release_dates(
-            former_package, force_refresh=force_refresh
-        )
+        former_data = pypi_release_dates(former_package, force_refresh=force_refresh)
         if former_data:
             logging.info(
                 f"Using PyPI history for {former_package!r}"

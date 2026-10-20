@@ -38,13 +38,7 @@ from repomatic.checks import CheckResult
 from repomatic.cli.main import repomatic
 from repomatic.cli.repo import show_metadata
 from repomatic.cloudflare.r2 import PAGES_MAX_FILE_SIZE
-from repomatic.components import (
-    COMPONENTS,
-    DEFAULT_REPO,
-    INSTALL_GUIDE_PATH,
-    SyncMode,
-    ToolConfigComponent,
-)
+from repomatic.components import COMPONENTS, SyncMode, ToolConfigComponent
 from repomatic.config import (
     Config,
     LabelsConfig,
@@ -140,6 +134,7 @@ from repomatic.tooling.registry import (
     NpmSpec,
     ToolSpec,
 )
+from repomatic.upstream import DEFAULT_REPO, INSTALL_GUIDE_PATH
 from tests.conftest import PROJECT_ROOT, metadata_from_pyproject, pat_results
 
 

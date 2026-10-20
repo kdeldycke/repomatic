@@ -56,11 +56,12 @@ from ..deps.report import (
     format_release_notes,
 )
 from ..deps.uv import uvx_cmd
-from ..github.pr_body import render_template, sanitize_markdown_mentions
+from ..github.pr_body import render_template
 from ..github.releases import fetch_github_release_notes, resolve_tag_to_sha
 from ..github.urls import repo_name
 from ..github.workflow_files import github_yaml_paths
 from ..humanize import today_utc
+from ..markdown import sanitize_markdown_mentions
 from ..pypi import PYPI_PACKAGE_URL
 from ..release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from ..skills import UPGRADE_SKILL, skill_launcher

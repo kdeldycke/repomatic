@@ -29,7 +29,7 @@ from dataclasses import dataclass
 
 from ..checks import CheckResult
 from ..components import SyncMode
-from ..github.actions import AnnotationLevel
+from ..github.outputs import AnnotationLevel
 from ..github.token import PAT_PERMISSION_PROBES
 from .pins import (
     check_inline_pins_match_upstream,
@@ -135,7 +135,7 @@ class RepoCheck:
     fatal: bool = False
     """Whether a failure fails the command.
 
-    A fatal check reports at {attr}`~repomatic.github.actions.AnnotationLevel.ERROR`
+    A fatal check reports at {attr}`~repomatic.github.outputs.AnnotationLevel.ERROR`
     and sets the non-zero exit code; every other check is advisory. A red run
     for an advisory finding teaches its readers to ignore red runs, and that
     hides the failures that count.

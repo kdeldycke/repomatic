@@ -35,7 +35,6 @@ from pathlib import Path
 
 from ..changelog import resolved_changelog_path
 from ..cloudflare.r2 import PAGES_MAX_FILE_SIZE
-from ..components import is_awesome_repo
 from ..config import Config, deploys_to
 from ..github.gh import gh_json
 from ..github.labels import LabelConfigError, declared_label_names
@@ -45,6 +44,7 @@ from ..github.workflow_files import parse_workflow_texts, read_workflow_texts
 from ..http import FetchError
 from ..metadata.core import Metadata
 from ..pyproject import get_project_name
+from ..upstream import is_awesome_repo
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:

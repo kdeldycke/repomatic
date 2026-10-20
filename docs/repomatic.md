@@ -18,6 +18,8 @@
    repomatic.data
    repomatic.deps
    repomatic.github
+   repomatic.init
+   repomatic.lint_repo
    repomatic.matrix
    repomatic.metadata
    repomatic.metrics
@@ -51,13 +53,16 @@
    repomatic.http
    repomatic.humanize
    repomatic.images
-   repomatic.init_project
-   repomatic.lint_repo
+   repomatic.lint_changelog
    repomatic.mailmap
+   repomatic.markdown
    repomatic.npm
    repomatic.pypi
    repomatic.pyproject
    repomatic.setup_guide
+   repomatic.skills
    repomatic.tabular
+   repomatic.templating
+   repomatic.upstream
    repomatic.versions
 ```

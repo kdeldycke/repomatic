@@ -40,7 +40,7 @@ from urllib.parse import quote_plus
 from click_extra import ColumnSpec
 from packaging.utils import canonicalize_name
 
-from ..github.actions import AnnotationLevel
+from ..github.outputs import AnnotationLevel
 from ..humanize import format_countdown
 from ..pypi import is_pypi_url
 from ..pyproject import uv_table
@@ -226,7 +226,7 @@ class DepFinding:
     """The next action, naming the automation that already covers it."""
 
     level: AnnotationLevel = AnnotationLevel.ERROR
-    """Severity. Only {attr}`~repomatic.github.actions.AnnotationLevel.ERROR`
+    """Severity. Only {attr}`~repomatic.github.outputs.AnnotationLevel.ERROR`
     blocks a release."""
 
     allowed: str = ""
