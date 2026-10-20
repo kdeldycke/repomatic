@@ -103,6 +103,7 @@ Issues found while building repomatic and resolved upstream. Where repomatic car
 - [`Nuitka#3998`](https://github.com/Nuitka/Nuitka/issues/3998) - `enableCcache` replaced a user-set `CCACHE_SLOPPINESS` with its own value. Since `4.3` Nuitka adds its value to the user's.
 - [`Nuitka#4025`](https://github.com/Nuitka/Nuitka/issues/4025) - `--project` refused to build over a `py.typed` and over a dependency's package data, until `4.3`.
 - [`tomlrt#171`](https://github.com/dimbleby/tomlrt/issues/171) - `Table.section()` dropped standalone comments and inline-array padding from the source document. repomatic rebuilt each section with a helper to keep them, and removed the helper once `tomlrt` `2.2.4` fixed the clone path.
+- [`uv#12906`](https://github.com/astral-sh/uv/issues/12906) - uv installed an x86_64 Python on arm64 Windows. `tests.yaml` forced a native ARM64 interpreter on that runner until uv `0.13.0` preferred the native one ([`uv#22100`](https://github.com/astral-sh/uv/pull/22100)).
 - [`zizmor#1664`](https://github.com/zizmorcore/zizmor/issues/1664) - The `template-injection` audit failed on a multiline YAML block. repomatic turned the audit off until `zizmor` `1.23.0` fixed it, then turned it back on.
 
 Also reported while building repomatic, and closed upstream:
@@ -186,21 +187,6 @@ repomatic post-processes the output of `mdformat` to undo two `mdformat-myst` re
 ### Workflow linting
 
 - [`actionlint#711` - Support the new `$/` self-repository `uses:` syntax](https://github.com/rhysd/actionlint/issues/711) / [`actionlint#732`](https://github.com/rhysd/actionlint/pull/732): `actionlint` rejects the `$/` self-repository syntax of GitHub. repomatic's workflows call their own reusable workflows through workspace-relative `./` paths instead.
-
-### Test matrix
-
-- [`uv#12906` - uv installs x86_64 Python on arm64 Windows](https://github.com/astral-sh/uv/issues/12906): `tests.yaml` forces a native ARM64 interpreter on the Windows ARM64 runner, which would otherwise test an emulated x86_64 Python. uv `0.13.0` prefers the native interpreter ([`uv#22100`](https://github.com/astral-sh/uv/pull/22100)), and the workflows pin an older uv.
-
-  ```{todo}
-  When `sync-workflow-pins` moves the uv pin of the `setup-uv` steps to `0.13.0` or later:
-
-  - Delete the `Force native ARM64 Python on Windows ARM64` step of `tests.yaml`, and the `UV_PYTHON` fallback in the `Install Python` step after it.
-  - Rewrite the `validate-arch` comment of `tests.yaml` that says uv prefers an x86_64 interpreter on aarch64.
-  - Build the two Windows binaries with `--managed-python` in a canary run of `_release-engine.yaml`. If both pass `verify-binary` and the self-tests, pass the flag on every platform.
-  - Delete this entry, and the example that names the step in the `repomatic-audit` skill.
-
-  When a Python version has no native build, uv `0.13.0` falls back to x86_64 with no error. The explicit request of the step fails there. Python 3.10 has none, and the test matrix already excludes it on `windows-11-arm`.
-  ```
 
 ### Nuitka binary builds
 

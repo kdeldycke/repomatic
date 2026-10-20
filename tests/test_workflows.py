@@ -2009,10 +2009,10 @@ def test_arch_aliases_mirror_extra_platforms() -> None:
 
     The check runs on the runner image's own interpreter, with no dependency
     install: reaching `extra_platforms` means resolving a Python through uv,
-    which transparently prefers an x86_64 interpreter on aarch64, the very
-    thing that job exists to catch. So the alias data is copied into the YAML,
-    and this pins the copy to its source the way
-    {func}`test_workflow_declares_cooldown_env` pins the cooldown block.
+    which on aarch64 Windows falls back to an x86_64 interpreter for a version
+    with no native build, and that job checks the runner image itself. So the
+    alias data is copied into the YAML, and this pins the copy to its source the
+    way {func}`test_workflow_declares_cooldown_env` pins the cooldown block.
     """
     content = (WORKFLOWS_DIR / "tests.yaml").read_text(encoding="UTF-8")
     expected = _render_arch_aliases()
