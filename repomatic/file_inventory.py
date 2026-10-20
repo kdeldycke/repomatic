@@ -14,12 +14,12 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""What files this repository contains, honoring `.gitignore`.
+"""What files this repository contains, honoring `.gitignore` and `.git/info/exclude`.
 
 One question, asked in one place: every "which files are the Python sources /
 the workflows / the images" lookup routes through {class}`FileInventory`, whose
 {meth}`~FileInventory.glob_files` resolves symlinks, drops broken ones and
-filters out anything `.gitignore` excludes. The results are the lists CI jobs
+filters out anything those two files exclude. The results are the lists CI jobs
 gate on, so a job that formats Markdown and one that lints it see the same
 files.
 
@@ -35,12 +35,6 @@ imported here for globbing, once it reads gitignore files natively:
 Pick another parser first if
 [pacha/py-walk#11](https://github.com/pacha/py-walk/issues/11) ends with
 py-walk retired: `sly`, its only dependency, already is.
-```
-
-```{todo}
-Go back to `get_parser_from_file` in {attr}`FileInventory.gitignore_parser`,
-and raise the py-walk floor to the release that carries the fix, once
-[pacha/py-walk#10](https://github.com/pacha/py-walk/pull/10) ships.
 ```
 """
 
@@ -73,12 +67,28 @@ filters them with {func}`~wcmatch.glob.globmatch`; sharing the flags is what
 keeps the two reading a pattern the same way.
 """
 
+EXCLUDE_GIT_PATH = Path("info", "exclude")
+"""Path of the repository's exclude file, inside its git directory.
+
+Git reads its rules beside those of `.gitignore`, but no commit carries the
+file: it holds the ignore rules of one checkout. A `.claude/worktrees/` entry
+there keeps the files of an agent's worktree out of the inventory of the
+checkout that holds it. {attr}`FileInventory.exclude_path` finds the file in a
+linked worktree too, where git keeps it in the main checkout.
+
+The inventory reads no other ignore file. It skips the `.gitignore` of each
+subdirectory. It also skips the user's `core.excludesFile`, which applies to
+every repository of the user. A rule there can match a file that one repository
+tracks: git keeps a tracked file, but the inventory would drop it.
+"""
+
 GITIGNORE_PATH = Path(".gitignore")
 """Path of the `.gitignore` file whose rules filter every inventory lookup.
 
 Fixed at the repository root, unlike the configurable
 `[tool.repomatic.gitignore] location` that `sync-gitignore` writes: the glob
-filter has to match what git itself honors, and git only reads this path.
+filter has to match what git itself honors, and git reads the root
+`.gitignore` from this path alone.
 """
 
 
@@ -124,18 +134,53 @@ class FileInventory:
         return GITIGNORE_PATH.is_file()
 
     @cached_property
-    def gitignore_parser(self) -> Parser | None:
-        """Returns a parser for the `.gitignore` file, if it exists.
+    def exclude_path(self) -> Path | None:
+        """Returns the path of the repository's exclude file, read off the disk.
 
-        The file is decoded here, as UTF-8. `get_parser_from_file` of py-walk
+        `.git` is a directory in a plain checkout. In a linked worktree, `.git`
+        is a file that names the git directory of the worktree, and the
+        `commondir` file there points to the git directory of the main
+        checkout, which holds the exclude file of every worktree.
+
+        The property reads the layout instead of running `git rev-parse
+        --git-path`: a lookup then works without git, and starts no process.
+        """
+        dot_git = Path(".git")
+        if dot_git.is_dir():
+            return dot_git / EXCLUDE_GIT_PATH
+        if not dot_git.is_file():
+            return None
+        content = dot_git.read_text(encoding="UTF-8")
+        if not content.startswith("gitdir:"):
+            return None
+        git_dir = Path(content.removeprefix("gitdir:").strip())
+        common_dir = git_dir / "commondir"
+        if common_dir.is_file():
+            git_dir /= common_dir.read_text(encoding="UTF-8").strip()
+        return git_dir / EXCLUDE_GIT_PATH
+
+    @cached_property
+    def gitignore_parser(self) -> Parser | None:
+        """Returns a parser for the rules of `.gitignore` and the exclude file.
+
+        The exclude rules go first. Git lets a `.gitignore` rule override an
+        exclude rule, and the parser lets a later rule override an earlier one,
+        so this order keeps the precedence of git. See {data}`EXCLUDE_GIT_PATH`.
+
+        Each file is decoded here, as UTF-8. `get_parser_from_file` of py-walk
         decodes it with the locale encoding, so a pattern with a non-ASCII
         character misses its path on a machine whose locale is not UTF-8.
         """
-        if self.gitignore_exists:
-            logging.debug(f"Parse {GITIGNORE_PATH}")
-            text = GITIGNORE_PATH.read_text(encoding="UTF-8")
-            return get_parser_from_text(text, base_dir=GITIGNORE_PATH.parent)
-        return None
+        sources = [
+            path
+            for path in (self.exclude_path, GITIGNORE_PATH)
+            if path is not None and path.is_file()
+        ]
+        if not sources:
+            return None
+        logging.debug(f"Parse {', '.join(map(str, sources))}")
+        text = "\n".join(path.read_text(encoding="UTF-8") for path in sources)
+        return get_parser_from_text(text, base_dir=GITIGNORE_PATH.parent)
 
     def _in_ignored_dir(self, file_path: str) -> bool:
         """Whether *file_path* sits below a gitignored directory.
@@ -212,7 +257,7 @@ class FileInventory:
         - files which does not exists
         - directories
         - broken symlinks
-        - files matching patterns specified by `.gitignore` file
+        - files matching patterns specified by `.gitignore` or the exclude file
 
         Returns both hidden and non-hidden files.
 

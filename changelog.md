@@ -11,6 +11,7 @@
 - The bundled `tests.yaml` drops its step that forced a native Python on Windows ARM64, since uv `0.13.0` picks it unaided. A downstream copy can drop the same step.
 - The Windows binaries now build on uv's managed Python, like the binaries of the other platforms.
 - The test matrix now runs Python `3.15` as the stable release and `3.16` as the development one, and smoke-tests the free-threaded `3.15t`.
+- Fix the file lists of `repomatic` commands including the files that `.git/info/exclude` ignores, like an agent worktree under `.claude/worktrees/`.
 - The bundled `benchmark-update` skill now grades each cell ✅, 🟡 or ❌, links it to its evidence, and audits blank cells against quoted sources.
 - The bundled `repomatic-audit` skill now reads the CI state of the default branch, and checks that `[tool.gitleaks]` keeps the built-in rules.
 - The bundled `repomatic-upgrade` skill now runs the newly pinned `mypy` and `ruff` on the untouched tree, since the changelog often leaves a tool bump out.

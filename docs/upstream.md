@@ -268,9 +268,9 @@ Pull requests and issues still pending upstream.
   When a Nuitka release carries the fix for [Nuitka/Nuitka#4087](https://github.com/Nuitka/Nuitka/issues/4087), add it to the matrix of the `ccache-type-description.yaml` workflow in [kdeldycke/nuitka-test](https://github.com/kdeldycke/nuitka-test), and run it. Then update this entry and [Compile caching](nuitka.md#compile-caching) to match the result.
   ```
 
-- [`py-walk#11` - `py-walk` maintenance status](https://github.com/pacha/py-walk/issues/11): `sly`, the only dependency of `py-walk`, is retired, and `py-walk` has had no commit since 2024-10-26. repomatic reads `.gitignore` through `py-walk`: see [`repomatic.file_inventory`](repomatic.file_inventory.md).
+- [`py-walk#11` - `py-walk` maintenance status](https://github.com/pacha/py-walk/issues/11): `sly`, the only dependency of `py-walk`, is retired, and `py-walk` has had no commit since 2024-10-26. repomatic reads its ignore files through `py-walk`: see [`repomatic.file_inventory`](repomatic.file_inventory.md).
 
-- [`py-walk#10` - fix: read the pattern file as UTF-8 instead of the locale encoding](https://github.com/pacha/py-walk/pull/10): `get_parser_from_file` decodes the pattern file with the locale encoding. repomatic decodes `.gitignore` itself until a release carries the fix: see [`repomatic.file_inventory`](repomatic.file_inventory.md).
+- [`py-walk#10` - fix: read the pattern file as UTF-8 instead of the locale encoding](https://github.com/pacha/py-walk/pull/10): `get_parser_from_file` decodes the pattern file with the locale encoding. repomatic reads its ignore files as UTF-8 itself, and parses them with `get_parser_from_text`: see [`repomatic.file_inventory`](repomatic.file_inventory.md).
 
 - [`ruff#19421` - Failure to create cache key on invalid symlink](https://github.com/astral-sh/ruff/issues/19421)
 

@@ -46,6 +46,7 @@ from repomatic.cli.main import (
 from repomatic.config import (
     Config,
 )
+from repomatic.file_inventory import FileInventory
 from repomatic.github.actions import NULL_SHA
 from repomatic.github.matrix import (
     OS_AXIS,
@@ -1100,6 +1101,50 @@ def test_gitignore_is_decoded_as_utf8_whatever_the_locale(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "True"
+
+
+def test_exclude_file_rules_apply_below_gitignore(tmp_path, monkeypatch):
+    """The exclude file filters the inventory, and `.gitignore` overrides it.
+
+    Git reads `info/exclude` beside `.gitignore`, and gives `.gitignore` the
+    last word: a file that the exclude rules drop comes back when `.gitignore`
+    negates it.
+    """
+    exclude = tmp_path / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(parents=True)
+    exclude.write_text("*.txt\n", encoding="UTF-8")
+    (tmp_path / ".gitignore").write_text("!kiwi.txt\n", encoding="UTF-8")
+    for name in ("apple.txt", "kiwi.txt", "mango.md"):
+        (tmp_path / name).write_text("", encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    assert FileInventory().glob_files("*") == [
+        Path(".gitignore"),
+        Path("kiwi.txt"),
+        Path("mango.md"),
+    ]
+
+
+def test_linked_worktree_reads_the_exclude_file_of_its_main_checkout(
+    tmp_path, monkeypatch
+):
+    """A linked worktree follows its `.git` file to the shared exclude file.
+
+    Git writes the `.git` file and the `commondir` file of a linked worktree in
+    this layout, and keeps one exclude file for every worktree.
+    """
+    common_dir = tmp_path / "orchard" / ".git"
+    (common_dir / "info").mkdir(parents=True)
+    (common_dir / "info" / "exclude").write_text("*.txt\n", encoding="UTF-8")
+    worktree_dir = common_dir / "worktrees" / "grove"
+    worktree_dir.mkdir(parents=True)
+    (worktree_dir / "commondir").write_text("../..\n", encoding="UTF-8")
+    grove = tmp_path / "grove"
+    grove.mkdir()
+    (grove / ".git").write_text(f"gitdir: {worktree_dir}\n", encoding="UTF-8")
+    for name in ("apple.txt", "mango.md"):
+        (grove / name).write_text("", encoding="UTF-8")
+    monkeypatch.chdir(grove)
+    assert FileInventory().glob_files("*.md", "*.txt") == [Path("mango.md")]
 
 
 @pytest.mark.repo_maintenance
