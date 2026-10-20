@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import glob
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -541,7 +541,7 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes(tmp_path, monke
     dates are derived from the current date so the cooldown windows stay valid
     whenever the test runs.
     """
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     tags = {
         "v1.0.0": GitHubRelease(
             date=(today - timedelta(days=400)).isoformat(), body="one"
@@ -616,7 +616,7 @@ def test_sync_action_pins_converges_mixed_pins_without_eligible_upgrade(
     winning pin's SHA without any tag resolution, even when the only newer
     release is still inside the cooldown.
     """
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     tags = {
         # 100 days old: cleared the cooldown, and already the highest pin.
         "v2.0.0": GitHubRelease(
@@ -678,7 +678,7 @@ def test_sync_action_pins_merges_mixed_pins_onto_widest_range(tmp_path, monkeypa
     URLs that contradicted their own text. The merged row must span from the
     lowest pin and its release notes must cover every release any pin skips.
     """
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     tags = {
         "v1.0.0": GitHubRelease(
             date=(today - timedelta(days=400)).isoformat(), body="release one notes"
@@ -747,7 +747,7 @@ def test_sync_workflow_pins_release_notes_cover_pypi_literals_only(
     `fetch_release_notes` call even when bumped in the same run, while the PyPI
     literal's notes still render.
     """
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     eligible = (today - timedelta(days=30)).isoformat()
     captured: dict[str, object] = {}
 
@@ -817,7 +817,7 @@ def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown(
     failing until the cooldown expired. Regular literals in the same run stay
     cooldown-governed.
     """
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     fresh = today.isoformat()
 
     runner = CliRunner()
@@ -870,7 +870,7 @@ def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown(
 
 def test_sync_workflow_pins_upstream_pin_cooldown_without_refs(tmp_path, monkeypatch):
     """Without upstream `uses:` refs, the toolkit pin stays cooldown-governed."""
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     fresh = today.isoformat()
 
     runner = CliRunner()
@@ -895,7 +895,7 @@ def test_sync_workflow_pins_upstream_pin_cooldown_without_refs(tmp_path, monkeyp
 
 def test_sync_workflow_pins_upstream_pin_already_aligned(tmp_path, monkeypatch):
     """A pin equal to the `uses:` ref version ignores newer PyPI releases."""
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     eligible = (today - timedelta(days=30)).isoformat()
 
     runner = CliRunner()
@@ -929,7 +929,7 @@ def test_sync_workflow_pins_upstream_pin_realigns_stragglers_both_ways(
     tmp_path, monkeypatch
 ):
     """Every literal realigns to the refs, lagging or ahead, across files."""
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     fresh = today.isoformat()
 
     runner = CliRunner()

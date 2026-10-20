@@ -60,6 +60,7 @@ import logging
 import os
 from collections.abc import Callable, Iterable
 from dataclasses import fields
+from enum import StrEnum
 from functools import cached_property, partial
 from pathlib import Path
 
@@ -72,7 +73,6 @@ from ..changelog import (
     build_release_admonition,
     resolved_changelog_path,
 )
-from ..compat import StrEnum
 from ..config import (
     SUBCOMMAND_CONFIG_FIELDS,
     Config,
@@ -97,9 +97,7 @@ from .project import ProjectMetadata
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from typing import Any, Final
-
-    from typing_extensions import Self
+    from typing import Any, Final, Self
 
 
 HEREDOC_FIELDS: Final[frozenset[str]] = frozenset((

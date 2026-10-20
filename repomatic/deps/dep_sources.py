@@ -61,7 +61,8 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
+from enum import StrEnum
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -71,7 +72,6 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
-from ..compat import StrEnum
 from ..github.actions import AnnotationLevel
 from ..humanize import format_countdown, parse_iso_datetime
 from ..pypi import get_release_dates, is_pypi_url
@@ -368,7 +368,7 @@ def floors_inside_cooldown(
     if cutoff is None or not pyproject_path.exists():
         return {}
     span = resolve_exclude_newer_span(window)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     lock = LockFile.load(lock_path)
     locked = {

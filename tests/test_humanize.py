@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import time
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -70,7 +70,7 @@ def test_format_age(days_ago: int, expected: str) -> None:
 
 def _utc(year, month, day, hour=0, minute=0):
     """Shorthand for an aware UTC instant."""
-    return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+    return datetime(year, month, day, hour, minute, tzinfo=UTC)
 
 
 def test_utc_midnight_starts_the_day() -> None:

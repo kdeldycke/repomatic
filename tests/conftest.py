@@ -45,9 +45,7 @@ from repomatic.tooling.tool_runner import ensure_binary, run_tool
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from typing import Any
-
-    from typing_extensions import Self
+    from typing import Any, Self
 
 PROJECT_ROOT = Path(__file__).parent.parent
 """Root of the repository."""

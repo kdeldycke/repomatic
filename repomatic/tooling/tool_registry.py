@@ -66,7 +66,7 @@ import logging
 import re
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from inspect import cleandoc
 from pathlib import Path
@@ -132,7 +132,7 @@ def generated_header(command: str, comment_prefix: str = "# ") -> str:
     :param comment_prefix: Comment prefix for the target format.
     """
     line1 = GENERATED_HEADER_TEMPLATE.format(command=command, version=__version__)
-    line2 = f"Timestamp: {datetime.now(timezone.utc).isoformat()}"
+    line2 = f"Timestamp: {datetime.now(UTC).isoformat()}"
     return f"{comment_prefix}{line1}\n{comment_prefix}{line2}\n"
 
 

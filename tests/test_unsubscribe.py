@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
 from unittest.mock import patch
@@ -66,7 +66,7 @@ STALE = "2020-01-01T00:00:00Z"
 RECENT = "2099-01-01T00:00:00Z"
 
 # A stable cutoff for report-rendering tests; its isoformat is asserted below.
-CUTOFF = datetime(2026, 4, 16, tzinfo=timezone.utc)
+CUTOFF = datetime(2026, 4, 16, tzinfo=UTC)
 CUTOFF_ISO = "2026-04-16T00:00:00+00:00"
 
 
@@ -271,39 +271,39 @@ def _gh_calls_matching(mock_gh, prefix):
     ("fixed_now", "months", "expected"),
     [
         pytest.param(
-            datetime(2026, 3, 31, 12, tzinfo=timezone.utc),
+            datetime(2026, 3, 31, 12, tzinfo=UTC),
             1,
-            datetime(2026, 2, 28, 12, tzinfo=timezone.utc),
+            datetime(2026, 2, 28, 12, tzinfo=UTC),
             id="clamp-to-feb-28",
         ),
         pytest.param(
-            datetime(2024, 3, 31, 12, tzinfo=timezone.utc),
+            datetime(2024, 3, 31, 12, tzinfo=UTC),
             1,
-            datetime(2024, 2, 29, 12, tzinfo=timezone.utc),
+            datetime(2024, 2, 29, 12, tzinfo=UTC),
             id="clamp-to-leap-feb-29",
         ),
         pytest.param(
-            datetime(2026, 7, 16, 9, tzinfo=timezone.utc),
+            datetime(2026, 7, 16, 9, tzinfo=UTC),
             3,
-            datetime(2026, 4, 16, 9, tzinfo=timezone.utc),
+            datetime(2026, 4, 16, 9, tzinfo=UTC),
             id="simple-three-months",
         ),
         pytest.param(
-            datetime(2026, 2, 15, tzinfo=timezone.utc),
+            datetime(2026, 2, 15, tzinfo=UTC),
             3,
-            datetime(2025, 11, 15, tzinfo=timezone.utc),
+            datetime(2025, 11, 15, tzinfo=UTC),
             id="year-rollover",
         ),
         pytest.param(
-            datetime(2026, 7, 16, 9, tzinfo=timezone.utc),
+            datetime(2026, 7, 16, 9, tzinfo=UTC),
             12,
-            datetime(2025, 7, 16, 9, tzinfo=timezone.utc),
+            datetime(2025, 7, 16, 9, tzinfo=UTC),
             id="full-year",
         ),
         pytest.param(
-            datetime(2026, 1, 31, 6, tzinfo=timezone.utc),
+            datetime(2026, 1, 31, 6, tzinfo=UTC),
             1,
-            datetime(2025, 12, 31, 6, tzinfo=timezone.utc),
+            datetime(2025, 12, 31, 6, tzinfo=UTC),
             id="january-to-december",
         ),
     ],
@@ -391,7 +391,7 @@ def test_render_detail_table_exact():
 
 def test_render_detail_table_humanizes_timestamp():
     """A real timestamp renders a relative string, not the '-' placeholder."""
-    row = _make_row(updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc))
+    row = _make_row(updated_at=datetime(2020, 1, 1, tzinfo=UTC))
     table = _render_detail_table([row])
     assert " | - | " not in table
     assert "ago" in table
@@ -450,7 +450,7 @@ def test_render_report_backlog_warning(threads_deferred, expect_warning):
     p1.max_unsubscribes = 200
     p1.threads_total = 100
     p1.threads_deferred = threads_deferred
-    p1.oldest_updated = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    p1.oldest_updated = datetime(2026, 5, 1, tzinfo=UTC)
     report = render_report(result)
     assert ("eligible threads were left alone" in report) is expect_warning
 
@@ -463,7 +463,7 @@ def _backlog_report(repo_url: str | None = None) -> str:
     p1.max_unsubscribes = 200
     p1.threads_total = 100
     p1.threads_deferred = 12
-    p1.oldest_updated = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    p1.oldest_updated = datetime(2026, 5, 1, tzinfo=UTC)
     return render_report(result, repo_url)
 
 
@@ -1046,7 +1046,7 @@ def test_phase2_search_failure_skips():
 def test_phase2_search_query_built():
     """The search query embeds the username and the computed cutoff date."""
     with patch(f"{_MODULE}.datetime") as mock_dt:
-        mock_dt.now.return_value = datetime(2026, 7, 16, tzinfo=timezone.utc)
+        mock_dt.now.return_value = datetime(2026, 7, 16, tzinfo=UTC)
         run = _dispatch_gh(notifications="", username="fruitbot")
         with (
             patch_gh(side_effect=run),

@@ -63,7 +63,7 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import tomlrt
@@ -275,7 +275,7 @@ def _token() -> str:
         # `403` on whichever call comes first, which reads as a scope problem
         # and sends the reader auditing permissions that were never wrong.
         expiry = _parse_timestamp(stored.get("expiration_time"))
-        if expiry and expiry <= datetime.now(timezone.utc):
+        if expiry and expiry <= datetime.now(UTC):
             msg = (
                 f"The `wrangler login` session in {config_path} expired on "
                 f"{expiry:%Y-%m-%d %H:%M} UTC. Run `wrangler login` to refresh "
@@ -392,7 +392,7 @@ def _token_expiry_warning(token: str, account: str) -> str | None:
         expiry = _parse_timestamp(expires_on)
         if expiry is None:
             return None
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if expiry - now < timedelta(days=EXPIRY_WARNING_DAYS):
             # A countdown drops its relative phrase once the deadline passes,
             # so a token already dead needs the other verb to read right.

@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from operator import itemgetter
 
 from click_extra import ColumnSpec
@@ -214,7 +214,7 @@ def search_stale_threads(
     :return: Search result dicts carrying `number`, `title`, `url`,
         `isPullRequest`, `labels` and `updatedAt`, newest first.
     """
-    cutoff = datetime.now(timezone.utc).date() - timedelta(days=inactive_days)
+    cutoff = datetime.now(UTC).date() - timedelta(days=inactive_days)
     output = run_gh_command([
         "search",
         "issues",

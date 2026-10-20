@@ -47,7 +47,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import vt
@@ -417,7 +417,7 @@ def records_from_results(
     :return: One record per result with detection statistics.
     """
     if scanned is None:
-        scanned = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        scanned = datetime.now(UTC).strftime("%Y-%m-%d")
     return [
         ScanRecord(
             tag=tag,

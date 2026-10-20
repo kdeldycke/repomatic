@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from html import escape
 from math import floor, log10
 from pathlib import Path
@@ -390,7 +390,7 @@ def render_chart(
     :return: The complete SVG document.
     """
     if stamp is None:
-        stamp = datetime.now(timezone.utc).date().isoformat()
+        stamp = datetime.now(UTC).date().isoformat()
     grouped = data.points
 
     width, height = 960, 460

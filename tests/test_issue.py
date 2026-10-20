@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -400,7 +400,7 @@ def test_search_window_counts_back_from_today():
 
     query = calls[0]
     cutoff = query[query.index("--updated") + 1]
-    expected = datetime.now(timezone.utc).date() - timedelta(days=30)
+    expected = datetime.now(UTC).date() - timedelta(days=30)
     assert cutoff == f"<{expected.isoformat()}"
     # `is:unlocked` is what makes a re-run a no-op: without it the command
     # would re-comment on every thread it locked the week before.

@@ -64,11 +64,11 @@ from __future__ import annotations
 
 import json
 import logging
+from enum import StrEnum
 from typing import NamedTuple
 from uuid import uuid4
 
 from .. import git_ops
-from ..compat import StrEnum
 from .gh import parse_create_output, run_gh_command
 from .issue import add_labels, run_unlocking
 from .pr_body import fit_github_body, temp_body_file

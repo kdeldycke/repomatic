@@ -54,8 +54,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
-from enum import Enum
+from datetime import UTC, datetime, timedelta
+from enum import Enum, StrEnum
 from functools import lru_cache
 from pathlib import Path
 from random import randint
@@ -64,7 +64,6 @@ from urllib.parse import quote, urlencode
 
 from click_extra import echo, prep_path
 
-from ..compat import StrEnum
 from ..git_ops import RELEASE_COMMIT_PREFIX
 from .gh import gh_api_json, run_gh_command
 
@@ -510,7 +509,7 @@ def runs_created_since() -> str:
 
     See {data}`RUN_LISTING_WINDOW` for why every listing carries one.
     """
-    start = datetime.now(timezone.utc) - RUN_LISTING_WINDOW
+    start = datetime.now(UTC) - RUN_LISTING_WINDOW
     return f">={start:%Y-%m-%d}"
 
 

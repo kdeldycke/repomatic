@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import cached_property
 
 from click_extra import TableFormat, render_table
@@ -250,13 +250,13 @@ class GuideContext:
         the step is still open. It stops moving once the issue closes, which
         is the point at which the body is no longer rewritten.
         """
-        return f"{self.md.repo_name}-deploy-{datetime.now(timezone.utc):%Y-%m}"
+        return f"{self.md.repo_name}-deploy-{datetime.now(UTC):%Y-%m}"
 
     @property
     def cloudflare_r2_token_name(self) -> str:
         """Suggested name for the R2 upload token, dated for the same reason as
         {attr}`cloudflare_token_name`: it carries the same one-year expiry."""
-        return f"{self.md.repo_name}-r2-{datetime.now(timezone.utc):%Y-%m}"
+        return f"{self.md.repo_name}-r2-{datetime.now(UTC):%Y-%m}"
 
     def deploys_to(self, target: str) -> bool:
         """Whether this repository publishes its site to *target*.

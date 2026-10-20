@@ -29,7 +29,7 @@ from repomatic.cli.main import repomatic
 invoke(repomatic, args=['show-test-matrix', 'full'])
 ```
 
-This is the built-in default plus one row. The default holds the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.16` prerelease flagged `unstable`, the free-threaded `3.15t` build pinned to a single runner as a stable smoke test, and `windows-11-arm` dropped on `3.10`. The row with a `resolution` value is this repository's own: see [§ Run every declared floor in one cell](#run-every-declared-floor-in-one-cell).
+This is the built-in default plus one row. The default holds the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.16` prerelease flagged `unstable`, and the free-threaded `3.15t` build pinned to a single runner as a stable smoke test. The row with a `resolution` value is this repository's own: see [§ Run every declared floor in one cell](#run-every-declared-floor-in-one-cell).
 
 The reduced pull-request matrix keeps one runner per OS and two Python versions, for faster feedback:
 
@@ -41,7 +41,7 @@ Rows sort on `--row-axis` first and `--col-axis` next, and those two axes lead t
 
 ### The compact grid
 
-`--grid` trades the listing for a two-axis pivot: `--row-axis` and `--col-axis` head the sides, and every other axis collapses into the cells. It is the fastest way to answer "does 3.10 run on Windows", at the cost of being lossy.
+`--grid` trades the listing for a two-axis pivot: `--row-axis` and `--col-axis` head the sides, and every other axis collapses into the cells. It is the fastest way to answer "does 3.11 run on Windows", at the cost of being lossy.
 
 ![This repository's own matrix, pivoted into the compact grid](assets/matrix-grid-screen.svg)
 
@@ -107,7 +107,7 @@ Pinning a value to a single cell is verbose in the exclude model. Say you carry 
 [tool.repomatic]
 # Released acme everywhere, plus the floor and the regression release.
 test-matrix.variations.acme-version = ["4.2", "5.0", "released"]
-# Pin 4.2 and 5.0 each to (ubuntu-26.04-arm, 3.10) by dropping every other cell.
+# Pin 4.2 and 5.0 each to (ubuntu-26.04-arm, 3.11) by dropping every other cell.
 test-matrix.exclude = [
   { "os" = "ubuntu-26.04", "acme-version" = "4.2" },
   { "os" = "macos-26", "acme-version" = "4.2" },
@@ -130,8 +130,8 @@ test-matrix.exclude = [
 test-matrix.include = [{ "acme-version" = "released" }]
 # ...plus the floor and regression release pinned to one cell each.
 test-matrix.full-include = [
-  { "os" = "ubuntu-26.04-arm", "python-version" = "3.10", "acme-version" = "4.2" },
-  { "os" = "ubuntu-26.04-arm", "python-version" = "3.10", "acme-version" = "5.0" },
+  { "os" = "ubuntu-26.04-arm", "python-version" = "3.11", "acme-version" = "4.2" },
+  { "os" = "ubuntu-26.04-arm", "python-version" = "3.11", "acme-version" = "5.0" },
 ]
 ```
 
@@ -146,7 +146,7 @@ The `tests` job of [`tests.yaml`](https://github.com/kdeldycke/repomatic/blob/ma
 ```toml
 [tool.repomatic]
 test-matrix.full-include = [
-  { "os" = "ubuntu-26.04-arm", "python-version" = "3.10", "resolution" = "lowest-direct" },
+  { "os" = "ubuntu-26.04-arm", "python-version" = "3.11", "resolution" = "lowest-direct" },
 ]
 ```
 

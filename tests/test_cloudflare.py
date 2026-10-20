@@ -23,7 +23,7 @@ prove.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -263,9 +263,7 @@ def test_token_refuses_an_expired_wrangler_session(monkeypatch, tmp_path):
     were never wrong.
     """
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
-    stale = (datetime.now(timezone.utc) - timedelta(hours=15)).strftime(
-        "%Y-%m-%dT%H:%M:%S.%fZ"
-    )
+    stale = (datetime.now(UTC) - timedelta(hours=15)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     config = tmp_path / "default.toml"
     config.write_text(
         f'oauth_token = "stale"\nexpiration_time = "{stale}"\n', encoding="UTF-8"
@@ -277,9 +275,7 @@ def test_token_refuses_an_expired_wrangler_session(monkeypatch, tmp_path):
 
 def test_token_accepts_a_live_wrangler_session(monkeypatch, tmp_path):
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
-    fresh = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime(
-        "%Y-%m-%dT%H:%M:%S.%fZ"
-    )
+    fresh = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     config = tmp_path / "default.toml"
     config.write_text(
         f'oauth_token = "live"\nexpiration_time = "{fresh}"\n', encoding="UTF-8"
@@ -676,9 +672,9 @@ def test_create_still_fails_on_a_non_404_refusal(credentials, capsys):
 )
 def test_token_expiry_warning_counts_down(days_away, warns):
     """Cloudflare never warns about expiry, so the drift check has to."""
-    expires = (
-        datetime.now(timezone.utc) + timedelta(days=days_away, hours=1)
-    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    expires = (datetime.now(UTC) + timedelta(days=days_away, hours=1)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
 
     def call(path, token, method="GET", body=None):
         if path == "/accounts/orchard/tokens/verify":
@@ -700,7 +696,7 @@ def test_token_expiry_warning_counts_the_hours_of_a_last_day():
     """A token dying today is hours away: whole days would floor that to zero."""
     # A minute of slack: arrow truncates, so a bare 5 hours renders as 4 by
     # the time the warning is built.
-    expires = (datetime.now(timezone.utc) + timedelta(hours=5, minutes=1)).strftime(
+    expires = (datetime.now(UTC) + timedelta(hours=5, minutes=1)).strftime(
         "%Y-%m-%dT%H:%M:%SZ"
     )
 

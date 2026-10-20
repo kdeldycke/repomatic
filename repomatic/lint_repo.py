@@ -32,7 +32,7 @@ import shlex
 import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import cache, cached_property
 from pathlib import Path
 from typing import NamedTuple
@@ -3067,7 +3067,7 @@ def check_registry_pin_cooldown(
             )
         ]
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
     today = now.date()
 
     uv_section = tool_table.get("uv")

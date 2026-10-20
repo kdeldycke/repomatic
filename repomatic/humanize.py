@@ -31,7 +31,7 @@ without risking a cycle.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import arrow
 from click_extra import format_size
@@ -53,9 +53,8 @@ def parse_iso_datetime(value: str) -> datetime | None:
     {mod}`repomatic.github.job_timings` job clocks through it, so every
     consumer tolerates the same shapes.
 
-    Uses arrow, so a nanosecond fractional second and a `Z` suffix (both of
-    which Python 3.10's stdlib `datetime.fromisoformat` rejects) parse cleanly;
-    sub-microsecond precision is truncated to fit `datetime`.
+    Uses arrow, so a nanosecond fractional second and a `Z` suffix parse
+    cleanly; sub-microsecond precision is truncated to fit `datetime`.
 
     arrow also supplies the `.humanize()` relative-time phrasing that
     {func}`format_countdown` and {func}`format_elapsed` render.
@@ -86,7 +85,7 @@ def utc_midnight(day: date) -> datetime:
     a precision it holds. A date holds none to drop: midnight is the whole of
     what it says.
     """
-    return datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+    return datetime(day.year, day.month, day.day, tzinfo=UTC)
 
 
 def _dated_delta(instant: datetime, reference: datetime) -> str:

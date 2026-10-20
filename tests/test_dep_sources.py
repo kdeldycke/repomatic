@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -343,7 +343,7 @@ def test_floors_inside_cooldown(
     flagged: bool,
 ) -> None:
     """Only a floor demanding a release inside the window is reported."""
-    upload = datetime.now(timezone.utc) - timedelta(days=age_days)
+    upload = datetime.now(UTC) - timedelta(days=age_days)
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
         COOLDOWN_PYPROJECT.format(requirement=requirement), encoding="UTF-8"

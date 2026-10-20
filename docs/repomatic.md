@@ -35,7 +35,6 @@
    repomatic.changelog
    repomatic.cloudflare
    repomatic.cloudflare_r2
-   repomatic.compat
    repomatic.config
    repomatic.docs
    repomatic.file_inventory

@@ -63,7 +63,7 @@ import re
 import subprocess
 import threading
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from functools import partial
 from pathlib import Path
 
@@ -1518,9 +1518,7 @@ def emit_version_sync_report(
         )
     if plan.cutoff is not None:
         echo(f"minimum-release-age cutoff: {plan.cutoff:%Y-%m-%d}")
-    print_plan_tables(
-        ctx, plan, plan.reference_date or datetime.now(timezone.utc).date()
-    )
+    print_plan_tables(ctx, plan, plan.reference_date or datetime.now(UTC).date())
     if plan.notes_section:
         echo("")
         echo(plan.notes_section)
@@ -1555,7 +1553,7 @@ def run_version_sync(
     op = OPERATIONS_BY_NAME[op_name]
     rc = ResolveContext(
         config=get_tool_config(ctx),
-        today=datetime.now(timezone.utc).date(),
+        today=datetime.now(UTC).date(),
         release_notes=release_notes,
         held_back=held_back,
     )
@@ -1595,7 +1593,7 @@ def resolve_lockfile_plan(
     op = OPERATIONS_BY_NAME[op_name]
     rc = ResolveContext(
         config=config,
-        today=datetime.now(timezone.utc).date(),
+        today=datetime.now(UTC).date(),
         release_notes=release_notes,
         held_back=held_back and (table or output is not None),
         lockfile=lockfile,

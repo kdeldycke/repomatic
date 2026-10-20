@@ -38,7 +38,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
 
 import arrow
@@ -208,7 +208,7 @@ def _compute_cutoff(months: int) -> datetime:
     :param months: Number of months to subtract.
     :return: Timezone-aware UTC datetime.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return arrow.Arrow.fromdatetime(now).shift(months=-months).datetime
 
 
@@ -267,7 +267,7 @@ def _fetch_notification_threads(cutoff: datetime) -> list[dict[str, Any]]:
             "--raw-field",
             "all=true",
             "--raw-field",
-            f"before={cutoff.astimezone(timezone.utc):%Y-%m-%dT%H:%M:%SZ}",
+            f"before={cutoff.astimezone(UTC):%Y-%m-%dT%H:%M:%SZ}",
             "--raw-field",
             f"per_page={NOTIFICATION_PAGE_SIZE}",
         ])

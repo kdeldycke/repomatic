@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from click_extra import (
@@ -338,7 +338,7 @@ def sync_deps(
 
     rc = ResolveContext(
         config=config,
-        today=datetime.now(timezone.utc).date(),
+        today=datetime.now(UTC).date(),
         release_notes=release_notes,
         held_back=held_back,
         dry_run=dry_run,

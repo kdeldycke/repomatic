@@ -40,7 +40,7 @@ license = "GPL-2.0-or-later"
 license-files = [ "license" ]
 authors = [ { name = "Kevin Deldycke", email = "kevin@deldycke.com" } ]
 # Python versions and their status: https://devguide.python.org/versions/
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
   # See: https://pypi.org/pypi?%3Aaction=list_classifiers
   "Development Status :: 5 - Production/Stable",
@@ -54,7 +54,6 @@ classifiers = [
   "Operating System :: POSIX :: BSD :: OpenBSD",
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -88,9 +87,7 @@ dependencies = [
   # XXX Switch back to whenever once it grows a humanizer:
   # https://github.com/ariebovenberg/whenever/discussions/277
   "arrow>=1",
-  # Provides enum.StrEnum for Python < 3.11; all versions expose the class.
-  "backports-strenum>=1; python_version<'3.11'",
-  # boltons 19 is the first release whose iterutils imports on Python 3.10: 18.x
+  # boltons 19 is the first release whose iterutils imports on Python 3.11: 18.x
   # still takes Mapping from collections. github/matrix.py and mailmap.py use its
   # FrozenDict and unique().
   "boltons>=19",
@@ -100,7 +97,7 @@ dependencies = [
   "click-extra>=9.3",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
-  # under patched subprocess in tests and triggered a CPython 3.10.x bug.
+  # under patched subprocess in tests.
   "extra-platforms>=12.0.2",
   # packaging 20 added the major and minor aliases of Version, which
   # metadata/project.py compares to decide whether a version bump is allowed.
@@ -114,7 +111,7 @@ dependencies = [
   # pyelftools parses the ELF headers of compiled binaries, so verify-binary can
   # check architectures and glibc floors natively, inside manylinux containers,
   # without installing exiftool. 0.33 is the first release to declare
-  # requires-python (>= 3.10, matching ours); earlier ones carry no guard.
+  # requires-python (>= 3.10); earlier ones carry no guard.
   "pyelftools>=0.33",
   # pyproject-metadata 0.9 added PEP 639 (license expressions) and PEP 685 (extras
   # normalization); our StandardMetadata.from_pyproject() call benefits from these.
@@ -147,7 +144,7 @@ scripts.repomatic = "repomatic.__main__:main"
 # Non-runtime development dependency groups.
 [dependency-groups]
 test = [
-  # coverage 7.11.0 dropped Python 3.9, matching our requires-python >= 3.10.
+  # coverage 7.11.0 dropped Python 3.9, and requires 3.10 or later.
   "coverage[toml]>=7.11",
   # Pytest 9.0.0 introduce support for native TOML configuration files.
   "pytest>=9",
@@ -175,9 +172,9 @@ docs = [
   # myst-parser 5.1 ships the native "alert" extension (enabled in docs/conf.py)
   # that renders GitHub-style alerts as admonitions; earlier 5.x reject "alert".
   "myst-parser>=5.1",
-  # Sphinx 8.0.0 is the first version to drop Python 3.9, like us.
+  # Sphinx 8.0.0 dropped Python 3.9, and requires 3.10 or later.
   "sphinx>=8",
-  # sphinx-autodoc-typehints 2.4.0 is the first version aligned to our Python >= 3.10 requirement.
+  # sphinx-autodoc-typehints 2.4.0 is the first version to require Python 3.10 or later.
   "sphinx-autodoc-typehints>=2.4",
   # sphinx-copybutton 0.5.2 stabilized the copy button behavior for code blocks.
   "sphinx-copybutton>=0.5.2",
@@ -205,9 +202,6 @@ docs = [
 # strip_ansi). types-docutils: covers the docutils.nodes imports in docs/conf.py.
 # types-pyyaml: stub release covering PyYAML 6.0 (safe_load, safe_dump, full_load).
 typing = [
-  # backports-strenum: provides StrEnum stubs for mypy --python-version 3.10 analysis;
-  # not in main deps (version-gated to Python<3.11 there), so added here unconditionally.
-  "backports-strenum>=1",
   "types-boltons>=25.0.0.20250822",
   "types-docutils>=0.22.3.20251115",
   "types-pyyaml>=6.0.12.9",
@@ -631,7 +625,7 @@ site.deploy = "cloudflare-pages"
 # allows, on the floor Python of the fastest runner. The lockfile holds the
 # newest release of each, so no other cell runs a declared floor.
 test-matrix.full-include = [
-  { os = "ubuntu-26.04-arm", python-version = "3.10", resolution = "lowest-direct" },
+  { os = "ubuntu-26.04-arm", python-version = "3.11", resolution = "lowest-direct" },
 ]
 
 [tool.actionlint]

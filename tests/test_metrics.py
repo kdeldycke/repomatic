@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -410,7 +410,7 @@ def star_week(sunday: str, days: list[int]) -> dict[str, object]:
     :param sunday: Calendar date labelling the week, as the endpoint reports it.
     :param days: Stars gained on each of the week's seven days.
     """
-    start = datetime.fromisoformat(sunday).replace(tzinfo=timezone.utc)
+    start = datetime.fromisoformat(sunday).replace(tzinfo=UTC)
     return {"week": int(start.timestamp()), "total": sum(days), "days": days}
 
 
@@ -879,7 +879,7 @@ def test_committed_store_is_well_formed():
             config.metrics.subjects, config.metrics.predecessors
         ).values()
     )
-    today = datetime.now(tz=timezone.utc).date()
+    today = datetime.now(tz=UTC).date()
     seen: set[tuple[str, str, str]] = set()
     attributes: Counter[tuple[str, str]] = Counter()
 

@@ -23,7 +23,7 @@ was left to whoever was watching CI, and it is easy to get wrong in four
 specific ways this module exists to settle:
 
 - **The glyph, not the position.** Job names differ in shape across
-  workflows: `tests.yaml` emits `✅ ubuntu-26.04 / py3.10` while the release
+  workflows: `tests.yaml` emits `✅ ubuntu-26.04 / py3.11` while the release
   engine emits `workflow / ✅ ubuntu-26.04, abc1234 build`. Anything that
   splits on `" / "` and reads a fixed field strips the glyph off one of the
   two and files a required red as a probe, which reads as green.

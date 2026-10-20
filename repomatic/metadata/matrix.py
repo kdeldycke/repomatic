@@ -300,14 +300,6 @@ class MatrixMetadata:
         matrix.add_variation(OS_AXIS, TEST_RUNNERS_FULL)
         matrix.add_variation(PYTHON_VERSION_AXIS, TEST_PYTHON_FULL)
         removed_os = self.config.test_matrix.remove.get(OS_AXIS, ())
-        # Python 3.10 has no native ARM64 Windows build. Skip this guard when
-        # the project removes windows-11-arm, so it does not linger as a no-op
-        # exclude that prune would warn about.
-        if "windows-11-arm" not in removed_os:
-            matrix.add_excludes({
-                OS_AXIS: "windows-11-arm",
-                PYTHON_VERSION_AXIS: "3.10",
-            })
         matrix.add_includes({JOB_STATE_KEY: "stable"})
         # `python-label` is display-only: it spells the version the way pyenv and
         # actions/setup-python name a prerelease, so the job title says why the

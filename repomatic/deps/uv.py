@@ -28,7 +28,7 @@ import logging
 import re
 import subprocess
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import tomlrt
@@ -193,7 +193,7 @@ def resolve_exclude_newer_cutoff(value: str) -> datetime | None:
         return None
     duration = resolve_exclude_newer_span(value)
     if duration is not None:
-        return datetime.now(timezone.utc) - duration
+        return datetime.now(UTC) - duration
     return parse_iso_datetime(value)
 
 
@@ -381,9 +381,7 @@ def date_to_utc_cutoff(day: date) -> str:
     :return: A `YYYY-MM-DDT00:00:00Z` timestamp at the start of the day after
         *day*, matching uv's exclusive end-of-day expansion pinned to UTC.
     """
-    cutoff = datetime(day.year, day.month, day.day, tzinfo=timezone.utc) + timedelta(
-        days=1
-    )
+    cutoff = datetime(day.year, day.month, day.day, tzinfo=UTC) + timedelta(days=1)
     return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -906,7 +904,7 @@ class LockFile:
         if timestamp and timestamp != LOCK_TIMESTAMP_SENTINEL:
             exclude_newer = timestamp
         elif span is not None:
-            cutoff = datetime.now(timezone.utc) - span
+            cutoff = datetime.now(UTC) - span
             exclude_newer = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
         else:
             exclude_newer = ""
@@ -1172,7 +1170,7 @@ def compute_held_back_packages(lock_path: Path) -> list[HeldBackPackage]:
     locked = in_cooldown.versions
     span = in_cooldown.cooldown_span
     saved = lock_path.read_bytes()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cutoff = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     # A CLI --exclude-newer-package beats the pyproject.toml entry for the
     # same package, lifting each freeze for the duration of the probe.
@@ -1310,7 +1308,7 @@ def compute_bypass_forecasts(
     """
     if lock is None:
         lock = LockFile.load(lock_path)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return [
         _entry_forecast(lock, pkg, value, now)
         for pkg, value in sorted(_bypass_entries(pyproject_path).items())
@@ -1346,7 +1344,7 @@ def compute_pruned_forecasts(
         return []
     if lock is None:
         lock = LockFile.load(lock_path)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return [
         _entry_forecast(lock, pkg, (cutoffs or {}).get(pkg, ""), now)
         for pkg in sorted(names)

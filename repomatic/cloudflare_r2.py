@@ -79,7 +79,7 @@ import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import quote
 
 from click_extra import echo
@@ -286,7 +286,7 @@ class R2Bucket:
     ) -> urllib.request.Request:
         """Build a signed path-style request for object *key*."""
         path = f"/{self.name}/{key}"
-        amz_date = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        amz_date = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         signed = {
             **(headers or {}),
             "host": self.host,

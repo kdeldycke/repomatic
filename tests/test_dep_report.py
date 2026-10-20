@@ -28,7 +28,7 @@ drift a `in x` assertion sails past.
 from __future__ import annotations
 
 import ast
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -70,8 +70,7 @@ CHANGES = [
         ("", None),
         ("not-a-date", None),
         ("2026-06-24T10:00:00Z", "2026-06-24T10:00:00+00:00"),
-        # A `Z` suffix and nanosecond precision both defeat Python 3.10's
-        # `datetime.fromisoformat`, which is why arrow does the parsing.
+        # A `Z` suffix and nanosecond precision, which arrow parses.
         ("2026-06-24T10:00:00.123456789Z", "2026-06-24T10:00:00.123457+00:00"),
     ),
 )
@@ -105,7 +104,7 @@ def test_format_upload_date(value, expected):
         # An instant reference keeps the hours a day reference cannot carry.
         (
             "2026-06-24T10:00:00Z",
-            datetime(2026, 6, 24, 16, tzinfo=timezone.utc),
+            datetime(2026, 6, 24, 16, tzinfo=UTC),
             "2026-06-24 (6 hours ago)",
         ),
         ("not-a-date", date(2026, 6, 26), "not-a-date"),

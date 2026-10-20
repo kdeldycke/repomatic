@@ -48,7 +48,7 @@ import time
 import zipfile
 from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from urllib.request import Request, urlopen
 
@@ -1344,7 +1344,7 @@ def run_tool(
             # same minimum-release-age window the sync jobs apply to pins.
             cutoff = exclude_newer_cutoff(
                 load_repomatic_config().minimum_release_age,
-                datetime.now(timezone.utc).date(),
+                datetime.now(UTC).date(),
             )
             if _installs_into_venv(spec):
                 _install_into_venv(spec)

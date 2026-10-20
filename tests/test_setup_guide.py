@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 from contextlib import ExitStack, contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -696,7 +696,7 @@ def test_setup_guide_prefills_a_dated_token_name(tmp_path, monkeypatch):
     with _offline_setup_guide() as (_lifecycle, bodies):
         result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
     assert result.exit_code == 0
-    stamped = f"papaya-deploy-{datetime.now(timezone.utc):%Y-%m}"
+    stamped = f"papaya-deploy-{datetime.now(UTC):%Y-%m}"
     # Once in the pre-filled form's `name=`, once naming it in the prose.
     assert bodies[0].count(stamped) == 2
 
@@ -758,7 +758,7 @@ def test_setup_guide_holds_open_until_the_r2_keys_land(
     assert result.exit_code == 0
     assert "gh secret set CLOUDFLARE_R2_ACCESS_KEY_ID" in bodies[0]
     assert "--domain files.example.com" in bodies[0]
-    assert f"papaya-r2-{datetime.now(timezone.utc):%Y-%m}" in bodies[0]
+    assert f"papaya-r2-{datetime.now(UTC):%Y-%m}" in bodies[0]
     assert lifecycle.call_args_list[0][1]["has_issues"] is expected_has_issues
 
 

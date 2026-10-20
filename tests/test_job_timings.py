@@ -54,10 +54,9 @@ def test_match_runner(job_name: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("job", "expected"),
     [
-        # The form GitHub actually sends. `fromisoformat` only learned the
-        # trailing `Z` in Python 3.11, so on the 3.10 floor this returned `None`
-        # for every job and the command reported a fleet with no measurable
-        # work rather than failing.
+        # The form GitHub actually sends, with a trailing `Z`. A parser that
+        # rejects it returns `None` for every job, and the command then reports
+        # a fleet with no measurable work rather than failing.
         (
             {
                 "startedAt": "2026-08-15T10:00:00Z",

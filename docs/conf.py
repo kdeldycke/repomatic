@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import date, datetime, timezone
+import tomllib
+from datetime import UTC, date, datetime
 from pathlib import Path
 
-import tomllib  # type: ignore[import-not-found]
 from docutils.nodes import container, section
 from docutils.transforms import Transform
 from docutils.transforms.references import PropagateTargets
@@ -40,9 +40,7 @@ github_user = "kdeldycke"
 # Whole years since `0.0.1` (2021-12-11), the oldest entry of the changelog, for
 # the announcement banner below. Floored, so the figure is never ahead of the
 # anniversary it claims.
-maintained_years = (
-    datetime.now(tz=timezone.utc).date() - date(2021, 12, 11)
-).days // 365
+maintained_years = (datetime.now(tz=UTC).date() - date(2021, 12, 11)).days // 365
 
 # Addons.
 extensions = [

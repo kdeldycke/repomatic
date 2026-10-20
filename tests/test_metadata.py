@@ -611,7 +611,7 @@ expected: dict[str, Any] = {
     "package_name": "repomatic",
     "cli_scripts": StringList(["repomatic"]),
     "project_description": "🏭 Automate repository maintenance, releases, and CI/CD workflows",
-    "mypy_params": StringList(["--python-version", "3.10"]),
+    "mypy_params": StringList(["--python-version", "3.11"]),
     "current_version": regex(r"[0-9\.]+(\.dev[0-9]+)?"),
     # released_version is None during development, but contains a version string
     # on release branches (e.g., "5.5.0" when a "[changelog] Release v5.5.0"
@@ -860,7 +860,7 @@ expected: dict[str, Any] = {
     # every job. That row comes last: it is the lowest-versions cell.
     "test_matrix": {
         "include": [
-            {"state": "stable", "os": "ubuntu-26.04-arm", "python-version": "3.10"},
+            {"state": "stable", "os": "ubuntu-26.04-arm", "python-version": "3.11"},
             {"state": "stable", "os": "ubuntu-26.04-arm", "python-version": "3.15"},
             {
                 "state": "unstable",
@@ -868,7 +868,7 @@ expected: dict[str, Any] = {
                 "python-version": "3.16",
                 "python-label": "3.16-dev",
             },
-            {"state": "stable", "os": "ubuntu-26.04", "python-version": "3.10"},
+            {"state": "stable", "os": "ubuntu-26.04", "python-version": "3.11"},
             {"state": "stable", "os": "ubuntu-26.04", "python-version": "3.15"},
             {
                 "state": "unstable",
@@ -876,7 +876,7 @@ expected: dict[str, Any] = {
                 "python-version": "3.16",
                 "python-label": "3.16-dev",
             },
-            {"state": "stable", "os": "macos-26", "python-version": "3.10"},
+            {"state": "stable", "os": "macos-26", "python-version": "3.11"},
             {"state": "stable", "os": "macos-26", "python-version": "3.15"},
             {
                 "state": "unstable",
@@ -884,7 +884,7 @@ expected: dict[str, Any] = {
                 "python-version": "3.16",
                 "python-label": "3.16-dev",
             },
-            {"state": "stable", "os": "macos-26-intel", "python-version": "3.10"},
+            {"state": "stable", "os": "macos-26-intel", "python-version": "3.11"},
             {"state": "stable", "os": "macos-26-intel", "python-version": "3.15"},
             {
                 "state": "unstable",
@@ -892,6 +892,7 @@ expected: dict[str, Any] = {
                 "python-version": "3.16",
                 "python-label": "3.16-dev",
             },
+            {"state": "stable", "os": "windows-11-arm", "python-version": "3.11"},
             {"state": "stable", "os": "windows-11-arm", "python-version": "3.15"},
             {
                 "state": "unstable",
@@ -899,7 +900,7 @@ expected: dict[str, Any] = {
                 "python-version": "3.16",
                 "python-label": "3.16-dev",
             },
-            {"state": "stable", "os": "windows-2025", "python-version": "3.10"},
+            {"state": "stable", "os": "windows-2025", "python-version": "3.11"},
             {"state": "stable", "os": "windows-2025", "python-version": "3.15"},
             {
                 "state": "unstable",
@@ -911,7 +912,7 @@ expected: dict[str, Any] = {
             {
                 "state": "stable",
                 "os": "ubuntu-26.04-arm",
-                "python-version": "3.10",
+                "python-version": "3.11",
                 "resolution": "lowest-direct",
             },
         ],
@@ -923,7 +924,7 @@ expected: dict[str, Any] = {
             "windows-2025",
         ],
         "python-version": [
-            "3.10",
+            "3.11",
             "3.15",
         ],
         "include": [
@@ -1915,7 +1916,7 @@ version = "1.0.0"
 [tool.repomatic]
 test-matrix.include = [{ "click-version" = "released" }]
 test-matrix.full-include = [
-  { "os" = "ubuntu-26.04-arm", "python-version" = "3.10", "click-version" = "8.3.1" },
+  { "os" = "ubuntu-26.04-arm", "python-version" = "3.11", "click-version" = "8.3.1" },
 ]
 """,
     )
@@ -1928,13 +1929,13 @@ test-matrix.full-include = [
 
     shipped = {
         "os": "ubuntu-26.04-arm",
-        "python-version": "3.10",
+        "python-version": "3.11",
         "click-version": "released",
         "state": "stable",
     }
     pinned = {
         "os": "ubuntu-26.04-arm",
-        "python-version": "3.10",
+        "python-version": "3.11",
         "click-version": "8.3.1",
         "state": "stable",
     }
@@ -2148,10 +2149,9 @@ exclude = [
 """
     metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
 
-    # Full matrix: config exclude is present alongside the upstream default.
+    # Full matrix: the config exclude is present.
     full = metadata.test_matrix.matrix()
     assert {"os": "windows-11-arm"} in full["exclude"]
-    assert {"os": "windows-11-arm", "python-version": "3.10"} in full["exclude"]
 
     # PR matrix: windows-11-arm is not in the PR runner list, so the exclude
     # is pruned as a no-op.

@@ -68,7 +68,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from enum import Enum, auto
 from itertools import accumulate
 
@@ -487,7 +487,7 @@ def sample_subject(
     :return: What the sample produced.
     """
     if day is None:
-        day = datetime.now(timezone.utc).date().isoformat()
+        day = datetime.now(UTC).date().isoformat()
     try:
         metrics = repo_metrics(repo, extra_forges)
     except (RuntimeError, ValueError, KeyError, IndexError, TypeError) as error:
@@ -598,7 +598,7 @@ def reconstruct_from_github(
             break
         for week in batch:
             # Read as a plain calendar date, not converted: see the caution above.
-            start = datetime.fromtimestamp(week["week"], timezone.utc).date()
+            start = datetime.fromtimestamp(week["week"], UTC).date()
             gained = [
                 (start + timedelta(days=offset), count)
                 for offset, count in enumerate(week["days"])

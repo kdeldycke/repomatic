@@ -20,7 +20,7 @@ The classic false green: mypy passes locally over a subset of directories while 
 
 ## Platform-specific test skips
 
-Some tests are skipped on certain platforms (`windows-11-arm` has no Python 3.10 ARM64 build). Before investigating missing results, check which cells the matrix excludes. `repomatic show-test-matrix` lists the computed matrix that the bundled `tests.yaml` runs, with the built-in exclusions and the `[tool.repomatic] test-matrix.exclude` entries applied. A `tests.yaml` with a hand-written matrix carries its own `exclude` section. Then check the `skip_platforms` entries in the binary self-test plan (`tests/cli-test-suite.toml`): individual cases can opt out of platforms without affecting the CI matrix.
+Some tests are skipped on certain platforms. Before investigating missing results, check which cells the matrix excludes. `repomatic show-test-matrix` lists the computed matrix that the bundled `tests.yaml` runs, with the `[tool.repomatic] test-matrix.exclude` entries applied. A `tests.yaml` with a hand-written matrix carries its own `exclude` section. Then check the `skip_platforms` entries in the binary self-test plan (`tests/cli-test-suite.toml`): individual cases can opt out of platforms without affecting the CI matrix.
 
 ## Cross-platform divergence
 

@@ -61,7 +61,7 @@ One pinned value verifies one dependency. To run every declared floor at once, a
 ```toml
 [tool.repomatic]
 test-matrix.full-include = [
-  { "os" = "ubuntu-26.04-arm", "python-version" = "3.10", "resolution" = "lowest-direct" },
+  { "os" = "ubuntu-26.04-arm", "python-version" = "3.11", "resolution" = "lowest-direct" },
 ]
 ```
 

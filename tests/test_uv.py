@@ -24,7 +24,7 @@ The `repomatic.deps.dep_report` renderers these helpers feed are covered by
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -303,9 +303,7 @@ def test_prune_stale_exclude_newer_packages_returns_pruned_names(tmp_path):
 
 def test_prune_stale_exclude_newer_packages_keeps_active_freeze(tmp_path):
     """A freeze whose held version is still inside the window stays put."""
-    fresh = (datetime.now(timezone.utc) - timedelta(days=1)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
+    fresh = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     pyproject = _write_uv_config(
         tmp_path,
         f'exclude-newer = "1 week"\nexclude-newer-package = {{ mango = "{fresh}" }}\n',
@@ -353,9 +351,7 @@ def test_prune_ages_an_entry_the_lock_does_not_hold_by_its_cutoff(
     release the cooldown still withholds, and it blocks every later one.
     """
     if entry == YESTERDAY:
-        entry = (datetime.now(timezone.utc) - timedelta(days=1)).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
+        entry = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     pyproject = _write_uv_config(
         tmp_path,
         f'exclude-newer = "1 week"\nexclude-newer-package = {{ quince = "{entry}" }}\n',
@@ -380,9 +376,7 @@ def test_prune_matches_a_lock_name_in_any_spelling(tmp_path):
 
 def test_prune_leaves_a_comment_naming_the_pruned_entry(tmp_path):
     """A partial prune keeps the table's comment, which still names the entry."""
-    fresh = (datetime.now(timezone.utc) - timedelta(days=1)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
+    fresh = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     pyproject = _write_uv_config(
         tmp_path,
         'exclude-newer = "1 week"\n'
@@ -507,10 +501,10 @@ def test_freeze_exclude_newer_packages_window_absorbs_same_day_patch(tmp_path):
     )
     # A same-day patch and a next-day release both fall before the cutoff, so uv
     # resolves up to them; a release two days on is excluded (window is bounded).
-    cutoff = datetime(2026, 7, 29, tzinfo=timezone.utc)
-    assert datetime(2026, 7, 27, 20, 15, tzinfo=timezone.utc) < cutoff
-    assert datetime(2026, 7, 28, 23, 0, tzinfo=timezone.utc) < cutoff
-    assert datetime(2026, 7, 29, 9, 0, tzinfo=timezone.utc) >= cutoff
+    cutoff = datetime(2026, 7, 29, tzinfo=UTC)
+    assert datetime(2026, 7, 27, 20, 15, tzinfo=UTC) < cutoff
+    assert datetime(2026, 7, 28, 23, 0, tzinfo=UTC) < cutoff
+    assert datetime(2026, 7, 29, 9, 0, tzinfo=UTC) >= cutoff
 
 
 LOCK_NAME_SPELLINGS = ("lemon-curd", "lemon_curd", "Lemon_Curd", "LEMON-CURD")

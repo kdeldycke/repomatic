@@ -21,7 +21,7 @@ from __future__ import annotations
 import inspect
 import json
 from collections.abc import Callable, Iterator, Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -3475,7 +3475,7 @@ def test_setup_uv_checksum_coverage_skips_without_workflows(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-COOLDOWN_NOW = datetime(2026, 10, 20, 12, tzinfo=timezone.utc)
+COOLDOWN_NOW = datetime(2026, 10, 20, 12, tzinfo=UTC)
 """The clock the cooldown tests read, so that no test crosses a UTC midnight."""
 
 YOUNG_RELEASE = "2026-10-18"
@@ -3656,7 +3656,7 @@ def test_registry_pin_cooldown_never_fails_the_run(capsys):
     """Every registry pin inside the window warns, and `lint-repo` still exits 0."""
     check = next(c for c in REPO_CHECKS if c.name == "registry-pin-cooldown")
     assert check.fatal is False
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(UTC).date().isoformat()
     with patch("repomatic.lint_repo.tool_candidates", side_effect=_dated(today)):
         exit_code = run_repo_lint(LintContext())
     assert exit_code == 0

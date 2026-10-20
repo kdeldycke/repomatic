@@ -36,9 +36,8 @@ import hashlib
 import logging
 import re
 import subprocess
-import sys
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from importlib.resources import files
 from pathlib import Path
 
@@ -123,12 +122,8 @@ from .versions import is_newer, safe_version, strip_dev_suffix
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from importlib.resources.abc import Traversable
     from typing import Any
-
-    if sys.version_info >= (3, 11):
-        from importlib.resources.abc import Traversable
-    else:
-        from importlib.abc import Traversable
 
 
 BREAKING_BULLET_RE = re.compile(
@@ -810,7 +805,7 @@ def resolve_default_pin(
     if not min_age:
         return f"v{base}", build_sha
     if today is None:
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
     repo_url = f"https://github.com/{repo}"
     stepped_back = _select_cooldown_pin(
         github_candidates(repo_url), base, min_age, today
@@ -910,7 +905,7 @@ def resolve_upgrade_target(
         )
         return None
     if today is None:
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
     package = package_of(repo)
     min_age = parse_min_age(config.minimum_release_age)
     candidates = pypi_candidates(package)
@@ -967,7 +962,7 @@ def upgrade_command(
     :return: The command line.
     """
     if today is None:
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
     package = package_of(repo)
     cutoff = exclude_newer_cutoff(config.minimum_release_age, today)
     return [
@@ -1128,7 +1123,7 @@ def upgrade_report(
         return None
     adopted = pin.version
     if today is None:
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
     package = package_of(repo)
     repo_url = f"https://github.com/{repo}"
     package_url = PYPI_PACKAGE_URL.format(package=package)

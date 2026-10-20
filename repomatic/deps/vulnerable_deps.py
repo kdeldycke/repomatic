@@ -41,14 +41,14 @@ import logging
 import re
 import subprocess
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 
 from click_extra import ColumnSpec
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
-from ..compat import StrEnum
 from ..github.gh import run_gh_command
 from ..pypi import PYPI_PACKAGE_URL
 from .dep_report import (
@@ -546,7 +546,7 @@ def fix_vulnerable_deps(
         post.upload_times,
         format_exclude_newer_note(post.exclude_newer),
         name_urls=pypi_name_urls(changes),
-        reference_date=datetime.now(timezone.utc).date(),
+        reference_date=datetime.now(UTC).date(),
     )
 
     # Fetch and append release notes.

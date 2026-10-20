@@ -65,7 +65,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import cached_property
 from pathlib import Path
 
@@ -233,7 +233,7 @@ class PrepareRelease:
     @cached_property
     def release_date(self) -> str:
         """Return today's date in UTC as YYYY-MM-DD."""
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        return datetime.now(UTC).strftime("%Y-%m-%d")
 
     def _update_file(self, path: Path, content: str, original: str) -> bool:
         """Write *content* to *path* when it differs, and record the change.

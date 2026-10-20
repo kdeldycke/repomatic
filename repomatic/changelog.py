@@ -115,7 +115,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import cache, cached_property
 from pathlib import Path
 from textwrap import indent
@@ -485,7 +485,7 @@ class Changelog:
         :return: True if the content was modified.
         """
         if release_date is None:
-            release_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            release_date = datetime.now(UTC).strftime("%Y-%m-%d")
 
         if not self.current_version:
             logging.warning("No current version set: nothing to freeze.")

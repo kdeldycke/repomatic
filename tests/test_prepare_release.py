@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from textwrap import dedent
 
@@ -497,7 +497,7 @@ def test_prepare_release_without_workflows(
 def test_release_date_format() -> None:
     """Test that release date is in correct format."""
     prep = PrepareRelease()
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
 
     assert prep.release_date == today
 

@@ -85,22 +85,22 @@ ARM, by two to three times over the x86 image, for quicker PR feedback. See
 """
 
 TEST_PYTHON_FULL = (
-    "3.10",
+    "3.11",
     "3.15",
     "3.16",
 )
 """Python versions tested across every runner in the full matrix.
 
-Spans the supported range: the floor (`3.10`), the latest stable release
+Spans the supported range: the floor (`3.11`), the latest stable release
 (`3.15`), and the in-development version (`3.16`, flagged `continue-on-error`
-via {data}`UNSTABLE_PYTHON_VERSIONS`). Intermediate releases (3.11 to 3.14)
+via {data}`UNSTABLE_PYTHON_VERSIONS`). Intermediate releases (3.12 to 3.14)
 are skipped to reduce CI load. Released build *flavors* (free-threaded) are not
 full-spread; they get a single-runner smoke test instead, see
 {data}`SINGLE_RUNNER_PYTHON_VERSIONS`.
 """
 
 TEST_PYTHON_PR = (
-    "3.10",
+    "3.11",
     "3.15",
 )
 """Reduced Python version set for pull request test matrices.

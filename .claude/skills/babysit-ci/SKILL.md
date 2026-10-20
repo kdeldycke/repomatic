@@ -216,7 +216,7 @@ $ gh run view {run-id} --json jobs --jq '.jobs[] | select(.conclusion != "succes
 The residue is almost always macOS, which is the slowest tier and therefore last standing whenever a run is cut short. Discount any `⁉️` cell (it gates nothing) and run whatever stable cells remain on the matching interpreter locally:
 
 ```shell-session
-$ uv --no-progress run --python 3.10 --all-extras --group test --frozen -- pytest -m "not once"
+$ uv --no-progress run --python 3.11 --all-extras --group test --frozen -- pytest -m "not once"
 ```
 
 `--group test` is required: without it uv resolves an environment with no pytest in it and fails with `Failed to spawn: pytest`, which reads as a broken command rather than a missing dependency group. A cell whose OS differs from the machine you are on cannot be closed this way — name it as unverified instead of implying otherwise.
@@ -230,7 +230,7 @@ Report the union explicitly: which cells passed in CI, which you closed locally,
 
 The workflow uses `continue-on-error` for unstable jobs, so the run can succeed even when they fail.
 
-`repomatic ci-status` does this classification, and doing it by hand is where it goes wrong: job-name shapes differ across workflows — `tests.yaml` names carry no workflow prefix (`✅ ubuntu-26.04 / py3.10`) while the release engine's arrive through the reusable call (`release / ✅ ubuntu-26.04, abc1234 build`) — so a test anchored at the start of the name misfiles one shape and a split on `" / "` misfiles the other, either way masking a real failure as green. Containment is the one test both shapes satisfy. Only `✅`/`⁉️` carry stability: a job whose name opens on some other emoji (`🛡️ Lint types`, `1️⃣ Run-once tests`) is required, so test for the absence of `⁉️` rather than for the presence of any glyph. A name that still holds both glyphs is a matrix GitHub never expanded, on a run stopped before the matrix got its cells: `ci-status` reads it as required. If you reformat job names for display, keep the raw string for the test.
+`repomatic ci-status` does this classification, and doing it by hand is where it goes wrong: job-name shapes differ across workflows — `tests.yaml` names carry no workflow prefix (`✅ ubuntu-26.04 / py3.11`) while the release engine's arrive through the reusable call (`release / ✅ ubuntu-26.04, abc1234 build`) — so a test anchored at the start of the name misfiles one shape and a split on `" / "` misfiles the other, either way masking a real failure as green. Containment is the one test both shapes satisfy. Only `✅`/`⁉️` carry stability: a job whose name opens on some other emoji (`🛡️ Lint types`, `1️⃣ Run-once tests`) is required, so test for the absence of `⁉️` rather than for the presence of any glyph. A name that still holds both glyphs is a matrix GitHub never expanded, on a run stopped before the matrix got its cells: `ci-status` reads it as required. If you reformat job names for display, keep the raw string for the test.
 
 ## Error triage discipline
 

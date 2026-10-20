@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** Drop Python 3.10, past its end of life: repomatic needs Python 3.11, and the default test matrix starts at 3.11 on every runner.
 - `lint-repo` now warns when a `repomatic run` tool pin is still inside the cooldown, and names the `exclude-newer-package` entry that admits it.
 - The setup guide issue now stays open while `REPOMATIC_PAT` also has access to another repository of its owner, and the token step names it.
 - The bundled `tests.yaml` drops its step that forced a native Python on Windows ARM64, since uv `0.13.0` picks it unaided. A downstream copy can drop the same step.
