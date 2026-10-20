@@ -20,9 +20,10 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 import tomlrt
@@ -74,6 +75,7 @@ from repomatic.lint_repo import (
     check_pr_templates,
     check_pypi_trusted_publisher,
     check_python_version_consistency,
+    check_registry_pin_cooldown,
     check_runner_images,
     check_self_pin_cooldown_exemption,
     check_setup_uv_checksum_coverage,
@@ -105,8 +107,29 @@ from repomatic.registry import (
     ToolConfigComponent,
 )
 from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from repomatic.release.version_sync import Candidate
 from repomatic.tooling.bundle import get_data_content
+from repomatic.tooling.tool_registry import (
+    ArchiveFormat,
+    BinarySpec,
+    NpmSpec,
+    ToolSpec,
+)
 from tests.conftest import PROJECT_ROOT, metadata_from_pyproject, pat_results
+
+
+@pytest.fixture(autouse=True)
+def _undated_registry_pins():
+    """Give no release date to any registry pin, as a runner with no network does.
+
+    The `registry-pin-cooldown` check applies to every context, so each test of
+    the whole roster asks PyPI and npm about every pin. `_no_real_http` refuses
+    the network, but the HTTP cache still answers from the last real run on the
+    machine, with real verdicts and megabytes of JSON to parse. A test of the
+    check patches the lookup itself, which shadows this stub.
+    """
+    with patch("repomatic.lint_repo.tool_candidates", return_value=[]):
+        yield
 
 
 def test_successful_fetch():
@@ -3445,6 +3468,209 @@ def test_setup_uv_checksum_coverage_skips_without_a_pinned_version(tmp_path):
 def test_setup_uv_checksum_coverage_skips_without_workflows(tmp_path):
     """A repository with no workflow has nothing to check."""
     assert check_setup_uv_checksum_coverage(tmp_path).passed is None
+
+
+# ---------------------------------------------------------------------------
+# Registry pin cooldown check tests
+# ---------------------------------------------------------------------------
+
+
+COOLDOWN_NOW = datetime(2026, 10, 20, 12, tzinfo=timezone.utc)
+"""The clock the cooldown tests read, so that no test crosses a UTC midnight."""
+
+YOUNG_RELEASE = "2026-10-18"
+"""A release date inside the `1 week` window at {data}`COOLDOWN_NOW`."""
+
+OLD_RELEASE = "2026-10-01"
+"""A release date past the `1 week` window at {data}`COOLDOWN_NOW`."""
+
+VENV_TOOL = ToolSpec(name="dragon-fruit", version="2.0.0", needs_venv=True)
+"""A tool installed into the project virtualenv, which reads `[tool.uv]`."""
+
+UVX_TOOL = ToolSpec(name="kiwi", version="1.5.0")
+"""A tool installed by `uvx`, which reads no project configuration."""
+
+NPM_TOOL = ToolSpec(name="mango", version="3.1.0", npm=NpmSpec())
+"""A tool installed by npm into a scratch prefix."""
+
+BINARY_TOOL = ToolSpec(
+    name="fig",
+    version="0.9.0",
+    binary=BinarySpec(urls={}, checksums={}, archive_format=ArchiveFormat.TAR_GZ),
+    source_url="https://github.com/orchard/fig",
+)
+"""A tool downloaded as a checksum-pinned binary, with no install-time cooldown."""
+
+
+def _dated(released: str) -> Callable[[ToolSpec], list[Candidate]]:
+    """A `tool_candidates` stand-in dating every pinned version at *released*."""
+    return lambda spec: [Candidate(spec.version, released, spec.version)]
+
+
+def _pin_cooldown(
+    tool: ToolSpec,
+    candidates: Callable[[ToolSpec], list[Candidate]],
+    entries: Mapping[str, object] | None = None,
+    minimum_release_age: str = "1 week",
+) -> list[CheckResult]:
+    """Run the cooldown check over *tool* alone, its releases from *candidates*."""
+    tool_table = {"uv": {"exclude-newer-package": dict(entries or {})}}
+    with patch("repomatic.lint_repo.tool_candidates", side_effect=candidates):
+        return check_registry_pin_cooldown(
+            tool_table, minimum_release_age, {tool.name: tool}, now=COOLDOWN_NOW
+        )
+
+
+@pytest.mark.parametrize(
+    "entries",
+    (
+        pytest.param({}, id="no-entry"),
+        pytest.param({"cherry": "0 day"}, id="entry-for-another-package"),
+    ),
+)
+def test_registry_pin_cooldown_warns_without_an_entry(entries):
+    """A virtualenv pin inside the window and with no entry fails to install.
+
+    The warning carries all a maintainer needs to act on it: the pin, its
+    release date, the day it clears the window, and the entry that admits it
+    now, in the freeze form that `sync-uv-lock` prunes once it ages out.
+    """
+    (result,) = _pin_cooldown(VENV_TOOL, _dated(YOUNG_RELEASE), entries)
+    assert result.passed is False
+    assert result.message == (
+        "`repomatic run dragon-fruit` cannot install 2.0.0, published 2026-10-18,"
+        " until 2026-10-25 (in 5 days), when it clears the 1 week cooldown: add"
+        ' `dragon-fruit = "2026-10-20T00:00:00Z"` to [tool.uv]'
+        " exclude-newer-package to admit it now."
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        pytest.param("2026-10-18T00:00:00Z", id="start-of-the-release-day"),
+        pytest.param("2026-10-17", id="bare-date-before-the-release-day"),
+        pytest.param("2026-10-01T00:00:00Z", id="weeks-before-the-release"),
+        pytest.param("1 week", id="span-older-than-the-release"),
+        pytest.param("papaya", id="unparsable"),
+    ),
+)
+def test_registry_pin_cooldown_warns_on_an_entry_older_than_the_release(value):
+    """An entry whose cutoff can fall before the upload admits nothing.
+
+    The datasource dates a release to the day, so a cutoff inside that day may
+    still exclude the upload, and counts as not admitting it.
+    """
+    (result,) = _pin_cooldown(VENV_TOOL, _dated(YOUNG_RELEASE), {"dragon-fruit": value})
+    assert result.passed is False
+    assert 'add `dragon-fruit = "2026-10-20T00:00:00Z"`' in result.message
+
+
+@pytest.mark.parametrize(
+    "entries",
+    (
+        pytest.param({"dragon-fruit": "2026-10-20T00:00:00Z"}, id="freeze-form"),
+        pytest.param({"dragon-fruit": "2026-10-19T00:00:00Z"}, id="end-of-day"),
+        pytest.param({"dragon-fruit": "2026-10-18"}, id="bare-release-date"),
+        pytest.param({"dragon-fruit": "0 day"}, id="zero-span"),
+        pytest.param({"dragon-fruit": "P0D"}, id="zero-iso-span"),
+        pytest.param({"dragon-fruit": False}, id="cooldown-lifted"),
+        pytest.param({"Dragon_Fruit": "0 day"}, id="other-pep-503-spelling"),
+    ),
+)
+def test_registry_pin_cooldown_passes_on_an_admitting_entry(entries):
+    """An entry uv reads as admitting the release lets the install through."""
+    (result,) = _pin_cooldown(VENV_TOOL, _dated(YOUNG_RELEASE), entries)
+    assert result.passed is True
+    assert result.message == (
+        "dragon-fruit 2.0.0, published 2026-10-18, is inside the 1 week cooldown"
+        " until 2026-10-25 (in 5 days), and its [tool.uv] exclude-newer-package"
+        " entry admits it."
+    )
+
+
+@pytest.mark.parametrize("tool", (UVX_TOOL, NPM_TOOL), ids=lambda tool: tool.name)
+def test_registry_pin_cooldown_warns_on_a_pin_no_entry_reaches(tool):
+    """A `uvx` or npm pin inside the window waits it out, whatever the entries say.
+
+    The warning names no entry: neither install reads one, so suggesting one
+    would point at a fix that changes nothing.
+    """
+    (result,) = _pin_cooldown(tool, _dated(YOUNG_RELEASE), {tool.name: "0 day"})
+    assert result.passed is False
+    assert result.message.startswith(
+        f"`repomatic run {tool.name}` cannot install {tool.version}, published"
+        " 2026-10-18, until 2026-10-25 (in 5 days)"
+    )
+    assert "reads no exclude-newer-package entry" in result.message
+    assert " = " not in result.message
+
+
+@pytest.mark.parametrize(
+    "tool", (VENV_TOOL, UVX_TOOL, NPM_TOOL), ids=lambda tool: tool.name
+)
+def test_registry_pin_cooldown_passes_past_the_window(tool):
+    """A pin past the window installs on every backend, with or without entries."""
+    (result,) = _pin_cooldown(tool, _dated(OLD_RELEASE))
+    assert result.passed is True
+    assert result.message == "PyPI and npm tool pins (1) are past the 1 week cooldown."
+
+
+@pytest.mark.parametrize(
+    "candidates",
+    (
+        pytest.param([], id="lookup-failed"),
+        pytest.param(
+            [Candidate("9.9.9", YOUNG_RELEASE, "9.9.9")], id="pinned-version-absent"
+        ),
+        pytest.param([Candidate("2.0.0", "", "2.0.0")], id="undated-release"),
+    ),
+)
+def test_registry_pin_cooldown_skips_an_undated_pin(candidates):
+    """A pin the datasource cannot date is indeterminate, never a failure."""
+    (result,) = _pin_cooldown(VENV_TOOL, lambda _spec: candidates)
+    assert result.passed is None
+    assert result.message == (
+        "Registry pin cooldown: skipped for dragon-fruit (no release date for the"
+        " pinned version)."
+    )
+
+
+def test_registry_pin_cooldown_leaves_binary_tools_alone():
+    """A binary pin is never looked up: its download applies no cooldown."""
+    lookup = Mock(side_effect=_dated(YOUNG_RELEASE))
+    assert _pin_cooldown(BINARY_TOOL, lookup) == []
+    lookup.assert_not_called()
+
+
+def test_registry_pin_cooldown_skips_without_a_cooldown():
+    """With no window to clear, nothing is held back and nothing is looked up."""
+    lookup = Mock(side_effect=_dated(YOUNG_RELEASE))
+    (result,) = _pin_cooldown(VENV_TOOL, lookup, minimum_release_age="0 days")
+    assert result.passed is None
+    assert "skipped" in result.message
+    lookup.assert_not_called()
+
+
+def test_registry_pin_cooldown_never_fails_the_run(capsys):
+    """Every registry pin inside the window warns, and `lint-repo` still exits 0."""
+    check = next(c for c in REPO_CHECKS if c.name == "registry-pin-cooldown")
+    assert check.fatal is False
+    today = datetime.now(timezone.utc).date().isoformat()
+    with patch("repomatic.lint_repo.tool_candidates", side_effect=_dated(today)):
+        exit_code = run_repo_lint(LintContext())
+    assert exit_code == 0
+    assert "⚠ `repomatic run " in capsys.readouterr().out
+
+
+def test_lint_context_carries_the_minimum_release_age(tmp_path, monkeypatch):
+    """`from_project` hands the configured cooldown to the registry pin check."""
+    metadata_from_pyproject(tmp_path, monkeypatch, '[project]\nname = "basket"\n')
+    with patch(
+        "repomatic.lint_repo._resolve_declared_labels", return_value=frozenset()
+    ):
+        ctx = LintContext.from_project(Config(minimum_release_age="3 days"))
+    assert ctx.minimum_release_age == "3 days"
 
 
 # --- Undeclared labels check unit tests ---

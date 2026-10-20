@@ -36,7 +36,7 @@ from click_extra import parse_friendly_duration, parse_iso8601_duration
 from packaging.utils import canonicalize_name
 from tomlrt import Table
 
-from ..humanize import format_countdown, parse_iso_datetime
+from ..humanize import format_countdown, parse_iso_datetime, utc_midnight
 from ..versions import is_newer
 from .dep_report import (
     BYPASS_NEEDS_RELEASE,
@@ -293,6 +293,19 @@ def packages_outside_cooldown(
     return outside
 
 
+def _relative_span(value: str) -> timedelta | None:
+    """The width of an `exclude-newer-package` value that is a relative span.
+
+    Each parser is tested against `None`, because the usual `0 day` entry
+    parses to `timedelta(0)`, which is falsy.
+
+    :param value: An `exclude-newer-package` entry value.
+    :return: The span, or `None` when *value* is a cutoff or unparsable.
+    """
+    span = parse_friendly_duration(value)
+    return span if span is not None else parse_iso8601_duration(value)
+
+
 def _is_relative_span(value: str) -> bool:
     """Whether an `exclude-newer-package` value is a relative span, not a cutoff.
 
@@ -301,10 +314,7 @@ def _is_relative_span(value: str) -> bool:
     freeze rewrite and the forecast report so the two classify entries the same
     way.
     """
-    return (
-        parse_friendly_duration(value) is not None
-        or parse_iso8601_duration(value) is not None
-    )
+    return _relative_span(value) is not None
 
 
 def _bare_date(value: str) -> date | None:
@@ -434,6 +444,44 @@ def freeze_cutoff_after(day: date) -> str:
     :return: A `YYYY-MM-DDT00:00:00Z` cutoff timestamp.
     """
     return date_to_utc_cutoff(day + timedelta(days=1))
+
+
+def exemption_admits(value: object, released: date, now: datetime) -> bool:
+    """Whether an `exclude-newer-package` entry admits a release dated *released*.
+
+    Reads each value form the way uv does, so the answer matches what an install
+    under the entry resolves:
+
+    - `false` lifts the cooldown for the package.
+    - A relative span (`0 day`, `P7D`) admits every upload older than the span.
+    - A bare `YYYY-MM-DD` date admits uploads up to the end of that day, read in
+      UTC as {func}`date_to_utc_cutoff` explains.
+    - A full timestamp admits uploads before that instant.
+
+    A datasource reports the day of a release, not the instant of its upload.
+    So the entry admits the release only when its cutoff is at or after the end
+    of that day, or at or after *now* when *now* comes first: no upload of the
+    release is later than either. A cutoff inside the release day can admit the
+    release or not, and it counts as not.
+
+    :param value: The raw entry value: a string, or the `false` boolean.
+    :param released: The release date the datasource reports.
+    :param now: The current instant, which a relative span counts back from.
+    :return: `True` when every upload of the release is older than the cutoff.
+        `False` for an earlier cutoff, and for a value no form matches.
+    """
+    if value is False:
+        return True
+    text = str(value).strip()
+    span = _relative_span(text)
+    if span is not None:
+        cutoff: datetime | None = now - span
+    else:
+        bare = _bare_date(text)
+        cutoff = parse_iso_datetime(text if bare is None else date_to_utc_cutoff(bare))
+    if cutoff is None:
+        return False
+    return cutoff >= min(utc_midnight(released + timedelta(days=1)), now)
 
 
 def _bypass_entries(pyproject_path: Path) -> dict[str, str]:

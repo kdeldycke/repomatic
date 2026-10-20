@@ -276,6 +276,34 @@ class ToolBackend(Enum):
         self.long_label = long_label
         """Installation-method line in the per-tool reference sections."""
 
+    @property
+    def enforces_cooldown(self) -> bool:
+        """Whether the install holds back a release younger than the cooldown.
+
+        The uv backends resolve the pin under `--exclude-newer`,
+        `UV_EXCLUDE_NEWER` or the project's `[tool.uv] exclude-newer`, and npm
+        under `min-release-age`. A binary download only verifies the registry
+        checksum, so `minimum-release-age` binds a binary pin when
+        `sync-tool-versions` selects it, and never again after.
+        """
+        return self is not ToolBackend.BINARY
+
+    @property
+    def reads_uv_exemptions(self) -> bool:
+        """Whether the install reads the project's `[tool.uv] exclude-newer-package`.
+
+        Only the virtualenv backend installs through uv commands that read the
+        project configuration: `uv run --with`, `uv run --no-project --with`
+        and `uv pip install`. An entry there admits a pin still inside the
+        window. `uvx` reads no project configuration, and npm installs into a
+        scratch prefix with no exemption flag.
+
+        Probed with uv `0.13.1` on 2026-10-20: each of the three commands
+        honored an entry, with and without `UV_EXCLUDE_NEWER` set, and `uvx`
+        ignored it.
+        """
+        return self is ToolBackend.VENV
+
 
 @dataclass(frozen=True)
 class BinarySpec:

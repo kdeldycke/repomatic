@@ -32,6 +32,7 @@ import shlex
 import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from functools import cache, cached_property
 from pathlib import Path
 from typing import NamedTuple
@@ -45,7 +46,7 @@ from packaging.version import Version
 
 from .cloudflare_r2 import OFFLOAD_DOCS_URL, PAGES_MAX_FILE_SIZE
 from .config import Config, LintRepoConfig, deploys_to
-from .deps.uv import LockFile
+from .deps.uv import LockFile, exemption_admits, freeze_cutoff_after
 from .file_inventory import FileInventory
 from .frontmatter import split_frontmatter
 from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
@@ -54,7 +55,7 @@ from .github.matrix import PYTHON_VERSION_AXIS
 from .github.pr_body import footer_opted_out
 from .github.token import PAT_PERMISSION_PROBES, check_all_pat_permissions
 from .http import FetchError
-from .humanize import format_file_size
+from .humanize import format_countdown, format_file_size, utc_midnight
 from .labels import LabelConfigError, declared_label_names
 from .matrix_axes import (
     TEST_RUNNERS_FULL,
@@ -92,11 +93,16 @@ from .registry import (
 from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from .release.version_sync import (
     SETUP_UV_SLUG,
+    cleared_cooldown,
     find_upstream_ref_versions,
+    parse_min_age,
+    pinned_release_date,
     self_pin_exemption_re,
     setup_uv_verified_versions,
+    tool_candidates,
 )
 from .tooling.bundle import get_data_content
+from .tooling.tool_registry import TOOL_REGISTRY
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -104,6 +110,7 @@ if TYPE_CHECKING:
     from typing import Any
 
     from .pages_redirects import ParseResult, Rule
+    from .tooling.tool_registry import ToolSpec
 
 DOCS_URL_KEYS = ("documentation", "docs")
 """Keys in `[project.urls]` naming the published documentation site.
@@ -3009,6 +3016,139 @@ def check_setup_uv_checksum_coverage(
     )
 
 
+def check_registry_pin_cooldown(
+    tool_table: Mapping[str, Any],
+    minimum_release_age: str = Config.minimum_release_age,
+    registry: Mapping[str, ToolSpec] | None = None,
+    now: datetime | None = None,
+) -> list[CheckResult]:
+    """Check that a `repomatic run` tool pinned inside the cooldown can install.
+
+    `sync-tool-versions` adopts a release only after it clears
+    `minimum-release-age`, but a hand bump can pin a release still inside the
+    window. The result depends on how `repomatic run` installs the tool, which
+    {class}`~repomatic.tooling.tool_registry.ToolBackend` records:
+
+    - A virtualenv tool installs through uv commands that read the project's
+      `[tool.uv] exclude-newer-package`. A dated entry there admits the pin.
+      When no entry admits it, the warning names the entry to add. The entry
+      covers one repository, so a downstream repository that adopts the release
+      inside the window needs its own entry, and gets the same warning.
+    - A `uvx` or npm tool resolves its pin under the cooldown and reads no
+      entry. No exemption in the repository can admit the pin, so the warning
+      gives the date the install starts to work.
+    - A binary tool is not checked. Its download verifies the registry checksum
+      and applies no cooldown, so a pin inside the window installs, and no entry
+      can admit it or hold it back. Listing its releases would also cost GitHub
+      API calls on every run.
+
+    Advisory: the pins come with repomatic, and a downstream repository can act
+    on the first case only. A tool whose datasource gives no date for its
+    pinned version is reported as skipped, never as a failure.
+
+    :param tool_table: The `[tool]` table of the linted project. Its
+        `[tool.uv] exclude-newer-package` holds the entries that admit a pin.
+    :param minimum_release_age: The cooldown, per `minimum-release-age`.
+    :param registry: The tools to audit, keyed by name. The bundled tool
+        registry when `None`.
+    :param now: The current instant. Read from the clock when `None`.
+    :return: One result per pin inside the window, one for the pins past it,
+        and one that names the tools without a release date.
+    """
+    if registry is None:
+        registry = TOOL_REGISTRY
+    min_age = parse_min_age(minimum_release_age)
+    if not min_age:
+        return [
+            CheckResult(
+                None,
+                "Registry pin cooldown: skipped (minimum-release-age sets no"
+                " cooldown).",
+            )
+        ]
+    if now is None:
+        now = datetime.now(timezone.utc)
+    today = now.date()
+
+    uv_section = tool_table.get("uv")
+    table = (
+        uv_section.get("exclude-newer-package")
+        if isinstance(uv_section, Mapping)
+        else None
+    )
+    entries = (
+        {canonicalize_name(name): value for name, value in table.items()}
+        if isinstance(table, Mapping)
+        else {}
+    )
+
+    results: list[CheckResult] = []
+    cleared = 0
+    undated: list[str] = []
+    for name, spec in sorted(registry.items()):
+        backend = spec.backend
+        if not backend.enforces_cooldown:
+            continue
+        released = pinned_release_date(tool_candidates(spec), spec.version)
+        if released is None:
+            undated.append(name)
+            continue
+        if cleared_cooldown(released, today - min_age):
+            cleared += 1
+            continue
+        clears = format_countdown(utc_midnight(released + min_age), utc_midnight(today))
+        if not backend.reads_uv_exemptions:
+            results.append(
+                CheckResult(
+                    False,
+                    f"`repomatic run {name}` cannot install {spec.version},"
+                    f" published {released}, until {clears}, when it clears the"
+                    f" {minimum_release_age} cooldown: its install reads no"
+                    " exclude-newer-package entry, so nothing admits it sooner.",
+                )
+            )
+            continue
+        entry = entries.get(canonicalize_name(spec.pypi_name))
+        if entry is not None and exemption_admits(entry, released, now):
+            results.append(
+                CheckResult(
+                    True,
+                    f"{name} {spec.version}, published {released}, is inside the"
+                    f" {minimum_release_age} cooldown until {clears}, and its"
+                    " [tool.uv] exclude-newer-package entry admits it.",
+                )
+            )
+        else:
+            results.append(
+                CheckResult(
+                    False,
+                    f"`repomatic run {name}` cannot install {spec.version},"
+                    f" published {released}, until {clears}, when it clears the"
+                    f" {minimum_release_age} cooldown: add"
+                    f' `{spec.pypi_name} = "{freeze_cutoff_after(released)}"` to'
+                    " [tool.uv] exclude-newer-package to admit it now.",
+                )
+            )
+
+    if cleared:
+        results.append(
+            CheckResult(
+                True,
+                f"PyPI and npm tool pins ({cleared}) are past the"
+                f" {minimum_release_age} cooldown.",
+            )
+        )
+    if undated:
+        results.append(
+            CheckResult(
+                None,
+                f"Registry pin cooldown: skipped for {', '.join(undated)} (no"
+                " release date for the pinned version).",
+            )
+        )
+    return results
+
+
 _METADATA_KEY_TOKEN = re.compile(r"^[a-z][a-z0-9_]*$")
 """Shape of a metadata key, used to tell one from a neighbouring shell token.
 
@@ -3357,6 +3497,10 @@ class LintContext:
     lint_repo: LintRepoConfig = field(default_factory=LintRepoConfig)
     """What the repository told the checks, per `[tool.repomatic.lint-repo]`."""
 
+    minimum_release_age: str = Config.minimum_release_age
+    """The cooldown a release clears before `repomatic run` installs it, per
+    `minimum-release-age`."""
+
     repo: str | None = None
     """Repository in `owner/repo` format."""
 
@@ -3521,6 +3665,7 @@ class LintContext:
             keywords=project_table.get("keywords"),
             tool_table=metadata.pyproject_toml.get("tool", {}),
             lint_repo=config.lint_repo,
+            minimum_release_age=config.minimum_release_age,
             repo=repo or None,
             has_pat=has_pat,
             has_virustotal_key=has_virustotal_key,
@@ -4452,6 +4597,33 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             " the uv pin back onto the table, and a `sync-action-pins` bump lets the"
             " pin move forward again. Reported as skipped rather than failed when the"
             " table cannot be read"
+        ),
+    ),
+    # Advisory like the two above: the finding clears on its own once the
+    # release ages out of the window, and the pins ship with repomatic, so a
+    # downstream repository can act only by adding an entry.
+    RepoCheck(
+        "registry-pin-cooldown",
+        lambda ctx: check_registry_pin_cooldown(
+            ctx.tool_table, ctx.minimum_release_age
+        ),
+        summary=(
+            "Every repomatic run tool pin is past the cooldown, or an"
+            " exclude-newer-package entry admits it"
+        ),
+        description=(
+            "Warns when a `repomatic run` tool is pinned at a release younger than"
+            " [`minimum-release-age`](configuration.md#minimum-release-age), which"
+            " `sync-tool-versions` never adopts but a hand bump can. A virtualenv"
+            " tool like `nuitka` installs through uv commands that read the"
+            " project's `[tool.uv] exclude-newer-package`, so the warning names the"
+            " dated entry to add when none admits the release. A downstream"
+            " repository that adopts such a pin before it clears the window needs"
+            " the same entry. A `uvx` or npm tool reads no such entry, so the"
+            " warning gives the date its install starts to work. Binary tools are"
+            " not checked: their download applies no cooldown, so nothing holds a"
+            " young pin back. A pin whose release date cannot be read is reported"
+            " as skipped"
         ),
     ),
     # Fatal for the same reason again: a retired key fails the `metadata` job,

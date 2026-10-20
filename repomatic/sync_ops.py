@@ -142,9 +142,10 @@ from .release.version_sync import (
     set_tool_version,
     set_with_package_version,
     setup_uv_verified_versions,
+    tool_candidates,
 )
 from .tooling import tool_registry
-from .tooling.tool_registry import TOOL_REGISTRY, ToolBackend
+from .tooling.tool_registry import TOOL_REGISTRY
 from .versions import is_newer
 
 TYPE_CHECKING = False
@@ -724,15 +725,7 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
     changes: list[tuple[str, str, str]] = []
     overrides: dict[str, str] = {}
     for name, spec in sorted(TOOL_REGISTRY.items()):
-        backend = spec.backend
-        if backend is ToolBackend.BINARY:
-            if not spec.source_url:
-                continue
-            candidates = github_candidates(spec.source_url, spec.tag_pattern)
-        elif backend is ToolBackend.NPM:
-            candidates = npm_candidates(spec.package or spec.name)
-        else:
-            candidates = pypi_candidates(spec.pypi_name)
+        candidates = tool_candidates(spec)
         latest = select_latest(candidates, min_age, today)
         _track_held_back(
             plan,

@@ -453,8 +453,8 @@ def test_sync_tool_versions_routes_npm_tools_to_the_npm_registry(monkeypatch) ->
     """npm-backed tools resolve versions through the npm registry datasource.
 
     awesome-lint is the only npm tool, so recording the argument `npm_candidates`
-    receives proves the `elif spec.npm` branch routes it away from PyPI/GitHub.
-    Empty candidate lists mean nothing is bumped, so `tool_registry.py` stays put.
+    receives proves `tool_candidates` routes it away from PyPI/GitHub. Empty
+    candidate lists mean nothing is bumped, so `tool_registry.py` stays put.
     """
     seen = {}
 
@@ -462,11 +462,14 @@ def test_sync_tool_versions_routes_npm_tools_to_the_npm_registry(monkeypatch) ->
         seen["package"] = package
         return []
 
-    monkeypatch.setattr("repomatic.sync_ops.npm_candidates", fake_npm)
-    monkeypatch.setattr("repomatic.sync_ops.pypi_candidates", lambda name: [])
+    # The tool pass reads through `tool_candidates`; the `with_packages` pass
+    # calls the PyPI datasource from `sync_ops` itself.
+    monkeypatch.setattr("repomatic.release.version_sync.npm_candidates", fake_npm)
+    monkeypatch.setattr("repomatic.release.version_sync.pypi_candidates", lambda _: [])
     monkeypatch.setattr(
-        "repomatic.sync_ops.github_candidates", lambda *args, **kwargs: []
+        "repomatic.release.version_sync.github_candidates", lambda *args, **kwargs: []
     )
+    monkeypatch.setattr("repomatic.sync_ops.pypi_candidates", lambda name: [])
 
     plan = _resolve_tool_versions(
         ResolveContext(config=Config(), today=date(2026, 1, 1))

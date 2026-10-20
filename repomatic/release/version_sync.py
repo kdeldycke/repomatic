@@ -51,6 +51,7 @@ from ..http import FetchError, get_text
 from ..humanize import SECONDS_PER_DAY
 from ..npm import get_release_dates as npm_release_dates
 from ..pypi import get_release_dates as pypi_release_dates
+from ..tooling.tool_registry import ToolBackend
 from ..versions import is_newer, safe_version
 
 TYPE_CHECKING = False
@@ -58,6 +59,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
     from packaging.version import Version
+
+    from ..tooling.tool_registry import ToolSpec
 
 MINIMUM_RELEASE_AGE_URL = "https://repomatic.net/configuration#minimum-release-age"
 """Docs anchor for the `minimum-release-age` cooldown, linked from PR bodies."""
@@ -440,6 +443,24 @@ def select_held_back(
     )
 
 
+def pinned_release_date(candidates: list[Candidate], pinned: str) -> date | None:
+    """The release date the datasource reports for *pinned*.
+
+    :param candidates: Versions offered by the datasource.
+    :param pinned: The version to find among *candidates*.
+    :return: The release date, or `None` when *pinned* is not among
+        *candidates* or carries an unparsable date.
+    """
+    for candidate in candidates:
+        if candidate.version != pinned:
+            continue
+        try:
+            return date.fromisoformat(candidate.date)
+        except ValueError:
+            return None
+    return None
+
+
 def pin_inside_cooldown(
     candidates: list[Candidate],
     pinned: str,
@@ -468,16 +489,10 @@ def pin_inside_cooldown(
         `None` when it has cleared, is not among *candidates*, or carries an
         unparsable date.
     """
-    cutoff = today - min_age
-    for candidate in candidates:
-        if candidate.version != pinned:
-            continue
-        try:
-            released = date.fromisoformat(candidate.date)
-        except ValueError:
-            return None
-        return None if cleared_cooldown(released, cutoff) else released
-    return None
+    released = pinned_release_date(candidates, pinned)
+    if released is None or cleared_cooldown(released, today - min_age):
+        return None
+    return released
 
 
 def github_candidates(repo_url: str, tag_pattern: str | None = None) -> list[Candidate]:
@@ -525,6 +540,28 @@ def npm_candidates(package: str) -> list[Candidate]:
         Candidate(version=version, date=published, ref=version)
         for version, published in npm_release_dates(package).items()
     ]
+
+
+def tool_candidates(spec: ToolSpec) -> list[Candidate]:
+    """Collect release candidates for a `repomatic run` tool.
+
+    Each backend reads the datasource it installs from: GitHub releases for a
+    binary, the npm registry for an npm tool, and PyPI for the rest.
+    `sync-tool-versions` picks the version to pin from this list, and
+    `lint-repo` dates the version already pinned from the same list.
+
+    :param spec: The registry entry.
+    :return: One {class}`Candidate` per release. Empty when the datasource
+        cannot be read, or when a binary tool names no `source_url`.
+    """
+    backend = spec.backend
+    if backend is ToolBackend.BINARY:
+        if not spec.source_url:
+            return []
+        return github_candidates(spec.source_url, spec.tag_pattern)
+    if backend is ToolBackend.NPM:
+        return npm_candidates(spec.package or spec.name)
+    return pypi_candidates(spec.pypi_name)
 
 
 @cache

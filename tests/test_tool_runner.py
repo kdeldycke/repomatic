@@ -405,6 +405,32 @@ def test_build_install_args_cooldown(name, spec, tmp_path, monkeypatch):
         assert "--exclude-newer" not in _build_install_args(spec)
 
 
+@pytest.mark.parametrize("locked", (False, True), ids=("no-lock", "uv-lock"))
+@pytest.mark.parametrize(
+    ("name", "spec"),
+    [(n, s) for n, s in TOOL_REGISTRY.items() if s.binary is None and s.npm is None],
+)
+def test_uv_exemptions_follow_the_install_command(
+    name, spec, locked, tmp_path, monkeypatch
+):
+    """A PyPI tool reads `[tool.uv]` exemptions exactly when `uvx` does not install it.
+
+    `lint-repo` asks `ToolBackend.reads_uv_exemptions` whether a project entry
+    can admit a pin inside the window. `uvx` reads no project configuration,
+    while `uv run` and `uv pip install` read it, so the answer must follow the
+    command the runner builds.
+    """
+    monkeypatch.chdir(tmp_path)
+    if locked:
+        (tmp_path / "uv.lock").touch()
+    command = (
+        _venv_install_args(spec, ".venv")
+        if _installs_into_venv(spec)
+        else _build_install_args(spec)
+    )
+    assert spec.backend.reads_uv_exemptions == (command[0] != "uvx"), name
+
+
 @pytest.mark.parametrize(
     ("name", "spec"),
     [(n, s) for n, s in TOOL_REGISTRY.items() if s.binary is None],
