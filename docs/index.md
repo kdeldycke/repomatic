@@ -39,11 +39,16 @@ claude-code-plugin
 :hidden:
 contributing
 commit-messages
+code-of-conduct
+```
+
+```{toctree}
+:caption: Developing repomatic
+:maxdepth: 2
+:hidden:
 upstream-development
 operation-contracts
-packaging
 upstream
-code-of-conduct
 ```
 
 ```{toctree}
@@ -62,6 +67,7 @@ modindex
 :hidden:
 binaries
 cloudflare
+packaging
 ```
 
 ```{toctree}
