@@ -106,6 +106,7 @@ Issues found while building repomatic and resolved upstream. Where repomatic car
 - [`Nuitka#3994`](https://github.com/Nuitka/Nuitka/issues/3994) - A symlink inside an `--include-data-dir` tree shipped dangling, and crashed the macOS code signing. The tool runner staged a copy of the directory with no symlinks until `4.3`, which ships the content of such a link.
 - [`Nuitka#3998`](https://github.com/Nuitka/Nuitka/issues/3998) - `enableCcache` replaced a user-set `CCACHE_SLOPPINESS` with its own value. Since `4.3` Nuitka adds its value to the user's.
 - [`Nuitka#4025`](https://github.com/Nuitka/Nuitka/issues/4025) - `--project` refused to build over a `py.typed` and over a dependency's package data, until `4.3`.
+- [`Nuitka#4087`](https://github.com/Nuitka/Nuitka/issues/4087) - In `4.3`, a commit that added or removed one kind of local variable made every C file miss `ccache`. repomatic had no workaround, and `4.3.1` fixed it.
 - [`tomlrt#171`](https://github.com/dimbleby/tomlrt/issues/171) - `Table.section()` dropped standalone comments and inline-array padding from the source document. repomatic rebuilt each section with a helper to keep them, and removed the helper once `tomlrt` `2.2.4` fixed the clone path.
 - [`uv#12906`](https://github.com/astral-sh/uv/issues/12906) - uv installed an x86_64 Python on arm64 Windows. `tests.yaml` forced a native ARM64 interpreter on that runner until uv `0.13.0` preferred the native one ([`uv#22100`](https://github.com/astral-sh/uv/pull/22100)).
 - [`zizmor#1664`](https://github.com/zizmorcore/zizmor/issues/1664) - The `template-injection` audit failed on a multiline YAML block. repomatic turned the audit off until `zizmor` `1.23.0` fixed it, then turned it back on.
@@ -197,7 +198,7 @@ repomatic post-processes the output of `mdformat` to undo two `mdformat-myst` re
 [Nuitka integration](nuitka.md) details the workaround for each of these:
 
 - [`Nuitka#3909` - With `--project` the `[tool.nuitka]` section of `pyproject.toml` is ignored](https://github.com/Nuitka/Nuitka/issues/3909): since `4.2` Nuitka reads `[tool.nuitka]`, but only under `--project`, a mode repomatic cannot use, so the tool runner turns the section into command-line flags. [`Nuitka#2136`](https://github.com/Nuitka/Nuitka/issues/2136) asked for the same support earlier.
-- [`Nuitka#3996` - `ccache` never hits across CI machines](https://github.com/Nuitka/Nuitka/issues/3996): the tool runner installs Nuitka into the project virtualenv, whose path is the same on every runner. The release workflow also writes `base_dir` into `ccache.conf`.
+- [`Nuitka#3996` - `ccache` never hits across CI machines](https://github.com/Nuitka/Nuitka/issues/3996): the tool runner installs Nuitka into the project virtualenv, whose path is the same on every runner. The release workflow also writes `base_dir` into `ccache.conf`. The fix, [Nuitka/Nuitka@381a18f17](https://github.com/Nuitka/Nuitka/commit/381a18f17ecef962c05cbf5d456ec84f04cb78e6), is on `develop` and keeps the original paths on Windows.
 - [`Nuitka#3997` - Tool downloads are fetched and executed without integrity verification](https://github.com/Nuitka/Nuitka/issues/3997): the macOS builds turn ccache off, which keeps its unverified download out of the build.
 
 ### Dependency cooldowns
@@ -263,12 +264,6 @@ Pull requests and issues still pending upstream.
 - [`MyST-Parser#1210` - Image `alt` text loses backslash escapes](https://github.com/executablebooks/MyST-Parser/issues/1210): the same loss in the `alt` attribute of a page that Sphinx builds.
 
 - [`MyST-Parser#1151` - Cross-reference to an explicit target emits a false-positive `myst.xref_missing` warning](https://github.com/executablebooks/MyST-Parser/issues/1151)
-
-- [`Nuitka#4087` - One new local variable makes every C file miss `ccache` since `4.3`](https://github.com/Nuitka/Nuitka/issues/4087): the canary build misses every file after a commit that adds or removes one frame type description. See [Compile caching](nuitka.md#compile-caching).
-
-  ```{todo}
-  When a Nuitka release carries the fix for [Nuitka/Nuitka#4087](https://github.com/Nuitka/Nuitka/issues/4087), add it to the matrix of the `ccache-type-description.yaml` workflow in [kdeldycke/nuitka-test](https://github.com/kdeldycke/nuitka-test), and run it. Then update this entry and [Compile caching](nuitka.md#compile-caching) to match the result.
-  ```
 
 - [`py-walk#11` - `py-walk` maintenance status](https://github.com/pacha/py-walk/issues/11): `sly`, the only dependency of `py-walk`, is retired, and `py-walk` has had no commit since 2024-10-26. repomatic reads its ignore files through `py-walk`: see [`repomatic.file_inventory`](repomatic.file_inventory.md).
 
