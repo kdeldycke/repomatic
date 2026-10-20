@@ -179,7 +179,7 @@ wherever alerts are off, which says nothing about the token. Read on 2026-10-13:
 this endpoint answers `401` to a caller with no token, and `403` to an account
 that does not administer the repository.
 
-The `permissions` object that `GET /repos/{repo}` returns cannot serve either: it
+The `permissions` object that ``GET /repos/{repo}`` returns cannot serve either: it
 describes the account, not the token. Checked on 2026-10-20: a token limited to
 one repository got `push: true` there for another repository of the same owner.
 """
