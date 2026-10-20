@@ -62,16 +62,23 @@ from ..cache import (
     clear_config_cache,
     clear_http_cache,
 )
+from ..components import (
+    ALL_COMPONENTS,
+    DEFAULT_REPO,
+    WORKFLOW_TARGET_ROOT,
+    parse_component_entries,
+    valid_file_ids,
+)
 from ..config import (
     CONFIG_REFERENCE_HEADER_DEFS,
     Config,
 )
-from ..deps.dep_sources import (
+from ..deps.audit import (
+    AUDIT_HEADER_DEFS,
+)
+from ..deps.sources import (
     LINT_DEPS_HEADER_DEFS,
     build_release_readiness,
-)
-from ..deps.vulnerable_deps import (
-    AUDIT_HEADER_DEFS,
 )
 from ..github.actions import (
     read_file_output,
@@ -84,12 +91,6 @@ from ..github.ci_status import (
 )
 from ..github.job_timings import (
     JOB_TIMINGS_HEADER_DEFS,
-)
-from ..github.matrix import (
-    JOB_STATE_KEY,
-    OS_AXIS,
-    PIVOT_CELL_SEPARATOR,
-    PYTHON_VERSION_AXIS,
 )
 from ..github.pr_body import (
     build_pr_body,
@@ -105,10 +106,16 @@ from ..github.pr_body import (
 )
 from ..github.workflow_sync import run_workflow_lint
 from ..humanize import format_file_size
-from ..matrix_axes import (
+from ..matrix.axes import (
     TEST_RUNNERS_FULL,
     TEST_RUNNERS_PR,
     python_version_sort_key,
+)
+from ..matrix.model import (
+    JOB_STATE_KEY,
+    OS_AXIS,
+    PIVOT_CELL_SEPARATOR,
+    PYTHON_VERSION_AXIS,
 )
 from ..metadata.core import (
     METADATA_KEYS_HEADER_DEFS,
@@ -118,14 +125,7 @@ from ..pyproject import (
     dependency_group_names,
     extra_names,
 )
-from ..registry import (
-    ALL_COMPONENTS,
-    DEFAULT_REPO,
-    WORKFLOW_TARGET_ROOT,
-    parse_component_entries,
-    valid_file_ids,
-)
-from ..tooling.tool_registry import (
+from ..tooling.registry import (
     TOOL_LIST_HEADER_DEFS,
 )
 from ..versions import BUMP_PARTS, strip_dev_suffix
@@ -141,7 +141,7 @@ if TYPE_CHECKING:
     # flags the narrowing as a Liskov violation.
     from click import Context as ClickContext, Parameter
 
-    from ..github.matrix import Matrix
+    from ..matrix.model import Matrix
 
 
 # ---------------------------------------------------------------------------
@@ -410,7 +410,7 @@ class ComponentSelector(ParamType):
     Bare names (e.g., `skills`) select an entire component.  Qualified
     entries (e.g., `skills/repomatic-topics`) select a single file within
     a component.  Validation delegates to
-    {func}`~repomatic.registry.parse_component_entries`, the same code path
+    {func}`~repomatic.components.parse_component_entries`, the same code path
     the `exclude` and `include` config options go through, so the CLI and
     config agree on syntax and error messages.
     """
@@ -1025,7 +1025,7 @@ def format_matrix_cell(
     A state carrying several jobs also states how many, since the grid gives a
     reader no other way to tell five stable jobs from one.
 
-    :param cell: The cell {meth}`~repomatic.github.matrix.Matrix.pivot`
+    :param cell: The cell {meth}`~repomatic.matrix.model.Matrix.pivot`
         rendered, returned untouched when no job occupies the intersection:
         the placeholder for an empty one is that method's to choose.
     :param tally: That intersection's job count per state, or `None` where the

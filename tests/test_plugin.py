@@ -24,7 +24,7 @@ runtime, which is what these tests are for.
 ```{caution}
 The sharpest edge is that `claude plugin validate --strict` passes a manifest
 whose `agents` path loads **zero** agents (see the
-{mod}`~repomatic.tooling.plugin` module docstring), so validation alone proves nothing
+{mod}`~repomatic.claude_plugin` module docstring), so validation alone proves nothing
 about the archive being usable. {func}`test_archive_uses_the_default_component_dirs`
 and {func}`test_manifest_declares_no_component_paths` are what keep the layout on
 the shape that was verified to actually load.
@@ -42,9 +42,7 @@ from typing import Any
 import pytest
 
 from repomatic import __version__
-from repomatic.registry import COMPONENTS_BY_NAME
-from repomatic.release.prepare_release import PrepareRelease
-from repomatic.tooling.plugin import (
+from repomatic.claude_plugin import (
     AGENTS_DIR,
     ARCHIVE_NAME,
     BIOME_DEFAULT_INDENT,
@@ -61,6 +59,8 @@ from repomatic.tooling.plugin import (
     pack_plugin,
     render_plugin_settings,
 )
+from repomatic.components import COMPONENTS_BY_NAME
+from repomatic.release.prepare_release import PrepareRelease
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -190,7 +190,7 @@ the state this test sees when the suite runs from a released tree. Never a
 
 
 def test_marketplace_installs_from_the_plugin_root(marketplace) -> None:
-    """The single entry publishes {data}`~repomatic.tooling.plugin.PLUGIN_ROOT`
+    """The single entry publishes {data}`~repomatic.claude_plugin.PLUGIN_ROOT`
     from a pinned tag.
 
     An `archive` source was the previous shape here, and it syncs only in the

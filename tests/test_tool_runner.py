@@ -57,13 +57,13 @@ from repomatic.cache import cached_binary_path
 from repomatic.cli.main import repomatic
 from repomatic.file_inventory import FileInventory
 from repomatic.images import _check_tool
-from repomatic.matrix_axes import (
+from repomatic.matrix.axes import (
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_RUNNERS_FULL,
     TEST_RUNNERS_PR,
 )
 from repomatic.metadata.core import Metadata
-from repomatic.tooling.tool_registry import (
+from repomatic.tooling.registry import (
     _DIRECTIVE_YAML_OPTIONS_RE,
     _ESCAPED_COLON_FENCE_RE,
     CHECKSUMS,
@@ -79,7 +79,7 @@ from repomatic.tooling.tool_registry import (
     _unescape_colon_fence,
     _yaml_block_to_field_list,
 )
-from repomatic.tooling.tool_runner import (
+from repomatic.tooling.runner import (
     TOOL_CRASH_EXIT_CODE,
     _build_install_args,
     _digest_targets,
@@ -497,7 +497,7 @@ def test_build_install_args_install_into_venv(name, spec, tmp_path, monkeypatch)
     ("name", "spec"),
     [(n, s) for n, s in TOOL_REGISTRY.items() if s.install_into_venv],
 )
-@patch("repomatic.tooling.tool_runner.subprocess.run")
+@patch("repomatic.tooling.runner.subprocess.run")
 def test_install_into_venv_installs_the_pin(mock_run, name, spec):
     """The pinned tool goes into the venv that `uv run --frozen` reports."""
     mock_run.side_effect = [
@@ -531,7 +531,7 @@ def test_install_into_venv_installs_the_pin(mock_run, name, spec):
         ([(0, "/orchard/.venv\n"), (1, "")], "Cannot install nuitka"),
     ],
 )
-@patch("repomatic.tooling.tool_runner.subprocess.run")
+@patch("repomatic.tooling.runner.subprocess.run")
 def test_install_into_venv_reports_a_uv_failure(mock_run, results, message):
     """A uv failure stops the run before the tool starts."""
     mock_run.side_effect = [
@@ -555,8 +555,8 @@ def test_datasource_url_by_backend():
     assert ToolSpec(name="widget").datasource_url == "https://pypi.org/project/widget/"
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.shutil.which", return_value="/usr/bin/npm")
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.shutil.which", return_value="/usr/bin/npm")
 def test_install_npm_command_shape(mock_which, mock_run, tmp_path):
     """The npm backend installs pkg@version into a prefix with the cooldown flag."""
     # Two subprocess calls when a cooldown is set: `npm --version`, then install.
@@ -586,8 +586,8 @@ def test_install_npm_command_shape(mock_which, mock_run, tmp_path):
     assert bin_path == bin_dir / "awesome-lint"
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.shutil.which", return_value="/usr/bin/npm")
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.shutil.which", return_value="/usr/bin/npm")
 def test_install_npm_zero_cooldown_omits_flag(mock_which, mock_run, tmp_path):
     """A 0-day cooldown drops the min-release-age flag entirely."""
     mock_run.return_value = MagicMock(returncode=0)
@@ -601,7 +601,7 @@ def test_install_npm_zero_cooldown_omits_flag(mock_which, mock_run, tmp_path):
     assert not any(str(arg).startswith("--min-release-age") for arg in cmd)
 
 
-@patch("repomatic.tooling.tool_runner.shutil.which", return_value=None)
+@patch("repomatic.tooling.runner.shutil.which", return_value=None)
 def test_install_npm_without_npm_raises(mock_which, tmp_path):
     """A clear error surfaces when Node.js and npm are not on PATH."""
     with pytest.raises(RuntimeError, match="npm"):
@@ -619,15 +619,15 @@ def test_install_npm_without_npm_raises(mock_which, tmp_path):
         ("garbage\n", True),
     ],
 )
-@patch("repomatic.tooling.tool_runner.subprocess.run")
+@patch("repomatic.tooling.runner.subprocess.run")
 def test_npm_supports_cooldown(mock_run, version_output, supported):
     """min-release-age support is gated on npm >= 11.10.0."""
     mock_run.return_value = MagicMock(returncode=0, stdout=version_output)
     assert _npm_supports_cooldown("/usr/bin/npm") is supported
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.shutil.which", return_value="/usr/bin/npm")
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.shutil.which", return_value="/usr/bin/npm")
 def test_install_npm_warns_when_npm_too_old(mock_which, mock_run, tmp_path, caplog):
     """Old npm cannot enforce the cooldown, so the runner warns but still installs."""
     mock_run.side_effect = [
@@ -725,10 +725,8 @@ def test_resolve_platform_exact_match():
         archive_format=ArchiveFormat.RAW,
     )
     with (
-        patch("repomatic.tooling.tool_registry.current_platform", return_value=MACOS),
-        patch(
-            "repomatic.tooling.tool_registry.current_architecture", return_value=AARCH64
-        ),
+        patch("repomatic.tooling.registry.current_platform", return_value=MACOS),
+        patch("repomatic.tooling.registry.current_architecture", return_value=AARCH64),
     ):
         assert spec.resolve_platform() == (MACOS, AARCH64)
 
@@ -744,10 +742,8 @@ def test_resolve_platform_group_match():
     # than borrowed from `_on_linux_x86_64`, since the group-membership pass
     # is the behavior under test here, not a precondition of it.
     with (
-        patch("repomatic.tooling.tool_registry.current_platform", return_value=UBUNTU),
-        patch(
-            "repomatic.tooling.tool_registry.current_architecture", return_value=X86_64
-        ),
+        patch("repomatic.tooling.registry.current_platform", return_value=UBUNTU),
+        patch("repomatic.tooling.registry.current_architecture", return_value=X86_64),
     ):
         assert spec.resolve_platform() == (LINUX, X86_64)
 
@@ -760,10 +756,8 @@ def test_resolve_platform_no_match():
         archive_format=ArchiveFormat.RAW,
     )
     with (
-        patch("repomatic.tooling.tool_registry.current_platform", return_value=MACOS),
-        patch(
-            "repomatic.tooling.tool_registry.current_architecture", return_value=X86_64
-        ),
+        patch("repomatic.tooling.registry.current_platform", return_value=MACOS),
+        patch("repomatic.tooling.registry.current_architecture", return_value=X86_64),
         pytest.raises(RuntimeError, match="No binary"),
     ):
         spec.resolve_platform()
@@ -791,13 +785,11 @@ def test_resolve_platform_unknown_distro_falls_back_to_linux():
     )
     with (
         patch(
-            "repomatic.tooling.tool_registry.current_platform",
+            "repomatic.tooling.registry.current_platform",
             return_value=UNKNOWN_PLATFORM,
         ),
-        patch(
-            "repomatic.tooling.tool_registry.current_architecture", return_value=X86_64
-        ),
-        patch("repomatic.tooling.tool_registry.sys.platform", "linux"),
+        patch("repomatic.tooling.registry.current_architecture", return_value=X86_64),
+        patch("repomatic.tooling.registry.sys.platform", "linux"),
     ):
         assert spec.resolve_platform() == (LINUX, X86_64)
 
@@ -825,13 +817,11 @@ def test_resolve_platform_unknown_distro_refuses_beyond_linux(
     )
     with (
         patch(
-            "repomatic.tooling.tool_registry.current_platform",
+            "repomatic.tooling.registry.current_platform",
             return_value=UNKNOWN_PLATFORM,
         ),
-        patch(
-            "repomatic.tooling.tool_registry.current_architecture", return_value=X86_64
-        ),
-        patch("repomatic.tooling.tool_registry.sys.platform", sys_platform),
+        patch("repomatic.tooling.registry.current_architecture", return_value=X86_64),
+        patch("repomatic.tooling.registry.sys.platform", sys_platform),
         pytest.raises(UnsupportedPlatformError, match="No binary"),
     ):
         spec.resolve_platform()
@@ -888,7 +878,7 @@ def test_download_and_verify_success(tmp_path):
     dest = tmp_path / "downloaded"
 
     with patch(
-        "repomatic.tooling.tool_runner.urlopen", return_value=_urlopen_response(content)
+        "repomatic.tooling.runner.urlopen", return_value=_urlopen_response(content)
     ):
         _download_and_verify("https://example.com/file", expected, dest)
 
@@ -905,7 +895,7 @@ def test_download_and_verify_no_content_length(tmp_path):
     # No Content-Length: total stays 0, so the download path uses a Spinner
     # instead of a determinate progress bar.
     with patch(
-        "repomatic.tooling.tool_runner.urlopen",
+        "repomatic.tooling.runner.urlopen",
         return_value=_urlopen_response(content, advertised_length=None),
     ):
         _download_and_verify("https://example.com/file", expected, dest)
@@ -921,7 +911,7 @@ def test_download_and_verify_mismatch(tmp_path):
 
     with (
         patch(
-            "repomatic.tooling.tool_runner.urlopen",
+            "repomatic.tooling.runner.urlopen",
             return_value=_urlopen_response(content),
         ),
         pytest.raises(ValueError, match="SHA-256 mismatch"),
@@ -939,13 +929,13 @@ def test_download_and_verify_retries_transient_failure(tmp_path):
 
     with (
         patch(
-            "repomatic.tooling.tool_runner.urlopen",
+            "repomatic.tooling.runner.urlopen",
             side_effect=[
                 URLError("certificate verify failed: self-signed certificate"),
                 _urlopen_response(content),
             ],
         ) as fake_urlopen,
-        patch("repomatic.tooling.tool_runner.time.sleep") as fake_sleep,
+        patch("repomatic.tooling.runner.time.sleep") as fake_sleep,
     ):
         _download_and_verify("https://example.com/file", expected, dest)
 
@@ -960,10 +950,10 @@ def test_download_and_verify_gives_up_after_attempts(tmp_path):
 
     with (
         patch(
-            "repomatic.tooling.tool_runner.urlopen",
+            "repomatic.tooling.runner.urlopen",
             side_effect=URLError("connection reset"),
         ) as fake_urlopen,
-        patch("repomatic.tooling.tool_runner.time.sleep"),
+        patch("repomatic.tooling.runner.time.sleep"),
         pytest.raises(URLError, match="connection reset"),
     ):
         _download_and_verify("https://example.com/file", "0" * 64, dest)
@@ -986,14 +976,14 @@ def test_download_and_verify_truncated(tmp_path):
 
     with (
         patch(
-            "repomatic.tooling.tool_runner.urlopen",
+            "repomatic.tooling.runner.urlopen",
             # Advertise more bytes than the body delivers, on every attempt.
             side_effect=[
                 _urlopen_response(content, advertised_length=len(content) + 7)
                 for _ in range(3)
             ],
         ),
-        patch("repomatic.tooling.tool_runner.time.sleep"),
+        patch("repomatic.tooling.runner.time.sleep"),
         pytest.raises(OSError, match=r"Truncated download .* got 18 of 25 bytes"),
     ):
         _download_and_verify(
@@ -1246,10 +1236,8 @@ def test_install_binary_missing_platform():
         ),
     )
     with (
-        patch("repomatic.tooling.tool_registry.current_platform", return_value=MACOS),
-        patch(
-            "repomatic.tooling.tool_registry.current_architecture", return_value=X86_64
-        ),
+        patch("repomatic.tooling.registry.current_platform", return_value=MACOS),
+        patch("repomatic.tooling.registry.current_architecture", return_value=X86_64),
         pytest.raises(RuntimeError, match="No binary for"),
     ):
         _install_binary(spec, Path("/tmp"))
@@ -1267,10 +1255,8 @@ def test_path_tools_env_skips_platform_without_binary(caplog):
     assert "shfmt" in spec.path_tools
     path_dirs: list[tempfile.TemporaryDirectory[str]] = []
     with (
-        patch("repomatic.tooling.tool_registry.current_platform", return_value=WINDOWS),
-        patch(
-            "repomatic.tooling.tool_registry.current_architecture", return_value=AARCH64
-        ),
+        patch("repomatic.tooling.registry.current_platform", return_value=WINDOWS),
+        patch("repomatic.tooling.registry.current_architecture", return_value=AARCH64),
         caplog.at_level(logging.WARNING),
     ):
         env = _path_tools_env(spec, False, False, path_dirs)
@@ -1320,10 +1306,8 @@ def _on_linux_x86_64():
     runner does.
     """
     with (
-        patch("repomatic.tooling.tool_registry.current_platform", return_value=UBUNTU),
-        patch(
-            "repomatic.tooling.tool_registry.current_architecture", return_value=X86_64
-        ),
+        patch("repomatic.tooling.registry.current_platform", return_value=UBUNTU),
+        patch("repomatic.tooling.registry.current_architecture", return_value=X86_64),
     ):
         yield
 
@@ -1402,8 +1386,8 @@ def test_install_binary_cache_miss_stores(tmp_path, monkeypatch, cache_env):
 
     with (
         _on_linux_x86_64(),
-        patch("repomatic.tooling.tool_runner._download_and_verify"),
-        patch("repomatic.tooling.tool_runner._extract_binary") as mock_extract,
+        patch("repomatic.tooling.runner._download_and_verify"),
+        patch("repomatic.tooling.runner._extract_binary") as mock_extract,
     ):
         extracted = staging / "testtool"
         extracted.write_bytes(fake_binary)
@@ -1432,9 +1416,9 @@ def test_install_binary_no_cache_flag(tmp_path, monkeypatch, cache_env):
 
     with (
         _on_linux_x86_64(),
-        patch("repomatic.tooling.tool_runner._download_and_verify"),
-        patch("repomatic.tooling.tool_runner._extract_binary") as mock_extract,
-        patch("repomatic.tooling.tool_runner.store_binary") as mock_store,
+        patch("repomatic.tooling.runner._download_and_verify"),
+        patch("repomatic.tooling.runner._extract_binary") as mock_extract,
+        patch("repomatic.tooling.runner.store_binary") as mock_store,
     ):
         extracted = staging / "testtool"
         extracted.write_bytes(b"binary")
@@ -1468,8 +1452,8 @@ def test_install_binary_cache_integrity_failure(tmp_path, monkeypatch, cache_env
 
     with (
         _on_linux_x86_64(),
-        patch("repomatic.tooling.tool_runner._download_and_verify"),
-        patch("repomatic.tooling.tool_runner._extract_binary") as mock_extract,
+        patch("repomatic.tooling.runner._download_and_verify"),
+        patch("repomatic.tooling.runner._extract_binary") as mock_extract,
     ):
         extracted = staging / "testtool"
         extracted.write_bytes(b"real-binary")
@@ -1500,9 +1484,9 @@ def test_install_binary_cache_store_fallback(tmp_path, monkeypatch, cache_env):
 
     with (
         _on_linux_x86_64(),
-        patch("repomatic.tooling.tool_runner._download_and_verify"),
-        patch("repomatic.tooling.tool_runner._extract_binary") as mock_extract,
-        patch("repomatic.tooling.tool_runner.store_binary", side_effect=fake_store),
+        patch("repomatic.tooling.runner._download_and_verify"),
+        patch("repomatic.tooling.runner._extract_binary") as mock_extract,
+        patch("repomatic.tooling.runner.store_binary", side_effect=fake_store),
     ):
         extracted = staging / "testtool"
         extracted.write_bytes(fake_binary)
@@ -1521,9 +1505,9 @@ def test_install_binary_cache_store_fallback(tmp_path, monkeypatch, cache_env):
 # ---------------------------------------------------------------------------
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_binary_uses_direct_path(
     mock_ci,
     mock_install,
@@ -1559,9 +1543,9 @@ def test_run_tool_binary_uses_direct_path(
         pytest.param("typos", "--force-exclude", ("recipes/tarte.md",), id="typos"),
     ],
 )
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_holds_excludes_for_explicit_paths(
     mock_ci,
     mock_install,
@@ -1591,9 +1575,9 @@ def test_run_tool_holds_excludes_for_explicit_paths(
     assert cmd.index(flag) < cmd.index(extra_args[0])
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_binary_forwards_extra_args(
     mock_ci,
     mock_install,
@@ -1617,9 +1601,9 @@ def test_run_tool_binary_forwards_extra_args(
     assert "file.json" in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_binary_default_flags(
     mock_ci,
     mock_install,
@@ -1640,8 +1624,8 @@ def test_run_tool_binary_default_flags(
     assert "-color" in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_ruff_bundled_default(mock_ci, mock_run, tmp_path, monkeypatch):
     """ruff uses bundled default config when no config exists."""
     monkeypatch.chdir(tmp_path)
@@ -1658,8 +1642,8 @@ def test_run_tool_ruff_bundled_default(mock_ci, mock_run, tmp_path, monkeypatch)
     assert "github" in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_ruff_reads_pyproject_natively(
     mock_ci, mock_run, tmp_path, monkeypatch
 ):
@@ -1678,8 +1662,8 @@ def test_run_tool_ruff_reads_pyproject_natively(
     assert "check" in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_bump_my_version_via_uvx(mock_ci, mock_run, tmp_path, monkeypatch):
     """bump-my-version runs via uvx with subcommand extra_args."""
     monkeypatch.chdir(tmp_path)
@@ -1702,7 +1686,7 @@ def test_run_tool_bump_my_version_via_uvx(mock_ci, mock_run, tmp_path, monkeypat
 # ---------------------------------------------------------------------------
 
 
-@patch("repomatic.tooling.tool_runner._install_binary")
+@patch("repomatic.tooling.runner._install_binary")
 def test_ensure_binary_memoizes_per_tool(mock_install, tmp_path):
     """Repeated calls install once and return the same path.
 
@@ -1718,7 +1702,7 @@ def test_ensure_binary_memoizes_per_tool(mock_install, tmp_path):
     assert mock_install.call_count == 1
 
 
-@patch("repomatic.tooling.tool_runner._install_binary")
+@patch("repomatic.tooling.runner._install_binary")
 def test_ensure_binary_cleans_staging_on_cache_hit(mock_install, tmp_path):
     """When the install lands in the cache, the staging directory is removed."""
     cached = tmp_path / "labelmaker"
@@ -1731,7 +1715,7 @@ def test_ensure_binary_cleans_staging_on_cache_hit(mock_install, tmp_path):
     assert not staging.exists()
 
 
-@patch("repomatic.tooling.tool_runner._install_binary")
+@patch("repomatic.tooling.runner._install_binary")
 def test_ensure_binary_keeps_staging_fallback_alive(mock_install):
     """A staging-path fallback survives the call instead of dangling.
 
@@ -2119,8 +2103,8 @@ def test_run_tool_unknown_tool():
         run_tool("nonexistent-tool")
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_yamllint_bundled_default(mock_ci, mock_run, tmp_path, monkeypatch):
     """yamllint with bundled default builds the correct command."""
     monkeypatch.chdir(tmp_path)
@@ -2142,8 +2126,8 @@ def test_run_tool_yamllint_bundled_default(mock_ci, mock_run, tmp_path, monkeypa
     assert "--format" not in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=True)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=True)
 def test_run_tool_ci_flags(mock_ci, mock_run, tmp_path, monkeypatch):
     """CI flags are appended when GITHUB_ACTIONS is set."""
     monkeypatch.chdir(tmp_path)
@@ -2160,8 +2144,8 @@ def test_run_tool_ci_flags(mock_ci, mock_run, tmp_path, monkeypatch):
     assert cmd[idx + 1] == "github"
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_native_config_no_extra_flags(
     mock_ci, mock_run, tmp_path, monkeypatch
 ):
@@ -2178,8 +2162,8 @@ def test_run_tool_native_config_no_extra_flags(
     assert "--offline" in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_pyproject_section_cached_config(
     mock_ci,
     mock_run,
@@ -2206,8 +2190,8 @@ def test_run_tool_pyproject_section_cached_config(
     assert "cache" in str(config_file)
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_forwards_exit_code(mock_ci, mock_run, tmp_path, monkeypatch):
     """Tool's exit code is forwarded unchanged."""
     monkeypatch.chdir(tmp_path)
@@ -2217,8 +2201,8 @@ def test_run_tool_forwards_exit_code(mock_ci, mock_run, tmp_path, monkeypatch):
     assert exit_code == 42
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_autopep8_default_flags(mock_ci, mock_run, tmp_path, monkeypatch):
     """autopep8 runs with all default flags via uvx."""
     monkeypatch.chdir(tmp_path)
@@ -2238,8 +2222,8 @@ def test_run_tool_autopep8_default_flags(mock_ci, mock_run, tmp_path, monkeypatc
     assert "file.py" in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_pyproject_fmt(mock_ci, mock_run, tmp_path, monkeypatch):
     """pyproject-fmt runs bare via uvx, with no forced --expand-tables flag."""
     monkeypatch.chdir(tmp_path)
@@ -2256,9 +2240,9 @@ def test_run_tool_pyproject_fmt(mock_ci, mock_run, tmp_path, monkeypatch):
     assert "--config" not in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_mdformat_with_packages(
     mock_ci,
     mock_install,
@@ -2287,8 +2271,8 @@ def test_run_tool_mdformat_with_packages(
     assert with_count == len(spec.with_packages)
 
 
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_concurrent_runs_keep_their_cwd_config(
     mock_ci, mock_install, cache_env, tmp_path, monkeypatch
 ):
@@ -2326,7 +2310,7 @@ def test_run_tool_concurrent_runs_keep_their_cwd_config(
     first = threading.Thread(
         target=run_tool, args=("mdformat",), kwargs={"extra_args": ("apple.md",)}
     )
-    with patch("repomatic.tooling.tool_runner.subprocess.run", side_effect=fake_run):
+    with patch("repomatic.tooling.runner.subprocess.run", side_effect=fake_run):
         first.start()
         assert first_running.wait(timeout=5)
         run_tool("mdformat", extra_args=("banana.md",))
@@ -2336,9 +2320,9 @@ def test_run_tool_concurrent_runs_keep_their_cwd_config(
     assert not config.exists()
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_runs_unlocked_when_the_cache_is_unwritable(
     mock_ci, mock_install, mock_run, tmp_path, monkeypatch
 ):
@@ -2360,9 +2344,9 @@ def test_run_tool_runs_unlocked_when_the_cache_is_unwritable(
     assert not (tmp_path / ".mdformat.toml").exists()
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.Metadata")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.Metadata")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_mypy_with_computed_params(
     mock_ci,
     mock_metadata_cls,
@@ -2390,9 +2374,9 @@ def test_run_tool_mypy_with_computed_params(
     assert "repomatic/" in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.Metadata")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.Metadata")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_mypy_without_computed_params(
     mock_ci,
     mock_metadata_cls,
@@ -2412,9 +2396,9 @@ def test_run_tool_mypy_without_computed_params(
     assert "--python-version" not in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.Metadata")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.Metadata")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_mypy_no_lockfile_falls_back_isolated(
     mock_ci,
     mock_metadata_cls,
@@ -2446,8 +2430,8 @@ def test_run_tool_mypy_no_lockfile_falls_back_isolated(
     assert "script.py" in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_nuitka_uses_module_invocation(
     mock_ci, mock_run, tmp_path, monkeypatch
 ):
@@ -2473,8 +2457,8 @@ def test_run_tool_nuitka_uses_module_invocation(
     assert "repomatic" in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_nuitka_nofollow_imports_default(
     mock_ci, mock_run, tmp_path, monkeypatch
 ):
@@ -2488,8 +2472,8 @@ def test_run_tool_nuitka_nofollow_imports_default(
     assert "--nofollow-import-to=tkinter" in cmd
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_nuitka_nofollow_imports_override(
     mock_ci, mock_run, tmp_path, monkeypatch
 ):
@@ -2513,9 +2497,9 @@ def test_run_tool_nuitka_nofollow_imports_override(
 # ---------------------------------------------------------------------------
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_creates_output_parent_directory(
     mock_ci,
     mock_install,
@@ -2536,9 +2520,9 @@ def test_run_tool_creates_output_parent_directory(
     assert output_path.parent.is_dir()
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_creates_output_parent_equals_form(
     mock_ci,
     mock_install,
@@ -2559,9 +2543,9 @@ def test_run_tool_creates_output_parent_equals_form(
     assert output_path.parent.is_dir()
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_output_existing_directory_is_noop(
     mock_ci,
     mock_install,
@@ -2583,8 +2567,8 @@ def test_run_tool_output_existing_directory_is_noop(
     assert output_dir.is_dir()
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_no_output_flag_skips_mkdir(mock_ci, mock_run, tmp_path, monkeypatch):
     """run_tool without --output does not create any directories."""
     monkeypatch.chdir(tmp_path)
@@ -2961,9 +2945,9 @@ def test_check_bypasses_post_process():
     assert not ruff.check_bypasses_post_process(("format", "--check"))
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_warns_when_check_bypasses_post_process(
     mock_ci,
     mock_install,
@@ -2985,9 +2969,9 @@ def test_run_tool_warns_when_check_bypasses_post_process(
     assert "check mode" in caplog.text
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_no_check_warning_in_write_mode(
     mock_ci,
     mock_install,
@@ -3009,9 +2993,9 @@ def test_run_tool_no_check_warning_in_write_mode(
     assert "check mode" not in caplog.text
 
 
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_post_processes_files_below_a_directory(
     mock_ci,
     mock_install,
@@ -3232,9 +3216,9 @@ def test_resolve_default_args_empty_inventory_means_skip(tmp_path, monkeypatch):
     assert resolve_default_args(TOOL_REGISTRY["mdformat"]) is None
 
 
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_skips_a_tool_with_no_targets(
     mock_ci, mock_run, mock_install, tmp_path, monkeypatch
 ):
@@ -3245,9 +3229,9 @@ def test_run_tool_skips_a_tool_with_no_targets(
     mock_run.assert_not_called()
 
 
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_runs_once_per_file(
     mock_ci, mock_run, mock_install, tmp_path, monkeypatch
 ):
@@ -3265,9 +3249,9 @@ def test_run_tool_runs_once_per_file(
     ]
 
 
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_reports_the_first_failure_across_batches(
     mock_ci, mock_run, mock_install, tmp_path, monkeypatch
 ):
@@ -3281,9 +3265,9 @@ def test_run_tool_reports_the_first_failure_across_batches(
     assert mock_run.call_count == 2
 
 
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_explicit_args_suppress_defaults(
     mock_ci, mock_run, mock_install, tmp_path, monkeypatch
 ):
@@ -3342,9 +3326,9 @@ MESSY_PYPROJECT = '[project]\nname="orchard"\nversion="1.0"\n'
 """An unformatted `pyproject.toml`, the input a formatter is expected to rewrite."""
 
 
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_reports_a_rewrite_status_that_rewrote_nothing(
     mock_ci, mock_run, mock_install, tmp_path, monkeypatch, caplog
 ):
@@ -3366,9 +3350,9 @@ def test_run_tool_reports_a_rewrite_status_that_rewrote_nothing(
     assert (tmp_path / "pyproject.toml").read_text(encoding="UTF-8") == MESSY_PYPROJECT
 
 
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_passes_a_rewrite_status_that_rewrote_a_file(
     mock_ci, mock_run, mock_install, tmp_path, monkeypatch
 ):
@@ -3386,9 +3370,9 @@ def test_run_tool_passes_a_rewrite_status_that_rewrote_a_file(
     assert run_tool("pyproject-fmt") == 1
 
 
-@patch("repomatic.tooling.tool_runner._install_binary")
-@patch("repomatic.tooling.tool_runner.subprocess.run")
-@patch("repomatic.tooling.tool_runner.is_github_ci", return_value=False)
+@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_leaves_other_tools_exit_codes_alone(
     mock_ci, mock_run, mock_install, tmp_path, monkeypatch
 ):
@@ -3432,7 +3416,7 @@ def test_digest_targets_stays_out_of_git_directories(tmp_path, monkeypatch):
     }
 
 
-@patch("repomatic.tooling.tool_runner.run_tool", return_value=TOOL_CRASH_EXIT_CODE)
+@patch("repomatic.tooling.runner.run_tool", return_value=TOOL_CRASH_EXIT_CODE)
 def test_verify_via_write_path_propagates_a_crash(mock_run_tool, tmp_path, monkeypatch):
     """A tool that dies on the copies is a failure, not a clean bill of health.
 
@@ -3449,7 +3433,7 @@ def test_verify_via_write_path_propagates_a_crash(mock_run_tool, tmp_path, monke
     assert drifted == []
 
 
-@patch("repomatic.tooling.tool_runner.run_tool", return_value=0)
+@patch("repomatic.tooling.runner.run_tool", return_value=0)
 def test_verify_via_write_path_accepts_the_working_directory(
     mock_run_tool, tmp_path, monkeypatch
 ):
@@ -3488,7 +3472,7 @@ def test_verify_via_write_path_accepts_the_working_directory(
         ("mdformat", ("papaya.md",)),
     ),
 )
-@patch("repomatic.tooling.tool_runner.run_tool", return_value=0)
+@patch("repomatic.tooling.runner.run_tool", return_value=0)
 def test_verify_via_write_path_fails_when_nothing_is_copied(
     mock_run_tool, tool, extra_args, tmp_path, monkeypatch
 ):
@@ -3506,7 +3490,7 @@ def test_verify_via_write_path_fails_when_nothing_is_copied(
     assert not list(tmp_path.glob(".repomatic-verify-*"))
 
 
-@patch("repomatic.tooling.tool_runner.run_tool", return_value=0)
+@patch("repomatic.tooling.runner.run_tool", return_value=0)
 def test_verify_via_write_path_reports_a_path_it_cannot_copy(
     mock_run_tool, tmp_path, monkeypatch, caplog
 ):
@@ -3520,7 +3504,7 @@ def test_verify_via_write_path_reports_a_path_it_cannot_copy(
 
     with (
         patch(
-            "repomatic.tooling.tool_runner.shutil.copy2",
+            "repomatic.tooling.runner.shutil.copy2",
             side_effect=PermissionError(13, "Permission denied"),
         ),
         caplog.at_level(logging.ERROR),

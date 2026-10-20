@@ -26,16 +26,16 @@ from textwrap import dedent
 
 import pytest
 
+from repomatic.claude_plugin import PLUGIN_ROOT
+from repomatic.deps.pins import (
+    apply_self_pin_exemption,
+    frozen_cli_invocation,
+)
 from repomatic.release.prepare_release import (
     LOCAL_CLI_INVOCATION,
     SELF_PIN_COOLDOWN_EXEMPTION,
     PrepareRelease,
 )
-from repomatic.release.version_sync import (
-    apply_self_pin_exemption,
-    frozen_cli_invocation,
-)
-from repomatic.tooling.plugin import PLUGIN_ROOT
 from tests.conftest import PROJECT_ROOT
 
 TYPE_CHECKING = False

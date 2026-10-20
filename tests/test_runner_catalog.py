@@ -27,8 +27,7 @@ from __future__ import annotations
 
 import pytest
 
-from repomatic.release.binary import NUITKA_BUILD_TARGETS
-from repomatic.runner_catalog import (
+from repomatic.matrix.runners import (
     CATALOG_ARCHITECTURES,
     RunnerImage,
     newer_version_than,
@@ -36,6 +35,7 @@ from repomatic.runner_catalog import (
     runner_architecture,
     successor_for,
 )
+from repomatic.release.binary import NUITKA_BUILD_TARGETS
 
 README = """\
 # Runner Images
@@ -146,7 +146,7 @@ def test_successor_accepts_a_same_version_sibling(catalog) -> None:
     """A dying image with only a same-version sibling still has somewhere to go.
 
     Version is not filtered here, unlike
-    {func}`~repomatic.runner_catalog.newer_version_than`: staying on an image
+    {func}`~repomatic.matrix.runners.newer_version_than`: staying on an image
     with an end date is worse than moving sideways to one without.
     """
     deprecated_arm = RunnerImage(
@@ -250,7 +250,7 @@ def test_runner_architecture(label: str, expected: str) -> None:
 def test_runner_architecture_matches_the_catalog(catalog) -> None:
     """The offline derivation agrees with the table it stands in for.
 
-    {func}`~repomatic.runner_catalog.runner_architecture` exists because
+    {func}`~repomatic.matrix.runners.runner_architecture` exists because
     nothing running inside a job can wait on a network fetch, which makes it a
     second answer to a question the catalog already answers. This is what keeps
     the two from drifting: a label shape GitHub introduces that the rule reads

@@ -31,23 +31,31 @@ import yaml
 from click_extra.testing import CliRunner
 
 from repomatic import lint_repo
+from repomatic.bundle import get_data_content
 from repomatic.cli.main import repomatic
 from repomatic.cli.setup import show_metadata
-from repomatic.cloudflare_r2 import PAGES_MAX_FILE_SIZE
+from repomatic.cloudflare.r2 import PAGES_MAX_FILE_SIZE
+from repomatic.components import (
+    COMPONENTS,
+    INSTALL_GUIDE_PATH,
+    SyncMode,
+    ToolConfigComponent,
+)
 from repomatic.config import (
     Config,
     LabelsConfig,
     LintRepoConfig,
     load_repomatic_config,
 )
-from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
-from repomatic.http import FetchError
-from repomatic.labels import (
+from repomatic.deps.pins import Candidate
+from repomatic.github.labels import (
     LabelConfigError,
     _names_in_labelmaker_config,
     declared_label_names,
     serialize_inline_labels,
 )
+from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
+from repomatic.http import FetchError
 from repomatic.lint_repo import (
     PAT_SCOPE_PROBE,
     PAT_SCOPE_PROBE_LIMIT,
@@ -97,19 +105,11 @@ from repomatic.lint_repo import (
     run_repo_lint,
     template_member_name,
 )
-from repomatic.matrix_axes import UNSTABLE_PYTHON_VERSIONS
+from repomatic.matrix.axes import UNSTABLE_PYTHON_VERSIONS
 from repomatic.metadata.core import METADATA_VALUE_OPTIONS
 from repomatic.pypi import TrustedPublisher
-from repomatic.registry import (
-    COMPONENTS,
-    INSTALL_GUIDE_PATH,
-    SyncMode,
-    ToolConfigComponent,
-)
 from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
-from repomatic.release.version_sync import Candidate
-from repomatic.tooling.bundle import get_data_content
-from repomatic.tooling.tool_registry import (
+from repomatic.tooling.registry import (
     ArchiveFormat,
     BinarySpec,
     NpmSpec,
@@ -3846,7 +3846,7 @@ def test_declared_label_names_fetches_remote_extra_files():
     remote = serialize_inline_labels([{"name": "🍋 lemon", "color": "fff44f"}])
     config = Config(labels=LabelsConfig(extra_files=[REMOTE_LABELS_URL]))
     with patch(
-        "repomatic.labels.get_bytes", return_value=remote.encode("UTF-8")
+        "repomatic.github.labels.get_bytes", return_value=remote.encode("UTF-8")
     ) as mock_fetch:
         names = declared_label_names(config, is_awesome=False)
     mock_fetch.assert_called_once_with(REMOTE_LABELS_URL)
@@ -3887,7 +3887,7 @@ def test_undeclared_labels_skips_on_an_unusable_extra_file(url, fetch, error):
     the repository's labels.
     """
     config = Config(labels=LabelsConfig(extra_files=[url]))
-    with patch("repomatic.labels.get_bytes", **fetch):
+    with patch("repomatic.github.labels.get_bytes", **fetch):
         with pytest.raises(error, match="citrus"):
             declared_label_names(config, is_awesome=False)
         declared = _resolve_declared_labels(config, is_awesome=False)

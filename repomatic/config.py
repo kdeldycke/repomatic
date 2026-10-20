@@ -444,7 +444,7 @@ class LabelsConfig:
     boundaries; the `/regex/flags` form passes a regex through instead, with
     `i`, `m` and `s` honored. An entry for a label the bundled defaults also
     carry replaces the default entry, and an empty list disables it (see
-    {data}`repomatic.labels.DEFAULT_CONTENT_RULES`).
+    {data}`repomatic.github.labels.DEFAULT_CONTENT_RULES`).
     """
 
     extra: list[dict[str, str | bool | list[str]]] = field(default_factory=list)
@@ -488,7 +488,7 @@ class LabelsConfig:
     subtracts from the label's other globs the way a `.gitignore` line would.
     An entry for a label the bundled defaults also carry replaces the default
     entry, and an empty list disables it (see
-    {data}`repomatic.labels.DEFAULT_FILE_RULES`).
+    {data}`repomatic.github.labels.DEFAULT_FILE_RULES`).
     """
 
     sync: bool = True
@@ -649,7 +649,7 @@ class MetricsConfig:
     colors: dict[str, list[str]] = field(default_factory=dict)
     """Per-subject `[light, dark]` hex pairs overriding the positional palette.
 
-    Hues are assigned from {data}`repomatic.metric_chart.SERIES_PALETTE` in
+    Hues are assigned from {data}`repomatic.metrics.chart.SERIES_PALETTE` in
     draw order, so a subject keeps its colour as long as the order holds. Pin
     one here when it must survive a reordering, or when a chart plots more
     curves than the palette holds:
@@ -663,7 +663,7 @@ class MetricsConfig:
     forges: dict[str, str] = field(default_factory=dict)
     """Self-hosted forge instances, mapping each host to the software it runs.
 
-    Merged over {data}`repomatic.forge.FORGE_APIS`, which only knows the three
+    Merged over {data}`repomatic.metrics.forge.FORGE_APIS`, which only knows the three
     public hosts. A self-hosted instance is never guessed from its name, so an
     undeclared host raises rather than sampling nothing:
 
@@ -1094,7 +1094,7 @@ class Config:
 
     Swaps a dependency tracked from a git branch back to its released version
     once the release named by its `.dev` version floor ships on PyPI (see
-    {mod}`repomatic.deps.dep_sources` for the managed idiom). Projects that manage
+    {mod}`repomatic.deps.sources` for the managed idiom). Projects that manage
     `[tool.uv.sources]` overrides by hand can set this to `false`.
     """
 

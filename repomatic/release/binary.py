@@ -185,7 +185,7 @@ MACHINE_IDS: Final[dict[tuple[BinaryFormat, Architecture], str | int]] = {
 """Machine identifier a binary's header carries, per format and architecture.
 
 One table rather than three, keyed the way
-{data}`~repomatic.tooling.tool_registry.PlatformKey` keys the tool registry: the value
+{data}`~repomatic.tooling.registry.PlatformKey` keys the tool registry: the value
 is a pyelftools machine name on ELF and a raw header integer on Mach-O and PE,
 so a caller compares it against whatever the matching parser returns.
 """
@@ -202,7 +202,7 @@ class BuildTarget:
     Platform and architecture are [Extra
     Platforms](https://github.com/kdeldycke/extra-platforms) traits rather than
     free strings, which is the same vocabulary
-    {data}`~repomatic.tooling.tool_registry.PlatformKey` keys the downloaded-binary
+    {data}`~repomatic.tooling.registry.PlatformKey` keys the downloaded-binary
     registry on. {meth}`as_matrix_entry` renders both back to their ids for the
     workflow matrix.
 
@@ -385,7 +385,7 @@ macOS 26 Tahoe and keeps running it, so those users still want the binary.
 
 Drop the target once `sync-runner-images` reports the image deprecated, and
 not before. Removing one is a single change across two files: this roster and
-{data}`~repomatic.matrix_axes.TEST_RUNNERS_FULL` are held equal by
+{data}`~repomatic.matrix.axes.TEST_RUNNERS_FULL` are held equal by
 `tests/test_workflows.py::test_binary_build_targets_are_the_test_axes`.
 ```
 """

@@ -13,8 +13,7 @@
 .. toctree::
    :maxdepth: 4
 
-   repomatic.tooling.bundle
-   repomatic.tooling.plugin
-   repomatic.tooling.tool_registry
-   repomatic.tooling.tool_runner
+   repomatic.tooling.checksums
+   repomatic.tooling.registry
+   repomatic.tooling.runner
 ```

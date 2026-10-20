@@ -24,6 +24,17 @@ from pathlib import Path
 import pytest
 import yaml
 
+from repomatic.components import (
+    ALL_WORKFLOW_FILES,
+    DEFAULT_REPO,
+    NON_REUSABLE_WORKFLOWS,
+    RELEASE_ENGINE_WORKFLOWS,
+    REUSABLE_WORKFLOWS,
+    UPSTREAM_ASSET_GLOB,
+    UPSTREAM_SOURCE_GLOB,
+    UPSTREAM_SOURCE_PREFIX,
+    WORKFLOW_SOURCES,
+)
 from repomatic.config import Config, WorkflowConfig
 from repomatic.github import workflow_sync as ws
 from repomatic.github.actions import AnnotationLevel
@@ -53,18 +64,7 @@ from repomatic.github.workflow_sync import (
 from repomatic.init_project import get_data_content
 from repomatic.lint_repo import check_workflow_permissions
 from repomatic.pyproject import derive_source_paths, resolve_source_paths
-from repomatic.registry import (
-    ALL_WORKFLOW_FILES,
-    DEFAULT_REPO,
-    NON_REUSABLE_WORKFLOWS,
-    RELEASE_ENGINE_WORKFLOWS,
-    REUSABLE_WORKFLOWS,
-    UPSTREAM_ASSET_GLOB,
-    UPSTREAM_SOURCE_GLOB,
-    UPSTREAM_SOURCE_PREFIX,
-    WORKFLOW_SOURCES,
-)
-from repomatic.tooling.tool_runner import run_tool
+from repomatic.tooling.runner import run_tool
 from tests.conftest import (
     PROJECT_ROOT,
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,

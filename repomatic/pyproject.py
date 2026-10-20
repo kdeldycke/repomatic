@@ -220,9 +220,9 @@ def is_python_package(
     The distinction matters because the two traits gate different things. A
     virtual project still has dependencies to lock, a `uv.lock` to sync and
     tests to cover, so it wants everything scoped to
-    {attr}`~repomatic.registry.RepoScope.PYTHON_ONLY`. It has nothing to
+    {attr}`~repomatic.components.RepoScope.PYTHON_ONLY`. It has nothing to
     publish, tag or write release notes for, so it wants nothing scoped to
-    {attr}`~repomatic.registry.RepoScope.PACKAGE_ONLY`.
+    {attr}`~repomatic.components.RepoScope.PACKAGE_ONLY`.
 
     ```{note}
     Only uv's opt-out is recognized. Poetry's `[tool.poetry] package-mode`

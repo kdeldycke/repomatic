@@ -55,9 +55,9 @@ from pathlib import Path
 
 from click_extra.blocks import region_markers, replace_region
 
+from ..bundle import get_data_content
 from ..github.releases import parse_release_version
 from ..tabular import render_csv, write_csv
-from ..tooling.bundle import get_data_content
 from .binary import BINARY_ASSET_SUFFIXES, NUITKA_BUILD_TARGETS
 from .virustotal import VIRUSTOTAL_GUI_URL
 

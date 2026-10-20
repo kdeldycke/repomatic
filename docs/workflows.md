@@ -221,7 +221,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 #### 🔀 `sync-dep-sources` updater
 
-- Swaps a dependency tracked from a git branch back to its released version using [`repomatic sync-dep-sources`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps/dep_sources.py)
+- Swaps a dependency tracked from a git branch back to its released version using [`repomatic sync-dep-sources`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps/sources.py)
 - Manages one idiom: a `[tool.uv.sources]` entry tracking a git **branch**, paired with a `.dev` version floor naming the awaited release (like `mango>=2.1.0.dev0`); path or workspace sources, `rev`/`tag` pins, and floor-less branch tracks are never touched
 - Once a stable, non-yanked release satisfying the floor ships on PyPI, one PR drops the source override, tightens the `.dev` floor to its base release, freezes the adopted release through the [`exclude-newer`](https://docs.astral.sh/uv/reference/settings/#exclude-newer) cooldown (an `exclude-newer-package` entry the `sync-uv-lock` lifecycle prunes once it ages out), and re-locks
 - The swap is all-or-nothing: a resolution conflict, or a lock landing on an unexpected version, restores the project untouched and reports nothing
@@ -275,7 +275,7 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 
 ### 🕸️ Update dependency graph (`update-dep-graph`)
 
-- Generates a Mermaid dependency graph of the Python project using [`repomatic update-dep-graph`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps/dep_graph.py), and opens a PR with the refreshed diagram
+- Generates a Mermaid dependency graph of the Python project using [`repomatic update-dep-graph`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/deps/graph.py), and opens a PR with the refreshed diagram
 - Keeps the graph current between releases: it shows no package versions, so a lock refresh changes it only when the dependency tree changes shape or a declared version requirement changes
 - Covers uv virtual projects (`[tool.uv] package = false`), which lock dependencies but never run a release
 - **Requires**:
@@ -777,11 +777,11 @@ This workflow maintains repomatic's own package source and is the one file in `.
 
 ### 🔼 Sync tool versions (`sync-tool-versions`)
 
-- **Upstream-only**: rewrites `repomatic/tooling/tool_registry.py`, which exists only in this repository; downstream repos receive updated tool versions when they sync against a new repomatic release
+- **Upstream-only**: rewrites `repomatic/tooling/registry.py`, which exists only in this repository; downstream repos receive updated tool versions when they sync against a new repomatic release
 - Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gh, gitleaks, labelmaker, lychee, oxipng, shfmt, typos), the npm registry for npm tools (awesome-lint), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
 - Bumps the packages pinned *alongside* a tool in its `uvx` environment too (mdformat's plugin set), which no other updater sees
 - Recomputes the SHA-256 checksums for every binary tool in the same pass, so version bump and checksum land in one PR branch
-- Runs via `uv run` against the local editable source, rewriting `repomatic/tooling/tool_registry.py` directly
+- Runs via `uv run` against the local editable source, rewriting `repomatic/tooling/registry.py` directly
 - **Runs on**: daily schedule and manual dispatch. Daily rather than weekly because the `minimum-release-age` cooldown already delays every adoption on its own, and a release becomes eligible on whatever weekday its cooldown expires
 - **Requires**:
   - `REPOMATIC_PAT` secret with contents write permission
@@ -796,7 +796,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 ### 📈 Sample forge metrics (`sample-metrics`)
 
-- Reads every repository in `[tool.repomatic.metrics] subjects` through whichever API its host speaks (GitHub, GitLab or Forgejo) with [`repomatic sample-metrics`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metrics.py), and appends one CSV row per subject, metric and date
+- Reads every repository in `[tool.repomatic.metrics] subjects` through whichever API its host speaks (GitHub, GitLab or Forgejo) with [`repomatic sample-metrics`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metrics/store.py), and appends one CSV row per subject, metric and date
 - A counter like the star count accrues, so its curve can be charted; an attribute like the date of the newest release or commit keeps a single row, restamped only when it moves, so a quiet week leaves the file untouched
 - Rebuilds every GitHub subject's whole star curve from GitHub's star history, one reading per week that gained a star: those curves are complete from their first star rather than from the day sampling started. The endpoint is anonymous, so this covers the repositories a project merely tracks as well as the ones it owns
 - Redraws the configured SVG charts, stamped with the newest reading of the metric they plot rather than the run date, so a week that moved nothing rewrites nothing

@@ -21,8 +21,8 @@ from __future__ import annotations
 import hashlib
 from unittest.mock import MagicMock, patch
 
-from repomatic.release.checksums import _download_sha256, update_registry_checksums
-from repomatic.tooling.tool_registry import TOOL_REGISTRY
+from repomatic.tooling.checksums import _download_sha256, update_registry_checksums
+from repomatic.tooling.registry import TOOL_REGISTRY
 
 FAKE_HASH_OLD = "a" * 64
 FAKE_HASH_NEW = "b" * 64
@@ -58,10 +58,10 @@ def test_download_sha256_retries_a_failed_first_attempt():
 
     with (
         patch(
-            "repomatic.tooling.tool_runner.urlopen",
+            "repomatic.tooling.runner.urlopen",
             side_effect=[ConnectionResetError("Connection reset by peer"), response],
         ) as fake_urlopen,
-        patch("repomatic.tooling.tool_runner.time.sleep") as fake_sleep,
+        patch("repomatic.tooling.runner.time.sleep") as fake_sleep,
     ):
         digest = _download_sha256("https://example.com/pear-tart.tar.gz")
 
@@ -71,7 +71,7 @@ def test_download_sha256_retries_a_failed_first_attempt():
 
 
 def test_update_registry_checksums_replaces_stale_hash(tmp_path):
-    """update_registry_checksums replaces stale hashes in tool_registry.py."""
+    """update_registry_checksums replaces stale hashes in tooling/registry.py."""
     spec = next(s for s in TOOL_REGISTRY.values() if s.binary is not None)
     assert spec.binary is not None
     old_hash = next(iter(spec.binary.checksums.values()))
@@ -83,7 +83,7 @@ def test_update_registry_checksums_replaces_stale_hash(tmp_path):
     )
 
     with patch(
-        "repomatic.release.checksums._download_sha256", return_value=FAKE_HASH_NEW
+        "repomatic.tooling.checksums._download_sha256", return_value=FAKE_HASH_NEW
     ):
         updated = update_registry_checksums(registry)
 
@@ -100,7 +100,7 @@ def test_update_registry_checksums_noop_when_current(tmp_path):
     content = "# no checksums to update\n"
     registry.write_text(content, encoding="UTF-8")
 
-    with patch("repomatic.release.checksums._download_sha256", side_effect=_real_hash):
+    with patch("repomatic.tooling.checksums._download_sha256", side_effect=_real_hash):
         updated = update_registry_checksums(registry)
 
     assert updated == []
@@ -117,7 +117,7 @@ def test_update_registry_checksums_reconciles_version_stamp(tmp_path):
         f'VERSIONS = {{\n    "{name}": "9.9.9",\n}}\n', encoding="UTF-8"
     )
 
-    with patch("repomatic.release.checksums._download_sha256", side_effect=_real_hash):
+    with patch("repomatic.tooling.checksums._download_sha256", side_effect=_real_hash):
         update_registry_checksums(registry)
 
     content = registry.read_text(encoding="UTF-8")
@@ -149,7 +149,7 @@ def test_update_registry_checksums_version_override(tmp_path):
         seen_urls.append(url)
         return FAKE_HASH_NEW
 
-    with patch("repomatic.release.checksums._download_sha256", side_effect=capture):
+    with patch("repomatic.tooling.checksums._download_sha256", side_effect=capture):
         update_registry_checksums(registry, version_overrides={name: new_version})
 
     content = registry.read_text(encoding="UTF-8")

@@ -51,13 +51,26 @@ from click_extra import (
 )
 from extra_platforms import is_github_ci
 
+from ..components import (
+    AUDIT_SKILL,
+    COMPONENT_HELP_TABLE,
+    DEFAULT_REPO,
+    EPHEMERAL_TARGETS,
+    FILE_SELECTOR_COMPONENTS,
+    SKILL_FILENAME,
+    SKILL_LIST_HEADER_DEFS,
+    SKILL_PHASE_ORDER,
+    UPGRADE_SKILL,
+    skill_catalog,
+    skill_launcher,
+)
 from ..config import (
     CONFIG_REFERENCE_HEADER_DEFS,
     config_reference,
     escape_type_for_gfm_table,
     location_path,
 )
-from ..deps.dep_graph import (
+from ..deps.graph import (
     SubgraphKind,
     generate_dependency_graph,
     resolve_subgraph_selection,
@@ -65,10 +78,6 @@ from ..deps.dep_graph import (
 from ..docs import update_docs as _update_docs
 from ..github.actions import (
     emit_report,
-)
-from ..github.matrix import (
-    OS_AXIS,
-    PYTHON_VERSION_AXIS,
 )
 from ..images import (
     DEFAULT_MIN_SAVINGS_BYTES,
@@ -84,6 +93,10 @@ from ..init_project import (
     upgrade_command,
     upgrade_report,
 )
+from ..matrix.model import (
+    OS_AXIS,
+    PYTHON_VERSION_AXIS,
+)
 from ..metadata.core import (
     METADATA_KEYS_HEADER_DEFS,
     Dialect,
@@ -92,21 +105,8 @@ from ..metadata.core import (
     metadata_keys_reference,
 )
 from ..pyproject import get_project_name
-from ..registry import (
-    AUDIT_SKILL,
-    COMPONENT_HELP_TABLE,
-    DEFAULT_REPO,
-    EPHEMERAL_TARGETS,
-    FILE_SELECTOR_COMPONENTS,
-    SKILL_FILENAME,
-    SKILL_LIST_HEADER_DEFS,
-    SKILL_PHASE_ORDER,
-    UPGRADE_SKILL,
-    skill_catalog,
-    skill_launcher,
-)
-from ..release.checksums import update_registry_checksums
-from ..tooling import tool_registry
+from ..tooling import registry as tool_registry
+from ..tooling.checksums import update_registry_checksums
 from .main import (
     AXIS_HEADER_LABELS,
     ComponentSelector,
@@ -1151,7 +1151,7 @@ def update_checksums_cmd() -> None:
 
     Downloads each binary-distributed tool in the `repomatic run` registry at
     its pinned version, computes the SHA-256, and rewrites any stale hash (and
-    its version stamp) in tool_registry.py.
+    its version stamp) in tooling/registry.py.
 
     \b
     A repair path for a manual version edit: sync-tool-versions already

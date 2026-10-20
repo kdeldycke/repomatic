@@ -47,7 +47,7 @@ Enums and dataclasses that carry metadata should also carry the methods that int
 
 `RepoScope` restrictions and `[tool.repomatic] exclude` entries apply only during bare `repomatic init` (no CLI arguments): naming a component on the CLI, or listing it in `[tool.repomatic] include`, bypasses both, letting workflows materialize out-of-scope configs and users opt into scope-restricted items. Config key exclusions (`config_key` fields) always apply: the user's `[tool.repomatic]` config is authoritative for feature flags.
 
-{class}`repomatic.registry.RepoScope` holds the four states, and the rule that picks between the two Python scopes.
+{class}`repomatic.components.RepoScope` holds the four states, and the rule that picks between the two Python scopes.
 
 ### click_extra is both a dependency and a release consumer
 
@@ -59,7 +59,7 @@ Workflows on `main` run the CLI from the lockfile rather than resolving it fresh
 
 Running from the lockfile creates its own hazard: **a floor inside the window is now invisible here and breaks only the people installing the release** (downstream repos running a frozen workflow's `uvx 'repomatic==X.Y.Z'`, and `uvx repomatic` users). `tests/test_dep_sources.py` is what catches it, so treat that test failing as "this release is not shippable yet", not as a local annoyance to wait out.
 
-When adding a tool that repomatic shells out to, register it and reach it through {func}`repomatic.tooling.tool_runner.ensure_binary` rather than `$PATH`: a registry binary carries the cooldown, the pin and the checksum at once, and `$PATH` carries none of the three.
+When adding a tool that repomatic shells out to, register it and reach it through {func}`repomatic.tooling.runner.ensure_binary` rather than `$PATH`: a registry binary carries the cooldown, the pin and the checksum at once, and `$PATH` carries none of the three.
 
 ### Documented exemptions this repository claims
 

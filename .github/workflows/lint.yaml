@@ -144,7 +144,7 @@ jobs:
       - name: Run Mypy
         # No file list: the tool runner resolves mypy's targets from the same
         # inventory this workflow's `python_files` comes from. See
-        # `ToolSpec.default_paths` in repomatic/tooling/tool_registry.py.
+        # `ToolSpec.default_paths` in repomatic/tooling/registry.py.
         run: uv --no-progress run --frozen -- repomatic run mypy
 
   lint-yaml:
@@ -208,7 +208,7 @@ jobs:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-actionlint-${{
-            github.job_workflow_sha || hashFiles('repomatic/tooling/tool_registry.py') }}
+            github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-actionlint-
       - name: Install shellcheck
@@ -263,7 +263,7 @@ jobs:
         # it, so provision a new-enough npm the way setup-uv provisions uv.
         # sync-workflow-pins bumps this pin like any npm literal, so `npm@X.Y.Z`
         # must stay right after `install` (its regex misses it otherwise) and the
-        # flags trail. The flag set mirrors `_install_npm` (tool_runner.py).
+        # flags trail. The flag set mirrors `_install_npm` (tooling/runner.py).
         # Cooldown flows through an env var (npm's own `npm_config_min-release-age`
         # has a shell-hostile hyphen) sourced from the metadata job; enforcing it
         # here is belt-and-suspenders, ready if npm ever live-resolves the tree.
@@ -296,7 +296,7 @@ jobs:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-gitleaks-${{
-            github.job_workflow_sha || hashFiles('repomatic/tooling/tool_registry.py') }}
+            github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-gitleaks-
       - name: Run gitleaks

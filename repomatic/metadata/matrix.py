@@ -29,14 +29,7 @@ from functools import cached_property
 from ..github.actions import (
     WorkflowEvent,
 )
-from ..github.matrix import (
-    JOB_STATE_KEY,
-    OS_AXIS,
-    PYTHON_VERSION_AXIS,
-    Matrix,
-    stale_axis_values,
-)
-from ..matrix_axes import (
+from ..matrix.axes import (
     PRERELEASE_LABEL_SUFFIX,
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_PYTHON_FULL,
@@ -45,11 +38,18 @@ from ..matrix_axes import (
     TEST_RUNNERS_PR,
     UNSTABLE_PYTHON_VERSIONS,
 )
+from ..matrix.model import (
+    JOB_STATE_KEY,
+    OS_AXIS,
+    PYTHON_VERSION_AXIS,
+    Matrix,
+    stale_axis_values,
+)
+from ..matrix.runners import runner_architecture
 from ..release.binary import (
     NUITKA_BUILD_TARGETS,
     binary_name,
 )
-from ..runner_catalog import runner_architecture
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -306,7 +306,7 @@ class MatrixMetadata:
         # cell is continue-on-error. It rides alongside the version rather than
         # replacing it because uv rejects the `-dev` form, and because downstream
         # `test-matrix` directives key on the bare version. See
-        # {data}`~repomatic.matrix_axes.PRERELEASE_LABEL_SUFFIX`.
+        # {data}`~repomatic.matrix.axes.PRERELEASE_LABEL_SUFFIX`.
         for version in sorted(UNSTABLE_PYTHON_VERSIONS):
             matrix.add_includes({
                 JOB_STATE_KEY: "unstable",
@@ -394,14 +394,14 @@ class MatrixMetadata:
         A repository whose suite asserts on the architecture it detects needs
         to know which of its cells are ARM. Reading it from here rather than
         restating it locally is what keeps that knowledge from going stale when
-        {data}`~repomatic.matrix_axes.TEST_RUNNERS_FULL` moves to a newer image:
+        {data}`~repomatic.matrix.axes.TEST_RUNNERS_FULL` moves to a newer image:
         a hard-coded runner list keeps matching the images it was written for,
         and the new one quietly takes whichever branch the test left as its
         default.
 
         Covers the `include` directives as well as the `os` axis, so the
         single-runner build-flavor cells (see
-        {data}`~repomatic.matrix_axes.SINGLE_RUNNER_PYTHON_VERSIONS`) are
+        {data}`~repomatic.matrix.axes.SINGLE_RUNNER_PYTHON_VERSIONS`) are
         described too, and the per-project `variations.os` images along with
         them. Architectures are emitted as
         [Extra Platforms](https://kdeldycke.github.io/extra-platforms) ids

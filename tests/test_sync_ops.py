@@ -16,7 +16,7 @@
 
 """Conformance tests for the dependency-updater registry.
 
-Each test enumerates {data}`~repomatic.sync_ops.SYNC_OPERATIONS` and asserts a
+Each test enumerates {data}`~repomatic.deps.sync.SYNC_OPERATIONS` and asserts a
 shared invariant, so a new operation that breaks a convention fails by name.
 """
 
@@ -36,22 +36,17 @@ import pytest
 from click.testing import CliRunner
 
 from repomatic.cli.main import repomatic
+from repomatic.components import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComponent
 from repomatic.config import Config
-from repomatic.deps import dep_sources
-from repomatic.deps.dep_report import HeldBackPackage
-from repomatic.github.pr_body import get_template_names, template_labels
-from repomatic.init_project import get_data_content
-from repomatic.labels import DEFAULT_CONTENT_RULES, DEFAULT_FILE_RULES
-from repomatic.pypi import PyPIRelease
-from repomatic.registry import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComponent
-from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
-from repomatic.release.version_sync import (
+from repomatic.deps import sources as dep_sources
+from repomatic.deps.pins import (
     SETUP_UV_SLUG,
     Candidate,
     apply_workflow_literals,
     select_latest,
 )
-from repomatic.sync_ops import (
+from repomatic.deps.report import HeldBackPackage
+from repomatic.deps.sync import (
     DEPENDENCY_LABEL,
     SYNC_OPERATIONS,
     BypassForecast,
@@ -73,7 +68,12 @@ from repomatic.sync_ops import (
     run_sync_operations,
     selected_operations,
 )
-from repomatic.tooling.tool_registry import TOOL_REGISTRY
+from repomatic.github.labels import DEFAULT_CONTENT_RULES, DEFAULT_FILE_RULES
+from repomatic.github.pr_body import get_template_names, template_labels
+from repomatic.init_project import get_data_content
+from repomatic.pypi import PyPIRelease
+from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from repomatic.tooling.registry import TOOL_REGISTRY
 from repomatic.versions import is_newer
 from tests.conftest import load_workflow
 
@@ -337,11 +337,11 @@ def _pr_labels(step: dict) -> set[str]:
 def test_consolidated_job_covers_every_operation() -> None:
     """Every registered operation has a step group in the job hosting it.
 
-    The drift guard: a new {class}`~repomatic.sync_ops.SyncOperation` added to
-    {data}`~repomatic.sync_ops.SYNC_OPERATIONS` without wiring its sync command,
+    The drift guard: a new {class}`~repomatic.deps.sync.SyncOperation` added to
+    {data}`~repomatic.deps.sync.SYNC_OPERATIONS` without wiring its sync command,
     PR body, and PR into a CI job fails here by name. Each operation is checked
-    against its own {attr}`~repomatic.sync_ops.SyncOperation.workflow` and
-    {attr}`~repomatic.sync_ops.SyncOperation.job`, so moving one out of the
+    against its own {attr}`~repomatic.deps.sync.SyncOperation.workflow` and
+    {attr}`~repomatic.deps.sync.SyncOperation.job`, so moving one out of the
     consolidated job keeps the guard rather than dropping it.
     """
     for op in SYNC_OPERATIONS:
@@ -436,7 +436,7 @@ def test_pinned_with_packages_keeps_the_lowest_of_two_pins(monkeypatch) -> None:
         TOOL_REGISTRY["mdformat"], with_packages=("kiwi==1.0.0",)
     )
     monkeypatch.setattr(
-        "repomatic.sync_ops.TOOL_REGISTRY", {"papaya": papaya, "mango": mango}
+        "repomatic.deps.sync.TOOL_REGISTRY", {"papaya": papaya, "mango": mango}
     )
     assert _pinned_with_packages() == [("kiwi", "1.0.0")]
 
@@ -454,7 +454,7 @@ def test_sync_tool_versions_routes_npm_tools_to_the_npm_registry(monkeypatch) ->
 
     awesome-lint is the only npm tool, so recording the argument `npm_candidates`
     receives proves `tool_candidates` routes it away from PyPI/GitHub. Empty
-    candidate lists mean nothing is bumped, so `tool_registry.py` stays put.
+    candidate lists mean nothing is bumped, so `tooling/registry.py` stays put.
     """
     seen = {}
 
@@ -464,12 +464,12 @@ def test_sync_tool_versions_routes_npm_tools_to_the_npm_registry(monkeypatch) ->
 
     # The tool pass reads through `tool_candidates`; the `with_packages` pass
     # calls the PyPI datasource from `sync_ops` itself.
-    monkeypatch.setattr("repomatic.release.version_sync.npm_candidates", fake_npm)
-    monkeypatch.setattr("repomatic.release.version_sync.pypi_candidates", lambda _: [])
+    monkeypatch.setattr("repomatic.deps.pins.npm_candidates", fake_npm)
+    monkeypatch.setattr("repomatic.deps.pins.pypi_candidates", lambda _: [])
     monkeypatch.setattr(
-        "repomatic.release.version_sync.github_candidates", lambda *args, **kwargs: []
+        "repomatic.deps.pins.github_candidates", lambda *args, **kwargs: []
     )
-    monkeypatch.setattr("repomatic.sync_ops.pypi_candidates", lambda name: [])
+    monkeypatch.setattr("repomatic.deps.sync.pypi_candidates", lambda name: [])
 
     plan = _resolve_tool_versions(
         ResolveContext(config=Config(), today=date(2026, 1, 1))
@@ -693,7 +693,7 @@ def _mock_uv_lock(monkeypatch, lock_content: str | Exception) -> None:
         Path(cwd, "uv.lock").write_text(lock_content, encoding="UTF-8")
         return SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr("repomatic.sync_ops.subprocess.run", fake_run)
+    monkeypatch.setattr("repomatic.deps.sync.subprocess.run", fake_run)
 
 
 def test_resolve_dep_sources_swaps_and_freezes(tmp_path, monkeypatch) -> None:
@@ -780,7 +780,7 @@ def test_resolve_dep_sources_noop_before_release(tmp_path, monkeypatch) -> None:
     def forbidden_run(*args, **kwargs):
         raise AssertionError("uv lock must not run without a ready swap")
 
-    monkeypatch.setattr("repomatic.sync_ops.subprocess.run", forbidden_run)
+    monkeypatch.setattr("repomatic.deps.sync.subprocess.run", forbidden_run)
 
     rc = ResolveContext(
         config=Config(), today=date(2026, 7, 15), held_back=False, lockfile=lockfile
@@ -887,11 +887,11 @@ def test_resolve_action_pins_and_init_owned_files(
 
     latest = SimpleNamespace(version="8.3.1", ref="v8.3.1", date="2026-07-07")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("repomatic.sync_ops.github_candidates", lambda *a, **k: [])
-    monkeypatch.setattr("repomatic.sync_ops.select_latest", lambda *a, **k: latest)
-    monkeypatch.setattr("repomatic.sync_ops.select_held_back", lambda *a, **k: None)
+    monkeypatch.setattr("repomatic.deps.sync.github_candidates", lambda *a, **k: [])
+    monkeypatch.setattr("repomatic.deps.sync.select_latest", lambda *a, **k: latest)
+    monkeypatch.setattr("repomatic.deps.sync.select_held_back", lambda *a, **k: None)
     monkeypatch.setattr(
-        "repomatic.sync_ops.resolve_tag_to_sha", lambda *a, **k: new_sha
+        "repomatic.deps.sync.resolve_tag_to_sha", lambda *a, **k: new_sha
     )
 
     ctx = ResolveContext(config=Config(), today=date(2026, 7, 15))
@@ -996,7 +996,7 @@ SETUP_UV_PIN = {
 
 def _gate(verified, pinned="0.12.3", candidates=None):
     """Run the gate with *verified* standing in for the fetched table."""
-    with patch("repomatic.sync_ops.setup_uv_verified_versions", return_value=verified):
+    with patch("repomatic.deps.sync.setup_uv_verified_versions", return_value=verified):
         return _gate_uv_on_checksums(
             list(UV_CANDIDATES if candidates is None else candidates),
             pinned,
@@ -1025,7 +1025,7 @@ def test_uv_gate_reads_the_action_pin_out_of_the_scanned_files():
     it silently degrades to ungated, which is the failure it exists to prevent.
     """
     with patch(
-        "repomatic.sync_ops.setup_uv_verified_versions", return_value=None
+        "repomatic.deps.sync.setup_uv_verified_versions", return_value=None
     ) as verified:
         _gate_uv_on_checksums(
             list(UV_CANDIDATES), "0.12.3", SETUP_UV_PIN, MIN_AGE, GATE_TODAY
@@ -1051,7 +1051,7 @@ def test_uv_gate_passes_everything_through_without_a_setup_uv_pin():
     no_action = {
         Path("lint.yaml"): "jobs:\n  lint:\n    steps:\n      - run: uv sync\n"
     }
-    with patch("repomatic.sync_ops.setup_uv_verified_versions") as verified:
+    with patch("repomatic.deps.sync.setup_uv_verified_versions") as verified:
         gated = _gate_uv_on_checksums(
             list(UV_CANDIDATES), "0.12.3", no_action, MIN_AGE, GATE_TODAY
         )
@@ -1116,9 +1116,9 @@ def _resolve_uv_pin(
     }
     rc = ResolveContext(config=Config(), today=GATE_TODAY)
     with (
-        patch("repomatic.sync_ops._pinnable_files", return_value=workflow),
-        patch("repomatic.sync_ops.pypi_candidates", return_value=list(UV_CANDIDATES)),
-        patch("repomatic.sync_ops.setup_uv_verified_versions", return_value=verified),
+        patch("repomatic.deps.sync._pinnable_files", return_value=workflow),
+        patch("repomatic.deps.sync.pypi_candidates", return_value=list(UV_CANDIDATES)),
+        patch("repomatic.deps.sync.setup_uv_verified_versions", return_value=verified),
     ):
         return _resolve_workflow_pins(rc)
 
@@ -1189,7 +1189,7 @@ def test_workflow_pins_invite_the_upgrade_review_on_a_repomatic_bump() -> None:
     """
     rc = ResolveContext(config=Config(), today=GATE_TODAY)
     with patch(
-        "repomatic.sync_ops._pinnable_files", return_value=_lockstep_workflow("7.14.0")
+        "repomatic.deps.sync._pinnable_files", return_value=_lockstep_workflow("7.14.0")
     ):
         plan = _resolve_workflow_pins(rc)
     assert ("repomatic", "7.14.0", "7.15.0") in plan.changes
@@ -1205,7 +1205,7 @@ def test_workflow_pins_invite_nothing_without_a_repomatic_bump() -> None:
     """An inline pin already aligned with the refs leaves the section out."""
     rc = ResolveContext(config=Config(), today=GATE_TODAY)
     with patch(
-        "repomatic.sync_ops._pinnable_files", return_value=_lockstep_workflow("7.15.0")
+        "repomatic.deps.sync._pinnable_files", return_value=_lockstep_workflow("7.15.0")
     ):
         plan = _resolve_workflow_pins(rc)
     assert plan.upgrade_section == ""

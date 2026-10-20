@@ -44,31 +44,9 @@ from click_extra import echo
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
-from .cloudflare_r2 import OFFLOAD_DOCS_URL, PAGES_MAX_FILE_SIZE
-from .config import Config, LintRepoConfig, deploys_to
-from .deps.uv import LockFile, exemption_admits, freeze_cutoff_after
-from .file_inventory import FileInventory
-from .frontmatter import split_frontmatter
-from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
-from .github.gh import gh_api_json, gh_graphql, run_gh_command
-from .github.matrix import PYTHON_VERSION_AXIS
-from .github.pr_body import footer_opted_out
-from .github.token import PAT_PERMISSION_PROBES, check_all_pat_permissions
-from .http import FetchError
-from .humanize import format_countdown, format_file_size, utc_midnight
-from .labels import LabelConfigError, declared_label_names
-from .matrix_axes import (
-    TEST_RUNNERS_FULL,
-    TEST_RUNNERS_PR,
-    UNSTABLE_PYTHON_VERSIONS,
-)
-from .metadata.core import (
-    METADATA_VALUE_OPTIONS,
-    Dialect,
-    Metadata,
-    all_metadata_keys,
-)
-from .pages_redirects import (
+from .bundle import get_data_content
+from .cloudflare.r2 import OFFLOAD_DOCS_URL, PAGES_MAX_FILE_SIZE
+from .cloudflare.redirects import (
     discarded_rules,
     evaluate,
     misordered_statics,
@@ -76,22 +54,15 @@ from .pages_redirects import (
     sample_path,
     shadowed_statics,
 )
-from .pypi import (
-    PYPI_TRUSTED_PUBLISHER_WORKFLOW,
-    get_latest_release_file,
-    get_trusted_publishers,
-    pypi_trusted_publisher_settings_url,
-)
-from .pyproject import get_project_name
-from .registry import (
+from .components import (
     DEFAULT_REPO,
     INSTALL_GUIDE_PATH,
     WORKFLOW_TARGET_ROOT,
     SyncMode,
     package_of,
 )
-from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
-from .release.version_sync import (
+from .config import Config, LintRepoConfig, deploys_to
+from .deps.pins import (
     SETUP_UV_SLUG,
     cleared_cooldown,
     find_upstream_ref_versions,
@@ -101,16 +72,45 @@ from .release.version_sync import (
     setup_uv_verified_versions,
     tool_candidates,
 )
-from .tooling.bundle import get_data_content
-from .tooling.tool_registry import TOOL_REGISTRY
+from .deps.uv import LockFile, exemption_admits, freeze_cutoff_after
+from .file_inventory import FileInventory
+from .frontmatter import split_frontmatter
+from .github.actions import NULL_SHA, AnnotationLevel, emit_annotation
+from .github.gh import gh_api_json, gh_graphql, run_gh_command
+from .github.labels import LabelConfigError, declared_label_names
+from .github.pr_body import footer_opted_out
+from .github.token import PAT_PERMISSION_PROBES, check_all_pat_permissions
+from .http import FetchError
+from .humanize import format_countdown, format_file_size, utc_midnight
+from .matrix.axes import (
+    TEST_RUNNERS_FULL,
+    TEST_RUNNERS_PR,
+    UNSTABLE_PYTHON_VERSIONS,
+)
+from .matrix.model import PYTHON_VERSION_AXIS
+from .metadata.core import (
+    METADATA_VALUE_OPTIONS,
+    Dialect,
+    Metadata,
+    all_metadata_keys,
+)
+from .pypi import (
+    PYPI_TRUSTED_PUBLISHER_WORKFLOW,
+    get_latest_release_file,
+    get_trusted_publishers,
+    pypi_trusted_publisher_settings_url,
+)
+from .pyproject import get_project_name
+from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from .tooling.registry import TOOL_REGISTRY
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
     from typing import Any
 
-    from .pages_redirects import ParseResult, Rule
-    from .tooling.tool_registry import ToolSpec
+    from .cloudflare.redirects import ParseResult, Rule
+    from .tooling.registry import ToolSpec
 
 DOCS_URL_KEYS = ("documentation", "docs")
 """Keys in `[project.urls]` naming the published documentation site.
@@ -590,7 +590,7 @@ def check_undeclared_labels(repo: str, declared: frozenset[str] | None) -> Check
 
     `sync-labels` runs `labelmaker apply`, which creates, updates and renames
     but never deletes. So a label retired from
-    {func}`~repomatic.labels.declared_label_names`' sources keeps existing on
+    {func}`~repomatic.github.labels.declared_label_names`' sources keeps existing on
     GitHub, and no other job will ever mention it again. This is the only
     reading that closes that loop.
 
@@ -1810,7 +1810,7 @@ def _literal_python_axes(workflows: Mapping[Path, dict]) -> dict[str, list[str]]
 
     A matrix assembled at runtime, as repomatic's own
     `${{ fromJSON(...).test_matrix }}` is, reads back as an opaque string. Those
-    are skipped: their axes come from {mod}`repomatic.matrix_axes` and are
+    are skipped: their axes come from {mod}`repomatic.matrix.axes` and are
     canonical by construction, so there is nothing left to reconcile.
 
     :param workflows: Parsed workflows, keyed by path.
@@ -1848,7 +1848,7 @@ def check_python_version_consistency(
        version stays conformant: skipping intermediate releases is a deliberate
        way to cut CI load, advertising an untested boundary is not.
 
-    Versions in {data}`~repomatic.matrix_axes.UNSTABLE_PYTHON_VERSIONS` are
+    Versions in {data}`~repomatic.matrix.axes.UNSTABLE_PYTHON_VERSIONS` are
     exempt from the second rule, being tested precisely because they are not
     released yet and so cannot be advertised. Build flavors carrying a suffix
     (the free-threaded `3.14t`) count as their base version.
@@ -1992,7 +1992,7 @@ def check_runner_images(
     1. A `-latest` alias. GitHub repoints those to a new image on its own
        schedule, so the build changes underneath the repository with no commit
        to review, and a breakage arrives unattached to any change.
-    2. An image outside the curated axes in {mod}`repomatic.matrix_axes`. Those
+    2. An image outside the curated axes in {mod}`repomatic.matrix.axes`. Those
        carry measured guidance on speed and cost; an image picked outside them
        is one nobody has weighed, and is usually a leftover.
 
@@ -2312,7 +2312,7 @@ def missing_template_entries(
     Absence is the only thing reported. A scalar the repository tuned is its
     own answer, a key it added is none of the template's business, and a
     comment it rewrote is invisible here: all three are what
-    {attr}`~repomatic.registry.SyncMode.BOOTSTRAP` hands over on the first
+    {attr}`~repomatic.components.SyncMode.BOOTSTRAP` hands over on the first
     write. What that contract cannot express is a knob the template gained
     *afterwards*, which reaches nobody because `init` never revisits the
     section.
@@ -2385,7 +2385,7 @@ def check_bootstrap_config_drift(
     """Report bundled knobs a seeded tool section never received.
 
     `ruff`, `pytest`, `coverage`, `mypy` and `mdformat` are
-    {attr}`~repomatic.registry.SyncMode.BOOTSTRAP` components: `init` writes
+    {attr}`~repomatic.components.SyncMode.BOOTSTRAP` components: `init` writes
     the template once and hands the section over, so the repository owns every
     value from then on. That is deliberate, and this check does not argue with
     it. The gap it closes is narrower: a template that gains a knob *after*
@@ -2405,7 +2405,7 @@ def check_bootstrap_config_drift(
     would otherwise arrive already declined.
 
     A section keeping its keys in the component's
-    {attr}`~repomatic.registry.ToolConfigComponent.legacy_table` is measured
+    {attr}`~repomatic.components.ToolConfigComponent.legacy_table` is measured
     there, and the finding names that sub-table. An entry is declined at its
     path below the tool either way, without the sub-table.
 
@@ -2962,7 +2962,7 @@ def check_setup_uv_checksum_coverage(
     versions listed in the checksum table its own release bundles. Anything
     else installs with no verification before `v10.1.0`, and against a hash
     fetched at run time from `v10.1.0` on (see
-    {func}`~repomatic.release.version_sync.setup_uv_verified_versions`). So a
+    {func}`~repomatic.deps.pins.setup_uv_verified_versions`). So a
     repository can hold two perfectly good pins that together pin no hash,
     which is what this reports.
 
@@ -2971,7 +2971,7 @@ def check_setup_uv_checksum_coverage(
     could have carried a cooldown and a pinned hash. `sync-workflow-pins`
     repairs it by stepping the uv pin back onto the table, and a
     `sync-action-pins` bump lets the pin move forward again (see
-    `repomatic.sync_ops._gate_uv_on_checksums`).
+    `repomatic.deps.sync._gate_uv_on_checksums`).
 
     :param workflow_dir: Directory holding the workflow YAML files. Ignored
         when *workflows* is supplied.
@@ -3027,7 +3027,7 @@ def check_registry_pin_cooldown(
     `sync-tool-versions` adopts a release only after it clears
     `minimum-release-age`, but a hand bump can pin a release still inside the
     window. The result depends on how `repomatic run` installs the tool, which
-    {class}`~repomatic.tooling.tool_registry.ToolBackend` records:
+    {class}`~repomatic.tooling.registry.ToolBackend` records:
 
     - A virtualenv tool installs through uv commands that read the project's
       `[tool.uv] exclude-newer-package`. A dated entry there admits the pin.
@@ -3815,7 +3815,7 @@ def _dead_url_report(text: str, parsed: ParseResult) -> str:
     chose. The second is the worse failure and the one nothing else surfaces.
 
     :param text: The full `_redirects` source.
-    :param parsed: What {func}`~repomatic.pages_redirects.parse_redirects`
+    :param parsed: What {func}`~repomatic.cloudflare.redirects.parse_redirects`
         made of it.
     :return: A sentence to append to the failure, empty when nothing was
         abandoned.
@@ -3848,7 +3848,7 @@ def _shadowed_report(rules: list[Rule]) -> str:
     the exact rule is dead today, and moving it up is what makes it fire: the
     reader must know that the reorder changes these answers, and only these.
 
-    :param rules: The rules {func}`~repomatic.pages_redirects.parse_redirects`
+    :param rules: The rules {func}`~repomatic.cloudflare.redirects.parse_redirects`
         kept.
     :return: A sentence to append to the failure, empty when no rule is dead.
     """
@@ -3872,7 +3872,7 @@ def _pages_redirects(ctx: LintContext) -> Iterator[CheckResult]:
     `wrangler pages deploy` prints nothing when the parser drops a rule or
     abandons the file, and a dead redirect looks exactly like a URL nobody
     visits. One site carried 18 dead rules for years this way. The replica in
-    {mod}`repomatic.pages_redirects` reports here what production would do.
+    {mod}`repomatic.cloudflare.redirects` reports here what production would do.
     """
     for path in ctx.redirects_files:
         text = path.read_text(encoding="UTF-8")

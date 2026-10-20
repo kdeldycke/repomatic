@@ -6,7 +6,7 @@ This page is the guide: how to decide what the matrix should test, which GitHub-
 
 ## How the matrix is built
 
-The base axes are `os` and `python-version`, seeded from `repomatic`'s defaults (`TEST_RUNNERS_FULL`/`TEST_RUNNERS_PR` and `TEST_PYTHON_FULL`/`TEST_PYTHON_PR` in `repomatic/matrix_axes.py`). A project then reshapes the matrix through a fixed chain of transformations, each a `[tool.repomatic.test-matrix.*]` key, applied in this order:
+The base axes are `os` and `python-version`, seeded from `repomatic`'s defaults (`TEST_RUNNERS_FULL`/`TEST_RUNNERS_PR` and `TEST_PYTHON_FULL`/`TEST_PYTHON_PR` in `repomatic/matrix/axes.py`). A project then reshapes the matrix through a fixed chain of transformations, each a `[tool.repomatic.test-matrix.*]` key, applied in this order:
 
 1. `replace`: swap axis values in place.
 2. `remove`: drop axis values from an axis.
@@ -181,7 +181,7 @@ The same spirit covers the matrix's other invariants: its lowest Python should e
 
 ## GitHub-hosted runner inventory
 
-`repomatic`'s full matrix spans both architectures of each OS; the reduced PR set keeps one per OS. The runners (defined in `repomatic/matrix_axes.py`):
+`repomatic`'s full matrix spans both architectures of each OS; the reduced PR set keeps one per OS. The runners (defined in `repomatic/matrix/axes.py`):
 
 | Runner                                                                                                            | OS      | Architecture          | In PR set | Notes                                                                                                                                |
 | :---------------------------------------------------------------------------------------------------------------- | :------ | :-------------------- | :-------- | :----------------------------------------------------------------------------------------------------------------------------------- |
@@ -344,4 +344,4 @@ The shipped configuration is exercised everywhere a regression would reach a use
    :strict:
 ```
 
-The constants this page describes are documented on the [`repomatic.matrix_axes`](repomatic.matrix_axes.md) page, and the class itself on [`repomatic.metadata.core`](repomatic.metadata.core.md).
+The constants this page describes are documented on the [`repomatic.matrix.axes`](repomatic.matrix.axes.md) page, and the class itself on [`repomatic.metadata.core`](repomatic.metadata.core.md).

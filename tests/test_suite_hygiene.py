@@ -34,7 +34,7 @@ containers qualify, so `SOME_DICT` and `SOME_DICT.items()` are both accepted.
 
 Two shapes evade a naive scan, and both have already shipped a latent break:
 
-- **An imported collection.** `from repomatic.registry import NON_REUSABLE_WORKFLOWS`
+- **An imported collection.** `from repomatic.components import NON_REUSABLE_WORKFLOWS`
   puts a `frozenset` in scope under a name this module never sees assigned, so
   the binding is resolved by importing it rather than by reading the source.
 - **A wrapper call.** `list(SOME_SET)` and `tuple(SOME_SET)` are as unordered as
@@ -187,7 +187,7 @@ def test_test_suite_discovered() -> None:
 def test_detector_flags_unordered_parametrize() -> None:
     """The detector catches each unordered shape, and clears the ordered ones."""
     tree = ast.parse(
-        "from repomatic.registry import NON_REUSABLE_WORKFLOWS\n"
+        "from repomatic.components import NON_REUSABLE_WORKFLOWS\n"
         "FRUITS = frozenset({'papaya', 'mango'})\n"
         "CITIES = {'Lisbon', 'Oslo'}\n"
         "CRATES = {city for city in CITIES}\n"
@@ -348,7 +348,7 @@ def _installing_tools() -> frozenset[str]:
     Two ways in: the tool *is* a downloaded binary, or it declares `path_tools`
     and so downloads its helpers before running.
     """
-    registry = importlib.import_module("repomatic.tooling.tool_registry")
+    registry = importlib.import_module("repomatic.tooling.registry")
     return frozenset(
         name
         for name, spec in registry.TOOL_REGISTRY.items()
@@ -392,7 +392,7 @@ def test_run_tool_calls_mock_the_binary_install(test_file) -> None:
                 violations.append(f"{func.name} runs {node.args[0].value!r}")
     assert not violations, (
         f"{test_file.name} runs a downloading tool without patching"
-        f" `repomatic.tooling.tool_runner.{BINARY_INSTALL_MOCK}`: {'; '.join(violations)}."
+        f" `repomatic.tooling.runner.{BINARY_INSTALL_MOCK}`: {'; '.join(violations)}."
         " Patch it, or gate the test on"
         f" `{INTEGRATION_TOOL_GUARD}` if the download is the point."
     )

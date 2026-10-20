@@ -29,7 +29,7 @@ from click.testing import CliRunner
 from repomatic import __version__
 from repomatic.cli.main import repomatic
 from repomatic.config import config_reference
-from repomatic.deps.dep_sources import RELEASE_READY_SENTENCE
+from repomatic.deps.sources import RELEASE_READY_SENTENCE
 from repomatic.frontmatter import split_frontmatter
 from repomatic.git_ops import (
     CHANGELOG_COMMIT_PREFIX,

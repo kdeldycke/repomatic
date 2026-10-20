@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from repomatic.forge import (
+from repomatic.metrics.forge import (
     FORGE_APIS,
     GITHUB_HOST,
     Forge,
@@ -30,7 +30,7 @@ from repomatic.forge import (
     newest_dated,
     split_repo_url,
 )
-from repomatic.metrics import METRICS_BY_ID
+from repomatic.metrics.store import METRICS_BY_ID
 
 
 @pytest.mark.parametrize(

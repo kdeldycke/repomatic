@@ -80,6 +80,12 @@ from ..github.job_timings import (
     render_markdown,
     summarize,
 )
+from ..github.labels import (
+    match_content_rules,
+    match_file_rules,
+    resolve_content_rules,
+    resolve_file_rules,
+)
 from ..github.pr import (
     list_changed_files,
     upsert_pr,
@@ -100,28 +106,22 @@ from ..github.unsubscribe import (
     unsubscribe_threads as _unsubscribe_threads,
 )
 from ..init_project import is_source_repo
-from ..labels import (
-    match_content_rules,
-    match_file_rules,
-    resolve_content_rules,
-    resolve_file_rules,
-)
 from ..lint_repo import (
     KNOWN_RUNNERS,
     WORKFLOW_DIR,
     literal_runners,
 )
-from ..metadata.core import (
-    Metadata,
-)
-from ..runner_catalog import fetch_catalog
-from ..runner_images import (
+from ..matrix.runner_sync import (
     apply_axes_retirement,
     apply_literal_rewrite,
     apply_upgrade,
     close_legacy_issue,
     plan_runner_changes,
     render_change_table,
+)
+from ..matrix.runners import fetch_catalog
+from ..metadata.core import (
+    Metadata,
 )
 from ..setup_guide import manage_setup_guide
 from .main import (
@@ -549,7 +549,7 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
             # Only here do the curated axes exist to move. Downstream they
             # arrive through the pin, so a repo consuming repomatic picks the
             # new matrix up when it adopts a release.
-            axes = Path("repomatic/matrix_axes.py")
+            axes = Path("repomatic/matrix/axes.py")
             if is_source_repo(Path.cwd()) and apply_axes_retirement(change, axes):
                 echo(f"  rewrote {axes.name} (every downstream matrix follows)")
         elif apply_upgrade(change, Path("pyproject.toml")):

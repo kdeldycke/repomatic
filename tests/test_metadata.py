@@ -48,12 +48,7 @@ from repomatic.config import (
 )
 from repomatic.file_inventory import FileInventory
 from repomatic.github.actions import NULL_SHA
-from repomatic.github.matrix import (
-    OS_AXIS,
-    PIVOT_CELL_SEPARATOR,
-    PYTHON_VERSION_AXIS,
-)
-from repomatic.matrix_axes import (
+from repomatic.matrix.axes import (
     PRERELEASE_LABEL_SUFFIX,
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_PYTHON_FULL,
@@ -61,6 +56,11 @@ from repomatic.matrix_axes import (
     TEST_RUNNERS_PR,
     UNSTABLE_PYTHON_VERSIONS,
     python_version_sort_key,
+)
+from repomatic.matrix.model import (
+    OS_AXIS,
+    PIVOT_CELL_SEPARATOR,
+    PYTHON_VERSION_AXIS,
 )
 from repomatic.metadata.core import (
     _METADATA_KEY_DESCRIPTIONS,

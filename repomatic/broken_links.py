@@ -35,10 +35,10 @@ from pathlib import Path
 
 from click_extra import TableFormat, render_table
 
+from .components import is_awesome_repo
 from .github.issue import manage_issue_lifecycle
 from .github.pr_body import render_template, sanitize_markdown_mentions
 from .metadata.core import Metadata
-from .registry import is_awesome_repo
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:

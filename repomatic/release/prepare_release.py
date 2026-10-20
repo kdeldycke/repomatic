@@ -70,13 +70,13 @@ from functools import cached_property
 from pathlib import Path
 
 from ..changelog import Changelog, resolved_changelog_path
+from ..claude_plugin import MARKETPLACE_PATH, REPO_MANIFEST_PATH
+from ..components import INSTALL_GUIDE_PATH, UPSTREAM_PACKAGE, WORKFLOW_TARGET_ROOT
 from ..config import load_repomatic_config
+from ..deps.pins import frozen_cli_invocation
 from ..file_ops import write_if_changed
 from ..metadata.core import Metadata
-from ..registry import INSTALL_GUIDE_PATH, UPSTREAM_PACKAGE, WORKFLOW_TARGET_ROOT
-from ..tooling.plugin import MARKETPLACE_PATH, REPO_MANIFEST_PATH
 from .binary import binary_filename_re
-from .version_sync import frozen_cli_invocation
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -515,7 +515,7 @@ class PrepareRelease:
 
         This is part of the **freeze** step. The entry in
         `.claude-plugin/marketplace.json` publishes
-        {data}`~repomatic.tooling.plugin.PLUGIN_ROOT` straight from this repository, and
+        {data}`~repomatic.claude_plugin.PLUGIN_ROOT` straight from this repository, and
         pinning the tag is what makes a marketplace ref meaningful: adding the
         catalog at `kdeldycke/repomatic@v6.0.0` then installs v6.0.0's plugin,
         where an unpinned entry would hand over whatever the default branch holds
@@ -582,9 +582,9 @@ class PrepareRelease:
         """Stamp the release version into the Claude Code plugin manifest.
 
         This is part of the **freeze** step. A `git-subdir` marketplace source
-        publishes {data}`~repomatic.tooling.plugin.PLUGIN_ROOT` verbatim, so the manifest
+        publishes {data}`~repomatic.claude_plugin.PLUGIN_ROOT` verbatim, so the manifest
         a consumer installs is the checked-in one rather than the copy
-        {func}`~repomatic.tooling.plugin.pack_plugin` stamps at pack time. Left version-free
+        {func}`~repomatic.claude_plugin.pack_plugin` stamps at pack time. Left version-free
         it fails `claude plugin validate --strict` on `No version specified`.
 
         Written here rather than by hand or by bump-my-version, for the reason

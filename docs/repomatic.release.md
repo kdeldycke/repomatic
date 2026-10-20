@@ -16,8 +16,6 @@
    repomatic.release.attestation
    repomatic.release.binaries_page
    repomatic.release.binary
-   repomatic.release.checksums
    repomatic.release.prepare_release
-   repomatic.release.version_sync
    repomatic.release.virustotal
 ```

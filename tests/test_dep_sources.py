@@ -23,9 +23,9 @@ from pathlib import Path
 import pytest
 
 from repomatic.config import Config
-from repomatic.deps import dep_sources
-from repomatic.deps.dep_report import BYPASS_NEEDS_RELEASE
-from repomatic.deps.dep_sources import (
+from repomatic.deps import sources as dep_sources
+from repomatic.deps.report import BYPASS_NEEDS_RELEASE
+from repomatic.deps.sources import (
     BLOCKER_NEEDS_EDIT,
     BLOCKER_SECTION_NOTE,
     COOLDOWN_PR_BRANCH,

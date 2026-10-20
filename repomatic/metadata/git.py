@@ -53,7 +53,7 @@ from ..github.actions import (
     NULL_SHA,
     WorkflowEvent,
 )
-from ..github.matrix import Matrix
+from ..matrix.model import Matrix
 from ..release.binary import (
     BINARY_AFFECTING_PATHS,
     SKIP_BINARY_BUILD_BRANCHES,

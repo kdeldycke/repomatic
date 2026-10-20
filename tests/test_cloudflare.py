@@ -28,8 +28,8 @@ from unittest.mock import patch
 
 import pytest
 
-from repomatic import cloudflare
-from repomatic.cloudflare import (
+from repomatic.cloudflare import pages as cloudflare
+from repomatic.cloudflare.pages import (
     CloudflareError,
     CloudflareHTTPError,
     Setting,

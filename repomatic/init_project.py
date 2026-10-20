@@ -21,7 +21,7 @@ Provides a unified interface for accessing bundled data files from
 `repomatic init`.
 
 Every component `repomatic init` accepts is declared in
-{data}`~repomatic.registry.COMPONENTS`, which carries each one's description,
+{data}`~repomatic.components.COMPONENTS`, which carries each one's description,
 default scope and target paths; `repomatic init --help` lists them. That tuple
 is the only roster: a list repeated here would silently fall behind it.
 
@@ -45,36 +45,9 @@ import tomlrt
 import yaml
 
 from . import __git_tag_sha__, __version__
-from .config import Config, load_repomatic_config, location_path
-from .deps.dep_report import (
-    build_held_back,
-    format_diff_table,
-    format_held_back_table,
-    format_release_notes,
-)
-from .deps.uv import uvx_cmd
-from .file_ops import unlink_with_empty_parents
-from .github.pr_body import render_template, sanitize_markdown_mentions
-from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
-from .github.workflow_sync import (
-    PathsSpec,
-    extract_extra_jobs,
-    generate_workflow_header,
-    identify_canonical_workflow,
-    render_thin_caller_for_target,
-)
-from .http import get_bytes
-from .labels import extra_label_filename
-from .lint_repo import requested_metadata_keys
-from .metadata.core import Metadata, all_metadata_keys
-from .pypi import PYPI_PACKAGE_URL
-from .pyproject import (
-    is_python_package,
-    is_python_project,
-    read_pyproject_toml,
-    resolve_source_paths,
-)
-from .registry import (
+from .bundle import get_data_content
+from .claude_plugin import merge_plugin_settings
+from .components import (
     COMPONENTS,
     COMPONENTS_BY_NAME,
     DEFAULT_REPO,
@@ -98,8 +71,8 @@ from .registry import (
     parse_component_entries,
     skill_launcher,
 )
-from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
-from .release.version_sync import (
+from .config import Config, load_repomatic_config, location_path
+from .deps.pins import (
     MIN_AGE_HELD_BACK_NOTE,
     Candidate,
     UpstreamRefPin,
@@ -113,10 +86,37 @@ from .release.version_sync import (
     select_held_back,
     select_latest,
 )
-from .tooling.bundle import get_data_content
-from .tooling.plugin import merge_plugin_settings
-from .tooling.tool_registry import TOOL_REGISTRY
-from .tooling.tool_runner import find_unmodified_configs
+from .deps.report import (
+    build_held_back,
+    format_diff_table,
+    format_held_back_table,
+    format_release_notes,
+)
+from .deps.uv import uvx_cmd
+from .file_ops import unlink_with_empty_parents
+from .github.labels import extra_label_filename
+from .github.pr_body import render_template, sanitize_markdown_mentions
+from .github.releases import fetch_github_release_notes, resolve_tag_to_sha
+from .github.workflow_sync import (
+    PathsSpec,
+    extract_extra_jobs,
+    generate_workflow_header,
+    identify_canonical_workflow,
+    render_thin_caller_for_target,
+)
+from .http import get_bytes
+from .lint_repo import requested_metadata_keys
+from .metadata.core import Metadata, all_metadata_keys
+from .pypi import PYPI_PACKAGE_URL
+from .pyproject import (
+    is_python_package,
+    is_python_project,
+    read_pyproject_toml,
+    resolve_source_paths,
+)
+from .release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from .tooling.registry import TOOL_REGISTRY
+from .tooling.runner import find_unmodified_configs
 from .versions import is_newer, safe_version, strip_dev_suffix
 
 TYPE_CHECKING = False
@@ -160,7 +160,7 @@ RUNTIME_FRAGMENTS: tuple[str, ...] = (
 """Bundled files loaded by `repomatic` at runtime, not deployed verbatim.
 
 These files live in `repomatic/data/` so they ship in the wheel and are
-discoverable via {func}`~repomatic.tooling.bundle.get_data_content`, but
+discoverable via {func}`~repomatic.bundle.get_data_content`, but
 `repomatic init` never copies them as-is. `release.yaml` is the canonical caller
 `repomatic.github.workflow_sync` reads to assemble each downstream
 `release.yaml`, copying its jobs and rewriting the local `uses:` refs (see
@@ -275,7 +275,7 @@ def _entry_identity(
     The identity is the tuple of `(key, value)` pairs for the `identity_keys`
     the entry actually carries, so two entries map to the same slot when they
     agree on every identity key they share. See
-    {attr}`~repomatic.registry.ToolConfigComponent.graft_identity_keys`.
+    {attr}`~repomatic.components.ToolConfigComponent.graft_identity_keys`.
     """
     return tuple((key, entry[key]) for key in identity_keys if key in entry)
 
@@ -659,7 +659,7 @@ def _select_cooldown_pin(
     :param base: The running repomatic version (bare, no `v` prefix).
     :param min_age: The `minimum-release-age` stabilization window.
     :param today: Reference date for the cooldown computation.
-    :return: The {class}`~repomatic.release.version_sync.Candidate` to pin instead of
+    :return: The {class}`~repomatic.deps.pins.Candidate` to pin instead of
         `base`, or `None` to keep pinning `base`.
     """
     cutoff = today - min_age
@@ -689,15 +689,15 @@ def _note_cooldown(warnings: list[str] | None, note: str) -> None:
 def _highest_upstream_pin(output_dir: Path, repo: str) -> UpstreamRefPin | None:
     """The highest upstream `uses:` pin already committed under *output_dir*.
 
-    Scans {data}`~repomatic.registry.GITHUB_YAML_PATTERNS` resolved against
+    Scans {data}`~repomatic.components.GITHUB_YAML_PATTERNS` resolved against
     *output_dir*, the same files `sync-workflow-pins` bumps, and returns the
-    winning {class}`~repomatic.release.version_sync.UpstreamRefPin`. Stragglers left
+    winning {class}`~repomatic.deps.pins.UpstreamRefPin`. Stragglers left
     behind at an older pin therefore converge upward onto the repository-wide
     maximum, matching how `sync-action-pins` treats a slug pinned at more than
     one version.
 
     Only *repo* is matched, not every slug in
-    {data}`~repomatic.registry.UPSTREAM_REPO_SLUGS`: a caller still naming a
+    {data}`~repomatic.components.UPSTREAM_REPO_SLUGS`: a caller still naming a
     pre-rename slug is a tombstone `init` rewrites, not a pin to preserve.
 
     :param output_dir: Root of the target repository.
@@ -745,8 +745,8 @@ def resolve_default_pin(
     repository already carries, which is what *floor* records.
 
     `init` is the only writer of these refs: `sync-action-pins` skips every slug
-    in {data}`~repomatic.registry.UPSTREAM_REPO_SLUGS`, and
-    {data}`~repomatic.release.version_sync.ACTION_PIN_RE` does not even match a
+    in {data}`~repomatic.components.UPSTREAM_REPO_SLUGS`, and
+    {data}`~repomatic.deps.pins.ACTION_PIN_RE` does not even match a
     subpath-carrying reusable-workflow ref. So a downstream repository adopts a
     new repomatic release one way: a newer `init` runs. A maintainer runs one by
     hand, and the CI `sync-repomatic` job runs one through `init --upgrade`,
@@ -1331,10 +1331,10 @@ def prune_paths(
 def adopted_ongoing_configs(output_dir: Path) -> set[str]:
     """Return the ongoing tool configs whose section `pyproject.toml` already carries.
 
-    {attr}`~repomatic.registry.InitDefault.EXPLICIT` governs *adoption*, not
+    {attr}`~repomatic.components.InitDefault.EXPLICIT` governs *adoption*, not
     upkeep: it keeps a bare `init` from pushing `[tool.typos]` onto a repository
     that never asked for one. Once the section is there the repository has
-    asked, so an {attr}`~repomatic.registry.SyncMode.ONGOING` component rejoins
+    asked, so an {attr}`~repomatic.components.SyncMode.ONGOING` component rejoins
     the bare-init set and resumes tracking the bundled template.
 
     Without this the two flags cancel out. The only sync that ever runs
@@ -1343,7 +1343,7 @@ def adopted_ongoing_configs(output_dir: Path) -> set[str]:
     and a `[tool.typos]` written by hand sits indefinitely beside a bundled
     template it never adopts a single rule from.
 
-    {attr}`~repomatic.registry.SyncMode.BOOTSTRAP` components stay out: their
+    {attr}`~repomatic.components.SyncMode.BOOTSTRAP` components stay out: their
     template is a starting point the repository owns outright after the first
     write, and re-selecting one would revert deliberate local edits.
 
@@ -1864,7 +1864,7 @@ def _realign_inline_pins(
     is checked by was already red. Closing it here removes the window rather
     than reporting on it.
 
-    Rewrites in either direction, like {func}`~repomatic.sync_ops._resolve_workflow_pins`
+    Rewrites in either direction, like {func}`~repomatic.deps.sync._resolve_workflow_pins`
     does: the refs are the source of truth, and a literal ahead of them is drift
     the same way one behind them is.
 
@@ -2039,9 +2039,9 @@ def is_source_repo(output_dir: Path) -> bool:
 def _resolve_target(component_name: str, target: str, config: Config | None) -> str:
     """Rebase a target path onto its component's configured location.
 
-    A thin lookup in front of {meth}`~repomatic.registry.Component.resolve_target`,
+    A thin lookup in front of {meth}`~repomatic.components.Component.resolve_target`,
     for the callers that hold a component *name* (a `[tool.repomatic] exclude`
-    entry, a {class}`~repomatic.registry.RemovedAsset` tombstone) rather than the
+    entry, a {class}`~repomatic.components.RemovedAsset` tombstone) rather than the
     component itself. Unknown names pass through untouched.
     """
     component = COMPONENTS_BY_NAME.get(component_name)
@@ -2055,7 +2055,7 @@ def _detect_removed_assets(
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Find on-disk orphans of assets repomatic has dropped.
 
-    Walks {data}`~repomatic.registry.REMOVED_ASSETS`, resolves each tombstone's
+    Walks {data}`~repomatic.components.REMOVED_ASSETS`, resolves each tombstone's
     target through the same path overrides as live files, and classifies any
     that still exist on disk:
 
@@ -2146,7 +2146,7 @@ def _classify_removed_workflow(path: Path) -> str:
     Thin-callers are parameterized per repo (version pin, `paths:` filters), so
     they carry no fixed content to hash. The file is matched instead by its
     `uses:` fingerprint against the upstream slugs in
-    {data}`~repomatic.registry.UPSTREAM_REPO_SLUGS`.
+    {data}`~repomatic.components.UPSTREAM_REPO_SLUGS`.
 
     :return: `"prune"` for a pure repomatic-lineage thin-caller for this
         workflow, `"review"` when the user appended extra jobs, or `"skip"`
@@ -2172,7 +2172,7 @@ def _init_config_files(
 
     For components without `keep_unmodified`, files already on disk that
     are identical to the bundled template are flagged as unmodified and not
-    overwritten. An {attr}`~repomatic.registry.Component.ephemeral` component is
+    overwritten. An {attr}`~repomatic.components.Component.ephemeral` component is
     exempt: its files are scratch input a consumer regenerates before reading,
     so finding one that matches the bundled default is the expected steady state
     after the previous run, not drift worth reporting.

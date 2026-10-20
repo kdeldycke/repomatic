@@ -19,7 +19,7 @@
 Utilities for managing `uv.lock` files: parsing versions, computing version
 diffs and cooldown forecasts (held-back releases, bypass expiries), and managing
 `exclude-newer-package` cooldown overrides. The shared markdown rendering of
-these results lives in {mod}`repomatic.deps.dep_report`.
+these results lives in {mod}`repomatic.deps.report`.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from tomlrt import Table
 
 from ..humanize import format_countdown, parse_iso_datetime, utc_midnight
 from ..versions import is_newer
-from .dep_report import (
+from .report import (
     BYPASS_NEEDS_RELEASE,
     BypassForecast,
     HeldBackPackage,
@@ -436,7 +436,7 @@ def freeze_cutoff_after(day: date) -> str:
     One day of margin, rounded to a whole-day UTC boundary: see
     `_freeze_cutoff` for the full margin and timezone rationale. The
     single source of that policy, shared with
-    {class}`repomatic.deps.dep_sources.ReleaseSwap`.
+    {class}`repomatic.deps.sources.ReleaseSwap`.
 
     :param day: The held version's upload date.
     :return: A `YYYY-MM-DDT00:00:00Z` cutoff timestamp.
@@ -1018,7 +1018,7 @@ class LockSpecifiers:
         package declares unconditionally, behind neither an extra nor a dev
         group. This is the authoritative answer to "what does installing this
         project pull in by default", which a CycloneDX SBOM does not reliably
-        give. See {func}`~repomatic.deps.dep_graph.filter_root_edges`. A package
+        give. See {func}`~repomatic.deps.graph.filter_root_edges`. A package
         with no `metadata` table is absent from the mapping entirely, telling
         "declares nothing unconditionally" apart from "not described here".
     """
@@ -1220,7 +1220,7 @@ def _forecast_expiry(upload_str: str, span: timedelta | None, now: datetime) -> 
     :param now: Reference instant for the relative hint. The prune it
         forecasts compares instants, so a freeze lifting later today is hours
         away, not a day.
-    :return: The humanized expiry, {data}`repomatic.deps.dep_report.BYPASS_NEEDS_RELEASE`
+    :return: The humanized expiry, {data}`repomatic.deps.report.BYPASS_NEEDS_RELEASE`
         when the version has no upload time, or empty when *span* is absent.
     """
     upload_dt = parse_iso_datetime(upload_str)
@@ -1295,7 +1295,7 @@ def compute_bypass_forecasts(
     `exclude-newer` span, which is the day the next `sync-uv-lock` run
     prunes the entry. An entry for a package the lock does not hold has no
     held version: its forecast carries an empty
-    {attr}`~repomatic.deps.dep_report.BypassForecast.held_version`, and an
+    {attr}`~repomatic.deps.report.BypassForecast.held_version`, and an
     expiry projected from the entry's own cutoff.
 
     :param pyproject_path: Path to the `pyproject.toml` file.

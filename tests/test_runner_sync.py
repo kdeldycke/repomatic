@@ -25,14 +25,14 @@ from __future__ import annotations
 
 import pytest
 
-from repomatic.runner_catalog import RunnerImage
-from repomatic.runner_images import (
+from repomatic.matrix.runner_sync import (
     apply_axes_retirement,
     apply_literal_rewrite,
     apply_upgrade,
     plan_runner_changes,
     render_change_table,
 )
+from repomatic.matrix.runners import RunnerImage
 
 CATALOG = [
     RunnerImage("Ubuntu 26.04", "x64", ("ubuntu-26.04",), True, False),

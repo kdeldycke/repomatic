@@ -34,27 +34,7 @@ from repomatic import __version__, init_project as ip
 from repomatic.cli import setup as cli_setup
 from repomatic.cli.main import repomatic
 from repomatic.cli.setup import init_project
-from repomatic.config import Config, WorkflowConfig, load_repomatic_config
-from repomatic.init_project import (
-    EXPORTABLE_FILES,
-    RUNTIME_FRAGMENTS,
-    UpgradeTarget,
-    _detect_removed_assets,
-    _highest_upstream_pin,
-    _select_cooldown_pin,
-    _update_tool_config,
-    adopted_ongoing_configs,
-    default_version_pin,
-    export_content,
-    get_data_content,
-    init_config,
-    resolve_default_pin,
-    resolve_upgrade_target,
-    run_init,
-    upgrade_command,
-    upgrade_report,
-)
-from repomatic.registry import (
+from repomatic.components import (
     ALL_COMPONENTS,
     ALL_WORKFLOW_FILES,
     COMPONENTS,
@@ -82,9 +62,29 @@ from repomatic.registry import (
     parse_component_entries,
     valid_file_ids,
 )
-from repomatic.release.version_sync import Candidate, UpstreamRefPin
-from repomatic.tooling.tool_registry import TOOL_REGISTRY
-from repomatic.tooling.tool_runner import get_data_file_path, run_tool
+from repomatic.config import Config, WorkflowConfig, load_repomatic_config
+from repomatic.deps.pins import Candidate, UpstreamRefPin
+from repomatic.init_project import (
+    EXPORTABLE_FILES,
+    RUNTIME_FRAGMENTS,
+    UpgradeTarget,
+    _detect_removed_assets,
+    _highest_upstream_pin,
+    _select_cooldown_pin,
+    _update_tool_config,
+    adopted_ongoing_configs,
+    default_version_pin,
+    export_content,
+    get_data_content,
+    init_config,
+    resolve_default_pin,
+    resolve_upgrade_target,
+    run_init,
+    upgrade_command,
+    upgrade_report,
+)
+from repomatic.tooling.registry import TOOL_REGISTRY
+from repomatic.tooling.runner import get_data_file_path, run_tool
 from tests.conftest import (
     assert_shipped_text_reads_true_downstream,
     skip_unless_tool_runs,
@@ -4766,7 +4766,7 @@ def test_shrinking_component_file_lists_are_tombstoned() -> None:
             return Version("0")
 
     prev = max(tags, key=version_key)
-    old_source = git("show", f"{prev}:repomatic/registry.py")
+    old_source = git("show", f"{prev}:repomatic/components.py")
     if old_source.returncode != 0:
         pytest.skip(f"cannot read registry at {prev}")
 

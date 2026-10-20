@@ -135,7 +135,7 @@ UNSUBSCRIBE_WORKFLOW = "unsubscribe.yaml"
 
 The report renders inside that workflow's own run, so the reader is one click
 from the `Run workflow` form the warning tells them to use. Kept equal to the
-filename {data}`repomatic.registry.COMPONENTS` ships, since a link to a
+filename {data}`repomatic.components.COMPONENTS` ships, since a link to a
 workflow a repository does not have is worse than no link.
 """
 

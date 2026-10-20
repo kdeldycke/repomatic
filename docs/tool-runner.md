@@ -44,7 +44,7 @@ invoke(repomatic, args=['run', '--list'])
 ## Available tools
 
 ```{python:render}
-from repomatic.tooling.tool_registry import tool_summary
+from repomatic.tooling.registry import tool_summary
 
 print(tool_summary())
 ```
@@ -313,9 +313,9 @@ Write image alt-text without code spans, backslashes or entities until mdformat 
 ## Tool details
 
 ```{python:render}
-from repomatic.tooling.tool_registry import tool_reference
+from repomatic.tooling.registry import tool_reference
 
 print(tool_reference())
 ```
 
-The runner's own API is documented on the [`repomatic.tooling.tool_runner`](repomatic.tooling.tool_runner.md) page.
+The runner's own API is documented on the [`repomatic.tooling.runner`](repomatic.tooling.runner.md) page.

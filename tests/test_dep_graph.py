@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for `repomatic.deps.dep_graph`: the Mermaid dependency-graph generator."""
+"""Tests for `repomatic.deps.graph`: the Mermaid dependency-graph generator."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ import pytest
 from click.testing import CliRunner
 
 from repomatic.cli.main import repomatic as repomatic_cli
-from repomatic.deps.dep_graph import (
+from repomatic.deps.graph import (
     Subgraph,
     SubgraphKind,
     _compute_node_degrees,

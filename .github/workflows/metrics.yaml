@@ -11,8 +11,8 @@
 # Only the sampling needs the network. Whatever renders the data reads the
 # committed CSV and SVG, so a docs build stays hermetic.
 #
-# See repomatic/metrics.py for the collection rationale, repomatic/forge.py for
-# the per-forge readers, and repomatic/metric_chart.py for the rendering.
+# See repomatic/metrics/store.py for the collection rationale, repomatic/metrics/forge.py for
+# the per-forge readers, and repomatic/metrics/chart.py for the rendering.
 ---
 name: "\U0001F4C8 Forge metrics"
 "on":

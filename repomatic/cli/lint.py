@@ -45,20 +45,20 @@ from ..changelog import (
     lint_changelog_dates,
     resolved_changelog_path,
 )
-from ..cloudflare import CloudflareError, run_cloudflare_pages
-from ..cloudflare_r2 import run_cloudflare_r2, run_offload
-from ..deps.dep_policy import scan_policy
-from ..deps.dep_sources import (
-    LINT_DEPS_HEADER_DEFS,
-    format_blocker_section,
-    scan_project,
-)
-from ..deps.vulnerable_deps import (
+from ..cloudflare.pages import CloudflareError, run_cloudflare_pages
+from ..cloudflare.r2 import run_cloudflare_r2, run_offload
+from ..deps.audit import (
     AUDIT_HEADER_DEFS,
     AdvisorySource,
     collect_vulnerable_packages,
     fix_vulnerable_deps as _fix_vulnerable_deps,
     format_vulnerability_table,
+)
+from ..deps.policy import scan_policy
+from ..deps.sources import (
+    LINT_DEPS_HEADER_DEFS,
+    format_blocker_section,
+    scan_project,
 )
 from ..github.actions import (
     AnnotationLevel,
@@ -78,11 +78,11 @@ from ..release.binary import (
     verify_binary_arch,
     verify_binary_floor,
 )
-from ..tooling.tool_registry import (
+from ..tooling.registry import (
     TOOL_LIST_HEADER_DEFS,
     TOOL_REGISTRY,
 )
-from ..tooling.tool_runner import (
+from ..tooling.runner import (
     resolve_config_source,
     run_tool,
     verify_via_write_path,

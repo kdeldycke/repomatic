@@ -28,6 +28,7 @@ from functools import cached_property
 
 from extra_platforms import is_github_ci
 
+from ..components import is_awesome_repo
 from ..git_ops import (
     get_repo_slug_from_remote,
 )
@@ -35,7 +36,6 @@ from ..github.actions import (
     WorkflowEvent,
 )
 from ..github.gh import run_gh_command
-from ..registry import is_awesome_repo
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:

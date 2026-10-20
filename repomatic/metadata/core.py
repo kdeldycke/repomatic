@@ -77,19 +77,19 @@ from ..config import (
     SUBCOMMAND_CONFIG_FIELDS,
     Config,
 )
+from ..deps.pins import min_release_age_days
 from ..file_inventory import FileInventory
 from ..github.actions import (
     generate_delimiter,
     get_github_event,
 )
-from ..github.matrix import Matrix
 from ..github.release_sync import build_expected_body
 from ..mailmap import MAILMAP_PATH
+from ..matrix.model import Matrix
 from ..pypi import PYPI_PROJECT_URL
 from ..release.binary import (
     FLAT_BUILD_TARGETS,
 )
-from ..release.version_sync import min_release_age_days
 from .env import EnvironmentMetadata
 from .git import GitMetadata
 from .matrix import MatrixMetadata

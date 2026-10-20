@@ -18,7 +18,7 @@
 upgrade) and the `repomatic.deps.uv` lock helpers behind the
 `exclude-newer-package` cooldown-bypass lifecycle.
 
-The `repomatic.deps.dep_report` renderers these helpers feed are covered by
+The `repomatic.deps.report` renderers these helpers feed are covered by
 `tests/test_dep_report.py`'s golden renders.
 """
 
@@ -34,7 +34,11 @@ from click.testing import CliRunner
 from repomatic.cli import lint as cli_lint
 from repomatic.cli.main import repomatic
 from repomatic.config import Config
-from repomatic.deps.dep_report import BYPASS_NEEDS_RELEASE, BypassForecast
+from repomatic.deps.audit import (
+    AdvisorySource,
+    VulnerablePackage,
+)
+from repomatic.deps.report import BYPASS_NEEDS_RELEASE, BypassForecast
 from repomatic.deps.uv import (
     add_exclude_newer_packages,
     bypass_comment_mentions,
@@ -45,10 +49,6 @@ from repomatic.deps.uv import (
     parse_lock_specifiers,
     project_exclude_newer,
     prune_stale_exclude_newer_packages,
-)
-from repomatic.deps.vulnerable_deps import (
-    AdvisorySource,
-    VulnerablePackage,
 )
 
 REPO_ROOT = Path(__file__).parent.parent

@@ -11,3 +11,27 @@
 /agents  /subagents            301
 /plugin  /claude-code-plugin   301
 /skills  /agent-skills         301
+
+# API pages of the modules regrouped in 8.0.0.
+/repomatic.cloudflare_r2  /repomatic.cloudflare.r2  301
+/repomatic.deps.dep_graph  /repomatic.deps.graph  301
+/repomatic.deps.dep_policy  /repomatic.deps.policy  301
+/repomatic.deps.dep_report  /repomatic.deps.report  301
+/repomatic.deps.dep_sources  /repomatic.deps.sources  301
+/repomatic.deps.vulnerable_deps  /repomatic.deps.audit  301
+/repomatic.forge  /repomatic.metrics.forge  301
+/repomatic.github.matrix  /repomatic.matrix.model  301
+/repomatic.labels  /repomatic.github.labels  301
+/repomatic.matrix_axes  /repomatic.matrix.axes  301
+/repomatic.metric_chart  /repomatic.metrics.chart  301
+/repomatic.pages_redirects  /repomatic.cloudflare.redirects  301
+/repomatic.registry  /repomatic.components  301
+/repomatic.release.checksums  /repomatic.tooling.checksums  301
+/repomatic.release.version_sync  /repomatic.deps.pins  301
+/repomatic.runner_catalog  /repomatic.matrix.runners  301
+/repomatic.runner_images  /repomatic.matrix.runner_sync  301
+/repomatic.sync_ops  /repomatic.deps.sync  301
+/repomatic.tooling.bundle  /repomatic.bundle  301
+/repomatic.tooling.plugin  /repomatic.claude_plugin  301
+/repomatic.tooling.tool_registry  /repomatic.tooling.registry  301
+/repomatic.tooling.tool_runner  /repomatic.tooling.runner  301

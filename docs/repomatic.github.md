@@ -19,7 +19,7 @@
    repomatic.github.gh
    repomatic.github.issue
    repomatic.github.job_timings
-   repomatic.github.matrix
+   repomatic.github.labels
    repomatic.github.pr
    repomatic.github.pr_body
    repomatic.github.release_sync

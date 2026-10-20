@@ -93,7 +93,7 @@ dependencies = [
   "boltons>=19",
   # click-extra 9.3 added region_markers() to click_extra.blocks and the visible=
   # argument of OperationTrail. release/binaries_page.py imports the first and
-  # sync_ops.py passes the second: on 9.2 no command starts.
+  # deps/sync.py passes the second: on 9.2 no command starts.
   "click-extra>=9.3",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
@@ -550,7 +550,7 @@ exclude = [
   # instead: `docs/conf.py` fails it on a `myst.xref_missing` warning.
   # Anchored to `file://` so external `.../docs/*.md#` URLs stay checked.
   # XXX: re-test once `lychee` ships lycheeverse/lychee#2250. See the `{todo}`
-  # in `repomatic/tooling/tool_registry.py`.
+  # in `repomatic/tooling/registry.py`.
   "^file://.*/docs/[\\w.-]+\\.md#",
 ]
 exclude_path = [

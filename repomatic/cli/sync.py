@@ -47,32 +47,7 @@ from click_extra import (
 from ..changelog import (
     load_changelog_repo,
 )
-from ..github.actions import (
-    AnnotationLevel,
-    emit_annotation,
-    emit_report,
-)
-from ..github.dev_release import (
-    cleanup_dev_releases as _cleanup_dev_releases,
-    sync_dev_release as _sync_dev_release,
-)
-from ..github.release_sync import (
-    render_sync_report as _render_sync_report,
-    sync_github_releases as _sync_github_releases,
-)
-from ..github.releases import (
-    owner_repo,
-)
-from ..gitignore import build_gitignore, orphaned_rules
-from ..init_project import run_init
-from ..labels import (
-    apply_labels,
-)
-from ..mailmap import Mailmap, remove_header
-from ..metadata.core import (
-    Metadata,
-)
-from ..sync_ops import (
+from ..deps.sync import (
     OPERATIONS_BY_NAME,
     ResolveContext,
     emit_lockfile_sync_report,
@@ -83,7 +58,32 @@ from ..sync_ops import (
     run_version_sync,
     selected_operations,
 )
-from ..tooling.tool_registry import (
+from ..github.actions import (
+    AnnotationLevel,
+    emit_annotation,
+    emit_report,
+)
+from ..github.dev_release import (
+    cleanup_dev_releases as _cleanup_dev_releases,
+    sync_dev_release as _sync_dev_release,
+)
+from ..github.labels import (
+    apply_labels,
+)
+from ..github.release_sync import (
+    render_sync_report as _render_sync_report,
+    sync_github_releases as _sync_github_releases,
+)
+from ..github.releases import (
+    owner_repo,
+)
+from ..gitignore import build_gitignore, orphaned_rules
+from ..init_project import run_init
+from ..mailmap import Mailmap, remove_header
+from ..metadata.core import (
+    Metadata,
+)
+from ..tooling.registry import (
     generated_header,
 )
 from .main import (
@@ -720,7 +720,7 @@ def sync_tool_versions(
     \b
     For each registry tool, finds the highest version that has cleared the
     [tool.repomatic] minimum-release-age cooldown (GitHub releases for binary
-    tools, PyPI otherwise), writes it into tool_registry.py, recomputes binary
+    tools, PyPI otherwise), writes it into tooling/registry.py, recomputes binary
     checksums in the same pass, and keeps the actionlint matcher URL in
     lint.yaml in lockstep.
 

@@ -213,7 +213,7 @@ jobs:
         # old path. A file that cannot move is dropped with an error annotation,
         # and the step fails; `continue-on-error` lets the deploy below publish
         # everything else first, and the last step then fails the job.
-        # See repomatic/cloudflare_r2.py for rationale.
+        # See repomatic/cloudflare/r2.py for rationale.
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -330,7 +330,7 @@ jobs:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-lychee-${{
-            github.job_workflow_sha || hashFiles('repomatic/tooling/tool_registry.py') }}
+            github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-lychee-
       - name: Install Graphviz

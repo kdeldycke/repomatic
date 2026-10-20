@@ -13,10 +13,12 @@
 .. toctree::
    :maxdepth: 4
 
-   repomatic.deps.dep_graph
-   repomatic.deps.dep_policy
-   repomatic.deps.dep_report
-   repomatic.deps.dep_sources
+   repomatic.deps.audit
+   repomatic.deps.graph
+   repomatic.deps.pins
+   repomatic.deps.policy
+   repomatic.deps.report
+   repomatic.deps.sources
+   repomatic.deps.sync
    repomatic.deps.uv
-   repomatic.deps.vulnerable_deps
 ```

@@ -28,10 +28,10 @@ import pytest
 from click.testing import CliRunner
 
 from repomatic.cli.main import repomatic
+from repomatic.deps import pins as vs
 from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
 from repomatic.pypi import PyPIRelease
-from repomatic.release import version_sync as vs
-from repomatic.tooling.tool_registry import TOOL_REGISTRY
+from repomatic.tooling.registry import TOOL_REGISTRY
 
 TODAY = date(2026, 6, 27)
 
@@ -274,7 +274,7 @@ def test_format_cooldown_note():
 
 
 def test_set_tool_version_targets_one_tool():
-    source = Path("repomatic/tooling/tool_registry.py").read_text(encoding="UTF-8")
+    source = Path("repomatic/tooling/registry.py").read_text(encoding="UTF-8")
     bumped = vs.set_tool_version(source, "gitleaks", "9.9.9")
     assert bumped.count('version="9.9.9"') == 1
     # A sibling tool is untouched.
@@ -512,7 +512,7 @@ def test_github_candidates_extracts_raw_tags():
         "v1.0.0": GitHubRelease(date="2026-01-01", body=""),
         "v1.1.0": GitHubRelease(date="2026-02-01", body=""),
     }
-    with patch("repomatic.release.version_sync.get_release_tags", return_value=fake):
+    with patch("repomatic.deps.pins.get_release_tags", return_value=fake):
         candidates = vs.github_candidates("https://github.com/owner/repo")
     assert {c.version for c in candidates} == {"1.0.0", "1.1.0"}
     # The raw tag is preserved for SHA resolution.
@@ -521,7 +521,7 @@ def test_github_candidates_extracts_raw_tags():
 
 def test_github_candidates_graceful_when_unavailable():
     with patch(
-        "repomatic.release.version_sync.get_release_tags",
+        "repomatic.deps.pins.get_release_tags",
         side_effect=GitHubReleasesUnavailable("boom"),
     ):
         assert vs.github_candidates("https://github.com/owner/repo") == []
@@ -566,9 +566,9 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes(tmp_path, monke
     with (
         # github_candidates resolves get_release_tags in version_sync's
         # namespace; fetch_github_release_notes resolves it in releases'.
-        patch("repomatic.release.version_sync.get_release_tags", return_value=tags),
+        patch("repomatic.deps.pins.get_release_tags", return_value=tags),
         patch("repomatic.github.releases.get_release_tags", return_value=tags),
-        patch("repomatic.sync_ops.resolve_tag_to_sha", return_value="b" * 40),
+        patch("repomatic.deps.sync.resolve_tag_to_sha", return_value="b" * 40),
     ):
         result = runner.invoke(
             repomatic,
@@ -638,9 +638,9 @@ def test_sync_action_pins_converges_mixed_pins_without_eligible_upgrade(
         encoding="UTF-8",
     )
     with (
-        patch("repomatic.release.version_sync.get_release_tags", return_value=tags),
+        patch("repomatic.deps.pins.get_release_tags", return_value=tags),
         patch(
-            "repomatic.sync_ops.resolve_tag_to_sha",
+            "repomatic.deps.sync.resolve_tag_to_sha",
             side_effect=AssertionError("convergence must not resolve tags"),
         ),
     ):
@@ -703,9 +703,9 @@ def test_sync_action_pins_merges_mixed_pins_onto_widest_range(tmp_path, monkeypa
         encoding="UTF-8",
     )
     with (
-        patch("repomatic.release.version_sync.get_release_tags", return_value=tags),
+        patch("repomatic.deps.pins.get_release_tags", return_value=tags),
         patch("repomatic.github.releases.get_release_tags", return_value=tags),
-        patch("repomatic.sync_ops.resolve_tag_to_sha", return_value="b" * 40),
+        patch("repomatic.deps.sync.resolve_tag_to_sha", return_value="b" * 40),
     ):
         result = runner.invoke(
             repomatic,
@@ -767,14 +767,14 @@ def test_sync_workflow_pins_release_notes_cover_pypi_literals_only(
     )
     with (
         patch(
-            "repomatic.sync_ops.npm_candidates",
+            "repomatic.deps.sync.npm_candidates",
             return_value=[vs.Candidate(version="9.0.0", date=eligible, ref="9.0.0")],
         ),
         patch(
-            "repomatic.sync_ops.pypi_candidates",
+            "repomatic.deps.sync.pypi_candidates",
             return_value=[vs.Candidate(version="2.0.0", date=eligible, ref="2.0.0")],
         ),
-        patch("repomatic.sync_ops.fetch_release_notes", side_effect=fake_fetch),
+        patch("repomatic.deps.sync.fetch_release_notes", side_effect=fake_fetch),
     ):
         result = runner.invoke(
             repomatic,
@@ -834,7 +834,7 @@ def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown(
         "      - run: uvx 'mango==1.0.0'\n",
     )
     with patch(
-        "repomatic.sync_ops.pypi_candidates",
+        "repomatic.deps.sync.pypi_candidates",
         return_value=[vs.Candidate(version="9.0.0", date=fresh, ref="9.0.0")],
     ):
         result = runner.invoke(
@@ -880,7 +880,7 @@ def test_sync_workflow_pins_upstream_pin_cooldown_without_refs(tmp_path, monkeyp
         "jobs:\n  build:\n    steps:\n      - run: uvx 'repomatic==6.31.0' metadata\n",
     )
     with patch(
-        "repomatic.sync_ops.pypi_candidates",
+        "repomatic.deps.sync.pypi_candidates",
         return_value=[vs.Candidate(version="7.0.0", date=fresh, ref="7.0.0")],
     ):
         result = runner.invoke(
@@ -911,7 +911,7 @@ def test_sync_workflow_pins_upstream_pin_already_aligned(tmp_path, monkeypatch):
         "      - run: uvx 'repomatic==7.0.0' metadata\n",
     )
     with patch(
-        "repomatic.sync_ops.pypi_candidates",
+        "repomatic.deps.sync.pypi_candidates",
         return_value=[vs.Candidate(version="9.0.0", date=eligible, ref="9.0.0")],
     ):
         result = runner.invoke(
@@ -949,7 +949,7 @@ def test_sync_workflow_pins_upstream_pin_realigns_stragglers_both_ways(
         "jobs:\n  build:\n    steps:\n      - run: uvx 'repomatic==7.1.0' changelog\n",
     )
     with patch(
-        "repomatic.sync_ops.pypi_candidates",
+        "repomatic.deps.sync.pypi_candidates",
         return_value=[vs.Candidate(version="9.0.0", date=fresh, ref="9.0.0")],
     ):
         result = runner.invoke(
@@ -969,14 +969,14 @@ def test_pypi_candidates_skips_yanked():
         "1.0.0": PyPIRelease(date="2026-01-01", yanked=False, package="p"),
         "1.1.0": PyPIRelease(date="2026-02-01", yanked=True, package="p"),
     }
-    with patch("repomatic.release.version_sync.pypi_release_dates", return_value=fake):
+    with patch("repomatic.deps.pins.pypi_release_dates", return_value=fake):
         candidates = vs.pypi_candidates("p")
     assert {c.version for c in candidates} == {"1.0.0"}
 
 
 def test_npm_candidates():
     with patch(
-        "repomatic.release.version_sync.npm_release_dates",
+        "repomatic.deps.pins.npm_release_dates",
         return_value={"2.3.0": "2026-01-01"},
     ):
         candidates = vs.npm_candidates("awesome-lint")
@@ -1082,7 +1082,7 @@ def uncached_table():
 
 def test_checksum_table_parses_every_version(uncached_table):
     """Each key yields its uv version, whatever the target triple's shape."""
-    with patch("repomatic.release.version_sync.get_text", return_value=CHECKSUM_TABLE):
+    with patch("repomatic.deps.pins.get_text", return_value=CHECKSUM_TABLE):
         assert vs._checksum_table("deadbeef") == frozenset({"0.12.3", "0.11.30"})
 
 
@@ -1093,9 +1093,7 @@ def test_checksum_table_reads_the_json_layout(uncached_table):
     def fake_get_text(url, **kwargs):
         return CHECKSUM_TABLE_JSON if ".json?" in url else CHECKSUM_TABLE_IMPORT
 
-    with patch(
-        "repomatic.release.version_sync.get_text", side_effect=fake_get_text
-    ) as fetch:
+    with patch("repomatic.deps.pins.get_text", side_effect=fake_get_text) as fetch:
         assert vs._checksum_table("deadbeef") == frozenset({"0.12.12"})
     assert fetch.call_count == 1
 
@@ -1108,14 +1106,14 @@ def test_checksum_table_falls_back_to_the_typescript_layout(uncached_table):
             raise vs.FetchError("HTTP Error 404: Not Found")
         return CHECKSUM_TABLE
 
-    with patch("repomatic.release.version_sync.get_text", side_effect=fake_get_text):
+    with patch("repomatic.deps.pins.get_text", side_effect=fake_get_text):
         assert vs._checksum_table("deadbeef") == frozenset({"0.12.3", "0.11.30"})
 
 
 def test_checksum_table_unreadable_is_unknown(uncached_table):
     """A failed fetch is unknown, never a table that verifies nothing."""
     with patch(
-        "repomatic.release.version_sync.get_text", side_effect=vs.FetchError("boom")
+        "repomatic.deps.pins.get_text", side_effect=vs.FetchError("boom")
     ) as fetch:
         assert vs._checksum_table("deadbeef") is None
     assert fetch.called
@@ -1124,17 +1122,13 @@ def test_checksum_table_unreadable_is_unknown(uncached_table):
 def test_checksum_table_without_keys_is_unknown(uncached_table):
     """A body parsing to nothing means the upstream format moved, not that
     the action verifies nothing."""
-    with patch(
-        "repomatic.release.version_sync.get_text", return_value="export const X = {};"
-    ):
+    with patch("repomatic.deps.pins.get_text", return_value="export const X = {};"):
         assert vs._checksum_table("deadbeef") is None
 
 
 def test_checksum_table_is_fetched_once_per_commit(uncached_table):
     """Content at a commit is immutable, so the two readers share one fetch."""
-    with patch(
-        "repomatic.release.version_sync.get_text", return_value=CHECKSUM_TABLE
-    ) as fetch:
+    with patch("repomatic.deps.pins.get_text", return_value=CHECKSUM_TABLE) as fetch:
         vs._checksum_table("deadbeef")
         vs._checksum_table("deadbeef")
     assert fetch.call_count == 1
@@ -1147,7 +1141,7 @@ def test_setup_uv_verified_versions_intersects_every_pin(uncached_table):
     def fake_get_text(url, **kwargs):
         return CHECKSUM_TABLE if "newsha" in url else older
 
-    with patch("repomatic.release.version_sync.get_text", side_effect=fake_get_text):
+    with patch("repomatic.deps.pins.get_text", side_effect=fake_get_text):
         verified = vs.setup_uv_verified_versions(["newsha", "oldsha"])
     assert verified == frozenset({"0.11.30"})
 
@@ -1162,7 +1156,7 @@ def test_setup_uv_verified_versions_with_one_unreadable_pin_is_unknown(
             raise vs.FetchError("boom")
         return CHECKSUM_TABLE
 
-    with patch("repomatic.release.version_sync.get_text", side_effect=fake_get_text):
+    with patch("repomatic.deps.pins.get_text", side_effect=fake_get_text):
         assert vs.setup_uv_verified_versions(["newsha", "oldsha"]) is None
 
 

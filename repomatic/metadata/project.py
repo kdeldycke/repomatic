@@ -45,14 +45,14 @@ from ..pyproject import (
     is_python_project as _is_python_project,
 )
 from ..release.binary import NUITKA_BUILD_TARGETS
-from ..tooling.tool_registry import MYPY_VERSION_MIN
+from ..tooling.registry import MYPY_VERSION_MIN
 from ..versions import BUMP_PARTS
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from typing import Any, Final, Literal
 
-    from ..github.matrix import Matrix
+    from ..matrix.model import Matrix
 
 
 _SCRIPT_NAME_RE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9._-]+")
@@ -203,7 +203,7 @@ class ProjectMetadata:
         declares a `[project]` table to carry its dependencies, then opts out of
         being built with `[tool.uv] package = false`. Delegates to
         {func}`repomatic.pyproject.is_python_package`, the same predicate
-        {attr}`~repomatic.registry.RepoScope.PACKAGE_ONLY` resolves against, so
+        {attr}`~repomatic.components.RepoScope.PACKAGE_ONLY` resolves against, so
         the release lane and the checks that police it agree on who publishes.
 
         Prefer this over the truthiness of {attr}`package_name` when gating

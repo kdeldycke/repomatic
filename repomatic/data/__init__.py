@@ -31,8 +31,8 @@ single source of truth while still being bundled in the package. The
 The labelling rules are not here. They were bundled as
 `labeller-content-based.yaml` and `labeller-file-based.yaml` for the two
 JavaScript labeller actions to read; `apply-labels` now matches in-process, so
-they live as {data}`repomatic.labels.DEFAULT_CONTENT_RULES` and
-{data}`~repomatic.labels.DEFAULT_FILE_RULES`, overlaid by
+they live as {data}`repomatic.github.labels.DEFAULT_CONTENT_RULES` and
+{data}`~repomatic.github.labels.DEFAULT_FILE_RULES`, overlaid by
 `[tool.repomatic.labels]`, with no file staged anywhere.
 ```
 

@@ -28,7 +28,16 @@ import pytest
 import tomlrt
 import yaml
 
+from repomatic.claude_plugin import ARCHIVE_NAME
+from repomatic.components import (
+    ALL_WORKFLOW_FILES,
+    COMPONENTS,
+    RELEASE_ENGINE_WORKFLOWS,
+    SELF_MAINTENANCE_WORKFLOWS,
+    WORKFLOW_SOURCES,
+)
 from repomatic.config import SITE_DEPLOY_TARGETS
+from repomatic.deps.pins import find_workflow_literals
 from repomatic.git_ops import (
     CHANGELOG_COMMIT_PREFIX,
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
@@ -44,19 +53,10 @@ from repomatic.github.workflow_sync import (
     workflow_triggers,
 )
 from repomatic.lint_repo import KNOWN_RUNNERS
-from repomatic.matrix_axes import TEST_PYTHON_FULL
+from repomatic.matrix.axes import TEST_PYTHON_FULL
 from repomatic.metadata.core import Metadata
-from repomatic.registry import (
-    ALL_WORKFLOW_FILES,
-    COMPONENTS,
-    RELEASE_ENGINE_WORKFLOWS,
-    SELF_MAINTENANCE_WORKFLOWS,
-    WORKFLOW_SOURCES,
-)
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from repomatic.release.prepare_release import LOCAL_CLI_INVOCATION
-from repomatic.release.version_sync import find_workflow_literals
-from repomatic.tooling.plugin import ARCHIVE_NAME
 from repomatic.versions import BUMP_PARTS
 from tests.conftest import (
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,
@@ -302,7 +302,7 @@ def test_exempt_workflows_no_concurrency(workflow_name: str) -> None:
 
 
 TOOL_CACHE_KEY_SUFFIX = (
-    "${{ github.job_workflow_sha || hashFiles('repomatic/tooling/tool_registry.py') }}"
+    "${{ github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}"
 )
 """The only valid ending for a tool-cache key derived from the registry file."""
 
@@ -329,7 +329,7 @@ def test_tool_cache_keys_rotate_downstream() -> None:
                 if not (isinstance(uses, str) and uses.startswith("actions/cache")):
                     continue
                 key = step.get("with", {}).get("key", "")
-                if "hashFiles('repomatic/tooling/tool_registry.py')" not in key:
+                if "hashFiles('repomatic/tooling/registry.py')" not in key:
                     continue
                 checked += 1
                 assert key.endswith(TOOL_CACHE_KEY_SUFFIX), (
@@ -1318,7 +1318,7 @@ def test_every_job_runs_on_a_test_axis(
     assert runs_on in KNOWN_RUNNERS, (
         f"{workflow_name} ({job_name}): unknown runner {runs_on!r}. Every job "
         "runs on a test axis, so widen the runner sets in "
-        "repomatic/matrix_axes.py rather than naming a one-off image here."
+        "repomatic/matrix/axes.py rather than naming a one-off image here."
     )
 
 
@@ -1334,7 +1334,7 @@ def test_binary_build_targets_are_the_test_axes() -> None:
     The equality is the invariant, in both directions: a published binary is
     built on an image the suite is validated against, and an image the suite
     covers is one binaries can be built on. Adding a target therefore means
-    widening the test axes in {mod}`repomatic.matrix_axes`, never editing this
+    widening the test axes in {mod}`repomatic.matrix.axes`, never editing this
     fleet alone. `binary.py`'s own docstring states the rule; this holds it.
     """
     build_runners = {target.runner for target in NUITKA_BUILD_TARGETS.values()}
@@ -1342,7 +1342,7 @@ def test_binary_build_targets_are_the_test_axes() -> None:
         "Nuitka build targets and the test axes have diverged. Only in "
         f"NUITKA_BUILD_TARGETS: {sorted(build_runners - set(KNOWN_RUNNERS))}; "
         f"only in KNOWN_RUNNERS: {sorted(set(KNOWN_RUNNERS) - build_runners)}. "
-        "Widen the runner sets in repomatic/matrix_axes.py so the two agree."
+        "Widen the runner sets in repomatic/matrix/axes.py so the two agree."
     )
 
 
@@ -1351,7 +1351,7 @@ def test_prerelease_python_label_reaches_the_job_name() -> None:
 
     `repomatic show-metadata` attaches `python-label` to the cells whose Python is
     unreleased and to no others (see
-    {data}`~repomatic.matrix_axes.PRERELEASE_LABEL_SUFFIX`), so the fallback is
+    {data}`~repomatic.matrix.axes.PRERELEASE_LABEL_SUFFIX`), so the fallback is
     not decoration: on every released cell the key resolves to an empty string,
     and the job would be titled `py` with nothing after it. The metadata half of
     the contract is held by
@@ -1934,7 +1934,7 @@ def test_release_engine_lanes_not_materialized_downstream() -> None:
 
     They must not be downstream `FileEntry` file_ids (the release entry's
     file_id is `release.yaml`), and the entry's recorded source must be one of
-    the lanes so {data}`~repomatic.registry.WORKFLOW_SOURCES` and the concept
+    the lanes so {data}`~repomatic.components.WORKFLOW_SOURCES` and the concept
     stay consistent.
     """
     materialized = set(RELEASE_ENGINE_WORKFLOWS) & set(ALL_WORKFLOW_FILES)
@@ -2199,7 +2199,7 @@ def test_every_setup_uv_step_pins_a_version(path: Path) -> None:
     Two reasons this must hold everywhere rather than mostly. Without the input,
     `setup-uv` installs the newest uv satisfying `required-version`, so the tool
     enforcing every cooldown arrives without one. And
-    `repomatic.release.version_sync._SETUP_UV_VERSION_RE` scans lazily from the
+    `repomatic.deps.pins._SETUP_UV_VERSION_RE` scans lazily from the
     `uses:` line to the next `version:`, so a step missing the input would silently
     borrow the following step's and `sync-workflow-pins` would rewrite the wrong
     line.
@@ -2281,7 +2281,7 @@ def _declared_release_assets() -> list[str]:
 def test_plugin_archive_is_a_declared_release_asset() -> None:
     """The packed plugin's filename is one of the declared release assets.
 
-    `pack-plugin` writes {data}`~repomatic.tooling.plugin.ARCHIVE_NAME` by default and
+    `pack-plugin` writes {data}`~repomatic.claude_plugin.ARCHIVE_NAME` by default and
     `release.yaml` passes no `--output`, so renaming the constant on its own
     would leave `release-assets` and the upload `path:` naming a file no job
     produces. The test below then holds that filename equal to the run-artifact

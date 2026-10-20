@@ -47,6 +47,11 @@ from ..changelog import (
     Changelog,
     resolved_changelog_path,
 )
+from ..claude_plugin import ARCHIVE_NAME, pack_plugin
+from ..components import (
+    DEFAULT_REPO,
+    WORKFLOW_TARGET_ROOT,
+)
 from ..git_ops import commit_and_push_files, create_and_push_tag
 from ..github.pr import (
     carry_pr_branch_paths,
@@ -60,10 +65,6 @@ from ..metadata.core import (
     Metadata,
 )
 from ..metadata.project import is_version_bump_allowed
-from ..registry import (
-    DEFAULT_REPO,
-    WORKFLOW_TARGET_ROOT,
-)
 from ..release.attestation import pack_attestation
 from ..release.binaries_page import (
     render_binaries_csv,
@@ -86,7 +87,6 @@ from ..release.virustotal import (
     scan_files,
     upsert_scan_records,
 )
-from ..tooling.plugin import ARCHIVE_NAME, pack_plugin
 from ..versions import BUMP_PARTS
 from .main import (
     _section_release,

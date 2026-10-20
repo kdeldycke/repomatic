@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the label rules in :mod:`repomatic.labels`.
+"""Tests for the label rules in :mod:`repomatic.github.labels`.
 
 A rule is one label mapped to a list of patterns: keywords or regexes over a
 thread's text, globs over a pull request's changed paths. These tests pin the
@@ -34,11 +34,13 @@ import tomlrt
 import yaml
 from click.testing import CliRunner
 
-from repomatic import labels as labels_module
+from repomatic.bundle import get_data_content
 from repomatic.cli.main import repomatic
 from repomatic.config import Config, LabelsConfig, load_repomatic_config
+from repomatic.deps.sync import DEPENDENCY_LABEL
+from repomatic.github import labels as labels_module
 from repomatic.github.actions import get_github_event
-from repomatic.labels import (
+from repomatic.github.labels import (
     DEFAULT_CONTENT_RULES,
     DEFAULT_FILE_RULES,
     apply_labels,
@@ -49,8 +51,6 @@ from repomatic.labels import (
     resolve_file_rules,
     serialize_inline_labels,
 )
-from repomatic.sync_ops import DEPENDENCY_LABEL
-from repomatic.tooling.bundle import get_data_content
 
 
 def _make_config(**labels_kwargs):
@@ -237,7 +237,7 @@ def test_default_rule_labels_exist_in_the_label_registry():
     one. The sponsor-label command's default rides the same registry and gets
     the same check: its label once carried a stray plural that existed in no
     repository, and every sponsor-labelling attempt died on it.
-    {data}`~repomatic.sync_ops.DEPENDENCY_LABEL` is in the population for the
+    {data}`~repomatic.deps.sync.DEPENDENCY_LABEL` is in the population for the
     same reason, being applied to every dependency-update PR.
     """
     registry = tomlrt.loads(get_data_content("labels.toml"))

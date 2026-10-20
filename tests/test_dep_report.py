@@ -17,7 +17,7 @@
 """Golden renders and date-formatting checks for the shared report module.
 
 Every dependency updater's PR body is assembled from
-{mod}`repomatic.deps.dep_report`, so the exact markdown these functions emit is a
+{mod}`repomatic.deps.report`, so the exact markdown these functions emit is a
 user-visible contract shared by `sync-uv-lock`, `sync-deps`,
 `sync-dep-sources`, the three version-sync bumpers, and `audit --fix`. The
 tables are asserted verbatim rather than probed for substrings: a stray
@@ -34,7 +34,7 @@ from pathlib import Path
 import pytest
 
 from repomatic.cli import main as cli
-from repomatic.deps.dep_report import (
+from repomatic.deps.report import (
     BYPASS_NEEDS_RELEASE,
     BypassForecast,
     HeldBackPackage,

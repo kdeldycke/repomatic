@@ -60,16 +60,16 @@ from pathlib import Path
 import yaml
 
 from .. import __version__
-from ..config import Config
-from ..registry import (
+from ..bundle import get_data_content
+from ..components import (
     DEFAULT_REPO,
     UPSTREAM_ASSET_GLOB,
     UPSTREAM_SOURCE_GLOB,
     UPSTREAM_SOURCE_PREFIX,
     WORKFLOW_SOURCES,
 )
-from ..release.version_sync import min_release_age_days
-from ..tooling.bundle import get_data_content
+from ..config import Config
+from ..deps.pins import min_release_age_days
 from .actions import AnnotationLevel, emit_annotation
 
 TYPE_CHECKING = False

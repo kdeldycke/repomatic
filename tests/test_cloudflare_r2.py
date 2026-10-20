@@ -31,10 +31,10 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from repomatic import cloudflare_r2
 from repomatic.cli.main import repomatic
-from repomatic.cloudflare import CloudflareError, CloudflareHTTPError
-from repomatic.cloudflare_r2 import (
+from repomatic.cloudflare import r2 as cloudflare_r2
+from repomatic.cloudflare.pages import CloudflareError, CloudflareHTTPError
+from repomatic.cloudflare.r2 import (
     ACCESS_KEY_ID_ENV,
     CACHE_CONTROL,
     OFFLOAD_DOCS_LINK,
@@ -50,8 +50,8 @@ from repomatic.cloudflare_r2 import (
     run_offload,
     sign_v4,
 )
+from repomatic.cloudflare.redirects import MAX_STATIC_RULES, parse_redirects
 from repomatic.github.actions import ReportAction
-from repomatic.pages_redirects import MAX_STATIC_RULES, parse_redirects
 
 DOMAIN = "files.example.com"
 

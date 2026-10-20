@@ -44,9 +44,8 @@ from pathlib import Path
 
 import pytest
 
-from repomatic.frontmatter import split_frontmatter
-from repomatic.init_project import _copy_template_tree
-from repomatic.registry import (
+from repomatic.bundle import get_data_content
+from repomatic.components import (
     COMPONENTS_BY_NAME,
     RECOMMENDED_MODEL_RE,
     SKILL_FILENAME,
@@ -54,7 +53,8 @@ from repomatic.registry import (
     skill_catalog,
     skill_launcher,
 )
-from repomatic.tooling.bundle import get_data_content
+from repomatic.frontmatter import split_frontmatter
+from repomatic.init_project import _copy_template_tree
 
 SKILLS_PAGE = Path(__file__).parent.parent / "docs" / "agent-skills.md"
 """The hand-maintained page whose table must mirror the skill registry."""

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import pytest
 
-from repomatic.pages_redirects import (
+from repomatic.cloudflare.redirects import (
     MAX_DYNAMIC_RULES,
     apply_rule,
     discarded_rules,

@@ -110,7 +110,7 @@ jobs:
     # `python-label` is set by repomatic show-metadata only where the plain version
     # would hide why a cell is continue-on-error (a prerelease reads `3.16-dev`);
     # every other cell falls back to the version itself. See
-    # repomatic/matrix_axes.py for why the label never replaces the axis value.
+    # repomatic/matrix/axes.py for why the label never replaces the axis value.
     # A cell carrying a `resolution` key appends it, which tells that cell from
     # the twin sharing its runner and Python.
     name: >-

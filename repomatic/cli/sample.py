@@ -37,8 +37,8 @@ from click_extra import (
 from ..github.pr import (
     carry_pr_branch_paths,
 )
-from ..metric_chart import ChartSpec, write_chart
-from ..metrics import (
+from ..metrics.chart import ChartSpec, write_chart
+from ..metrics.store import (
     SAMPLE_HEADER_DEFS,
     collected_subjects,
     load_metrics,

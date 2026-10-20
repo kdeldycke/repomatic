@@ -27,8 +27,7 @@ from pathlib import Path
 import pytest
 
 from repomatic.config import Config, load_repomatic_config
-from repomatic.forge import ForgeMetrics
-from repomatic.metric_chart import (
+from repomatic.metrics.chart import (
     CHART_MODES,
     CHART_SCALES,
     SERIES_PALETTE,
@@ -39,7 +38,8 @@ from repomatic.metric_chart import (
     render_chart,
     write_chart,
 )
-from repomatic.metrics import (
+from repomatic.metrics.forge import ForgeMetrics
+from repomatic.metrics.store import (
     CHARTABLE_METRICS,
     METRIC_HEADERS,
     METRICS,
@@ -359,7 +359,7 @@ def test_series_skips_a_subject_with_no_reading():
 def test_sample_subject_records_every_metric_and_the_origin(monkeypatch):
     """Check one call yields each metric the forge answered, plus the birth."""
     monkeypatch.setattr(
-        "repomatic.metrics.repo_metrics",
+        "repomatic.metrics.store.repo_metrics",
         lambda url, extra=None: ForgeMetrics(
             stars=57,
             created="2021-12-09",
@@ -387,7 +387,7 @@ def test_sample_subject_records_every_metric_and_the_origin(monkeypatch):
 def test_sample_subject_adds_no_row_for_what_a_forge_did_not_answer(monkeypatch):
     """Check a project with no release stores no blank release row."""
     monkeypatch.setattr(
-        "repomatic.metrics.repo_metrics",
+        "repomatic.metrics.store.repo_metrics",
         lambda url, extra=None: ForgeMetrics(stars=3, created="2020-01-01"),
     )
     records: dict[tuple[str, str, str], MetricRecord] = {}
@@ -397,7 +397,9 @@ def test_sample_subject_adds_no_row_for_what_a_forge_did_not_answer(monkeypatch)
 
 def test_sample_subject_survives_an_unreadable_forge(monkeypatch):
     """Check one unreachable subject does not cost the others."""
-    monkeypatch.setattr("repomatic.metrics.repo_metrics", lambda url, extra=None: None)
+    monkeypatch.setattr(
+        "repomatic.metrics.store.repo_metrics", lambda url, extra=None: None
+    )
     records: dict[tuple[str, str, str], MetricRecord] = {}
     outcome = sample_subject(records, "papaya", PAPAYA, day="2026-08-16")
     assert outcome.note == "unreadable"
@@ -425,7 +427,9 @@ def test_reconstruct_accumulates_one_row_per_week_that_moved(monkeypatch):
         ]),
         json.dumps([]),
     ]
-    monkeypatch.setattr("repomatic.metrics.run_gh_command", lambda args: pages.pop(0))
+    monkeypatch.setattr(
+        "repomatic.metrics.store.run_gh_command", lambda args: pages.pop(0)
+    )
     records: dict[tuple[str, str, str], MetricRecord] = {}
     outcome = reconstruct_from_github(records, "papaya", PAPAYA)
 
@@ -450,7 +454,9 @@ def test_reconstruct_dates_a_day_without_converting_the_timezone(monkeypatch):
         json.dumps([star_week("2024-11-10", [0, 1, 0, 0, 0, 0, 0])]),
         json.dumps([]),
     ]
-    monkeypatch.setattr("repomatic.metrics.run_gh_command", lambda args: pages.pop(0))
+    monkeypatch.setattr(
+        "repomatic.metrics.store.run_gh_command", lambda args: pages.pop(0)
+    )
     records: dict[tuple[str, str, str], MetricRecord] = {}
     reconstruct_from_github(records, "papaya", PAPAYA)
     assert (PAPAYA, "stars", "2024-11-11") in records
@@ -472,7 +478,9 @@ def test_reconstruct_replaces_the_rows_it_wrote_before(monkeypatch):
         json.dumps([star_week("2021-12-05", [0, 0, 0, 0, 2, 0, 0])]),
         json.dumps([]),
     ]
-    monkeypatch.setattr("repomatic.metrics.run_gh_command", lambda args: pages.pop(0))
+    monkeypatch.setattr(
+        "repomatic.metrics.store.run_gh_command", lambda args: pages.pop(0)
+    )
     reconstruct_from_github(records, "papaya", PAPAYA)
 
     assert stale.key not in records
@@ -502,7 +510,7 @@ def test_reconstruct_reports_a_repository_that_is_gone(monkeypatch):
         msg = "gh: Not Found (HTTP 404)"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr("repomatic.metrics.run_gh_command", refuse)
+    monkeypatch.setattr("repomatic.metrics.store.run_gh_command", refuse)
     records: dict[tuple[str, str, str], MetricRecord] = {}
     outcome = reconstruct_from_github(records, "papaya", PAPAYA)
     assert outcome.note == "no such repository"
@@ -511,7 +519,9 @@ def test_reconstruct_reports_a_repository_that_is_gone(monkeypatch):
 
 def test_reconstruct_reports_a_repository_with_no_star(monkeypatch):
     """Check an unstarred repository is a note, not an empty curve."""
-    monkeypatch.setattr("repomatic.metrics.run_gh_command", lambda args: json.dumps([]))
+    monkeypatch.setattr(
+        "repomatic.metrics.store.run_gh_command", lambda args: json.dumps([])
+    )
     records: dict[tuple[str, str, str], MetricRecord] = {}
     outcome = reconstruct_from_github(records, "papaya", PAPAYA)
     assert outcome.note == "no star on record"
@@ -534,7 +544,7 @@ def test_reconstruct_writes_nothing_when_pagination_breaks_midway(monkeypatch):
         msg = "gh: Bad gateway (HTTP 502)"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr("repomatic.metrics.run_gh_command", flaky)
+    monkeypatch.setattr("repomatic.metrics.store.run_gh_command", flaky)
     records: dict[tuple[str, str, str], MetricRecord] = {}
     outcome = reconstruct_from_github(records, "papaya", PAPAYA)
     assert "abandoned on page 2" in outcome.note
@@ -543,7 +553,7 @@ def test_reconstruct_writes_nothing_when_pagination_breaks_midway(monkeypatch):
 
 def test_reconstruct_gives_up_on_an_unparsable_page(monkeypatch):
     """Check a payload that is not JSON abandons the subject."""
-    monkeypatch.setattr("repomatic.metrics.run_gh_command", lambda args: "<html>")
+    monkeypatch.setattr("repomatic.metrics.store.run_gh_command", lambda args: "<html>")
     records: dict[tuple[str, str, str], MetricRecord] = {}
     outcome = reconstruct_from_github(records, "papaya", PAPAYA)
     assert outcome.note == "unparsable page 1"
@@ -553,7 +563,7 @@ def test_reconstruct_gives_up_on_an_unparsable_page(monkeypatch):
 def test_reconstruct_walk_is_bounded(monkeypatch):
     """Check a server that never runs out of pages cannot loop forever.
 
-    GitHub refuses past {data}`~repomatic.metrics.STAR_HISTORY_MAX_PAGES`, so
+    GitHub refuses past {data}`~repomatic.metrics.store.STAR_HISTORY_MAX_PAGES`, so
     the walk stops there on its own rather than trusting the endpoint to end the
     sequence.
     """
@@ -563,7 +573,7 @@ def test_reconstruct_walk_is_bounded(monkeypatch):
         calls["count"] += 1
         return json.dumps([star_week("2021-12-05", [1, 0, 0, 0, 0, 0, 0])])
 
-    monkeypatch.setattr("repomatic.metrics.run_gh_command", endless)
+    monkeypatch.setattr("repomatic.metrics.store.run_gh_command", endless)
     records: dict[tuple[str, str, str], MetricRecord] = {}
     reconstruct_from_github(records, "papaya", PAPAYA)
     assert calls["count"] == STAR_HISTORY_MAX_PAGES
@@ -815,7 +825,7 @@ def test_render_chart_logarithmic_keeps_a_zero_on_the_floor():
     at its first star, which is a different and unstated claim. Not every
     series carries one: a repository starred on its creation day loses the
     anchor to that day's measurement, per
-    {data}`repomatic.metrics.SOURCE_RANK`.
+    {data}`repomatic.metrics.store.SOURCE_RANK`.
     """
     data = build_chart_data(LOPSIDED, ChartSpec(output=Path("chart.svg")))
     svg = render_chart(data, logarithmic=True, stamp="2026-08-16")
