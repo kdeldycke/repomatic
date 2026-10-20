@@ -23,7 +23,7 @@ from itertools import permutations
 
 import pytest
 
-from repomatic.matrix.model import Matrix
+from repomatic.matrix.model import GITHUB_MATRIX_JOB_LIMIT, Matrix
 
 
 def test_matrix_constructor_takes_no_arguments():
@@ -85,6 +85,13 @@ def test_matrix():
 
     with pytest.raises(ValueError):
         matrix.add_variation("exclude", ["a", "b", "c"])
+
+
+def test_add_variation_reads_a_generator_once():
+    """A generator of values lands whole, rather than consumed by the checks."""
+    matrix = Matrix()
+    matrix.add_variation("fruit", (fruit for fruit in ("apple", "pear", "apple")))
+    assert matrix.variations == {"fruit": ("apple", "pear")}
 
 
 def test_replace_variation_value():
@@ -440,33 +447,6 @@ def test_all_variations():
         ),
     }
 
-    assert matrix.matrix(ignore_includes=True) == {
-        "foo": ("a", "b", "c"),
-        "bar": ("1", "2", "3"),
-        "exclude": (
-            {"foo": "b", "shape": "circle"},
-            {"bar": "2", "color": "blue"},
-            {"bar": "4", "color": "yellow"},
-            {"weight": "heavy"},
-        ),
-    }
-
-    assert matrix.matrix(ignore_excludes=True) == {
-        "foo": ("a", "b", "c"),
-        "bar": ("1", "2", "3"),
-        "include": (
-            {"foo": "b", "color": "green"},
-            {"foo": "d", "color": "orange"},
-            {"bar": "1", "shape": "triangle"},
-            {"size": "small"},
-        ),
-    }
-
-    assert matrix.matrix(ignore_includes=True, ignore_excludes=True) == {
-        "foo": ("a", "b", "c"),
-        "bar": ("1", "2", "3"),
-    }
-
     assert matrix.all_variations() == {
         "foo": ("a", "b", "c"),
         "bar": ("1", "2", "3"),
@@ -478,47 +458,6 @@ def test_all_variations():
         "color": ("green", "orange"),
         "shape": ("triangle",),
         "size": ("small",),
-    }
-
-    assert matrix.all_variations(with_excludes=True) == {
-        "foo": ("a", "b", "c"),
-        "bar": ("1", "2", "3", "4"),
-        "shape": ("circle",),
-        "color": ("blue", "yellow"),
-        "weight": ("heavy",),
-    }
-
-    assert matrix.all_variations(with_includes=True, with_excludes=True) == {
-        "foo": ("a", "b", "c", "d"),
-        "bar": ("1", "2", "3", "4"),
-        "color": ("green", "orange", "blue", "yellow"),
-        "shape": ("triangle", "circle"),
-        "size": ("small",),
-        "weight": ("heavy",),
-    }
-
-    assert matrix.all_variations(with_matrix=False) == {}
-    assert (
-        matrix.all_variations(
-            with_matrix=False, with_excludes=False, with_includes=False
-        )
-        == {}
-    )
-
-    assert matrix.all_variations(with_matrix=False, with_includes=True) == {
-        "foo": ("b", "d"),
-        "color": ("green", "orange"),
-        "bar": ("1",),
-        "shape": ("triangle",),
-        "size": ("small",),
-    }
-
-    assert matrix.all_variations(with_matrix=False, with_excludes=True) == {
-        "foo": ("b",),
-        "shape": ("circle",),
-        "bar": ("2", "4"),
-        "color": ("blue", "yellow"),
-        "weight": ("heavy",),
     }
 
 
@@ -556,111 +495,6 @@ def test_product():
         {"foo": "a", "bar": "2"},
         {"foo": "b", "bar": "1"},
         {"foo": "b", "bar": "2"},
-    )
-
-    assert tuple(matrix.product(with_includes=True)) == (
-        {"foo": "a", "bar": "1", "baz": "W", "qux": "福", "@": "$"},
-        {"foo": "a", "bar": "1", "baz": "X", "qux": "福", "@": "$"},
-        {"foo": "a", "bar": "2", "baz": "W", "qux": "福", "@": "$"},
-        {"foo": "a", "bar": "2", "baz": "X", "qux": "福", "@": "$"},
-        {"foo": "b", "bar": "1", "baz": "W", "qux": "福", "@": "$"},
-        {"foo": "b", "bar": "1", "baz": "X", "qux": "福", "@": "$"},
-        {"foo": "b", "bar": "2", "baz": "W", "qux": "福", "@": "$"},
-        {"foo": "b", "bar": "2", "baz": "X", "qux": "福", "@": "$"},
-        {"foo": "c", "bar": "1", "baz": "W", "qux": "福", "@": "$"},
-        {"foo": "c", "bar": "1", "baz": "X", "qux": "福", "@": "$"},
-        {"foo": "c", "bar": "2", "baz": "W", "qux": "福", "@": "$"},
-        {"foo": "c", "bar": "2", "baz": "X", "qux": "福", "@": "$"},
-    )
-
-    assert tuple(matrix.product(with_excludes=True)) == (
-        {"foo": "a", "bar": "1", "qux": "子", "baz": "Y", "E": "O"},
-        {"foo": "a", "bar": "1", "qux": "子", "baz": "Z", "E": "O"},
-        {"foo": "a", "bar": "2", "qux": "子", "baz": "Y", "E": "O"},
-        {"foo": "a", "bar": "2", "qux": "子", "baz": "Z", "E": "O"},
-        {"foo": "a", "bar": "3", "qux": "子", "baz": "Y", "E": "O"},
-        {"foo": "a", "bar": "3", "qux": "子", "baz": "Z", "E": "O"},
-        {"foo": "b", "bar": "1", "qux": "子", "baz": "Y", "E": "O"},
-        {"foo": "b", "bar": "1", "qux": "子", "baz": "Z", "E": "O"},
-        {"foo": "b", "bar": "2", "qux": "子", "baz": "Y", "E": "O"},
-        {"foo": "b", "bar": "2", "qux": "子", "baz": "Z", "E": "O"},
-        {"foo": "b", "bar": "3", "qux": "子", "baz": "Y", "E": "O"},
-        {"foo": "b", "bar": "3", "qux": "子", "baz": "Z", "E": "O"},
-    )
-
-    assert tuple(matrix.product(with_includes=True, with_excludes=True)) == (
-        {"foo": "a", "bar": "1", "baz": "W", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "1", "baz": "W", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "1", "baz": "X", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "1", "baz": "X", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "1", "baz": "Y", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "1", "baz": "Y", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "1", "baz": "Z", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "1", "baz": "Z", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "2", "baz": "W", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "2", "baz": "W", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "2", "baz": "X", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "2", "baz": "X", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "2", "baz": "Y", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "2", "baz": "Y", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "2", "baz": "Z", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "2", "baz": "Z", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "3", "baz": "W", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "3", "baz": "W", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "3", "baz": "X", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "3", "baz": "X", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "3", "baz": "Y", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "3", "baz": "Y", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "3", "baz": "Z", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "a", "bar": "3", "baz": "Z", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "1", "baz": "W", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "1", "baz": "W", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "1", "baz": "X", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "1", "baz": "X", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "1", "baz": "Y", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "1", "baz": "Y", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "1", "baz": "Z", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "1", "baz": "Z", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "2", "baz": "W", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "2", "baz": "W", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "2", "baz": "X", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "2", "baz": "X", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "2", "baz": "Y", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "2", "baz": "Y", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "2", "baz": "Z", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "2", "baz": "Z", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "3", "baz": "W", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "3", "baz": "W", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "3", "baz": "X", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "3", "baz": "X", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "3", "baz": "Y", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "3", "baz": "Y", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "3", "baz": "Z", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "b", "bar": "3", "baz": "Z", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "1", "baz": "W", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "1", "baz": "W", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "1", "baz": "X", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "1", "baz": "X", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "1", "baz": "Y", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "1", "baz": "Y", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "1", "baz": "Z", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "1", "baz": "Z", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "2", "baz": "W", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "2", "baz": "W", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "2", "baz": "X", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "2", "baz": "X", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "2", "baz": "Y", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "2", "baz": "Y", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "2", "baz": "Z", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "2", "baz": "Z", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "3", "baz": "W", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "3", "baz": "W", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "3", "baz": "X", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "3", "baz": "X", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "3", "baz": "Y", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "3", "baz": "Y", "qux": "子", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "3", "baz": "Z", "qux": "福", "@": "$", "E": "O"},
-        {"foo": "c", "bar": "3", "baz": "Z", "qux": "子", "@": "$", "E": "O"},
     )
 
 
@@ -859,62 +693,52 @@ def test_solve_exclude_include_selectivity():
     )
 
 
-def test_strict_mode_unknown_exclude_key():
-    """Strict mode rejects an exclude naming an axis the matrix never declared."""
+def test_solve_exclude_matches_on_the_keys_it_shares():
+    """An exclude naming a key outside the axes matches on the keys it shares."""
     matrix = Matrix()
 
     matrix.add_variation("os", ["macos-latest", "windows-latest", "linux-latest"])
     matrix.add_variation("version", ["3.14", "3.13", "3.12"])
 
-    matrix.add_includes()
     matrix.add_excludes(
         {"os": "linux-latest", "unknown_key": "random"},
         {"version": "3.14"},
     )
 
-    assert tuple(matrix.solve(strict=False)) == (
+    assert tuple(matrix.solve()) == (
         {"os": "macos-latest", "version": "3.13"},
         {"os": "macos-latest", "version": "3.12"},
         {"os": "windows-latest", "version": "3.13"},
         {"os": "windows-latest", "version": "3.12"},
     )
 
-    with pytest.raises(ValueError):
-        tuple(matrix.solve(strict=True))
 
-
-def test_pivot_basic():
-    """pivot() lays solved jobs out as a row-axis by col-axis grid."""
+def test_solve_reports_a_matrix_past_the_job_limit(caplog):
+    """GitHub refuses a matrix past its job limit, so the solver says so."""
     matrix = Matrix()
-    matrix.add_variation("os", ["ubuntu-slim", "macos-26"])
-    matrix.add_variation("python-version", ["3.10", "3.14"])
-    matrix.add_includes({"state": "stable"})
+    matrix.add_variation("index", [str(i) for i in range(GITHUB_MATRIX_JOB_LIMIT)])
+    assert len(tuple(matrix.solve())) == GITHUB_MATRIX_JOB_LIMIT
+    assert not caplog.records
 
-    cols, rows = matrix.pivot()
-    assert cols == ("ubuntu-slim", "macos-26")
-    assert rows == (
-        ("3.10", "stable", "stable"),
-        ("3.14", "stable", "stable"),
-    )
+    matrix.add_variation("index", ["one-more"])
+    assert len(tuple(matrix.solve())) == GITHUB_MATRIX_JOB_LIMIT + 1
+    assert "past the GitHub limit" in caplog.text
 
 
-def test_pivot_excluded_cell_is_missing():
-    """An excluded combination renders the missing placeholder."""
+def test_job_keys_reads_the_solved_jobs():
+    """A key only an include sets is listed; an axis no job keeps is not."""
     matrix = Matrix()
-    matrix.add_variation("os", ["ubuntu-slim", "macos-26"])
-    matrix.add_variation("python-version", ["3.10", "3.14"])
-    matrix.add_includes({"state": "stable"})
-    matrix.add_excludes({"os": "macos-26", "python-version": "3.14"})
+    matrix.add_variation("fruit", ["apple", "pear"])
+    matrix.add_includes({"color": "green"})
+    assert matrix.job_keys() == ("color", "fruit")
 
-    cols, rows = matrix.pivot()
-    assert cols == ("ubuntu-slim", "macos-26")
-    assert rows == (
-        ("3.10", "stable", "stable"),
-        ("3.14", "stable", "—"),
-    )
+    matrix.add_excludes({"fruit": "apple"}, {"fruit": "pear"})
+    # Every combination is excluded, and the include merges into nothing, so
+    # it is appended as a job of its own.
+    assert matrix.job_keys() == ("color",)
 
 
-def test_pivot_marks_unstable_row():
+def test_pivot_counts_marks_an_unstable_row():
     """A partial state include flags the matching row's cells unstable."""
     matrix = Matrix()
     matrix.add_variation("os", ["ubuntu-slim", "macos-26"])
@@ -922,25 +746,12 @@ def test_pivot_marks_unstable_row():
     matrix.add_includes({"state": "stable"})
     matrix.add_includes({"state": "unstable", "python-version": "3.15"})
 
-    _, rows = matrix.pivot()
-    assert rows == (
-        ("3.14", "stable", "stable"),
-        ("3.15", "unstable", "unstable"),
-    )
-
-
-def test_pivot_multi_job_cell_joins_states():
-    """Several jobs at one intersection join their distinct states."""
-    matrix = Matrix()
-    matrix.add_variation("os", ["ubuntu-slim"])
-    matrix.add_variation("python-version", ["3.14"])
-    matrix.add_variation("click-version", ["stable", "main"])
-    matrix.add_includes({"state": "stable"})
-    matrix.add_includes({"state": "unstable", "click-version": "main"})
-
-    cols, rows = matrix.pivot()
-    assert cols == ("ubuntu-slim",)
-    assert rows == (("3.14", "stable, unstable"),)
+    assert matrix.pivot_counts() == {
+        ("3.14", "ubuntu-slim"): Counter({"stable": 1}),
+        ("3.14", "macos-26"): Counter({"stable": 1}),
+        ("3.15", "ubuntu-slim"): Counter({"unstable": 1}),
+        ("3.15", "macos-26"): Counter({"unstable": 1}),
+    }
 
 
 def test_pivot_counts_tallies_the_jobs_behind_each_cell():
@@ -975,19 +786,16 @@ def test_pivot_counts_omits_an_empty_intersection():
     assert all(tally == Counter({"stable": 1}) for tally in tallies.values())
 
 
-def test_pivot_custom_axes_and_missing_marker():
-    """pivot() accepts arbitrary axes, cell key and missing placeholder."""
+def test_pivot_counts_on_custom_axes():
+    """The counts lay out any two axes, tallying any cell key."""
     matrix = Matrix()
     matrix.add_variation("fruit", ["apple", "pear"])
     matrix.add_variation("city", ["paris", "tokyo"])
     matrix.add_includes({"taste": "sweet"})
     matrix.add_excludes({"fruit": "pear", "city": "tokyo"})
 
-    cols, rows = matrix.pivot(
-        row_axis="fruit", col_axis="city", cell_key="taste", missing="n/a"
-    )
-    assert cols == ("paris", "tokyo")
-    assert rows == (
-        ("apple", "sweet", "sweet"),
-        ("pear", "sweet", "n/a"),
-    )
+    assert matrix.pivot_counts(row_axis="fruit", col_axis="city", cell_key="taste") == {
+        ("apple", "paris"): Counter({"sweet": 1}),
+        ("apple", "tokyo"): Counter({"sweet": 1}),
+        ("pear", "paris"): Counter({"sweet": 1}),
+    }

@@ -28,13 +28,10 @@ label. A project entry for a label replaces the default entry wholesale, and
 an empty list disables it; see {func}`resolve_content_rules`.
 
 ```{note}
-This schema replaced the `actions/labeler` v5 and `github/issue-labeler`
-dialects when the matching moved in-tree. The retired shapes earned their
-complexity serving the actions (per-matcher quantifiers, branch regexes,
-`any`/`all` group nesting, per-pattern AND-joins), and none of it was used by
-any repository this toolkit manages: every real rule was "label X when any
-changed file matches any of these globs" or "when any of these words appears",
-which is exactly what the schema now says and nothing more.
+The schema says "label X when any changed file matches any of these globs" or
+"when any of these words appears", and nothing more. Per-matcher quantifiers,
+branch regexes and `any`/`all` group nesting are left out on purpose: no rule
+of a repository this toolkit manages needs them.
 ```
 """
 
@@ -45,6 +42,7 @@ import logging
 import re
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path, PurePosixPath
 
@@ -55,11 +53,14 @@ from wcmatch import glob
 from ..bundle import get_data_content
 from ..http import FetchError, get_bytes
 from ..tooling.runner import ensure_binary
-from .gh import gh_env
+from .event import get_event_subject
+from .gh import gh_env, gh_json
+from .pr import list_changed_files
+from .threads import ThreadKind, repo_args
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
     from typing import Any
 
     from ..config import Config
@@ -220,21 +221,20 @@ def _resolve_rules(
 
     An entry for a label the defaults also carry replaces the default entry
     wholesale, an empty list disables the label, and a bare string is accepted
-    as a single-pattern list. Replacement is deliberate where an earlier
-    revision merged: merging could only ever widen a rule, leaving no way to
-    correct or silence a default, and restating a default's short pattern list
-    is cheaper than a second override vocabulary.
+    as a single-pattern list. Replacement, not merging: a merge could only ever
+    widen a rule, leaving no way to correct or silence a default, and restating
+    a default's short pattern list is cheaper than a second override
+    vocabulary.
 
-    A non-mapping *overrides* value is the pre-`7.11.0` array-of-tables form,
-    reported and then ignored so a stale project degrades to the defaults
-    instead of crashing every command that loads its configuration.
+    A *overrides* value that is not a table is reported and then ignored, so a
+    malformed project degrades to the defaults instead of crashing every
+    command that loads its configuration.
     """
     if not isinstance(overrides, dict):
         if overrides:
             logging.warning(
-                f"Ignoring [tool.repomatic.labels] {kind}-rules: the array-of-tables "
-                "form was replaced in 7.11.0 by a table mapping each label to its "
-                "patterns. See the changelog for the migration."
+                f"Ignoring [tool.repomatic.labels] {kind}-rules: expected a table "
+                "mapping each label to its patterns."
             )
         overrides = {}
     resolved = dict(defaults)
@@ -300,9 +300,8 @@ def compile_content_pattern(pattern: str) -> re.Pattern[str] | None:
     capitalize freely, and a convention every rule must remember to spell is a
     convention half of them forget.
 
-    The `/body/flags` form passes the body through as a regex, mirroring
-    JavaScript because that is what the retired `github/issue-labeler` action
-    read and what existing rules are written in. No flags means
+    The `/body/flags` form passes the body through as a regex, in the
+    JavaScript spelling existing rules are written in. No flags means
     case-sensitive.
 
     Returns `None` on a body the `re` module rejects, having logged it. A
@@ -371,6 +370,47 @@ def match_file_rules(
     return matched
 
 
+def labels_for_thread(
+    config: Config,
+    number: int,
+    *,
+    kind: ThreadKind,
+    repository: str | None = None,
+) -> list[str]:
+    """The labels the project's rules give one issue or pull request.
+
+    In the labeller job the event payload carries the thread. A thread the
+    payload does not carry has its text read from the API instead, so the
+    content rules see the real title and body rather than an empty string.
+    File rules need a diff, which only a pull request has.
+
+    :param config: The resolved `[tool.repomatic]` configuration.
+    :param number: The issue or pull request number.
+    :param kind: Whether *number* names an issue or a pull request.
+    :param repository: Repository in `owner/name` form, or `None` to let `gh`
+        resolve it.
+    :return: The matched labels, sorted.
+    """
+    subject = get_event_subject()
+    if subject.get("number") != number:
+        args = [
+            kind,
+            "view",
+            str(number),
+            *repo_args(repository),
+            "--json",
+            "title,body",
+        ]
+        subject = gh_json(args, soft=True) or {}
+    text = f"{subject.get('title') or ''}\n{subject.get('body') or ''}"
+    matched = match_content_rules(resolve_content_rules(config), text)
+    if kind is ThreadKind.PR:
+        matched |= match_file_rules(
+            resolve_file_rules(config), list_changed_files(number, repository or "")
+        )
+    return sorted(matched)
+
+
 def serialize_inline_labels(entries: list[dict[str, Any]]) -> str:
     """Serialize `[tool.repomatic.labels.extra]` entries to a labelmaker TOML config.
 
@@ -424,12 +464,16 @@ def serialize_inline_labels(entries: list[dict[str, Any]]) -> str:
     return tomlrt.dumps(doc)
 
 
+EXTRA_LABELS_DIR = "extra-labels"
+"""Directory of a repository holding its hand-written label definitions."""
+
+
 def extra_label_filename(url: str) -> str:
     """The filename a `labels.extra-files` download is saved under.
 
-    Shared by the download and by {func}`declared_label_names`, which keys a
-    fetched definition the same way, so it shadows a committed `extra-labels/`
-    file of that name exactly as the download does.
+    Shared by the download of `repomatic init labels` and by
+    {func}`label_sources`, which keys a fetched definition the same way, so it
+    shadows a committed `extra-labels/` file of that name.
 
     :param url: One `labels.extra-files` entry.
     :return: The last segment of the URL path.
@@ -437,24 +481,78 @@ def extra_label_filename(url: str) -> str:
     return PurePosixPath(url.strip()).name
 
 
-def _extra_label_files(base: Path) -> dict[str, Path]:
-    """Label definition files beside the exported `labels.toml`.
+@dataclass(frozen=True)
+class LabelSource:
+    """One labelmaker definition file, as `sync-labels` applies it."""
 
-    Hand-written files committed under `extra-labels/` in the repository, plus
-    any downloaded from `labels.extra-files` into the export directory. Keyed
-    by filename so a download shadows a committed file of the same name, which
-    is what happened when both landed in the same directory.
+    path: str
+    """Where the file is staged for labelmaker, relative to the staging root.
 
-    :param base: Directory holding the export, per `apply_labels`' `labels_dir`.
+    Its extension tells labelmaker the format.
     """
-    extra_files: dict[str, Path] = {}
-    for extra_dir in (Path("extra-labels"), base / "extra-labels"):
-        if not extra_dir.is_dir():
-            continue
+
+    text: str
+    """The definitions."""
+
+    profiles: tuple[str, ...] | None = None
+    """The profiles applied, one `--profile` each. `None` applies the file
+    without one, and reads every profile it declares."""
+
+
+def label_sources(
+    config: Config,
+    *,
+    is_awesome: bool,
+    root: Path | None = None,
+) -> Iterator[LabelSource]:
+    """Every label definition the configuration applies to a repository.
+
+    In apply order: the bundled `labels.toml` under the `default` profile (and
+    the `awesome` one for an `awesome-*` repository), the hand-written files of
+    `extra-labels/` and the `labels.extra-files` downloads, then the inline
+    `[tool.repomatic.labels.extra]` definitions. Both {func}`apply_labels` and
+    {func}`declared_label_names` read this one list, so a label the sync
+    creates is never reported as undeclared.
+
+    :param config: The resolved `[tool.repomatic]` configuration.
+    :param is_awesome: Whether the repository is an `awesome-*` list.
+    :param root: Repository root holding `extra-labels/`, the current
+        directory when `None`.
+    :yields: Each definition file.
+    :raises repomatic.http.FetchError: When a `labels.extra-files` URL cannot
+        be fetched. The list would otherwise come back short, and every label
+        only that file declares would be lost.
+    """
+    yield LabelSource(
+        "labels.toml",
+        get_data_content("labels.toml"),
+        ("default", "awesome") if is_awesome else ("default",),
+    )
+
+    extra_dir = (Path() if root is None else root) / EXTRA_LABELS_DIR
+    texts: dict[str, str] = {}
+    if extra_dir.is_dir():
         for label_file in sorted(extra_dir.iterdir()):
             if label_file.is_file():
-                extra_files[label_file.name] = label_file
-    return extra_files
+                texts[label_file.name] = label_file.read_text(encoding="UTF-8")
+    # Keyed by filename, so a download shadows a committed file of that name.
+    for entry in config.labels.extra_files:
+        url = entry.strip()
+        if not url:
+            continue
+        try:
+            body = get_bytes(url)
+        except FetchError as exc:
+            # The message gains the URL: the bare failure names no file.
+            msg = f"{url}: {exc}"
+            raise FetchError(msg, status=exc.status, body=exc.body) from exc
+        texts[extra_label_filename(url)] = body.decode("UTF-8", errors="replace")
+    for filename, text in sorted(texts.items()):
+        yield LabelSource(f"{EXTRA_LABELS_DIR}/{filename}", text)
+
+    inline = serialize_inline_labels(config.labels.extra)
+    if inline:
+        yield LabelSource("inline.toml", inline)
 
 
 class LabelConfigError(ValueError):
@@ -545,53 +643,26 @@ def declared_label_names(
 ) -> set[str]:
     """Every label name the configured sources declare for a repository.
 
-    Reads the same four sources {func}`apply_labels` writes, in the same order
-    and through the same `extra-labels/` discovery, which is what lets
-    {func}`~repomatic.lint_repo.check_undeclared_labels` call anything outside
-    this set an orphan. The two functions must keep agreeing: a source added to
-    one and not the other makes that check report labels the sync itself
-    creates.
-
-    The bundled definitions are read from the installed package, and the
-    `labels.extra-files` definitions fetched from their URLs, rather than from
-    a staged export, so the answer does not depend on `sync-labels` having run
-    first.
+    Reads the {func}`label_sources` that {func}`apply_labels` applies, which is
+    what lets {func}`~repomatic.lint_repo.check_undeclared_labels` call
+    anything outside this set an orphan.
 
     :param config: The resolved `[tool.repomatic]` configuration.
     :param is_awesome: Whether the repository is an `awesome-*` list, which
         adds the `awesome` profile on top of `default`.
-    :param labels_dir: Directory holding a staged export, per `apply_labels`.
+    :param labels_dir: Repository root holding `extra-labels/`, the current
+        directory when `None`.
     :return: The declared label names.
     :raises repomatic.http.FetchError: When a `labels.extra-files` URL cannot
-        be fetched. The set would otherwise come back short, and every label
-        only that file declares would read as an orphan.
+        be fetched.
     :raises LabelConfigError: When an `extra-labels/` or `labels.extra-files`
-        definition cannot be read, for the same reason.
+        definition cannot be read. The set would otherwise come back short.
     """
-    wanted = ("default", "awesome") if is_awesome else ("default",)
-    names = _names_in_labelmaker_config(get_data_content("labels.toml"), wanted)
-
-    base = Path() if labels_dir is None else labels_dir
-    texts = {
-        name: label_file.read_text(encoding="UTF-8")
-        for name, label_file in _extra_label_files(base).items()
-    }
-    # Keyed like the downloads, so a fetched file shadows a committed one.
-    for entry in config.labels.extra_files:
-        url = entry.strip()
-        if not url:
-            continue
-        try:
-            body = get_bytes(url)
-        except FetchError as exc:
-            # The message gains the URL: the bare failure names no file.
-            msg = f"{url}: {exc}"
-            raise FetchError(msg, status=exc.status, body=exc.body) from exc
-        texts[extra_label_filename(url)] = body.decode("UTF-8", errors="replace")
-    for filename, label_text in texts.items():
-        names |= _names_in_labelmaker_config(label_text, filename=filename)
-
-    names |= _names_in_labelmaker_config(serialize_inline_labels(config.labels.extra))
+    names: set[str] = set()
+    for source in label_sources(config, is_awesome=is_awesome, root=labels_dir):
+        names |= _names_in_labelmaker_config(
+            source.text, source.profiles, filename=PurePosixPath(source.path).name
+        )
     return names
 
 
@@ -629,46 +700,32 @@ def apply_labels(
     repository: str,
     *,
     is_awesome: bool,
-    labels_dir: Path | None = None,
+    root: Path | None = None,
 ) -> None:
     """Apply every configured label source to *repository* via `labelmaker`.
 
-    Applies, in order: the exported `labels.toml` under the `default` profile,
-    the `awesome` profile for `awesome-*` repositories, any hand-written or
-    downloaded files under `extra-labels/`, and the inline
-    `[tool.repomatic.labels.extra]` definitions. The exported files are
-    expected to exist already (written by {func}`~repomatic.init_project.run_init`
-    for the `labels` component).
+    Stages each of the {func}`label_sources` in a scratch directory, so a sync
+    leaves the working tree untouched, then applies them in order.
 
     :param config: The resolved `[tool.repomatic]` configuration.
     :param repository: GitHub repository in `owner/name` form.
     :param is_awesome: Whether the repository is an `awesome-*` list.
-    :param labels_dir: Directory holding the exported `labels.toml` and the
-        `extra-labels/` downloads. Defaults to the current directory. Point it
-        at a scratch directory to keep the export out of the working tree.
-    :raises RuntimeError: When a labelmaker invocation fails.
+    :param root: Repository root holding `extra-labels/`, the current directory
+        when `None`.
+    :raises RuntimeError: When a labelmaker invocation fails, or when a
+        `labels.extra-files` URL cannot be fetched.
     """
-    base = Path() if labels_dir is None else labels_dir
-    labels_toml = str(base / "labels.toml")
-    extra_files = _extra_label_files(base)
-
+    sources = list(label_sources(config, is_awesome=is_awesome, root=root))
     lm = ensure_binary("labelmaker")
-
-    # Apply default profile.
-    _run_labelmaker(lm, "apply", labels_toml, "--profile", "default", repository)
-
-    # Apply awesome profile for awesome-* repos.
-    if is_awesome:
-        _run_labelmaker(lm, "apply", labels_toml, "--profile", "awesome", repository)
-
-    # Apply extra label files.
-    for _name, label_file in sorted(extra_files.items()):
-        _run_labelmaker(lm, "apply", str(label_file), repository)
-
-    # Apply inline label definitions from `[tool.repomatic.labels.extra]`.
-    inline_toml = serialize_inline_labels(config.labels.extra)
-    if inline_toml:
-        with tempfile.TemporaryDirectory(prefix="repomatic-labels-") as tmpdir:
-            inline_file = Path(tmpdir) / "inline.toml"
-            inline_file.write_text(inline_toml, encoding="UTF-8")
-            _run_labelmaker(lm, "apply", str(inline_file), repository)
+    with tempfile.TemporaryDirectory(prefix="repomatic-labels-") as tmpdir:
+        for source in sources:
+            staged = Path(tmpdir) / source.path
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            staged.write_text(source.text, encoding="UTF-8")
+            if source.profiles is None:
+                _run_labelmaker(lm, "apply", str(staged), repository)
+                continue
+            for profile in source.profiles:
+                _run_labelmaker(
+                    lm, "apply", str(staged), "--profile", profile, repository
+                )

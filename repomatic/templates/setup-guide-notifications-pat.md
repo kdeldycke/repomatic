@@ -1,6 +1,6 @@
 ---
 args: [repo_url, repo_slug]
-footer: 'false'
+footer: false
 ---
 
 The [unsubscribe workflow]($repo_url/actions/workflows/unsubscribe.yaml) needs its own **classic** token: the notifications API rejects fine-grained ones, so `REPOMATIC_PAT` cannot be reused. It skips silently until this is set.

@@ -48,22 +48,17 @@ from repomatic.github.workflow_sync import (
     _substitute_source_paths,
     canonical_caller_permissions,
     canonical_workflow,
-    check_has_workflow_dispatch,
-    check_secrets_passed,
-    check_triggers_match,
-    check_version_pinned,
     extract_extra_jobs,
     extract_trigger_info,
     extras_define_jobs,
     generate_thin_caller,
     generate_workflow_header,
     identify_canonical_workflow,
-    lint_workflow,
     render_thin_caller_for_target,
-    run_workflow_lint,
 )
 from repomatic.init_project import get_data_content
-from repomatic.lint_repo import check_workflow_permissions
+from repomatic.lint_repo.context import LintContext
+from repomatic.lint_repo.workflows import check_workflow_permissions
 from repomatic.pyproject import derive_source_paths, resolve_source_paths
 from repomatic.tooling.runner import run_tool
 from tests.conftest import (
@@ -1038,249 +1033,6 @@ def _parsed(text: str) -> dict:
     return data
 
 
-@pytest.mark.parametrize(
-    ("body", "passed", "needle"),
-    [
-        pytest.param(
-            '---\n"on":\n  workflow_dispatch:\n  push:\n', True, "has", id="present"
-        ),
-        pytest.param('---\n"on":\n  push:\n', False, "missing", id="absent"),
-    ],
-)
-def test_check_has_workflow_dispatch(
-    tmp_path: Path, body: str, passed: bool, needle: str
-) -> None:
-    """The `workflow_dispatch` check reports presence and absence."""
-    result = check_has_workflow_dispatch(tmp_path / "candidate.yaml", _parsed(body))
-    assert result.passed is passed
-    assert needle in result.message
-
-
-@pytest.mark.parametrize(
-    ("ref", "passed", "needle"),
-    [
-        pytest.param("v5.8.0", True, "", id="version-tag"),
-        pytest.param("main", False, "@main", id="floating-branch"),
-    ],
-)
-def test_check_version_pinned(
-    tmp_path: Path, ref: str, passed: bool, needle: str
-) -> None:
-    """A caller must pin the upstream workflow to a tag, never to a branch."""
-    content = f"    uses: {DEFAULT_REPO}/.github/workflows/lint.yaml@{ref}\n"
-    result = check_version_pinned(tmp_path / "lint.yaml", content)
-    assert result.passed is passed
-    assert needle in result.message
-
-
-def test_matching_triggers(tmp_path: Path) -> None:
-    """Pass when triggers match canonical."""
-    # lint.yaml has: workflow_dispatch, push, pull_request.
-    data = _parsed('---\n"on":\n  workflow_dispatch:\n  push:\n  pull_request:\n')
-    result = check_triggers_match(tmp_path / "lint.yaml", data, "lint.yaml")
-    assert result.passed is True
-
-
-def test_missing_trigger(tmp_path: Path) -> None:
-    """Fail when a trigger is missing."""
-    data = _parsed('---\n"on":\n  push:\n')
-    result = check_triggers_match(tmp_path / "lint.yaml", data, "lint.yaml")
-    assert result.passed is False
-    assert "missing:" in result.message
-
-
-def test_extra_trigger(tmp_path: Path) -> None:
-    """Fail when a caller declares a trigger absent from canonical."""
-    canonical = extract_trigger_info("cancel-runs.yaml")
-    on_lines = ['"on":']
-    for trigger_name, trigger_config in canonical.non_call_triggers.items():
-        on_lines.append(f"  {trigger_name}:")
-        if isinstance(trigger_config, dict):
-            for k, v in trigger_config.items():
-                if isinstance(v, list):
-                    on_lines.append(f"    {k}:")
-                    on_lines.extend(f"      - {item}" for item in v)
-                else:
-                    on_lines.append(f"    {k}: {v}")
-    on_lines.append("  workflow_dispatch:")
-    body = "\n".join(on_lines)
-    data = _parsed(f"---\n{body}\n")
-    result = check_triggers_match(
-        tmp_path / "cancel-runs.yaml", data, "cancel-runs.yaml"
-    )
-    assert result.passed is False
-    assert "extra: workflow_dispatch" in result.message
-
-
-def test_caller_with_synthetic_triggers_for_call_only_canonical(
-    tmp_path: Path,
-) -> None:
-    """Caller with synthesized triggers is clean when canonical has no non-call triggers.
-
-    The downstream release.yaml synthesizes push + workflow_dispatch because
-    _release-engine.yaml is call-only. check_triggers_match must not flag
-    those synthesized triggers as "extra" when the canonical defines none.
-    """
-    content = generate_thin_caller("release.yaml", version="v9.9.9")
-    wf = tmp_path / "release.yaml"
-    wf.write_text(content, encoding="UTF-8")
-    canonical = identify_canonical_workflow(wf)
-    assert canonical == "_release-engine.yaml"
-    result = check_triggers_match(wf, _parsed(content), canonical)
-    assert result.passed is True
-
-
-ALL_RELEASE_SECRETS = (
-    "    secrets:\n"
-    "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"
-    "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n"
-)
-"""Every secret `_release-engine.yaml` declares, passed explicitly."""
-
-
-@pytest.mark.parametrize(
-    ("caller", "canonical", "secrets_block", "is_issue", "needle"),
-    [
-        pytest.param(
-            "release",
-            "_release-engine.yaml",
-            ALL_RELEASE_SECRETS,
-            False,
-            "",
-            id="all-passed-explicitly",
-        ),
-        # `secrets: inherit` predates the explicit form and still satisfies it.
-        pytest.param(
-            "release",
-            "_release-engine.yaml",
-            "    secrets: inherit\n",
-            False,
-            "",
-            id="inherit",
-        ),
-        pytest.param(
-            "release",
-            "_release-engine.yaml",
-            "",
-            True,
-            "secrets",
-            id="none-passed",
-        ),
-        pytest.param(
-            "release",
-            "_release-engine.yaml",
-            "    secrets:\n"
-            "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n",
-            True,
-            "REPOMATIC_PAT",
-            id="partially-passed",
-        ),
-        pytest.param(
-            "lint",
-            "lint.yaml",
-            "    secrets:\n"
-            "      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n"
-            "      CLOUDFLARE_R2_ACCESS_KEY_ID:"
-            " ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}\n"
-            "      CLOUDFLARE_R2_SECRET_ACCESS_KEY:"
-            " ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}\n"
-            "      REPOMATIC_NOTIFICATIONS_PAT:"
-            " ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}\n"
-            "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"
-            "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n",
-            False,
-            "",
-            id="lint-all-passed",
-        ),
-    ],
-)
-def test_check_secrets_passed(
-    tmp_path: Path,
-    caller: str,
-    canonical: str,
-    secrets_block: str,
-    is_issue: bool,
-    needle: str,
-) -> None:
-    """A caller must forward every secret its canonical workflow declares."""
-    data = _parsed(
-        f"---\njobs:\n  {caller}:\n"
-        f"    uses: {DEFAULT_REPO}/.github/workflows/{caller}.yaml@v5.8.0\n"
-        f"{secrets_block}"
-    )
-    result = check_secrets_passed(tmp_path / f"{caller}.yaml", data, canonical)
-    assert result.passed is not is_issue
-    assert needle in result.message
-
-
-CLEAN_WORKFLOW = (
-    '---\n"on":\n  workflow_dispatch:\n  push:\njobs:\n'
-    "  build:\n    runs-on: ubuntu-latest\n"
-)
-"""A workflow the linter finds nothing to say about."""
-
-DISPATCHLESS_WORKFLOW = '---\n"on":\n  push:\n'
-"""A workflow missing `workflow_dispatch`, the linter's mildest complaint."""
-
-UNPARSABLE_WORKFLOW = "{{invalid"
-"""A file that is not YAML at all: an error, since nothing can read it."""
-
-SCALAR_WORKFLOW = "just a sentence\n"
-"""A file that is YAML but no mapping, so no workflow either."""
-
-
-@pytest.mark.parametrize(
-    ("body", "fatal", "exit_code"),
-    [
-        pytest.param(CLEAN_WORKFLOW, False, 0, id="clean"),
-        pytest.param(None, False, 0, id="empty-directory"),
-        # The severity knob only moves the exit code, never the diagnosis.
-        pytest.param(DISPATCHLESS_WORKFLOW, False, 0, id="issue-warning-mode"),
-        pytest.param(DISPATCHLESS_WORKFLOW, True, 1, id="issue-fatal-mode"),
-        pytest.param(UNPARSABLE_WORKFLOW, True, 1, id="unparsable"),
-        pytest.param(SCALAR_WORKFLOW, True, 1, id="not-a-mapping"),
-    ],
-)
-def test_run_workflow_lint(
-    tmp_path: Path, body: str | None, fatal: bool, exit_code: int
-) -> None:
-    """Lint exit codes across a clean tree, an empty one, and both severities."""
-    if body is not None:
-        (tmp_path / "candidate.yaml").write_text(body, encoding="UTF-8")
-    assert run_workflow_lint(tmp_path, fatal=fatal) == exit_code
-
-
-def test_run_workflow_lint_missing_directory(tmp_path: Path) -> None:
-    """A directory that does not exist is an error, not an empty tree."""
-    assert run_workflow_lint(tmp_path / "nonexistent") == 1
-
-
-def test_thin_caller_exempt_from_workflow_dispatch_check(tmp_path: Path) -> None:
-    """Thin callers wrapping a canonical without workflow_dispatch lint clean.
-
-    `cancel-runs.yaml` and `release.yaml` intentionally lack
-    `workflow_dispatch`. A thin caller mirroring them must not be flagged
-    by the standalone `workflow_dispatch` check.
-    """
-    content = generate_thin_caller("cancel-runs.yaml", version="v5.8.0")
-    (tmp_path / "cancel-runs.yaml").write_text(content, encoding="UTF-8")
-    exit_code = run_workflow_lint(tmp_path, fatal=True)
-    assert exit_code == 0
-
-
-def test_release_thin_caller_lints_clean(tmp_path: Path) -> None:
-    """The generated downstream release.yaml lints clean end-to-end.
-
-    Regression test: the synthesized push + workflow_dispatch triggers must not
-    be flagged as "extra" by check_triggers_match when the canonical
-    _release-engine.yaml defines no non-call triggers.
-    """
-    content = generate_thin_caller("release.yaml", version="v5.8.0")
-    (tmp_path / "release.yaml").write_text(content, encoding="UTF-8")
-    exit_code = run_workflow_lint(tmp_path, fatal=True)
-    assert exit_code == 0
-
-
 @pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
 def test_every_reusable_workflow_renders(tmp_path: Path, filename: str) -> None:
     """Each reusable workflow renders into a caller carrying the version ref."""
@@ -1310,41 +1062,6 @@ def test_non_reusable_workflow_refuses_to_render(tmp_path: Path) -> None:
     """
     with pytest.raises(ValueError, match="workflow_call"):
         sync_caller("tests.yaml", tmp_path / "tests.yaml")
-
-
-@pytest.mark.parametrize(
-    ("body", "checks"),
-    [
-        pytest.param(CLEAN_WORKFLOW, 1, id="standalone"),
-        pytest.param(
-            f"---\njobs:\n  lint:\n    uses: {DEFAULT_REPO}/.github/workflows/"
-            "lint.yaml@v5.8.0\n",
-            3,
-            id="thin-caller",
-        ),
-    ],
-)
-def test_lint_workflow_picks_the_checks(tmp_path: Path, body: str, checks: int) -> None:
-    """A standalone workflow gets the dispatch check, a thin caller the other three."""
-    results = lint_workflow(tmp_path / "lint.yaml", body, _parsed(body), DEFAULT_REPO)
-    assert len(results) == checks
-
-
-def test_run_workflow_lint_reports_the_unparsable_file(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A file that does not parse is an error annotation naming the file."""
-    (tmp_path / "broken.yaml").write_text(UNPARSABLE_WORKFLOW, encoding="UTF-8")
-    assert run_workflow_lint(tmp_path) == 0
-    out = capsys.readouterr().out
-    assert "::error::broken.yaml" in out
-    assert "\u2717 broken.yaml" in out
-
-
-def test_run_workflow_lint_reads_the_short_extension(tmp_path: Path) -> None:
-    """A `.yml` workflow is linted like a `.yaml` one: GitHub reads both."""
-    (tmp_path / "candidate.yml").write_text(DISPATCHLESS_WORKFLOW, encoding="UTF-8")
-    assert run_workflow_lint(tmp_path, fatal=True) == 1
 
 
 def test_canonical_workflow_reads_a_parse(tmp_path: Path) -> None:
@@ -1502,13 +1219,6 @@ def test_identify_canonical_workflow_sha_pinned(tmp_path: Path) -> None:
     wf = tmp_path / "lint.yaml"
     wf.write_text(content, encoding="UTF-8")
     assert identify_canonical_workflow(wf) == "lint.yaml"
-
-
-def test_check_version_pinned_sha(tmp_path: Path) -> None:
-    """``check_version_pinned`` passes for SHA-pinned refs."""
-    content = generate_thin_caller("lint.yaml", version="v6.8.0", commit_sha=FAKE_SHA)
-    result = check_version_pinned(tmp_path / "lint.yaml", content)
-    assert result.passed is True
 
 
 # ---------------------------------------------------------------------------
@@ -2348,7 +2058,8 @@ def test_generated_caller_with_extra_jobs_satisfies_lint(
     sync_caller("autofix.yaml", target)
 
     monkeypatch.chdir(tmp_path)
-    assert [r for r in check_workflow_permissions() if r.passed is False] == []
+    results = check_workflow_permissions(LintContext())
+    assert [r for r in results if r.passed is False] == []
 
 
 def _thin_caller_call_sites() -> set[tuple[str, str]]:

@@ -67,25 +67,15 @@ def build_expected_body(
         version has no changelog section.
     """
     elements = changelog.decompose_version(version)
-    if (
-        not elements.changes
-        and not elements.availability_admonition
-        and not elements.development_warning
-        and not elements.editorial_admonition
-        and not elements.yanked_admonition
-    ):
+    if not elements.has_body:
         return ""
 
     if admonition_override is not None:
         elements.availability_admonition = admonition_override
-    # Extract tag range from compare URL (e.g. "v1.1.0...v2.0.0").
-    tag_range = (
-        elements.compare_url.rsplit("/compare/", 1)[-1] if elements.compare_url else ""
-    )
     return render_template(
         "github-releases",
         **asdict(elements),
-        tag_range=tag_range,
+        tag_range=elements.tag_range,
     )
 
 
@@ -137,19 +127,28 @@ def sync_github_releases(
     body (from `changelog.md`) with the actual GitHub release body.
     In live mode, updates drifted releases via `gh release edit`.
 
-    :param repo_url: Repository URL (e.g.
-        `https://github.com/user/repo`).
+    Live mode reads the release bodies fresh rather than from the day-long
+    cache: an edit decided against a stale body would rewrite a release that
+    already matches, or miss one that drifted since.
+
+    :param repo_url: Repository URL (like `https://github.com/user/repo`).
     :param changelog_path: Path to `changelog.md`.
     :param dry_run: If `True`, report without making changes.
     :return: Structured sync results.
     """
     result = SyncResult(dry_run=dry_run)
 
+    parsed = parse_github_repo(repo_url)
+    if parsed is None:
+        logging.warning(f"{repo_url} names no GitHub repository.")
+        return result
+    repository = "/".join(parsed)
+
     content = changelog_path.read_text(encoding="UTF-8")
     changelog = Changelog(content)
 
     try:
-        releases = get_github_releases(repo_url)
+        releases = get_github_releases(repo_url, force_refresh=not dry_run)
     except GitHubReleasesUnavailable as exc:
         # Sync is read-only relative to `changelog.md`, so skipping a run
         # when the API is unhealthy just defers the work to the next run.
@@ -158,10 +157,6 @@ def sync_github_releases(
     if not releases:
         logging.warning("No GitHub releases found.")
         return result
-
-    # Parse owner/repo for gh CLI.
-    parsed = parse_github_repo(repo_url)
-    repository = "/".join(parsed) if parsed else ""
 
     # Iterate over released versions in the changelog.
     for version, _date in changelog.extract_all_releases():

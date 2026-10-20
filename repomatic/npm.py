@@ -57,7 +57,7 @@ def _fetch_json(package: str) -> dict[str, Any] | None:
     )
 
 
-def get_release_dates(package: str) -> dict[str, str]:
+def npm_release_dates(package: str) -> dict[str, str]:
     """Get publication dates for all versions of an npm package.
 
     :param package: The npm package name (e.g. `awesome-lint`).

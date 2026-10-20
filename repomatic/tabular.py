@@ -20,8 +20,9 @@ Two surfaces, one module, because both are the same shape of data: the CSV
 files a repository commits (a scan verdict, a binary in a release, a metric
 reading) and the Markdown tables its reports embed (a PR body's diff table, a
 step summary's tally). {func}`render_markdown_table` is the one Markdown table
-renderer, so every report agrees on the cell and separator spelling; the CSV
-trio below decides how the committed datasets are stored.
+renderer, so every report agrees on the cell and separator spelling, and
+{class}`ReportAction` is the one vocabulary of its outcome cells. The CSV trio
+below decides how the committed datasets are stored.
 
 ```{note}
 CSV over JSON for these, on four counts a flat table makes decisive:
@@ -45,6 +46,7 @@ from __future__ import annotations
 
 import csv
 import io
+from enum import Enum
 
 from .file_ops import write_if_changed
 
@@ -75,6 +77,28 @@ def render_csv(headers: Sequence[str], rows: Iterable[Sequence[object]]) -> str:
     for row in rows:
         writer.writerow(row)
     return buffer.getvalue()
+
+
+class ReportAction(Enum):
+    """What a job did to one item, as the markdown report spells it.
+
+    Each member's value is the emoji-decorated label the report table shows, so
+    a renderer reads the label off the action. No parallel mapping exists for a
+    new member to miss.
+
+    The members are the union of the vocabularies every report needs, and each
+    report uses the subset that applies to it: the release-notes sync never
+    unsubscribes, and the notification sweep has nothing to call in sync. What
+    they share is the outcome pair every dry-runnable sweep reports.
+    """
+
+    DROPPED = "\U0001f5d1\ufe0f Dropped"
+    DRY_RUN = "\U0001f441\ufe0f Dry-run"
+    FAILED = "\u26a0\ufe0f Failed"
+    SKIPPED = "\u2705 In sync"
+    UNSUBSCRIBED = "\U0001f515 Unsubscribed"
+    UPDATED = "\U0001f504 Updated"
+    UPLOADED = "\u2b06\ufe0f Uploaded"
 
 
 _ALIGN_MARKERS = {"": "---", "center": ":-:", "left": ":--", "right": "--:"}
@@ -142,29 +166,23 @@ def load_records(
     path: Path,
     from_row: Callable[[Mapping[str, Any]], RecordT],
     kind: str,
-    rows: Iterable[Mapping[str, Any]] | None = None,
 ) -> list[RecordT]:
     """Materialize a committed store through a row parser, loudly.
 
     The committed-dataset counterpart of {func}`read_csv`: one row-to-record
     pass with one failure contract, so every store fails the same way.
 
-    :param path: Path to the CSV store, read when *rows* is `None` and named
-        in the failure message either way.
+    :param path: Path to the CSV store.
     :param from_row: The row parser, typically the record class's `from_row`
         classmethod.
     :param kind: What the store holds, opening the failure message.
-    :param rows: Rows already produced by a caller-side fallback read, parsed
-        in place of the file's.
     :return: The parsed records.
     :raises ValueError: When the store exists but cannot be parsed. Loud on
         purpose: a corrupt store must never be silently clobbered by the next
         write.
     """
     try:
-        if rows is None:
-            rows = read_csv(path)
-        return [from_row(row) for row in rows]
+        return [from_row(row) for row in read_csv(path)]
     except (KeyError, TypeError, ValueError) as error:
         msg = f"Malformed {kind} {path}: {error}"
         raise ValueError(msg) from error

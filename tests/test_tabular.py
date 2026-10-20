@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the shared CSV read, render and write helpers."""
+"""Tests for the shared CSV helpers and the report outcome vocabulary."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from repomatic.file_ops import write_if_changed
-from repomatic.tabular import read_csv, render_csv, write_csv
+from repomatic.tabular import ReportAction, read_csv, render_csv, write_csv
 
 REPO_ROOT = Path(__file__).parent.parent
 
@@ -133,3 +133,24 @@ def test_committed_stores_are_readable(relative):
     assert rendered == path.read_text(encoding="UTF-8"), (
         f"{relative} is not in canonical CSV form"
     )
+
+
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    (
+        (ReportAction.DRY_RUN, "\U0001f441\ufe0f Dry-run"),
+        (ReportAction.FAILED, "\u26a0\ufe0f Failed"),
+        (ReportAction.SKIPPED, "\u2705 In sync"),
+        (ReportAction.UNSUBSCRIBED, "\U0001f515 Unsubscribed"),
+        (ReportAction.UPDATED, "\U0001f504 Updated"),
+    ),
+)
+def test_report_action_label(action, expected):
+    """Each action carries its own emoji-and-label string as its value."""
+    assert action.value == expected
+
+
+def test_report_action_labels_are_distinct():
+    """No two actions render the same cell, which would make a report unreadable."""
+    values = [action.value for action in ReportAction]
+    assert len(set(values)) == len(values)

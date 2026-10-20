@@ -33,9 +33,12 @@ from pathlib import Path
 
 import pytest
 
-from repomatic.cli import main as cli
+import repomatic
 from repomatic.deps.report import (
+    BYPASS_COLUMNS,
     BYPASS_NEEDS_RELEASE,
+    BYPASS_NOT_LOCKED,
+    HELD_BACK_COLUMNS,
     BypassForecast,
     HeldBackPackage,
     build_comparison_urls,
@@ -139,7 +142,7 @@ def test_format_diff_table_with_every_decoration():
         cooldown_note=format_exclude_newer_note("2026-06-20T00:00:00Z"),
         comparison_urls={"apricot": "https://example.com/compare/v1.2.0...v1.3.0"},
         reference_date=date(2026, 6, 26),
-        name_urls=pypi_name_urls(CHANGES),
+        name_urls=pypi_name_urls(name for name, _old, _new in CHANGES),
         heading="Updated tools",
         subject="Tool",
         released_overrides={"cherry": "lockstep pin"},
@@ -232,6 +235,16 @@ def test_format_held_back_table():
 
 def test_format_held_back_table_empty():
     assert format_held_back_table([]) == ""
+
+
+def test_terminal_rows_follow_the_shared_columns():
+    """Each record fills its terminal table in the order the columns name."""
+    held = HeldBackPackage("apricot", "1.2.0", "1.3.0", "2026-06-24", "2026-07-01")
+    assert held.row == ("apricot", "1.2.0", "1.3.0", "2026-06-24", "2026-07-01")
+    assert len(held.row) == 1 + len(HELD_BACK_COLUMNS)
+    unlocked = BypassForecast("fig", "", "2026-06-02")
+    assert unlocked.row == ("fig", BYPASS_NOT_LOCKED, "2026-06-02")
+    assert len(unlocked.row) == len(BYPASS_COLUMNS)
 
 
 def test_build_held_back_formats_both_dates():
@@ -381,7 +394,8 @@ def test_format_diff_table_call_sites_pass_reference_date():
     site omitting it renders bare dates, as `fix-vulnerable-deps` once did
     while the other dependency updaters showed the delta.
     """
-    package_dir = Path(cli.__file__).parent
+    package_dir = Path(repomatic.__file__).parent
+    calls = 0
     violations = []
     for py_file in sorted(package_dir.rglob("*.py")):
         tree = ast.parse(py_file.read_text(encoding="UTF-8"))
@@ -396,8 +410,11 @@ def test_format_diff_table_call_sites_pass_reference_date():
             )
             if name != "format_diff_table":
                 continue
+            calls += 1
             if "reference_date" not in {kw.arg for kw in node.keywords}:
                 violations.append(f"{py_file.name}:{node.lineno}")
+    # Guard the scan itself: a wrong root finds no call and passes vacuously.
+    assert calls >= 2
     assert not violations, (
         f"format_diff_table calls missing reference_date: {violations}"
     )

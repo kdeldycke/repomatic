@@ -18,17 +18,13 @@
 
 `actions/attest` writes every bundle to the same `attestation.json` basename,
 whatever it signed, so each release job has to rename its own before the files
-land in one directory. Three of them did, three different ways: the compiled
-binaries appended the suffix to the full filename, the man-page tarball dropped
-its `.tar.gz` first, and the consumer-declared extra assets were named after the
-*job* rather than any file. A release page therefore carried
-`repomatic-manpages.attestation.json` next to `repomatic-manpages.tar.gz`, and
-`repomatic-extra-assets.attestation.json` next to `repomatic-claude-plugin.zip`.
+land in one directory.
 
-This module holds the one rule instead: a bundle is named after the artifact it
-attests. The subject list is read back out of the bundle rather than passed in,
-so the name is derived from what was actually signed and no caller can spell it
-differently. See {func}`bundle_filename` for the multi-subject case.
+This module holds the one rule for that name: a bundle is named after the
+artifact it attests. The subject list is read back out of the bundle rather
+than passed in, so the name is derived from what was actually signed and no
+caller can spell it differently. See {func}`bundle_filename` for the
+multi-subject case.
 
 ```{note}
 The signing itself stays in `actions/attest`: it needs the job's OIDC token, so

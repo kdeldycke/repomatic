@@ -20,10 +20,14 @@ This module provides utilities for common Git operations in CI/CD contexts,
 with idempotent behavior to allow safe re-runs of failed workflows.
 
 All operations follow a "belt-and-suspenders" approach: combine workflow
-timing guarantees (e.g. `workflow_run` ensures tags exist) with idempotent
-guards (e.g. `skip_existing` on tag creation). This ensures correctness
+timing guarantees (like `workflow_run` ensuring tags exist) with idempotent
+guards (like `skip_existing` on tag creation). This ensures correctness
 in the face of race conditions, API eventual consistency, and partial failures
 that are common in GitHub Actions.
+
+Every git failure raises {class}`GitError`, which carries git's own error
+output. A function returns `None` or `False` instead only when it is a probe,
+whose question a failure answers.
 
 ```{warning} Tag push requires `REPOMATIC_PAT`
 
@@ -36,7 +40,6 @@ a release commit actually fires the publish and release creation jobs.
 from __future__ import annotations
 
 import logging
-import re
 import subprocess
 from pathlib import Path
 from typing import NamedTuple
@@ -44,6 +47,17 @@ from typing import NamedTuple
 from packaging.version import Version
 
 from .github.urls import parse_github_repo
+from .release import protocol
+
+# 8.0.0 shim: re-export for callers not migrated yet.
+from .release.protocol import (  # noqa: F401
+    CHANGELOG_COMMIT_PREFIX,
+    MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
+    RELEASE_COMMIT_PATTERN,
+    RELEASE_COMMIT_PREFIX,
+    VERSION_BUMP_BRANCHES,
+    VERSION_BUMP_COMMIT_PREFIXES,
+)
 from .versions import parse_tag_version
 
 TYPE_CHECKING = False
@@ -83,118 +97,19 @@ depends on the size of the repository.
 ```
 """
 
-CHANGELOG_COMMIT_PREFIX = "[changelog] "
-"""Marker prefix carried by every machine-authored version-machinery commit.
+NULL_SHA = "0" * 40
+"""The null SHA used by Git to represent a non-existent commit.
 
-The one bracketed prefix commit messages may carry: release freezes,
-post-release bumps and manual version bumps all start with it, so a workflow
-can skip machinery pushes with a single
-`startsWith(github.event.head_commit.message, '[changelog] ')` clause instead
-of enumerating each message shape. Conformance tests in
-`tests/test_workflows.py` hold every member of
-{data}`VERSION_BUMP_COMMIT_PREFIXES`, {data}`RELEASE_COMMIT_PATTERN`, the
-`bump-version` template title, and the workflow gates to this prefix.
+GitHub sends this value as the `before` SHA of a push that creates a branch or
+a tag, since there is no previous commit to compare against.
 """
 
-RELEASE_COMMIT_PREFIX = f"{CHANGELOG_COMMIT_PREFIX}Release"
-"""Head-commit-message prefix marking a push that carries the release commit.
+VERSION_TAG_GLOB = "v[0-9]*.[0-9]*.[0-9]*"
+"""Shell glob that selects the release tags in `git tag --list`.
 
-The coarser sibling of {data}`RELEASE_COMMIT_PATTERN`: where that one
-validates and extracts a version, this is the prefix test every workflow's
-`cancel-in-progress` gate performs, so a release run is never cancelled by a
-later push entering its concurrency group. A prefix is deliberately weaker
-than the full pattern here, because the question is "does this push carry a
-release" rather than "which version is it", and answering it must not depend
-on the version number parsing.
-
-{func}`repomatic.github.actions.cancel_superseded_runs` applies the same test
-from the API side, which is the half GitHub's own concurrency mechanism
-cannot cover: a manual sweep of a branch's live runs enters no concurrency
-group at all.
+A glob is no PEP 440 filter: `v1.2.3_hotfix` matches it. So every tag it
+selects is parsed, and a tag naming no version is skipped.
 """
-
-RELEASE_COMMIT_PATTERN = re.compile(
-    r"^\[changelog\] Release v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$"
-)
-"""Pre-compiled regex for release commit messages.
-
-Matches the full message and captures the version number. Use `fullmatch`
-to validate a commit is a release commit, or `match`/`search` with
-`.group("version")` to extract the version string.
-
-A rebase merge preserves the original commit messages, so release commits
-match this pattern. A squash merge replaces them with the PR title
-(e.g. ``Release `v1.2.3` (#42)``), which does **not** match. This mismatch
-is the mechanism by which squash merges are safely skipped: the `create-tag`
-job only processes commits matching this pattern, so no tag, PyPI publish, or
-GitHub release is created from a squash merge. The `detect-squash-merge`
-job in `release.yaml` detects this and opens an issue to notify the
-maintainer.
-"""
-
-VERSION_BUMP_BRANCHES: frozenset[str] = frozenset((
-    "major-version-increment",
-    "minor-version-increment",
-    "prepare-release",
-))
-"""PR branches that carry only automated version-bump and lockfile churn.
-
-Members are bot-authored draft PRs created by the `bump-version` and
-`prepare-release` jobs in `changelog.yaml`. Their working tree is
-byte-identical to `main` except for the version string in
-`pyproject.toml`, `**/__init__.py`, `changelog.md`, `citation.cff`,
-and `uv.lock`. Heavy PR-time workflows (`tests.yaml`, `lint.yaml`,
-`labels.yaml`) list these branches under `pull_request.branches-ignore`
-so the matrix doesn't burn CI minutes for a guaranteed-passing run.
-
-```{note}
-These branches are *not* binary-neutral: the rewritten version string
-is baked into the Nuitka binary, so they are deliberately absent from
-{data}`repomatic.release.binary.SKIP_BINARY_BUILD_BRANCHES`. Post-merge release
-artifacts on `main` are still produced.
-```
-"""
-
-
-MANUAL_VERSION_BUMP_COMMIT_PREFIXES: frozenset[str] = frozenset((
-    f"{CHANGELOG_COMMIT_PREFIX}Bump major version to ",
-    f"{CHANGELOG_COMMIT_PREFIX}Bump minor version to ",
-))
-"""Head-commit-message prefixes for user-initiated version bumps.
-
-Members are the `bump-version` job's
-`[changelog] Bump $part version to \\`v$version\\`` commit messages (rendered
-from the `bump-version` template's title), carrying
-{data}`CHANGELOG_COMMIT_PREFIX` like every other version-machinery commit.
-These merges land as a single commit on `main` and carry no other payload, so
-workflows can short-circuit on them safely.
-
-The release-cycle prefix `[changelog] Post-release bump ` is deliberately
-absent from this set because the `prepare-release` merge bundles the
-post-release-bump commit with the actual release commit
-(`[changelog] Release vX.Y.Z`) in a single push. Workflows that gate on
-the *head* commit message (`tests.yaml`, `release.yaml::compile-binaries`)
-must run on those pushes to test the release commit and build its binary
-— so they consult only this subset.
-"""
-
-
-VERSION_BUMP_COMMIT_PREFIXES: frozenset[str] = (
-    MANUAL_VERSION_BUMP_COMMIT_PREFIXES
-    | frozenset({f"{CHANGELOG_COMMIT_PREFIX}Post-release bump "})
-)
-"""Full set of head-commit-message prefixes that mark a version-bump push.
-
-Combines {data}`MANUAL_VERSION_BUMP_COMMIT_PREFIXES` with the
-`[changelog] Post-release bump ` prefix produced by `prepare-release`
-merges. Every member starts with {data}`CHANGELOG_COMMIT_PREFIX`, so
-workflows without a release-artifact dependency (`lint.yaml`,
-`labels.yaml`, `autofix.yaml`) gate their `metadata` job on that single
-prefix and the entire job graph skips for any push generated by the
-version-bump PR family. Workflows that *do* produce release artifacts on
-the same push use {data}`MANUAL_VERSION_BUMP_COMMIT_PREFIXES` instead.
-"""
-
 
 GIT_LOG_FORMAT = "%H%x00%B"
 """`git log` pretty-format placeholders for a single commit: full SHA, then a
@@ -205,6 +120,27 @@ this frames the stream as alternating `(hash, message)` tokens. Commit messages
 may contain newlines but never `NUL` bytes, so splitting on `NUL` recovers the
 fields unambiguously even for multi-line messages.
 """
+
+
+class GitError(subprocess.CalledProcessError, RuntimeError):
+    """A `git` command that exited with a non-zero status.
+
+    The message carries what git wrote to its standard error. The message of a
+    plain `CalledProcessError` names only the command and the exit code, which
+    leaves a CI failure with no way to tell a lease rejection from a
+    permission error.
+
+    Also a `RuntimeError`, like {class}`~repomatic.github.gh.GhCommandError`,
+    so a caller handling any failed external command catches it too.
+    """
+
+    def __str__(self) -> str:
+        command = (
+            self.cmd if isinstance(self.cmd, str) else " ".join(map(str, self.cmd))
+        )
+        message = f"{command} exited with status {self.returncode}"
+        detail = (self.stderr or "").strip()
+        return f"{message}:\n{detail}" if detail else f"{message}."
 
 
 class Commit(NamedTuple):
@@ -229,10 +165,12 @@ def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     names, emoji in messages) survives on platforms whose default encoding is
     not UTF-8 (Windows `cp1252`).
 
-    A failure is logged before the exception propagates: `CalledProcessError`'s
-    default traceback prints only the command and exit code, never the
-    captured `stderr`, which otherwise strands a CI failure with no way to
-    tell a lease rejection from a permission error from a rate limit.
+    Nothing is logged here. A failure travels as a {class}`GitError` carrying
+    git's error output, and the caller decides whether it is fatal.
+
+    :param check: Raise on a non-zero exit. A probe, which reads the exit
+        status itself, passes `False`.
+    :raises GitError: When *check* is set and git exits non-zero.
     """
     process = subprocess.run(
         ["git", *args],
@@ -242,8 +180,12 @@ def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         check=False,
     )
     if check and process.returncode:
-        logging.error(f"git {' '.join(args)} failed:\n{process.stderr.strip()}")
-        process.check_returncode()
+        raise GitError(
+            process.returncode,
+            process.args,
+            output=process.stdout,
+            stderr=process.stderr,
+        )
     return process
 
 
@@ -266,8 +208,8 @@ def _parse_commit_log(output: str) -> tuple[Commit, ...]:
 def get_commit(ref: str = "HEAD") -> Commit:
     """Return the commit at *ref*.
 
-    :raises subprocess.CalledProcessError: if *ref* does not resolve to a
-        commit present in the repository.
+    :raises GitError: if *ref* does not resolve to a commit present in the
+        repository.
     """
     result = _git("log", "-1", "-z", f"--format={GIT_LOG_FORMAT}", ref)
     return _parse_commit_log(result.stdout)[0]
@@ -277,8 +219,8 @@ def list_commits(start: str, end: str) -> tuple[Commit, ...]:
     """Return the commits in the `start..end` range, oldest first.
 
     Follows git range semantics: *start* is excluded, *end* is included. Both
-    endpoints must already exist locally, so deepen a shallow clone before
-    calling if necessary.
+    endpoints must already share history locally, so a shallow clone goes
+    through {func}`deepen_until_related` first.
     """
     result = _git(
         "log", "--reverse", "-z", f"--format={GIT_LOG_FORMAT}", f"{start}..{end}"
@@ -289,11 +231,6 @@ def list_commits(start: str, end: str) -> tuple[Commit, ...]:
 def commit_exists(ref: str) -> bool:
     """Return `True` if *ref* resolves to a commit object present locally."""
     return _git("cat-file", "-e", f"{ref}^{{commit}}", check=False).returncode == 0
-
-
-def count_commits(ref: str = "HEAD") -> int:
-    """Return the number of commits reachable from *ref*."""
-    return int(_git("rev-list", "--count", ref).stdout.strip())
 
 
 def head_sha() -> str:
@@ -310,6 +247,23 @@ def current_branch() -> str | None:
 def checkout(ref: str) -> None:
     """Check out *ref* (a branch name or commit SHA)."""
     _git("checkout", ref)
+
+
+def show_file(ref: str, path: str) -> str | None:
+    """Return the content of *path* at *ref*, read from the object store.
+
+    Neither `HEAD` nor the working tree moves, so the read is safe in any
+    checkout, uncommitted changes included.
+
+    :param ref: Any tree-ish: a branch, a tag, or a commit SHA.
+    :param path: File path, relative to the current directory.
+    :return: The file content, or `None` when *ref* holds no such file.
+    """
+    shown = _git("show", f"{ref}:./{path}", check=False)
+    if shown.returncode:
+        logging.debug(f"{ref} holds no {path}: {shown.stderr.strip()}")
+        return None
+    return shown.stdout
 
 
 def restore_paths(ref: str, paths: Sequence[str | Path]) -> tuple[str, ...]:
@@ -346,36 +300,73 @@ def restore_paths(ref: str, paths: Sequence[str | Path]) -> tuple[str, ...]:
     return tuple(restorable)
 
 
-def stash() -> None:
-    """Stash the working tree's local changes."""
-    _git("stash")
+def is_shallow() -> bool:
+    """Return `True` when the repository is a shallow clone."""
+    return _git("rev-parse", "--is-shallow-repository").stdout.strip() == "true"
 
 
-def stash_pop() -> None:
-    """Restore the most recently stashed local changes."""
-    _git("stash", "pop")
+def fetch_commit(sha: str, remote: str = "origin") -> bool:
+    """Make the commit *sha* present locally, fetching it when it is absent.
 
+    A shallow clone fetches the commit alone (`--depth=1`): its tree is all a
+    comparison needs, and the history behind it can be large. A complete clone
+    fetches without a depth, so it stays complete.
 
-def stash_count() -> int:
-    """Return the number of entries on the stash reflog."""
-    result = _git(
-        "rev-list", "--walk-reflogs", "--ignore-missing", "--count", "refs/stash"
-    )
-    return int(result.stdout.strip())
-
-
-def fetch_deepen(depth: int) -> None:
-    """Deepen a shallow clone by fetching *depth* more commits.
-
-    :raises subprocess.CalledProcessError: if the fetch fails.
+    :param sha: Full SHA of the commit.
+    :param remote: Remote to fetch from.
+    :return: `True` when the commit is present afterwards. `False` when the
+        remote does not serve it, like a commit a force-push left unreachable.
     """
-    _git("fetch", f"--deepen={depth}")
+    if commit_exists(sha):
+        return True
+    depth = ("--depth=1",) if is_shallow() else ()
+    fetched = _git("fetch", *depth, "--no-tags", remote, sha, check=False)
+    if fetched.returncode:
+        logging.debug(f"{remote} does not serve {sha}: {fetched.stderr.strip()}")
+        return False
+    return True
+
+
+def deepen_until_related(
+    start: str, end: str, *, attempts: int = 10, depth: int = 50
+) -> bool:
+    """Deepen a shallow clone until *start* and *end* share history.
+
+    `start..end` resolves only once git can walk down from *end* to a commit
+    that *start* also reaches. A shallow clone cuts that walk at its boundary,
+    and a commit fetched on its own by {func}`fetch_commit` is a boundary of
+    its own. So both commits being present is not enough: this deepens the
+    clone until {func}`merge_base` finds the commit they share.
+
+    :param start: The commit the range starts from.
+    :param end: The commit the range ends at.
+    :param attempts: Maximum number of deepening fetches.
+    :param depth: Commits each fetch adds below the shallow boundary.
+    :return: `True` once the two commits share history. `False` when they
+        still do not after every fetch, or when the clone is complete and a
+        fetch cannot add anything.
+    :raises GitError: When a fetch fails.
+    """
+    for attempt in range(attempts + 1):
+        if merge_base(start, end):
+            if attempt:
+                logging.info(f"{start} and {end} related after {attempt} fetch(es).")
+            return True
+        if attempt == attempts or not is_shallow():
+            break
+        logging.info(
+            f"Deepening the clone by {depth} commits"
+            f" (attempt {attempt + 1}/{attempts})."
+        )
+        _git("fetch", f"--deepen={depth}")
+    logging.warning(f"{start} and {end} share no history in this clone.")
+    return False
 
 
 def diff_names(start: str, end: str) -> tuple[str, ...]:
     """Return the paths that differ between *start* and *end*.
 
-    :raises subprocess.CalledProcessError: if either ref is unknown.
+    :raises GitError: if either ref is unknown.
     """
     output = _git("diff", "--name-only", start, end).stdout.strip()
     return tuple(output.splitlines()) if output else ()
@@ -403,7 +394,7 @@ def is_ancestor(maybe_ancestor: str, ref: str) -> bool | None:
     """Return whether *maybe_ancestor* is reachable from *ref*.
 
     :return: `True` or `False` when git can relate the two commits, and `None`
-        when it cannot — a shallow clone whose grafted history stops before
+        when it cannot: a shallow clone whose grafted history stops before
         their common ancestor answers neither yes nor no.
     """
     related = _git("merge-base", "--is-ancestor", maybe_ancestor, ref, check=False)
@@ -416,7 +407,8 @@ def is_ancestor(maybe_ancestor: str, ref: str) -> bool | None:
 def merge_base(left: str, right: str) -> str | None:
     """Return the best common ancestor of two commits, or `None` if unrelated.
 
-    `None` also covers the shallow-clone case described in {func}`is_ancestor`.
+    `None` also covers the shallow-clone case described in {func}`is_ancestor`,
+    and a commit absent from the clone.
     """
     common = _git("merge-base", left, right, check=False)
     return common.stdout.strip() if common.returncode == 0 else None
@@ -521,8 +513,7 @@ def commit_staged(message: str) -> str:
     """Commit the staged tree as the CI bot and return the new commit SHA.
 
     The identity is supplied per-command via `-c`, since CI checkouts carry no
-    git identity of their own. Mirrors {func}`commit_and_push_files`, which
-    does the same for the direct-to-default-branch case.
+    git identity of their own.
     """
     _git(*_BOT_IDENTITY_ARGS, "commit", "--message", message)
     return head_sha()
@@ -567,7 +558,7 @@ def force_push_branch(
     `None` to create a branch that does not exist yet, where a plain push
     already fails if someone wins the race.
 
-    :raises subprocess.CalledProcessError: When the push is rejected.
+    :raises GitError: When the push is rejected.
     """
     args = ["push"]
     if expected_sha:
@@ -595,11 +586,9 @@ def list_contributor_identities() -> set[str]:
     For format output syntax, see:
     https://git-scm.com/docs/pretty-formats#Documentation/pretty-formats.txt-aN
 
-    :raises RuntimeError: When git fails, carrying its stderr.
+    :raises GitError: When git cannot read the history.
     """
-    process = _git("log", "--pretty=format:%aN <%aE>%n%cN <%cE>", check=False)
-    if process.returncode:
-        raise RuntimeError(process.stderr)
+    process = _git("log", "--pretty=format:%aN <%aE>%n%cN <%cE>")
     return {line for line in map(str.strip, process.stdout.splitlines()) if line}
 
 
@@ -620,33 +609,44 @@ def get_repo_slug_from_remote(remote: str = "origin") -> str | None:
     return "/".join(parsed) if parsed else None
 
 
-def get_latest_tag_version() -> Version | None:
-    """Returns the latest release version from Git tags.
+def _version_tags() -> dict[str, tuple[Version, str]]:
+    """List the release tags, with the version each names and its date.
 
-    Looks for tags matching the pattern `vX.Y.Z` and returns the highest version.
-    Returns `None` if no matching tags are found.
+    The one `git tag` call behind {func}`get_latest_tag_version` and
+    {func}`get_all_version_tags`. A tag {data}`VERSION_TAG_GLOB` selects but
+    that names no PEP 440 version is skipped: one odd tag must not break every
+    reader of the others.
+
+    :return: `(version, date)` pairs keyed by tag name, the date in
+        `YYYY-MM-DD` format.
+    :raises GitError: When git cannot list the tags.
     """
-    # Get all tags matching the version pattern.
-    tags = _git("tag", "--list", "v[0-9]*.[0-9]*.[0-9]*").stdout.splitlines()
-
-    if not tags:
-        logging.debug("No version tags found in repository.")
-        return None
-
-    # Parse and find the highest version.
-    versions = []
-    for tag in tags:
-        # The `--list` glob above is a shell pattern, not a PEP 440 filter, so
-        # a tag like `v1.2.3_hotfix` still matches: skip what the parser
-        # refuses rather than letting one odd tag break every metadata
-        # consumer.
-        parsed = parse_tag_version(tag)
-        if parsed is None:
+    output = _git(
+        "tag",
+        "--list",
+        VERSION_TAG_GLOB,
+        "--format=%(refname:short) %(creatordate:short)",
+    ).stdout
+    tags = {}
+    for line in output.splitlines():
+        tag, _, date = line.partition(" ")
+        version = parse_tag_version(tag)
+        if version is None:
             logging.debug(f"Skipping non-PEP 440 tag: {tag}")
-        else:
-            versions.append(parsed)
+            continue
+        tags[tag] = (version, date)
+    return tags
 
+
+def get_latest_tag_version() -> Version | None:
+    """Return the highest release version among the `vX.Y.Z` tags.
+
+    :return: The version, or `None` when no tag names one.
+    :raises GitError: When git cannot list the tags.
+    """
+    versions = [version for version, _date in _version_tags().values()]
     if not versions:
+        logging.debug("No version tags found in repository.")
         return None
     latest = max(versions)
     logging.debug(f"Latest tag version: {latest}")
@@ -666,14 +666,11 @@ def get_release_version_from_commits(max_count: int = 10) -> Version | None:
     :param max_count: Maximum number of commits to search.
     :return: The version from the most recent release commit, or `None` if not found.
     """
-    if max_count <= 0:
-        return None
-
     result = _git(
         "log", "-n", str(max_count), "-z", f"--format={GIT_LOG_FORMAT}", "HEAD"
     )
     for commit in _parse_commit_log(result.stdout):
-        match = RELEASE_COMMIT_PATTERN.fullmatch(commit.msg)
+        match = protocol.RELEASE_COMMIT_PATTERN.fullmatch(commit.msg)
         if match:
             version = Version(match.group("version"))
             logging.debug(f"Found release version {version} in commit {commit.hash}")
@@ -684,136 +681,15 @@ def get_release_version_from_commits(max_count: int = 10) -> Version | None:
 
 
 def get_all_version_tags() -> dict[str, str]:
-    """Get all version tags and their dates.
+    """Map every release version to the date of its tag.
 
-    Runs a single `git tag` command to list all tags matching the
-    `vX.Y.Z` pattern and extracts their dates.
-
-    :return: Dict mapping version strings (without `v` prefix) to
-        dates in `YYYY-MM-DD` format.
+    :return: Version strings (without the `v` prefix) mapped to dates in
+        `YYYY-MM-DD` format.
+    :raises GitError: When git cannot list the tags.
     """
-    result = _git(
-        "tag",
-        "--list",
-        "v[0-9]*.[0-9]*.[0-9]*",
-        "--format=%(refname:short) %(creatordate:short)",
-        check=False,
-    )
-    tags: dict[str, str] = {}
-    for line in result.stdout.strip().splitlines():
-        if not line:
-            continue
-        parts = line.split(None, 1)
-        if len(parts) == 2:
-            tag, date = parts
-            if tag.startswith("v"):
-                tags[tag[1:]] = date
-    return tags
-
-
-def tag_exists(tag: str) -> bool:
-    """Check if a Git tag already exists locally.
-
-    :param tag: The tag name to check.
-    :return: True if the tag exists, False otherwise.
-    """
-    return _git("show-ref", "--tags", tag, "--quiet", check=False).returncode == 0
-
-
-def create_tag(tag: str, commit: str | None = None) -> None:
-    """Create a local Git tag.
-
-    :param tag: The tag name to create.
-    :param commit: The commit to tag. Defaults to HEAD.
-    :raises subprocess.CalledProcessError: If tag creation fails.
-    """
-    args = ["tag", tag]
-    if commit:
-        args.append(commit)
-    logging.debug(f"Creating tag: git {' '.join(args)}")
-    _git(*args)
-
-
-def push_tag(tag: str, remote: str = "origin") -> None:
-    """Push a Git tag to a remote repository.
-
-    :param tag: The tag name to push.
-    :param remote: The remote name. Defaults to "origin".
-    :raises subprocess.CalledProcessError: If push fails.
-    """
-    logging.debug(f"Pushing tag: git push {remote} {tag}")
-    _git("push", remote, tag)
-
-
-def commit_and_push_files(
-    paths: Sequence[Path | str],
-    message: str,
-    remote: str = "origin",
-    branch: str = "main",
-    attempts: int = 3,
-    all_changes: bool = False,
-) -> bool:
-    """Commit the given files and push, rebasing and retrying on rejection.
-
-    Designed for CI jobs that append to tracked files (scan records, the
-    binaries page) and publish the result on the default branch. The commit
-    is authored as {data}`COMMIT_IDENTITY_NAME` via per-command `-c` config,
-    since CI checkouts carry no git identity.
-
-    Idempotent: when the files are unchanged, no commit is created and the
-    function returns `False`. A rejected push (another job or the maintainer
-    pushed meanwhile) is retried after fetching and rebasing onto the fresh
-    remote tip. Works from a detached `HEAD`: the push targets
-    ``HEAD:{branch}`` explicitly.
-
-    :param paths: Files to stage and commit. Ignored when *all_changes* is set.
-    :param message: Commit message.
-    :param remote: Remote to push to.
-    :param branch: Remote branch to push to.
-    :param attempts: Maximum push attempts before giving up.
-    :param all_changes: Stage every change in the working tree instead of the
-        named files. For a job whose output paths come from configuration and
-        are therefore unknown to the workflow that runs it: the runner starts
-        from a pristine checkout and the preceding steps are the only writers,
-        so "everything that changed" is exactly the job's own output. Never
-        reach for it in a job that also runs a formatter or an installer.
-    :return: `True` when a commit was pushed, `False` when there was nothing
-        to commit.
-    :raises RuntimeError: When the rebase hits a conflict (the local change
-        overlaps a concurrent push) or every push attempt is rejected.
-    :raises subprocess.CalledProcessError: When a git command fails outright.
-    """
-    if all_changes:
-        _git("add", "--all")
-    else:
-        _git("add", "--", *(str(path) for path in paths))
-    if _git("diff", "--cached", "--quiet", check=False).returncode == 0:
-        logging.info("No changes to commit.")
-        return False
-
-    _git(*_BOT_IDENTITY_ARGS, "commit", "--message", message)
-    logging.info(f"Committed: {message}")
-
-    for attempt in range(1, attempts + 1):
-        push = _git("push", remote, f"HEAD:{branch}", check=False)
-        if push.returncode == 0:
-            logging.info(f"Pushed to {remote}/{branch}.")
-            return True
-        logging.warning(
-            f"Push attempt {attempt}/{attempts} rejected: "
-            f"{push.stderr.strip()}\nRebasing onto fresh {remote}/{branch}."
-        )
-        _git("fetch", remote, branch)
-        # Replaying the commit needs a committer identity too.
-        rebase = _git(*_BOT_IDENTITY_ARGS, "rebase", "FETCH_HEAD", check=False)
-        if rebase.returncode:
-            _git("rebase", "--abort", check=False)
-            raise RuntimeError(
-                f"Rebase onto {remote}/{branch} conflicted, aborted. "
-                "A concurrent push touched the same files; re-run the job "
-                "once it settles."
-            )
-    raise RuntimeError(f"Push to {remote}/{branch} failed after {attempts} attempts.")
+    return {
+        tag.removeprefix("v"): date for tag, (_version, date) in _version_tags().items()
+    }
 
 
 def create_and_push_tag(
@@ -830,25 +706,26 @@ def create_and_push_tag(
 
     :param tag: The tag name to create.
     :param commit: The commit to tag. Defaults to HEAD.
-    :param push: Whether to push the tag to the remote. Defaults to True.
+    :param push: Whether to push the tag to the `origin` remote.
     :param skip_existing: If True, skip silently when tag exists.
         If False, raise an error. Defaults to True.
     :return: True if the tag was created, False if it already existed.
     :raises ValueError: If tag exists and skip_existing is False.
-    :raises subprocess.CalledProcessError: If Git operations fail.
+    :raises GitError: If Git operations fail.
     """
-    if tag_exists(tag):
+    ref = f"refs/tags/{tag}"
+    if _git("show-ref", "--verify", "--quiet", ref, check=False).returncode == 0:
         if skip_existing:
             logging.info(f"Tag {tag!r} already exists, skipping.")
             return False
         msg = f"Tag {tag!r} already exists."
         raise ValueError(msg)
 
-    create_tag(tag, commit)
+    _git("tag", tag, *((commit,) if commit else ()))
     logging.info(f"Created tag {tag!r}")
 
     if push:
-        push_tag(tag)
+        _git("push", "origin", ref)
         logging.info(f"Pushed tag {tag!r} to remote.")
 
     return True

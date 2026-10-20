@@ -14,15 +14,17 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for repository linting module."""
+"""Tests for the repository lint package."""
 
 from __future__ import annotations
 
-import inspect
+import importlib
 import json
+import pkgutil
 from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -38,6 +40,7 @@ from repomatic.cli.repo import show_metadata
 from repomatic.cloudflare.r2 import PAGES_MAX_FILE_SIZE
 from repomatic.components import (
     COMPONENTS,
+    DEFAULT_REPO,
     INSTALL_GUIDE_PATH,
     SyncMode,
     ToolConfigComponent,
@@ -56,54 +59,76 @@ from repomatic.github.labels import (
     declared_label_names,
     serialize_inline_labels,
 )
-from repomatic.github.token import PAT_PERMISSION_PROBES, probe_pat_permission
+from repomatic.github.token import PAT_PERMISSION_PROBES
+from repomatic.github.workflow_sync import generate_thin_caller
 from repomatic.http import FetchError, get_bytes
-from repomatic.lint_repo import (
-    PAT_SCOPE_PROBE,
-    PAT_SCOPE_PROBE_LIMIT,
-    REPO_CHECKS,
+from repomatic.lint_repo.context import (
     LintContext,
-    _cloudflare_r2_secrets,
-    _oversized_site_files,
     _resolve_declared_labels,
-    anchored_exclude_core,
-    check_bootstrap_config_drift,
-    check_branch_ruleset_on_default,
-    check_classic_branch_protection,
-    check_description_matches,
-    check_funding_file,
-    check_immutable_releases,
+    documentation_url,
+)
+from repomatic.lint_repo.pins import (
     check_inline_pins_match_upstream,
-    check_install_guide_downloads,
     check_manpages_toolchain,
-    check_metadata_keys,
-    check_package_name_vs_repo,
-    check_pages_redirect_preserved,
-    check_pat_repository_scope,
-    check_pat_stale_statuses_permission,
-    check_pr_templates,
-    check_pypi_trusted_publisher,
-    check_python_version_consistency,
     check_registry_pin_cooldown,
-    check_runner_images,
     check_self_pin_cooldown_exemption,
     check_setup_uv_checksum_coverage,
     check_setup_uv_version_pin,
-    check_sha_pinning_required,
+)
+from repomatic.lint_repo.repo import (
+    RELEASE_LIST_LIMIT,
+    check_description_matches,
+    check_funding_file,
+    check_install_guide_downloads,
+    check_package_name_vs_repo,
     check_stale_draft_releases,
-    check_stale_gh_pages_branch,
-    check_superseded_local_excludes,
-    check_test_matrix_excludes,
     check_topics_subset_of_keywords,
     check_undeclared_labels,
     check_website_for_sphinx,
-    check_workflow_permissions,
-    documentation_url,
-    get_repo_metadata,
-    missing_template_entries,
+)
+from repomatic.lint_repo.roster import (
+    REPO_CHECKS,
+    RepoCheck,
     repo_check_reference,
     run_repo_lint,
+)
+from repomatic.lint_repo.settings import (
+    check_branch_ruleset_on_default,
+    check_classic_branch_protection,
+    check_immutable_releases,
+    check_pat_permissions,
+    check_pat_scope,
+    check_pypi_trusted_publisher,
+    check_sha_pinning_required,
+    check_tag_protection_rules,
+)
+from repomatic.lint_repo.site import (
+    MAX_REPORTED_DEAD_URLS,
+    check_cloudflare_r2_secrets,
+    check_oversized_site_files,
+    check_pages_redirect_preserved,
+    check_pages_redirects,
+    check_stale_gh_pages_branch,
+    check_wrangler_config,
+)
+from repomatic.lint_repo.tool_config import (
+    anchored_exclude_core,
+    check_bootstrap_config_drift,
+    check_superseded_local_excludes,
+    missing_template_entries,
     template_member_name,
+)
+from repomatic.lint_repo.workflows import (
+    check_metadata_keys,
+    check_pr_templates,
+    check_python_version_consistency,
+    check_runner_images,
+    check_test_matrix_excludes,
+    check_thin_caller_pins,
+    check_thin_caller_secrets,
+    check_thin_caller_triggers,
+    check_workflow_dispatch,
+    check_workflow_permissions,
 )
 from repomatic.matrix.axes import UNSTABLE_PYTHON_VERSIONS
 from repomatic.metadata.core import METADATA_VALUE_OPTIONS, requested_metadata_keys
@@ -128,98 +153,137 @@ def _undated_registry_pins():
     machine, with real verdicts and megabytes of JSON to parse. A test of the
     check patches the lookup itself, which shadows this stub.
     """
-    with patch("repomatic.lint_repo.tool_candidates", return_value=[]):
+    with patch("repomatic.lint_repo.pins.tool_candidates", return_value=[]):
         yield
 
 
-def test_successful_fetch():
-    """Fetch and parse repo metadata."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
-        mock_gh.return_value = {
-            "homepageUrl": "https://example.com",
-            "description": "A package",
-        }
-        result = get_repo_metadata("owner/repo")
-        assert result == {
-            "homepageUrl": "https://example.com",
-            "description": "A package",
-        }
+def _offline(**fields: Any) -> LintContext:
+    """A context whose repository object is already read, so no check reads it.
 
-
-def test_empty_fields():
-    """Handle empty fields."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
-        mock_gh.return_value = {"homepageUrl": "", "description": ""}
-        result = get_repo_metadata("owner/repo")
-        assert result == {"homepageUrl": None, "description": None}
-
-
-def test_unreadable_metadata():
-    """Both fields are None when the payload cannot be read.
-
-    `gh_api_json` collapses a failed call and unparsable output into one `None`,
-    so there is a single outcome to assert on here.
+    :param fields: `LintContext` fields, plus `repo_object`: the object the
+        checks read in place of `GET /repos/{repo}`, `None` for an unreadable one.
     """
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
-        mock_gh.return_value = None
-        result = get_repo_metadata("owner/repo")
-        assert result == {"homepageUrl": None, "description": None}
+    repo_object = fields.pop("repo_object", None)
+    ctx = LintContext(**fields)
+    ctx.__dict__["repo_object"] = repo_object
+    return ctx
+
+
+def _workflows(**texts: str) -> LintContext:
+    """A context whose workflow files are *texts*, keyed by stem, and none on disk."""
+    ctx = LintContext()
+    ctx.__dict__["workflow_texts"] = {
+        Path(f".github/workflows/{stem}.yaml"): text for stem, text in texts.items()
+    }
+    return ctx
+
+
+def _findings(ctx: LintContext) -> dict[str, list[CheckResult]]:
+    """The results `lint-repo` reports on *ctx*, grouped by check name."""
+    found: dict[str, list[CheckResult]] = {}
+    for check, result in run_repo_lint(ctx):
+        found.setdefault(check.name, []).append(result)
+    return found
+
+
+def _fails(ctx: LintContext) -> bool:
+    """Whether `lint-repo` exits non-zero on *ctx*."""
+    return any(check.fails(result) for check, result in run_repo_lint(ctx))
+
+
+def _roster_check(name: str) -> RepoCheck:
+    """The roster entry called *name*."""
+    return next(check for check in REPO_CHECKS if check.name == name)
+
+
+def test_repo_object_is_read_once():
+    """One `GET /repos/{repo}` serves every check reading the repository object."""
+    payload = {"homepage": "https://example.com", "description": "A package"}
+    ctx = LintContext(repo="owner/repo")
+    with patch("repomatic.lint_repo.context.gh_json", return_value=payload) as api:
+        assert ctx.repo_object == payload
+        assert ctx.repo_object == payload
+    api.assert_called_once_with(["api", "repos/owner/repo"], soft=True)
+
+
+@pytest.mark.parametrize(
+    ("repo", "payload"),
+    (
+        pytest.param(None, {"description": "A package"}, id="no-repository"),
+        pytest.param("owner/repo", None, id="unreadable"),
+        pytest.param("owner/repo", ["not", "an", "object"], id="not-an-object"),
+    ),
+)
+def test_repo_object_is_none_when_it_cannot_be_read(repo, payload):
+    """No repository, or an unreadable answer, reads as an absent object."""
+    ctx = LintContext(repo=repo)
+    with patch("repomatic.lint_repo.context.gh_json", return_value=payload):
+        assert ctx.repo_object is None
+
+
+def test_slug_refuses_a_context_without_a_repository():
+    """A check reading the API through an ungated context fails loudly."""
+    with pytest.raises(ValueError, match="no repository is named"):
+        _ = LintContext().slug
+
+
+def test_rulesets_are_read_once():
+    """The two ruleset checks share one read of the rulesets API."""
+    rulesets = [{"name": "main", "target": "branch", "enforcement": "active"}]
+    ctx = LintContext(repo="owner/repo")
+    with patch("repomatic.lint_repo.context.gh_json", return_value=rulesets) as api:
+        check_tag_protection_rules(ctx)
+        check_branch_ruleset_on_default(ctx)
+    api.assert_called_once()
 
 
 def test_names_match():
     """No warning when names match."""
-    result = check_package_name_vs_repo("my-package", "my-package")
+    result = check_package_name_vs_repo(
+        LintContext(package_name="my-package", repo_name="my-package")
+    )
     assert result.passed is True
     assert "matches" in result.message
 
 
 def test_names_differ():
     """Warning when names differ."""
-    result = check_package_name_vs_repo("my-package", "my-repo")
+    result = check_package_name_vs_repo(
+        LintContext(package_name="my-package", repo_name="my-repo")
+    )
     assert result.passed is False
     assert "differs" in result.message
     assert "my-package" in result.message
     assert "my-repo" in result.message
 
 
-def test_no_package_name():
-    """Skip when no package name."""
-    warning, msg = check_package_name_vs_repo(None, "my-repo")
-    assert warning is None
-    assert "skipped" in msg
-
-
-def test_not_sphinx():
-    """Skip when not a Sphinx project."""
-    warning, msg = check_website_for_sphinx("owner/repo", is_sphinx=False)
-    assert warning is None
-    assert "skipped" in msg
-
-
 def test_sphinx_with_website():
     """No warning when Sphinx project has website."""
     result = check_website_for_sphinx(
-        "owner/repo", is_sphinx=True, homepage_url="https://docs.example.com"
+        _offline(
+            repo="owner/repo", repo_object={"homepage": "https://docs.example.com"}
+        )
     )
     assert result.passed is True
     assert "https://docs.example.com" in result.message
 
 
-def test_sphinx_without_website():
-    """Warning when Sphinx project has no website."""
-    result = check_website_for_sphinx("owner/repo", is_sphinx=True, homepage_url=None)
+@pytest.mark.parametrize("homepage", (None, ""))
+def test_sphinx_without_website(homepage):
+    """Warning when Sphinx project has no website, whatever GitHub stores for none."""
+    result = check_website_for_sphinx(
+        _offline(repo="owner/repo", repo_object={"homepage": homepage})
+    )
     assert result.passed is False
     assert "Sphinx" in result.message
     assert "not set" in result.message
 
 
-def test_sphinx_fetches_metadata():
-    """Fetch metadata when homepage_url not provided."""
-    with patch("repomatic.lint_repo.get_repo_metadata") as mock_get:
-        mock_get.return_value = {"homepageUrl": "https://example.com"}
-        result = check_website_for_sphinx("owner/repo", is_sphinx=True)
-        assert result.passed is True
-        mock_get.assert_called_once_with("owner/repo")
+def test_sphinx_website_unreadable_repository():
+    """An unreadable repository object skips, rather than reporting no website."""
+    result = check_website_for_sphinx(_offline(repo="owner/repo", repo_object=None))
+    assert result.passed is None
+    assert "skipped" in result.message
 
 
 @pytest.mark.parametrize(
@@ -270,7 +334,9 @@ def test_documentation_url(project_urls, expected):
 def test_sphinx_website_matches_docs_url(homepage_url, docs_url):
     """Pass when the website field and the declared docs URL name one address."""
     result = check_website_for_sphinx(
-        "owner/repo", is_sphinx=True, homepage_url=homepage_url, docs_url=docs_url
+        _offline(
+            repo="owner/repo", docs_url=docs_url, repo_object={"homepage": homepage_url}
+        )
     )
     assert result.passed is True
     assert "matches" in result.message
@@ -292,7 +358,9 @@ def test_sphinx_website_matches_docs_url(homepage_url, docs_url):
 def test_sphinx_website_differs_from_docs_url(homepage_url, docs_url):
     """Fail when the website field names something other than the docs URL."""
     result = check_website_for_sphinx(
-        "owner/repo", is_sphinx=True, homepage_url=homepage_url, docs_url=docs_url
+        _offline(
+            repo="owner/repo", docs_url=docs_url, repo_object={"homepage": homepage_url}
+        )
     )
     assert result.passed is False
     assert homepage_url in result.message
@@ -302,10 +370,9 @@ def test_sphinx_website_differs_from_docs_url(homepage_url, docs_url):
 def test_sphinx_website_without_declared_docs_url():
     """Keep the presence-only check when the project declares no docs URL."""
     result = check_website_for_sphinx(
-        "owner/repo",
-        is_sphinx=True,
-        homepage_url="https://kiwi.github.io/papaya",
-        docs_url=None,
+        _offline(
+            repo="owner/repo", repo_object={"homepage": "https://kiwi.github.io/papaya"}
+        )
     )
     assert result.passed is True
     assert "is set" in result.message
@@ -314,154 +381,140 @@ def test_sphinx_website_without_declared_docs_url():
 def test_descriptions_match():
     """No error when descriptions match."""
     result = check_description_matches(
-        "owner/repo",
-        project_description="A cool package",
-        repo_description="A cool package",
+        _offline(
+            repo="owner/repo",
+            project_description="A cool package",
+            repo_object={"description": "A cool package"},
+        )
     )
     assert result.passed is True
     assert "matches" in result.message
 
 
-def test_descriptions_differ():
-    """Error when descriptions differ."""
+@pytest.mark.parametrize("description", ("Different description", None))
+def test_descriptions_differ(description):
+    """Error when descriptions differ, an empty repository description included."""
     result = check_description_matches(
-        "owner/repo",
-        project_description="A cool package",
-        repo_description="Different description",
+        _offline(
+            repo="owner/repo",
+            project_description="A cool package",
+            repo_object={"description": description},
+        )
     )
     assert result.passed is False
     assert "!=" in result.message
 
 
-def test_no_project_description():
-    """Skip when no project description."""
-    error, msg = check_description_matches(
-        "owner/repo", project_description=None, repo_description="Something"
+def test_description_unreadable_repository():
+    """An unreadable repository object skips, never fails a fatal check."""
+    result = check_description_matches(
+        _offline(repo="owner/repo", project_description="A cool package")
     )
-    assert error is None
-    assert "skipped" in msg
+    assert result.passed is None
+    assert "skipped" in result.message
 
 
-def test_fetches_metadata():
-    """Fetch metadata when repo_description not provided."""
-    with patch("repomatic.lint_repo.get_repo_metadata") as mock_get:
-        mock_get.return_value = {"description": "A cool package"}
-        result = check_description_matches(
-            "owner/repo", project_description="A cool package"
-        )
-        assert result.passed is True
-        mock_get.assert_called_once_with("owner/repo")
+@pytest.mark.parametrize(
+    "name", ("website-for-sphinx", "description-matches", "topics-subset-of-keywords")
+)
+def test_repository_object_checks_need_a_repository(name):
+    """A check reading the repository object never runs without a repository.
+
+    Without the gate, the description check compared the project's description
+    against nothing and failed, fatally, on every local run naming no
+    repository.
+    """
+    fields: dict[str, Any] = {
+        "is_sphinx": True,
+        "project_description": "A cool package",
+        "keywords": ["fig"],
+    }
+    check = _roster_check(name)
+    assert not check.applies(LintContext(**fields))
+    assert check.applies(LintContext(repo="owner/repo", **fields))
 
 
 def test_all_checks_pass():
-    """Return 0 when all checks pass."""
-    with patch("repomatic.lint_repo.get_repo_metadata") as mock_get:
-        mock_get.return_value = {
-            "homepageUrl": "https://example.com",
+    """No check fails the run when the repository matches the project."""
+    ctx = _offline(
+        package_name="my-package",
+        repo_name="my-package",
+        is_sphinx=True,
+        project_description="A cool package",
+        repo="owner/repo",
+        repo_object={
+            "homepage": "https://example.com",
             "description": "A cool package",
-        }
-        exit_code = run_repo_lint(
-            LintContext(
-                package_name="my-package",
-                repo_name="my-package",
-                is_sphinx=True,
-                project_description="A cool package",
-                repo="owner/repo",
-            )
-        )
-        assert exit_code == 0
-
-
-def test_description_mismatch(capsys):
-    """Return 1 when description mismatches."""
-    with patch("repomatic.lint_repo.get_repo_metadata") as mock_get:
-        mock_get.return_value = {
-            "homepageUrl": None,
-            "description": "Different description",
-        }
-        exit_code = run_repo_lint(
-            LintContext(
-                project_description="A cool package",
-                repo="owner/repo",
-            )
-        )
-        assert exit_code == 1
-        captured = capsys.readouterr()
-        assert "::error::" in captured.out
-
-
-def test_package_name_warning(capsys):
-    """Emit warning for package name mismatch but still pass."""
-    exit_code = run_repo_lint(
-        LintContext(
-            package_name="my-package",
-            repo_name="different-repo",
-        )
+        },
     )
-    assert exit_code == 0
-    captured = capsys.readouterr()
-    assert "::warning::" in captured.out
+    assert not _fails(ctx)
 
 
-def test_website_warning(capsys):
-    """Emit warning for missing website but still pass."""
-    with patch("repomatic.lint_repo.get_repo_metadata") as mock_get:
-        mock_get.return_value = {"homepageUrl": None, "description": None}
-        exit_code = run_repo_lint(
-            LintContext(
-                is_sphinx=True,
-                repo="owner/repo",
-            )
-        )
-        assert exit_code == 0
-        captured = capsys.readouterr()
-        assert "::warning::" in captured.out
+def test_description_mismatch():
+    """A description mismatch fails the run."""
+    ctx = _offline(
+        project_description="A cool package",
+        repo="owner/repo",
+        repo_object={"homepage": None, "description": "Different description"},
+    )
+    assert _fails(ctx)
+    (result,) = _findings(ctx)["description-matches"]
+    assert result.passed is False
+    assert _roster_check("description-matches").fatal
 
 
-def test_website_docs_url_mismatch_warning(capsys):
+def test_package_name_warning():
+    """A package name mismatch warns, and the run still passes."""
+    ctx = LintContext(package_name="my-package", repo_name="different-repo")
+    assert not _fails(ctx)
+    (result,) = _findings(ctx)["package-name-vs-repo"]
+    assert result.passed is False
+
+
+def test_website_warning():
+    """A missing website warns, and the run still passes."""
+    ctx = _offline(
+        is_sphinx=True,
+        repo="owner/repo",
+        repo_object={"homepage": None, "description": None},
+    )
+    assert not _fails(ctx)
+    (result,) = _findings(ctx)["website-for-sphinx"]
+    assert result.passed is False
+
+
+def test_website_docs_url_mismatch_warning():
     """A website field pointing away from the docs URL warns without failing."""
-    with patch("repomatic.lint_repo.get_repo_metadata") as mock_get:
-        mock_get.return_value = {
-            "homepageUrl": "https://kiwi.github.io/papaya",
-            "description": None,
-        }
-        exit_code = run_repo_lint(
-            LintContext(
-                is_sphinx=True,
-                docs_url="https://papaya.example",
-                repo="owner/repo",
-            )
-        )
-        assert exit_code == 0
-        captured = capsys.readouterr()
-        assert "::warning::" in captured.out
-        assert "https://papaya.example" in captured.out
+    ctx = _offline(
+        is_sphinx=True,
+        docs_url="https://papaya.example",
+        repo="owner/repo",
+        repo_object={"homepage": "https://kiwi.github.io/papaya", "description": None},
+    )
+    assert not _fails(ctx)
+    (result,) = _findings(ctx)["website-for-sphinx"]
+    assert result.passed is False
+    assert "https://papaya.example" in result.message
 
 
 @pytest.mark.parametrize(
     ("unsubscribe_active", "has_notifications_pat", "expected"),
     (
         (False, False, None),
-        (True, False, "::warning::"),
-        (True, True, "✓ REPOMATIC_NOTIFICATIONS_PAT secret is configured."),
+        (True, False, False),
+        (True, True, True),
     ),
 )
-def test_notifications_pat_check(
-    capsys, unsubscribe_active, has_notifications_pat, expected
-):
+def test_notifications_pat_check(unsubscribe_active, has_notifications_pat, expected):
     """The notifications PAT check only fires when the workflow is opted in."""
-    exit_code = run_repo_lint(
-        LintContext(
-            unsubscribe_active=unsubscribe_active,
-            has_notifications_pat=has_notifications_pat,
-        )
+    ctx = LintContext(
+        config=Config(notification_unsubscribe=unsubscribe_active),
+        has_notifications_pat=has_notifications_pat,
     )
-    assert exit_code == 0
-    captured = capsys.readouterr()
-    if expected is None:
-        assert "REPOMATIC_NOTIFICATIONS_PAT" not in captured.out
-    else:
-        assert expected in captured.out
+    assert not _fails(ctx)
+    found = _findings(ctx).get("notifications-pat-secret", [])
+    expected_passed = [] if expected is None else [expected]
+    assert [result.passed for result in found] == expected_passed
 
 
 @pytest.mark.parametrize(
@@ -489,31 +542,39 @@ def test_notifications_pat_check(
             "cloudflare-pages",
             True,
             True,
-            "✓ CLOUDFLARE_API_TOKEN is configured, and the account resolves",
+            "CLOUDFLARE_API_TOKEN is configured, and the account resolves",
             id="token-alone-is-enough",
         ),
     ),
 )
-def test_cloudflare_secrets_check(capsys, site_deploy, is_sphinx, has_token, expected):
+def test_cloudflare_secrets_check(site_deploy, is_sphinx, has_token, expected):
     """The token is the whole of the credential.
 
     The account is derived from it at run time: a token scoped to nothing
     but `Cloudflare Pages: Edit` still enumerates the account it belongs
     to, so no second identifier is asked for or reported on.
     """
-    exit_code = run_repo_lint(
-        LintContext(
-            is_sphinx=is_sphinx,
-            site_deploy=site_deploy,
-            has_cloudflare_api_token=has_token,
-        )
+    ctx = LintContext(
+        config=Config(site_deploy=site_deploy),
+        is_sphinx=is_sphinx,
+        has_cloudflare_api_token=has_token,
     )
-    assert exit_code == 0
-    captured = capsys.readouterr()
+    assert not _fails(ctx)
+    found = _findings(ctx).get("cloudflare-pages-secrets", [])
     if expected is None:
-        assert "CLOUDFLARE" not in captured.out
+        assert found == []
     else:
-        assert expected in captured.out
+        (result,) = found
+        assert expected in result.message
+
+
+def _r2_config(bucket: str) -> Config:
+    """A Cloudflare Pages configuration declaring *bucket*, or no bucket at all."""
+    return Config(
+        site_deploy="cloudflare-pages",
+        site_cloudflare_r2_bucket=bucket,
+        site_cloudflare_r2_domain="files.example.com" if bucket else "",
+    )
 
 
 @pytest.mark.parametrize(
@@ -525,9 +586,8 @@ def test_cloudflare_secrets_check(capsys, site_deploy, is_sphinx, has_token, exp
 )
 def test_cloudflare_r2_secrets_follow_the_declared_bucket(bucket, applies):
     """Without a bucket the deploy drops oversized files by design, reading no key."""
-    (check,) = (check for check in REPO_CHECKS if check.name == "cloudflare-r2-secrets")
-    ctx = LintContext(site_deploy="cloudflare-pages", site_cloudflare_r2_bucket=bucket)
-    assert check.applies(ctx) is applies
+    check = _roster_check("cloudflare-r2-secrets")
+    assert check.applies(LintContext(config=_r2_config(bucket))) is applies
 
 
 @pytest.mark.parametrize(
@@ -539,11 +599,9 @@ def test_cloudflare_r2_secrets_follow_the_declared_bucket(bucket, applies):
 )
 def test_cloudflare_r2_secrets(has_keys, passed, fragment):
     ctx = LintContext(
-        site_deploy="cloudflare-pages",
-        site_cloudflare_r2_bucket="papaya-files",
-        has_cloudflare_r2_keys=has_keys,
+        config=_r2_config("papaya-files"), has_cloudflare_r2_keys=has_keys
     )
-    result = _cloudflare_r2_secrets(ctx)
+    result = check_cloudflare_r2_secrets(ctx)
     assert result.passed is passed
     assert fragment in result.message
 
@@ -566,10 +624,10 @@ def test_oversized_site_files(tmp_path, big, bucket, passed, fragment):
         with atlas.open("wb") as stream:
             stream.truncate(PAGES_MAX_FILE_SIZE + 1)
         files.append(atlas)
-    ctx = LintContext(site_deploy="cloudflare-pages", site_cloudflare_r2_bucket=bucket)
+    ctx = LintContext(config=_r2_config(bucket))
     # Seed the cached inventory: the check must not walk this repository.
     ctx.__dict__["oversized_files"] = files
-    result = _oversized_site_files(ctx)
+    result = check_oversized_site_files(ctx)
     assert result.passed is passed
     assert fragment in result.message
 
@@ -589,20 +647,11 @@ def test_pages_deployment_source_follows_the_deploy_target(site_deploy, probed):
     Cloudflare-hosted project that is a permanent skip line about a setting
     nobody will ever change.
     """
-    with (
-        patch("repomatic.lint_repo.get_repo_metadata") as mock_get,
-        patch("repomatic.lint_repo.check_pages_deployment_source") as probe,
-    ):
-        mock_get.return_value = {"homepageUrl": None, "description": None}
-        probe.return_value = CheckResult(True, "Pages source is GitHub Actions.")
-        run_repo_lint(
-            LintContext(
-                is_sphinx=True,
-                site_deploy=site_deploy,
-                repo="orchard/papaya",
-            )
-        )
-    assert probe.called is probed
+    check = _roster_check("pages-deployment-source")
+    ctx = LintContext(
+        config=Config(site_deploy=site_deploy), is_sphinx=True, repo="orchard/papaya"
+    )
+    assert check.applies(ctx) is probed
 
 
 @pytest.mark.parametrize(
@@ -683,26 +732,26 @@ def test_pages_redirect_preserved(pages, history, docs_url, passed, fragment):
     where the old host serves a copy that stops being rebuilt the moment the
     deploy job is gated off.
     """
-    with patch("repomatic.lint_repo.gh_api_json") as api:
+    ctx = LintContext(repo="kdeldycke/repomatic", docs_url=docs_url)
+    with patch("repomatic.lint_repo.site.gh_json") as api:
         api.side_effect = [pages, history]
-        result = check_pages_redirect_preserved("kdeldycke/repomatic", docs_url)
+        result = check_pages_redirect_preserved(ctx)
     assert result.passed is passed
     assert fragment in result.message
 
 
 def test_pages_redirect_check_follows_the_deploy_target():
     """Only a repository that moved away is asked to keep redirecting."""
-    check = next(
-        check for check in REPO_CHECKS if check.name == "pages-redirect-preserved"
-    )
-    assert check.applies(
-        LintContext(repo="kdeldycke/repomatic", site_deploy="cloudflare-pages")
-    )
+    check = _roster_check("pages-redirect-preserved")
+    cloudflare = Config(site_deploy="cloudflare-pages")
+    assert check.applies(LintContext(repo="kdeldycke/repomatic", config=cloudflare))
     assert not check.applies(
-        LintContext(repo="kdeldycke/repomatic", site_deploy="github-pages")
+        LintContext(
+            repo="kdeldycke/repomatic", config=Config(site_deploy="github-pages")
+        )
     )
     # Without a repository there is no Pages API to ask.
-    assert not check.applies(LintContext(site_deploy="cloudflare-pages"))
+    assert not check.applies(LintContext(config=cloudflare))
 
 
 def _lock_with(tmp_path: Path, *packages: tuple[str, str]) -> Path:
@@ -719,6 +768,10 @@ def _lock_with(tmp_path: Path, *packages: tuple[str, str]) -> Path:
     return lock
 
 
+MANPAGES_CONTEXT = LintContext(config=Config(manpages_script="basket.cli:basket"))
+"""A project opting into man pages, whose lockfile each test writes."""
+
+
 @pytest.mark.parametrize(
     ("version", "passed"),
     (
@@ -730,45 +783,59 @@ def _lock_with(tmp_path: Path, *packages: tuple[str, str]) -> Path:
         ("10.0.0.dev1", True),
     ),
 )
-def test_manpages_toolchain_reads_the_locked_click_extra(tmp_path, version, passed):
+def test_manpages_toolchain_reads_the_locked_click_extra(
+    tmp_path, monkeypatch, version, passed
+):
     """The floor is checked against `uv.lock`, which the job installs from."""
-    lock = _lock_with(tmp_path, ("click-extra", version), ("cherry", "1.0"))
-    result = check_manpages_toolchain("basket.cli:basket", lock_path=lock)
+    monkeypatch.chdir(tmp_path)
+    _lock_with(tmp_path, ("click-extra", version), ("cherry", "1.0"))
+    result = check_manpages_toolchain(MANPAGES_CONTEXT)
     assert result.passed is passed
     assert version in result.message
 
 
-def test_manpages_toolchain_matches_a_non_canonical_lock_name(tmp_path):
+def test_manpages_toolchain_matches_a_non_canonical_lock_name(tmp_path, monkeypatch):
     """A lock spelling the package `Click_Extra` names the same project."""
-    lock = _lock_with(tmp_path, ("Click_Extra", "9.0.0"))
-    assert check_manpages_toolchain("basket.cli:basket", lock_path=lock).passed is True
+    monkeypatch.chdir(tmp_path)
+    _lock_with(tmp_path, ("Click_Extra", "9.0.0"))
+    assert check_manpages_toolchain(MANPAGES_CONTEXT).passed is True
 
 
 @pytest.mark.parametrize("packages", ((), (("cherry", "1.0"),)))
-def test_manpages_toolchain_is_indeterminate_without_click_extra(tmp_path, packages):
+def test_manpages_toolchain_is_indeterminate_without_click_extra(
+    tmp_path, monkeypatch, packages
+):
     """A lock that never mentions click-extra answers neither pass nor fail."""
-    lock = _lock_with(tmp_path, *packages)
-    assert check_manpages_toolchain("basket.cli:basket", lock_path=lock).passed is None
+    monkeypatch.chdir(tmp_path)
+    _lock_with(tmp_path, *packages)
+    assert check_manpages_toolchain(MANPAGES_CONTEXT).passed is None
 
 
-def test_manpages_toolchain_is_indeterminate_without_a_lock(tmp_path):
+def test_manpages_toolchain_is_indeterminate_without_a_lock(tmp_path, monkeypatch):
     """A project with no lockfile is reported as unknown, not broken."""
-    result = check_manpages_toolchain(
-        "basket.cli:basket", lock_path=tmp_path / "uv.lock"
-    )
+    monkeypatch.chdir(tmp_path)
+    result = check_manpages_toolchain(MANPAGES_CONTEXT)
     assert result.passed is None
     assert "missing" in result.message
 
 
 def test_manpages_toolchain_only_applies_to_an_opted_in_project():
     """The roster entry stays silent until `manpages.script` is set."""
-    check = next(c for c in REPO_CHECKS if c.name == "manpages-toolchain")
-    assert check.applies(LintContext(manpages_script="")) is False
-    assert check.applies(LintContext(manpages_script="basket.cli:basket")) is True
+    check = _roster_check("manpages-toolchain")
+    assert check.applies(LintContext()) is False
+    assert check.applies(MANPAGES_CONTEXT) is True
 
 
 BOOTSTRAP_CONFIGS = SyncMode.BOOTSTRAP.components()
 """Every tool config `init` seeds once and never revisits."""
+
+
+def _tools(
+    tool_table: Mapping[str, Any], lint_repo: LintRepoConfig | None = None
+) -> LintContext:
+    """A context holding *tool_table* as `[tool]`, and *lint_repo* as its record."""
+    config = Config() if lint_repo is None else Config(lint_repo=lint_repo)
+    return LintContext(config=config, tool_table=tool_table)
 
 
 def _template_carries(template: Mapping, path: str, member: str | None) -> bool:
@@ -845,7 +912,7 @@ def test_template_member_name(member, expected):
 def test_bootstrap_config_drift_passes_on_its_own_template(comp):
     """A section holding the bundle verbatim is missing nothing."""
     local = tomlrt.loads(get_data_content(comp.source_file))
-    results = tuple(check_bootstrap_config_drift({comp.tool_name: local}))
+    results = tuple(check_bootstrap_config_drift(_tools({comp.tool_name: local})))
     assert [result.passed for result in results] == [True]
 
 
@@ -860,7 +927,7 @@ def test_bootstrap_config_drift_reports_a_dropped_entry(comp):
     local = tomlrt.loads(get_data_content(comp.source_file))
     dropped = next(iter(local))
     del local[dropped]
-    results = tuple(check_bootstrap_config_drift({comp.tool_name: local}))
+    results = tuple(check_bootstrap_config_drift(_tools({comp.tool_name: local})))
     assert [result.passed for result in results] == [False]
     assert f"`{dropped}`" in results[0].message
 
@@ -869,7 +936,7 @@ def test_bootstrap_config_drift_keeps_a_customized_placeholder():
     """`--cov=.` names the project's own package, so its absence is not drift."""
     local = tomlrt.loads(get_data_content("pytest.toml"))
     local["addopts"].remove("--cov=.")
-    results = tuple(check_bootstrap_config_drift({"pytest": local}))
+    results = tuple(check_bootstrap_config_drift(_tools({"pytest": local})))
     assert [result.passed for result in results] == [True]
 
 
@@ -881,11 +948,15 @@ def test_bootstrap_config_drift_reads_the_pytest_legacy_table():
     `[tool.pytest]` would prescribe a configuration pytest rejects.
     """
     legacy = tomlrt.loads(get_data_content("pytest.toml"))
-    results = tuple(check_bootstrap_config_drift({"pytest": {"ini_options": legacy}}))
+    results = tuple(
+        check_bootstrap_config_drift(_tools({"pytest": {"ini_options": legacy}}))
+    )
     assert [result.passed for result in results] == [True]
 
     del legacy["xfail_strict"]
-    results = tuple(check_bootstrap_config_drift({"pytest": {"ini_options": legacy}}))
+    results = tuple(
+        check_bootstrap_config_drift(_tools({"pytest": {"ini_options": legacy}}))
+    )
     assert [result.passed for result in results] == [False]
     assert results[0].message.startswith("[tool.pytest.ini_options] does not carry")
     assert "`xfail_strict`" in results[0].message
@@ -970,14 +1041,14 @@ def test_bootstrap_config_drift_declines_any_reportable_entry(comp, keys, member
         members.remove(next(m for m in members if template_member_name(m) == member))
 
     # The control: without the record, the absence is a warning.
-    results = tuple(check_bootstrap_config_drift({comp.tool_name: local}))
+    results = tuple(check_bootstrap_config_drift(_tools({comp.tool_name: local})))
     assert [result.passed for result in results] == [False]
 
     leaf = (
         (comp.tool_name, *keys) if member is None else (comp.tool_name, *keys, member)
     )
     results = tuple(
-        check_bootstrap_config_drift({comp.tool_name: local}, _declining(*leaf))
+        check_bootstrap_config_drift(_tools({comp.tool_name: local}, _declining(*leaf)))
     )
     assert [result.passed for result in results] == [None, True]
     assert results[0].message.startswith(f"[{comp.tool_section}] declines `")
@@ -992,7 +1063,10 @@ def test_bootstrap_config_drift_keeps_reporting_the_siblings_of_a_declined_membe
     local["addopts"].remove("--cov-report=term")
     results = tuple(
         check_bootstrap_config_drift(
-            {"pytest": local}, _declining("pytest", "addopts", "--numprocesses=auto")
+            _tools(
+                {"pytest": local},
+                _declining("pytest", "addopts", "--numprocesses=auto"),
+            )
         )
     )
     assert [result.passed for result in results] == [None, False]
@@ -1006,7 +1080,10 @@ def test_bootstrap_config_drift_declines_an_entry_of_the_pytest_legacy_table():
     del legacy["xfail_strict"]
     results = tuple(
         check_bootstrap_config_drift(
-            {"pytest": {"ini_options": legacy}}, _declining("pytest", "xfail_strict")
+            _tools(
+                {"pytest": {"ini_options": legacy}},
+                _declining("pytest", "xfail_strict"),
+            )
         )
     )
     assert [result.passed for result in results] == [None, True]
@@ -1029,10 +1106,12 @@ def test_bootstrap_config_drift_wants_a_reason(reason):
     """An entry mapped to no reason declines nothing: the reason is the point."""
     local = tomlrt.loads(get_data_content("pytest.toml"))
     local["addopts"].remove("--numprocesses=auto")
-    lint_repo = LintRepoConfig(
+    lint_repo_table = LintRepoConfig(
         declined={"pytest": {"addopts": {"--numprocesses=auto": reason}}}
     )
-    results = tuple(check_bootstrap_config_drift({"pytest": local}, lint_repo))
+    results = tuple(
+        check_bootstrap_config_drift(_tools({"pytest": local}, lint_repo_table))
+    )
     assert [result.passed for result in results] == [False, False]
     assert '"--numprocesses=auto"' in results[0].message
     assert 'entry `pytest.addopts."--numprocesses=auto"` gives no reason' in (
@@ -1083,7 +1162,9 @@ def test_bootstrap_config_drift_reports_an_entry_that_declines_nothing(leaf, ver
     making, and the next real gap at that path would arrive already declined.
     """
     local = tomlrt.loads(get_data_content("pytest.toml"))
-    results = tuple(check_bootstrap_config_drift({"pytest": local}, _declining(*leaf)))
+    results = tuple(
+        check_bootstrap_config_drift(_tools({"pytest": local}, _declining(*leaf)))
+    )
     assert [result.passed for result in results] == [True, False]
     assert "every entry" in results[0].message
     assert "declines nothing" in results[1].message
@@ -1092,12 +1173,11 @@ def test_bootstrap_config_drift_reports_an_entry_that_declines_nothing(leaf, ver
 
 def test_bootstrap_config_drift_roster_entry_reads_the_declined_table():
     """The roster hands the check the table, not only the section it measures."""
-    check = next(c for c in REPO_CHECKS if c.name == "bootstrap-config-drift")
+    check = _roster_check("bootstrap-config-drift")
     local = tomlrt.loads(get_data_content("pytest.toml"))
     local["addopts"].remove("--numprocesses=auto")
-    ctx = LintContext(
-        tool_table={"pytest": local},
-        lint_repo=_declining("pytest", "addopts", "--numprocesses=auto"),
+    ctx = _tools(
+        {"pytest": local}, _declining("pytest", "addopts", "--numprocesses=auto")
     )
     assert [result.passed for result in check.results(ctx)] == [None, True]
 
@@ -1112,20 +1192,21 @@ def test_bootstrap_config_drift_is_settled_in_this_repository():
     pyproject = tomlrt.loads(
         (PROJECT_ROOT / "pyproject.toml").read_text(encoding="UTF-8")
     )
-    lint_repo = load_repomatic_config(pyproject).lint_repo
-    results = check_bootstrap_config_drift(pyproject["tool"], lint_repo)
+    ctx = LintContext(
+        config=load_repomatic_config(pyproject), tool_table=pyproject["tool"]
+    )
+    results = check_bootstrap_config_drift(ctx)
     assert [result.message for result in results if result.passed is False] == []
 
 
-def test_lint_context_carries_the_lint_repo_table(tmp_path, monkeypatch):
-    """`from_project` hands over what the repository told the checks."""
+def test_lint_context_keeps_the_configuration_it_is_given(tmp_path, monkeypatch):
+    """`from_project` hands the checks the configuration the command resolved."""
     metadata_from_pyproject(tmp_path, monkeypatch, '[project]\nname = "basket"\n')
-    lint_repo = _declining("pytest", "testpaths")
-    with patch(
-        "repomatic.lint_repo._resolve_declared_labels", return_value=frozenset()
-    ):
-        ctx = LintContext.from_project(Config(lint_repo=lint_repo))
-    assert ctx.lint_repo is lint_repo
+    config = Config(
+        lint_repo=_declining("pytest", "testpaths"), minimum_release_age="3 days"
+    )
+    ctx = LintContext.from_project(config)
+    assert ctx.config is config
 
 
 @pytest.mark.parametrize("comp", BOOTSTRAP_CONFIGS, ids=lambda c: c.name)
@@ -1190,11 +1271,8 @@ def test_anchored_exclude_core(pattern, expected):
 
 def test_superseded_local_excludes_passes_on_the_bundle():
     """A section holding the bundle verbatim superseded nothing."""
-    results = tuple(
-        check_superseded_local_excludes({
-            "lychee": {"exclude": list(BUNDLED_LYCHEE_EXCLUDES)}
-        })
-    )
+    ctx = _tools({"lychee": {"exclude": list(BUNDLED_LYCHEE_EXCLUDES)}})
+    results = tuple(check_superseded_local_excludes(ctx))
     assert [result.passed for result in results] == [True]
 
 
@@ -1206,7 +1284,9 @@ def test_superseded_local_excludes_reports_a_bare_entry_the_bundle_anchored():
     in `x.com` in all four of them.
     """
     local = [*BUNDLED_LYCHEE_EXCLUDES, r"x\.com"]
-    results = tuple(check_superseded_local_excludes({"lychee": {"exclude": local}}))
+    results = tuple(
+        check_superseded_local_excludes(_tools({"lychee": {"exclude": local}}))
+    )
     assert [result.passed for result in results] == [False]
     assert r"Drop `x\.com`" in results[0].message
 
@@ -1223,7 +1303,9 @@ def test_superseded_local_excludes_replaces_a_bare_entry_left_alone():
     local = [
         r"x\.com" if item == anchored else item for item in BUNDLED_LYCHEE_EXCLUDES
     ]
-    results = tuple(check_superseded_local_excludes({"lychee": {"exclude": local}}))
+    results = tuple(
+        check_superseded_local_excludes(_tools({"lychee": {"exclude": local}}))
+    )
     assert [result.passed for result in results] == [False]
     assert rf"Replace `x\.com` with `{anchored}`" in results[0].message
     assert "Drop" not in results[0].message
@@ -1232,21 +1314,27 @@ def test_superseded_local_excludes_replaces_a_bare_entry_left_alone():
 def test_superseded_local_excludes_keeps_a_local_bare_entry_with_no_twin():
     """A repository's own bare pattern is a customization, not a leftover."""
     local = [*BUNDLED_LYCHEE_EXCLUDES, r"cloudlinux\.com"]
-    results = tuple(check_superseded_local_excludes({"lychee": {"exclude": local}}))
+    results = tuple(
+        check_superseded_local_excludes(_tools({"lychee": {"exclude": local}}))
+    )
     assert [result.passed for result in results] == [True]
 
 
 def test_superseded_local_excludes_keeps_a_local_anchored_entry():
     """An anchored local pattern narrows rather than broadens, so it is kept."""
     local = [*BUNDLED_LYCHEE_EXCLUDES, r"^https://example\.com/feed$"]
-    results = tuple(check_superseded_local_excludes({"lychee": {"exclude": local}}))
+    results = tuple(
+        check_superseded_local_excludes(_tools({"lychee": {"exclude": local}}))
+    )
     assert [result.passed for result in results] == [True]
 
 
 def test_superseded_local_excludes_ignores_a_tool_with_no_patterns():
     """Only a synced array of URL patterns has an anchored/bare distinction."""
-    assert tuple(check_superseded_local_excludes({"uv": {"exclude": ["x"]}})) == ()
-    assert tuple(check_superseded_local_excludes({})) == ()
+    assert (
+        tuple(check_superseded_local_excludes(_tools({"uv": {"exclude": ["x"]}}))) == ()
+    )
+    assert tuple(check_superseded_local_excludes(_tools({}))) == ()
 
 
 def test_bundled_excludes_never_carry_both_forms():
@@ -1274,10 +1362,10 @@ def test_bundled_excludes_never_carry_both_forms():
 def test_every_host_only_anchored_bundle_entry_is_readable():
     """An anchored entry the core extractor cannot read silently narrows the check.
 
-    {func}`~repomatic.lint_repo.anchored_exclude_core` recognises one shape. A
-    host-only entry written in another answers `None`, so a bare downstream copy
-    of it would go unreported. A path-shaped entry is expected to answer `None`:
-    no bare form of one was ever bundled on its own.
+    {func}`~repomatic.lint_repo.tool_config.anchored_exclude_core` recognises one
+    shape. A host-only entry written in another answers `None`, so a bare
+    downstream copy of it would go unreported. A path-shaped entry is expected
+    to answer `None`: no bare form of one was ever bundled on its own.
     """
     for item in BUNDLED_LYCHEE_EXCLUDES:
         if not item.startswith("^") or anchored_exclude_core(item) is not None:
@@ -1290,10 +1378,10 @@ def test_every_host_only_anchored_bundle_entry_is_readable():
         )
 
 
-def _lint_context_in(tmp_path, monkeypatch, **kwargs) -> LintContext:
+def _lint_context_in(tmp_path, monkeypatch, **fields) -> LintContext:
     """A `LintContext` whose filesystem lookups resolve inside *tmp_path*."""
     monkeypatch.chdir(tmp_path)
-    return LintContext(**kwargs)
+    return LintContext(**fields)
 
 
 def test_pages_redirects_clean_file_passes(tmp_path, monkeypatch):
@@ -1303,7 +1391,7 @@ def test_pages_redirects_clean_file_passes(tmp_path, monkeypatch):
         encoding="UTF-8",
     )
     ctx = _lint_context_in(tmp_path, monkeypatch)
-    results = list(lint_repo._pages_redirects(ctx))
+    results = list(check_pages_redirects(ctx))
     assert [result.passed for result in results] == [True]
     assert "2 rules survive" in results[0].message
 
@@ -1325,7 +1413,7 @@ def test_pages_redirects_reports_dropped_rules(tmp_path, monkeypatch):
     ctx = _lint_context_in(tmp_path, monkeypatch)
     messages = [
         result.message
-        for result in lint_repo._pages_redirects(ctx)
+        for result in check_pages_redirects(ctx)
         if result.passed is False
     ]
     assert len(messages) == 3
@@ -1349,10 +1437,12 @@ def test_pages_redirects_reports_budget_abort_and_misordering(tmp_path, monkeypa
     ctx = _lint_context_in(tmp_path, monkeypatch)
     failures = [
         result.message
-        for result in lint_repo._pages_redirects(ctx)
+        for result in check_pages_redirects(ctx)
         if result.passed is False
     ]
     assert any("stops reading at line 101" in message for message in failures)
+    # The messages read the budgets off the engine replica's constants.
+    assert any("2000-rule static budget" in message for message in failures)
     # Lines 2 to 100 survive as dynamically-charged statics; line 101 died on
     # the budget and line 102 was never read.
     assert any("99 exact rule(s) sit below" in message for message in failures)
@@ -1377,7 +1467,7 @@ def test_pages_redirects_names_a_url_a_surviving_pattern_captured(
     ctx = _lint_context_in(tmp_path, monkeypatch)
     failures = [
         result.message
-        for result in lint_repo._pages_redirects(ctx)
+        for result in check_pages_redirects(ctx)
         if result.passed is False
     ]
     assert any(
@@ -1394,10 +1484,10 @@ def test_pages_redirects_caps_the_urls_it_names(tmp_path, monkeypatch):
     ctx = _lint_context_in(tmp_path, monkeypatch)
     abort = next(
         result.message
-        for result in lint_repo._pages_redirects(ctx)
+        for result in check_pages_redirects(ctx)
         if result.passed is False and "stops reading" in result.message
     )
-    assert abort.count("no longer redirects") == lint_repo.MAX_REPORTED_DEAD_URLS
+    assert abort.count("no longer redirects") == MAX_REPORTED_DEAD_URLS
     # 101st dynamic rule plus 20 abandoned exact rules, minus the 5 named.
     assert "and 16 more rule(s) below them" in abort
 
@@ -1416,7 +1506,7 @@ def test_pages_redirects_names_the_exact_rules_a_pattern_shadows(tmp_path, monke
     ctx = _lint_context_in(tmp_path, monkeypatch)
     failures = [
         result.message
-        for result in lint_repo._pages_redirects(ctx)
+        for result in check_pages_redirects(ctx)
         if result.passed is False
     ]
     assert len(failures) == 1
@@ -1457,7 +1547,7 @@ def test_pages_redirects_reports_rules_that_cannot_work(
     ctx = _lint_context_in(tmp_path, monkeypatch)
     failures = [
         result.message
-        for result in lint_repo._pages_redirects(ctx)
+        for result in check_pages_redirects(ctx)
         if result.passed is False
     ]
     assert len(failures) == 1
@@ -1473,13 +1563,13 @@ def test_pages_redirects_accepts_a_literal_colon_in_an_exact_rule(
         "/guide https://example.org/wiki/Help:Contents 301\n", encoding="UTF-8"
     )
     ctx = _lint_context_in(tmp_path, monkeypatch)
-    results = list(lint_repo._pages_redirects(ctx))
+    results = list(check_pages_redirects(ctx))
     assert [result.passed for result in results] == [True]
 
 
 def test_pages_redirects_check_is_fatal_and_gated_on_the_file():
     """The roster entry must fail the run: dropped rules are already broken."""
-    check = next(check for check in REPO_CHECKS if check.name == "pages-redirects")
+    check = _roster_check("pages-redirects")
     assert check.fatal
     context_with = LintContext()
     context_with.__dict__["redirects_files"] = [Path("_redirects")]
@@ -1505,7 +1595,7 @@ def test_pages_redirects_honours_gitignore(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("wrangler_toml", "context_kwargs", "expected_failures"),
+    ("wrangler_toml", "config_fields", "repo_name", "expected_failures"),
     (
         pytest.param(
             'name = "papaya-site"\ncompatibility_date = "2026-06-16"\n',
@@ -1513,34 +1603,35 @@ def test_pages_redirects_honours_gitignore(tmp_path, monkeypatch):
                 "site_cloudflare_project": "papaya-site",
                 "site_cloudflare_compatibility_date": "2026-06-16",
             },
+            None,
             [],
             id="everything-agrees",
         ),
         pytest.param(
             'name = "renamed-by-hand"\n',
             {"site_cloudflare_project": "papaya-site"},
+            None,
             ["names project 'renamed-by-hand' while the deploy targets"],
             id="project-name-diverges",
         ),
         pytest.param(
             'name = "papaya"\ncompatibility_date = "2023-03-01"\n',
-            {
-                "repo_name": "papaya",
-                "site_cloudflare_compatibility_date": "2026-06-16",
-            },
+            {"site_cloudflare_compatibility_date": "2026-06-16"},
+            "papaya",
             ["says compatibility_date 2023-03-01"],
             id="stale-compatibility-date",
         ),
         pytest.param(
             "compatibility_date = [broken\n",
             {},
+            None,
             ["does not parse"],
             id="unparsable-file",
         ),
     ),
 )
 def test_wrangler_config_check(
-    tmp_path, monkeypatch, wrangler_toml, context_kwargs, expected_failures
+    tmp_path, monkeypatch, wrangler_toml, config_fields, repo_name, expected_failures
 ):
     """`wrangler.toml` must agree with the declared project name and date.
 
@@ -1549,10 +1640,12 @@ def test_wrangler_config_check(
     compatibility date sat three years behind the live value this way.
     """
     (tmp_path / "wrangler.toml").write_text(wrangler_toml, encoding="UTF-8")
-    ctx = _lint_context_in(tmp_path, monkeypatch, **context_kwargs)
+    ctx = _lint_context_in(
+        tmp_path, monkeypatch, config=Config(**config_fields), repo_name=repo_name
+    )
     failures = [
         result.message
-        for result in lint_repo._wrangler_config(ctx)
+        for result in check_wrangler_config(ctx)
         if result.passed is False
     ]
     assert len(failures) == len(expected_failures)
@@ -1561,48 +1654,64 @@ def test_wrangler_config_check(
 
 
 def test_minimal_run():
-    """Run with no checks enabled."""
-    exit_code = run_repo_lint(LintContext())
-    assert exit_code == 0
+    """A context naming nothing fails no check."""
+    assert not _fails(LintContext())
 
 
-def test_topics_no_keywords():
-    """Skip when no keywords provided."""
-    warning, msg = check_topics_subset_of_keywords("owner/repo", keywords=None)
-    assert warning is None
-    assert "skipped" in msg
+def test_cli_passes_a_project_with_nothing_wrong(tmp_path, monkeypatch):
+    """`lint-repo` prints each verdict and exits 0 when no fatal check fails."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    monkeypatch.delenv("REPOMATIC_PAT", raising=False)
+    result = CliRunner().invoke(repomatic, ["lint-repo"])
+    assert result.exit_code == 0, result.output
+    assert "ℹ PAT capability checks: skipped (no REPOMATIC_PAT)" in result.output
+    assert "::error::" not in result.output
+
+
+def test_cli_fails_on_a_fatal_finding(tmp_path, monkeypatch):
+    """A fatal check failing turns into an error annotation and exit code 1."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    monkeypatch.delenv("REPOMATIC_PAT", raising=False)
+    (tmp_path / "_redirects").write_text("/a /b 301\n/a /c 301\n", encoding="UTF-8")
+    result = CliRunner().invoke(repomatic, ["lint-repo"])
+    assert result.exit_code == 1, result.output
+    assert "::error::" in result.output
+    assert "✗ _redirects:2:" in result.output
+
+
+def _topics_context(topics: list[str], keywords: list[str]) -> LintContext:
+    """A context whose repository carries *topics*, and the project *keywords*."""
+    return _offline(
+        repo="owner/repo", keywords=keywords, repo_object={"topics": topics}
+    )
 
 
 def test_topics_all_in_keywords():
     """No warning when all topics are in keywords."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = "python\nautomation\n"
-        result = check_topics_subset_of_keywords(
-            "owner/repo", keywords=["python", "automation", "cli"]
-        )
-        assert result.passed is True
-        assert "2" in result.message
+    result = check_topics_subset_of_keywords(
+        _topics_context(["python", "automation"], ["python", "automation", "cli"])
+    )
+    assert result.passed is True
+    assert "2" in result.message
 
 
 def test_topics_extra_not_in_keywords():
     """Warning when topics exist that are not in keywords."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = "python\nunknown-topic\n"
-        result = check_topics_subset_of_keywords(
-            "owner/repo", keywords=["python", "cli"]
-        )
-        assert result.passed is False
-        assert "unknown-topic" in result.message
+    result = check_topics_subset_of_keywords(
+        _topics_context(["python", "unknown-topic"], ["python", "cli"])
+    )
+    assert result.passed is False
+    assert "unknown-topic" in result.message
 
 
 def test_topics_match_keywords_case_insensitively():
     """GitHub lowercases topics, so a capitalized keyword still counts."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = "cli\nmmdf\nbabyl\n"
-        result = check_topics_subset_of_keywords(
-            "owner/repo", keywords=["CLI", "MMDF", "Babyl"]
-        )
-        assert result.passed is True
+    result = check_topics_subset_of_keywords(
+        _topics_context(["cli", "mmdf", "babyl"], ["CLI", "MMDF", "Babyl"])
+    )
+    assert result.passed is True
 
 
 @pytest.mark.parametrize(
@@ -1610,58 +1719,50 @@ def test_topics_match_keywords_case_insensitively():
 )
 def test_topics_match_multi_word_keywords(keyword):
     """A topic holds no whitespace, so a phrase counts as its hyphenated form."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = "weather-forecast\n"
-        result = check_topics_subset_of_keywords("owner/repo", keywords=[keyword])
-        assert result.passed is True
+    result = check_topics_subset_of_keywords(
+        _topics_context(["weather-forecast"], [keyword])
+    )
+    assert result.passed is True
 
 
 def test_topics_phrase_keyword_does_not_declare_its_words():
     """A phrase declares its hyphenated topic, not one topic per word."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = "weather-forecast\nweather\n"
-        result = check_topics_subset_of_keywords(
-            "owner/repo", keywords=["Weather forecast"]
-        )
-        assert result.passed is False
-        assert "keywords: weather. " in result.message
+    result = check_topics_subset_of_keywords(
+        _topics_context(["weather-forecast", "weather"], ["Weather forecast"])
+    )
+    assert result.passed is False
+    assert "keywords: weather. " in result.message
 
 
-def test_topics_api_failure():
-    """Skip gracefully when API call fails."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = GhCommandError("gh command failed")
-        warning, msg = check_topics_subset_of_keywords(
-            "owner/repo", keywords=["python"]
-        )
-        assert warning is None
-        assert "skipped" in msg
+def test_topics_unreadable_repository():
+    """Skip gracefully when the repository object cannot be read."""
+    result = check_topics_subset_of_keywords(
+        _offline(repo="owner/repo", keywords=["python"])
+    )
+    assert result.passed is None
+    assert "skipped" in result.message
 
 
 def test_topics_empty_response():
     """Skip when no topics are set on the repo."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = ""
-        warning, msg = check_topics_subset_of_keywords(
-            "owner/repo", keywords=["python"]
-        )
-        assert warning is None
-        assert "skipped" in msg
+    result = check_topics_subset_of_keywords(_topics_context([], ["python"]))
+    assert result.passed is None
+    assert "skipped" in result.message
 
 
 def test_stale_gh_pages_branch_absent_passes():
     """A 404 is the desired state: the branch is gone."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+    with patch("repomatic.lint_repo.site.run_gh_command") as mock_gh:
         mock_gh.side_effect = GhCommandError("HTTP 404: Branch not found")
-        result = check_stale_gh_pages_branch("owner/repo")
+        result = check_stale_gh_pages_branch(LintContext(repo="owner/repo"))
     assert result.passed is True
 
 
 def test_stale_gh_pages_branch_present_fails():
     """A readable branch is the stale leftover the check exists to flag."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+    with patch("repomatic.lint_repo.site.run_gh_command") as mock_gh:
         mock_gh.return_value = '{"name": "gh-pages"}'
-        result = check_stale_gh_pages_branch("owner/repo")
+        result = check_stale_gh_pages_branch(LintContext(repo="owner/repo"))
     assert result.passed is False
     assert "gh-pages" in result.message
 
@@ -1669,47 +1770,27 @@ def test_stale_gh_pages_branch_present_fails():
 def test_stale_gh_pages_branch_api_failure_skips():
     """An unreadable API is a skip, never a pass.
 
-    Every other failure used to report green, so an auth flap or a rate limit
-    silently vouched for a branch nobody read.
+    An auth flap or a rate limit must not vouch for a branch nobody read.
     """
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
+    with patch("repomatic.lint_repo.site.run_gh_command") as mock_gh:
         mock_gh.side_effect = GhCommandError("HTTP 502: upstream error")
-        result = check_stale_gh_pages_branch("owner/repo")
+        result = check_stale_gh_pages_branch(LintContext(repo="owner/repo"))
     assert result.passed is None
     assert "skipped" in result.message
 
 
-def _graphql_response(*, is_fork: bool = False, has_sponsors: bool = True) -> dict:
-    """Build a mock GraphQL `data` envelope for funding checks.
-
-    Already unwrapped, the way `gh_graphql` hands it to the check.
-    """
-    return {
-        "repository": {"isFork": is_fork},
-        "repositoryOwner": {"hasSponsorsListing": has_sponsors},
-    }
+def _sponsors(*, has_sponsors: bool = True) -> dict:
+    """A GraphQL `data` envelope for the funding check, already unwrapped."""
+    return {"repositoryOwner": {"hasSponsorsListing": has_sponsors}}
 
 
-def test_funding_file_exists(tmp_path, monkeypatch):
-    """No warning when funding file already exists."""
+@pytest.mark.parametrize("filename", ("FUNDING.yml", "funding.yml"))
+def test_funding_file_exists(tmp_path, monkeypatch, filename):
+    """No warning when funding file already exists, whatever its case."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".github").mkdir()
-    (tmp_path / ".github" / "FUNDING.yml").write_text(
-        "github: owner\n", encoding="UTF-8"
-    )
-    result = check_funding_file("owner/repo")
-    assert result.passed is True
-    assert "found" in result.message
-
-
-def test_funding_file_exists_lowercase(tmp_path, monkeypatch):
-    """Detect funding file regardless of case."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / ".github").mkdir()
-    (tmp_path / ".github" / "funding.yml").write_text(
-        "github: owner\n", encoding="UTF-8"
-    )
-    result = check_funding_file("owner/repo")
+    (tmp_path / ".github" / filename).write_text("github: owner\n", encoding="UTF-8")
+    result = check_funding_file(_offline(repo="owner/repo"))
     assert result.passed is True
     assert "found" in result.message
 
@@ -1717,32 +1798,58 @@ def test_funding_file_exists_lowercase(tmp_path, monkeypatch):
 def test_funding_missing_with_sponsors(tmp_path, monkeypatch):
     """Warning when owner has sponsors but no funding file."""
     monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.gh_graphql") as mock_gh:
-        mock_gh.return_value = _graphql_response(has_sponsors=True)
-        result = check_funding_file("owner/repo")
-        assert result.passed is False
-        assert "FUNDING.yml" in result.message
-        assert "Sponsor" in result.message
+    with patch("repomatic.lint_repo.repo.gh_graphql") as mock_gh:
+        mock_gh.return_value = _sponsors(has_sponsors=True)
+        result = check_funding_file(
+            _offline(repo="owner/repo", repo_object={"fork": False})
+        )
+    assert result.passed is False
+    assert "FUNDING.yml" in result.message
+    assert "Sponsor" in result.message
+    mock_gh.assert_called_once()
+    assert mock_gh.call_args.kwargs == {"owner": "owner"}
 
 
 def test_funding_skipped_for_fork(tmp_path, monkeypatch):
-    """Skip funding check for forked repositories."""
+    """Skip funding check for forked repositories, before asking about Sponsors."""
     monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.gh_graphql") as mock_gh:
-        mock_gh.return_value = _graphql_response(is_fork=True)
-        warning, msg = check_funding_file("owner/repo")
-        assert warning is None
-        assert "fork" in msg
+    with patch("repomatic.lint_repo.repo.gh_graphql") as mock_gh:
+        result = check_funding_file(
+            _offline(repo="owner/repo", repo_object={"fork": True})
+        )
+    assert result.passed is None
+    assert "fork" in result.message
+    mock_gh.assert_not_called()
 
 
 def test_funding_skipped_no_sponsors(tmp_path, monkeypatch):
     """Skip when owner has no GitHub Sponsors listing."""
     monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.gh_graphql") as mock_gh:
-        mock_gh.return_value = _graphql_response(has_sponsors=False)
-        warning, msg = check_funding_file("owner/repo")
-        assert warning is None
-        assert "no GitHub Sponsors" in msg
+    with patch("repomatic.lint_repo.repo.gh_graphql") as mock_gh:
+        mock_gh.return_value = _sponsors(has_sponsors=False)
+        result = check_funding_file(
+            _offline(repo="owner/repo", repo_object={"fork": False})
+        )
+    assert result.passed is None
+    assert "no GitHub Sponsors" in result.message
+
+
+@pytest.mark.parametrize(
+    ("repo_object", "graphql_error"),
+    (
+        pytest.param(None, None, id="unreadable-repository"),
+        pytest.param({"fork": False}, GhCommandError("boom"), id="unreadable-owner"),
+    ),
+)
+def test_funding_unreadable_payload(tmp_path, monkeypatch, repo_object, graphql_error):
+    """Skip gracefully when the GitHub API cannot be read."""
+    monkeypatch.chdir(tmp_path)
+    with patch("repomatic.lint_repo.repo.gh_graphql", side_effect=graphql_error):
+        result = check_funding_file(
+            _offline(repo="owner/repo", repo_object=repo_object)
+        )
+    assert result.passed is None
+    assert "skipped" in result.message
 
 
 @pytest.mark.parametrize(
@@ -1795,7 +1902,9 @@ def test_workflow_permissions(tmp_path, monkeypatch, workflow, expect_fail, need
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)
     (workflows / "ci.yaml").write_text(workflow, encoding="UTF-8")
-    failures = [r for r in check_workflow_permissions() if r.passed is False]
+    failures = [
+        r for r in check_workflow_permissions(LintContext()) if r.passed is False
+    ]
     if expect_fail:
         assert failures
         assert any(needle in r.message for r in failures)
@@ -1803,14 +1912,12 @@ def test_workflow_permissions(tmp_path, monkeypatch, workflow, expect_fail, need
         assert not failures
 
 
-def test_funding_unreadable_payload(tmp_path, monkeypatch):
-    """Skip gracefully when the GraphQL payload cannot be read."""
+def test_workflow_permissions_skip_without_workflows(tmp_path, monkeypatch):
+    """A repository holding no workflow has nothing to report on."""
     monkeypatch.chdir(tmp_path)
-    with patch("repomatic.lint_repo.gh_graphql") as mock_gh:
-        mock_gh.side_effect = GhCommandError("boom")
-        warning, msg = check_funding_file("owner/repo")
-        assert warning is None
-        assert "skipped" in msg
+    (result,) = check_workflow_permissions(LintContext())
+    assert result.passed is None
+    assert "no workflows" in result.message
 
 
 # --- Repository-local PR body template check unit tests ---
@@ -1918,7 +2025,7 @@ def test_pr_templates(tmp_path, monkeypatch, arg_path, file_path, body, needle):
     """Flag misplaced, missing, and malformed repository-local PR templates."""
     monkeypatch.chdir(tmp_path)
     _write_template_case(tmp_path, arg_path, file_path, body)
-    failures = [r for r in check_pr_templates() if r.passed is False]
+    failures = [r for r in check_pr_templates(LintContext()) if r.passed is False]
     if needle is None:
         assert not failures
     else:
@@ -1942,7 +2049,7 @@ def test_pr_templates_equals_form(tmp_path, monkeypatch):
     (tmp_path / ".github" / "pr-sync-fruit-basket.md").write_text(
         CONFORMING_TEMPLATE, encoding="UTF-8"
     )
-    failures = [r for r in check_pr_templates() if r.passed is False]
+    failures = [r for r in check_pr_templates(LintContext()) if r.passed is False]
     assert any("outside" in r.message for r in failures)
 
 
@@ -1958,7 +2065,7 @@ def test_pr_templates_referenced_and_on_disk_reported_once(tmp_path, monkeypatch
     _write_template_case(
         tmp_path, CANONICAL_TEMPLATE_PATH, CANONICAL_TEMPLATE_PATH, CONFORMING_TEMPLATE
     )
-    assert [r.message for r in check_pr_templates()] == [
+    assert [r.message for r in check_pr_templates(LintContext())] == [
         f"PR template `{CANONICAL_TEMPLATE_PATH}`: conforms."
     ]
 
@@ -1966,29 +2073,28 @@ def test_pr_templates_referenced_and_on_disk_reported_once(tmp_path, monkeypatch
 def test_pr_templates_unreferenced_still_checked(tmp_path, monkeypatch):
     """A template no workflow names is still validated, so drift stays visible."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".github" / "workflows").mkdir(parents=True)
     template = tmp_path / CANONICAL_TEMPLATE_PATH
     template.parent.mkdir(parents=True)
     template.write_text("---\ntitle: Sync fruit basket\n---\n", encoding="UTF-8")
-    failures = [r for r in check_pr_templates() if r.passed is False]
+    failures = [r for r in check_pr_templates(LintContext()) if r.passed is False]
     assert any("no `footer` field" in r.message for r in failures)
 
 
 @pytest.mark.parametrize(
-    ("make_workflows_dir", "needle"),
+    "make_workflows_dir",
     [
-        pytest.param(False, "no .github/workflows", id="no-workflow-dir"),
-        pytest.param(True, "no repository-local templates", id="nothing-to-check"),
+        pytest.param(False, id="no-workflow-dir"),
+        pytest.param(True, id="nothing-to-check"),
     ],
 )
-def test_pr_templates_skipped(tmp_path, monkeypatch, make_workflows_dir, needle):
+def test_pr_templates_skipped(tmp_path, monkeypatch, make_workflows_dir):
     """Skip cleanly when there is no workflow directory, or nothing to check."""
     monkeypatch.chdir(tmp_path)
     if make_workflows_dir:
         (tmp_path / ".github" / "workflows").mkdir(parents=True)
-    results = check_pr_templates()
+    results = check_pr_templates(LintContext())
     assert all(r.passed is None for r in results)
-    assert any(needle in r.message for r in results)
+    assert any("no repository-local templates" in r.message for r in results)
 
 
 # --- Stale draft releases check unit tests ---
@@ -1996,50 +2102,52 @@ def test_pr_templates_skipped(tmp_path, monkeypatch, make_workflows_dir, needle)
 
 def test_stale_drafts_detected():
     """Warn about draft releases that are not dev pre-releases."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.repo.gh_json") as mock_gh:
         mock_gh.return_value = [
             {"tagName": "v6.1.2", "isDraft": True},
             {"tagName": "v6.2.0", "isDraft": False},
             {"tagName": "v6.3.0.dev0", "isDraft": True},
         ]
-        result = check_stale_draft_releases("owner/repo")
-        assert result.passed is False
-        assert "v6.1.2" in result.message
-        assert "v6.3.0.dev0" not in result.message
+        result = check_stale_draft_releases(LintContext(repo="owner/repo"))
+    assert result.passed is False
+    assert "v6.1.2" in result.message
+    assert "v6.3.0.dev0" not in result.message
+    # The listing names its limit: `gh release list` stops at 30 otherwise.
+    args = mock_gh.call_args.args[0]
+    assert args[args.index("--limit") + 1] == str(RELEASE_LIST_LIMIT)
 
 
 def test_stale_drafts_none():
     """No warning when only dev pre-release drafts exist."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.repo.gh_json") as mock_gh:
         mock_gh.return_value = [
             {"tagName": "v6.2.0", "isDraft": False},
             {"tagName": "v6.3.0.dev0", "isDraft": True},
         ]
-        result = check_stale_draft_releases("owner/repo")
-        assert result.passed is True
-        assert "No stale" in result.message
+        result = check_stale_draft_releases(LintContext(repo="owner/repo"))
+    assert result.passed is True
+    assert "No stale" in result.message
 
 
 def test_stale_drafts_unreadable_payload():
     """Skip gracefully when the release list cannot be read."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
-        mock_gh.return_value = None
-        warning, msg = check_stale_draft_releases("owner/repo")
-        assert warning is None
-        assert "skipped" in msg
+    with patch("repomatic.lint_repo.repo.gh_json", return_value=None):
+        result = check_stale_draft_releases(LintContext(repo="owner/repo"))
+    assert result.passed is None
+    assert "skipped" in result.message
 
 
 def test_stale_drafts_multiple():
     """List all stale draft tags in the warning."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.repo.gh_json") as mock_gh:
         mock_gh.return_value = [
             {"tagName": "v6.1.2", "isDraft": True},
             {"tagName": "v6.2.0-rc1", "isDraft": True},
         ]
-        result = check_stale_draft_releases("owner/repo")
-        assert result.passed is False
-        assert "v6.1.2" in result.message
-        assert "v6.2.0-rc1" in result.message
+        result = check_stale_draft_releases(LintContext(repo="owner/repo"))
+    assert result.passed is False
+    assert "v6.1.2" in result.message
+    assert "v6.2.0-rc1" in result.message
 
 
 # --- Install guide download URL check unit tests ---
@@ -2061,20 +2169,23 @@ GUIDE_WITH_DOWNLOADS = (
     "papaya-1.2.3-macos-arm64.bin)\n"
 )
 
+GUIDE_CONTEXT = LintContext(repo="owner/repo")
+"""The context the install guide checks read, a repository and nothing else."""
+
 
 def test_install_guide_downloads_all_present(tmp_path, monkeypatch):
     """Pass when every referenced file is attached to its release."""
     monkeypatch.chdir(tmp_path)
     _write_install_guide(tmp_path, GUIDE_WITH_DOWNLOADS)
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.repo.gh_json") as mock_gh:
         mock_gh.return_value = {
             "assets": [
                 {"name": "papaya-1.2.3-linux-x64.bin"},
                 {"name": "papaya-1.2.3-macos-arm64.bin"},
             ]
         }
-        result = check_install_guide_downloads("owner/repo")
-        assert result.passed is True
+        result = check_install_guide_downloads(GUIDE_CONTEXT)
+    assert result.passed is True
 
 
 GUIDE_WITH_LATEST_ALIAS = (
@@ -2087,20 +2198,20 @@ def test_install_guide_downloads_latest_alias_present(tmp_path, monkeypatch):
     """Check a versionless alias against the latest release, with no tag."""
     monkeypatch.chdir(tmp_path)
     _write_install_guide(tmp_path, GUIDE_WITH_LATEST_ALIAS)
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.repo.gh_json") as mock_gh:
         mock_gh.return_value = {"assets": [{"name": "papaya-macos-x64.bin"}]}
-        result = check_install_guide_downloads("owner/repo")
-        assert result.passed is True
-        # No tag argument: `gh release view` then reads the latest release,
-        # which is what the alias URL redirects to.
-        assert mock_gh.call_args.args[0] == [
-            "release",
-            "view",
-            "--json",
-            "assets",
-            "--repo",
-            "owner/repo",
-        ]
+        result = check_install_guide_downloads(GUIDE_CONTEXT)
+    assert result.passed is True
+    # No tag argument: `gh release view` then reads the latest release,
+    # which is what the alias URL redirects to.
+    assert mock_gh.call_args.args[0] == [
+        "release",
+        "view",
+        "--json",
+        "assets",
+        "--repo",
+        "owner/repo",
+    ]
 
 
 def test_install_guide_downloads_latest_alias_renamed(tmp_path, monkeypatch):
@@ -2112,24 +2223,24 @@ def test_install_guide_downloads_latest_alias_renamed(tmp_path, monkeypatch):
     """
     monkeypatch.chdir(tmp_path)
     _write_install_guide(tmp_path, GUIDE_WITH_LATEST_ALIAS)
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.repo.gh_json") as mock_gh:
         mock_gh.return_value = {"assets": [{"name": "papaya-fruit-macos-x64.bin"}]}
-        result = check_install_guide_downloads("owner/repo")
-        assert result.passed is False
-        assert "latest/papaya-macos-x64.bin" in result.message
+        result = check_install_guide_downloads(GUIDE_CONTEXT)
+    assert result.passed is False
+    assert "latest/papaya-macos-x64.bin" in result.message
 
 
 def test_install_guide_downloads_missing_asset(tmp_path, monkeypatch):
     """Warn naming each referenced file the release does not carry."""
     monkeypatch.chdir(tmp_path)
     _write_install_guide(tmp_path, GUIDE_WITH_DOWNLOADS)
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.repo.gh_json") as mock_gh:
         mock_gh.return_value = {"assets": [{"name": "papaya-1.2.3-linux-x64.bin"}]}
-        result = check_install_guide_downloads("owner/repo")
-        assert result.passed is False
-        assert "v1.2.3/papaya-1.2.3-macos-arm64.bin" in result.message
-        # The healthy link is not reported as a problem.
-        assert "v1.2.3/papaya-1.2.3-linux-x64.bin" not in result.message
+        result = check_install_guide_downloads(GUIDE_CONTEXT)
+    assert result.passed is False
+    assert "v1.2.3/papaya-1.2.3-macos-arm64.bin" in result.message
+    # The healthy link is not reported as a problem.
+    assert "v1.2.3/papaya-1.2.3-linux-x64.bin" not in result.message
 
 
 def test_install_guide_downloads_release_without_assets(tmp_path, monkeypatch):
@@ -2140,11 +2251,10 @@ def test_install_guide_downloads_release_without_assets(tmp_path, monkeypatch):
     """
     monkeypatch.chdir(tmp_path)
     _write_install_guide(tmp_path, GUIDE_WITH_DOWNLOADS)
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
-        mock_gh.return_value = {"assets": []}
-        result = check_install_guide_downloads("owner/repo")
-        assert result.passed is False
-        assert "2 missing release file(s)" in result.message
+    with patch("repomatic.lint_repo.repo.gh_json", return_value={"assets": []}):
+        result = check_install_guide_downloads(GUIDE_CONTEXT)
+    assert result.passed is False
+    assert "2 missing release file(s)" in result.message
 
 
 @pytest.mark.parametrize(
@@ -2161,7 +2271,7 @@ def test_install_guide_downloads_skipped(tmp_path, monkeypatch, body, needle):
     monkeypatch.chdir(tmp_path)
     if body is not None:
         _write_install_guide(tmp_path, body)
-    result = check_install_guide_downloads("owner/repo")
+    result = check_install_guide_downloads(GUIDE_CONTEXT)
     assert result.passed is None
     assert needle in result.message
 
@@ -2173,398 +2283,147 @@ def test_install_guide_downloads_unreadable_release(tmp_path, monkeypatch):
     """
     monkeypatch.chdir(tmp_path)
     _write_install_guide(tmp_path, GUIDE_WITH_DOWNLOADS)
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
-        mock_gh.return_value = None
-        result = check_install_guide_downloads("owner/repo")
-        assert result.passed is None
-        assert "skipped" in result.message
+    with patch("repomatic.lint_repo.repo.gh_json", return_value=None):
+        result = check_install_guide_downloads(GUIDE_CONTEXT)
+    assert result.passed is None
+    assert "skipped" in result.message
 
 
 # --- SHA pinning required check unit tests ---
 
 
+SETTINGS_CONTEXT = LintContext(repo="owner/repo")
+"""The context the repository-setting checks read, a repository and nothing else."""
+
+
 def test_sha_pinning_required_enabled():
     """Pass when the repository requires SHA pinning for Actions."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.settings.gh_json") as mock_gh:
         mock_gh.return_value = {
             "enabled": True,
             "allowed_actions": "all",
             "sha_pinning_required": True,
         }
-        result = check_sha_pinning_required("owner/repo")
-        assert result.passed is True
-        assert "enabled" in result.message
+        result = check_sha_pinning_required(SETTINGS_CONTEXT)
+    assert result.passed is True
+    assert "enabled" in result.message
 
 
 def test_sha_pinning_required_disabled():
     """Warn with a fix link when SHA pinning is not required."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.settings.gh_json") as mock_gh:
         mock_gh.return_value = {
             "enabled": True,
             "allowed_actions": "all",
             "sha_pinning_required": False,
         }
-        result = check_sha_pinning_required("owner/repo")
-        assert result.passed is False
-        assert "owner/repo/settings/actions" in result.message
+        result = check_sha_pinning_required(SETTINGS_CONTEXT)
+    assert result.passed is False
+    assert "owner/repo/settings/actions" in result.message
 
 
 def test_sha_pinning_required_unreadable_payload():
     """Skip gracefully when the permissions payload cannot be read."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
-        mock_gh.return_value = None
-        result = check_sha_pinning_required("owner/repo")
-        assert result.passed is None
-        assert "skipped" in result.message
-
-
-# --- PAT capability check unit tests ---
-
-
-@pytest.mark.parametrize("probe", PAT_PERMISSION_PROBES, ids=lambda p: p.field)
-def test_pat_permission_probe_pass(probe):
-    """Pass with the probe's success message when the API call succeeds."""
-    with patch("repomatic.github.token.run_gh_command") as mock_gh:
-        mock_gh.return_value = ""
-        passed, msg = probe_pat_permission("owner/repo", probe)
-        assert passed is True
-        assert msg == probe.success
-        probed_endpoint = mock_gh.call_args.args[0][1]
-        assert probed_endpoint == probe.endpoint.format(repo="owner/repo")
-
-
-@pytest.mark.parametrize("probe", PAT_PERMISSION_PROBES, ids=lambda p: p.field)
-def test_pat_permission_probe_fail_403(probe):
-    """Fail with the missing-permission message when the API call 403s."""
-    with patch("repomatic.github.token.run_gh_command") as mock_gh:
-        mock_gh.side_effect = GhCommandError("HTTP 403: Forbidden")
-        passed, msg = probe_pat_permission("owner/repo", probe)
-        assert passed is False
-        assert probe.permission in msg
-        assert "Update the PAT" in msg
-
-
-def test_pat_vulnerability_alerts_permission_404():
-    """A 404 is reported as 'alerts not enabled', not as a missing permission."""
-    vuln_probe = next(
-        probe
-        for probe in PAT_PERMISSION_PROBES
-        if probe.field == "vulnerability_alerts"
-    )
-    with patch("repomatic.github.token.run_gh_command") as mock_gh:
-        mock_gh.side_effect = GhCommandError("HTTP 404: Not Found")
-        passed, msg = probe_pat_permission("owner/repo", vuln_probe)
-        assert passed is False
-        assert "not enabled" in msg
-        assert "--method PUT" in msg
-
-
-def test_pat_check_non_403_surfaces_raw_error():
-    """A 401 from an upstream incident surfaces the raw stderr, not a scope hint."""
-    with patch("repomatic.github.token.run_gh_command") as mock_gh:
-        mock_gh.side_effect = GhCommandError("HTTP 401: Requires authentication")
-        passed, msg = probe_pat_permission("owner/repo", PAT_PERMISSION_PROBES[0])
-        assert passed is False
-        assert "GitHub API call failed" in msg
-        assert "401" in msg
-        assert "Update the PAT" not in msg
-
-
-def test_pat_check_annotates_with_github_status_incident():
-    """An active githubstatus.com incident is appended to the failure message."""
-    with (
-        patch("repomatic.github.token.run_gh_command") as mock_gh,
-        patch(
-            "repomatic.github.status.status_annotation",
-            return_value="GitHub Status reports an active incident (major): "
-            "Partial System Outage. See https://www.githubstatus.com for details.",
-        ),
-    ):
-        mock_gh.side_effect = GhCommandError("HTTP 401: Requires authentication")
-        passed, msg = probe_pat_permission("owner/repo", PAT_PERMISSION_PROBES[0])
-        assert passed is False
-        assert "active incident" in msg
-        assert "githubstatus.com" in msg
-
-
-REFUSED = "Resource not accessible by personal access token (HTTP 403)"
-"""What `gh` reports when a token asks a repository it does not cover."""
-
-
-def _gh_api_stand_in(args: list[str], answers: Mapping[str, str | None]) -> str:
-    """Answer the scope check's `gh api` calls, method switch included.
-
-    `gh api` sends a `POST` as soon as a field is passed, unless `--method` says
-    otherwise, and GitHub answers a `POST` on a listing endpoint with a 404. The
-    stand-in keeps that rule, so the listing succeeds only when its argv asks for
-    a `GET`.
-
-    :param args: Arguments the check hands to `gh`.
-    :param answers: The owner's repositories, in the order the listing returns
-        them. Each maps to the `gh` error its Actions settings raise, or to
-        `None` where the token reads them.
-    :return: The output `gh` would print.
-    """
-    if "/installation/repositories" in args:
-        raise GhCommandError(REFUSED)
-    if "/users/orchard/repos" in args:
-        if "--method" in args:
-            sends_get = args[args.index("--method") + 1] == "GET"
-        else:
-            sends_get = not {"--raw-field", "--field"} & set(args)
-        if not sends_get:
-            raise GhCommandError("Not Found (HTTP 404)")
-        return "".join(f"{name}\n" for name in answers)
-    # GitHub resolves a repository name whatever its case.
-    settings = {
-        PAT_SCOPE_PROBE.endpoint.format(repo=name).casefold(): error
-        for name, error in answers.items()
-    }
-    if error := settings[args[1].casefold()]:
-        raise GhCommandError(error)
-    return ""
-
-
-def test_pat_repository_scope_probes_an_endpoint_only_its_token_reads():
-    """The probe is the Administration row, and no other row can replace it.
-
-    A public repository answers the contents, issues, pull requests and
-    workflows endpoints to any caller, so a 2xx from one of them on another
-    repository says nothing about the token.
-    """
-    assert PAT_SCOPE_PROBE.field == "administration"
-    assert PAT_SCOPE_PROBE in PAT_PERMISSION_PROBES
-
-
-@pytest.mark.parametrize(
-    ("answers", "passed", "fragment"),
-    (
-        pytest.param(
-            {"orchard/apricot": None, "orchard/cherry": None},
-            False,
-            "PAT also has access to orchard/cherry",
-            id="another-repository-answers",
-        ),
-        pytest.param(
-            {"orchard/apricot": None, "orchard/cherry": REFUSED, "orchard/plum": None},
-            False,
-            "PAT also has access to orchard/plum",
-            id="a-later-repository-answers",
-        ),
-        pytest.param(
-            {
-                "orchard/apricot": None,
-                "orchard/cherry": REFUSED,
-                "orchard/plum": REFUSED,
-            },
-            True,
-            "no access to other repositories (2 probed)",
-            id="every-probe-refused",
-        ),
-        pytest.param(
-            {
-                "orchard/apricot": None,
-                "orchard/cherry": "Bad Gateway (HTTP 502)",
-                "orchard/plum": REFUSED,
-            },
-            True,
-            "no access to other repositories (1 probed)",
-            id="one-refusal-beside-an-unclear-answer",
-        ),
-        pytest.param(
-            {
-                "orchard/apricot": None,
-                "orchard/cherry": "Not Found (HTTP 404)",
-                "orchard/plum": "Bad Gateway (HTTP 502)",
-            },
-            None,
-            "no probe got a clear answer",
-            id="no-clear-answer",
-        ),
-        pytest.param(
-            {"orchard/apricot": REFUSED, "orchard/cherry": None},
-            None,
-            "no 'Administration: Read-only' access to probe with",
-            id="token-cannot-probe",
-        ),
-        pytest.param(
-            {"orchard/apricot": None},
-            None,
-            "no other repos to probe",
-            id="no-other-repository",
-        ),
-        pytest.param(
-            {"Orchard/Apricot": None},
-            None,
-            "no other repos to probe",
-            id="own-name-in-another-case",
-        ),
-    ),
-)
-def test_pat_repository_scope_probes_other_repositories(answers, passed, fragment):
-    """A PAT is refused the installation endpoint, so the probes decide.
-
-    Only a repository that answers fails the check: a refusal passes it, and
-    anything else leaves it undecided. The repository under check is never one
-    of the others, however the listing spells its name.
-    """
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = lambda args: _gh_api_stand_in(args, answers)
-        result = check_pat_repository_scope("orchard/apricot")
-    assert result.passed is passed
-    assert fragment in result.message
-
-
-def test_pat_repository_scope_probes_the_most_recently_pushed_repositories():
-    """The listing is sorted by push date, and the probes stop at the limit."""
-    answers: dict[str, str | None] = {"orchard/apricot": None}
-    answers.update({
-        f"orchard/tree-{index}": REFUSED for index in range(PAT_SCOPE_PROBE_LIMIT + 5)
-    })
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = lambda args: _gh_api_stand_in(args, answers)
-        result = check_pat_repository_scope("orchard/apricot")
-    assert result.passed is True
-    assert f"({PAT_SCOPE_PROBE_LIMIT} probed)" in result.message
-    calls = [call.args[0] for call in mock_gh.call_args_list]
-    listing = next(args for args in calls if "/users/orchard/repos" in args)
-    assert "sort=pushed" in listing
-    # One page holds this repository and a full quota of others.
-    assert f"per_page={PAT_SCOPE_PROBE_LIMIT + 1}" in listing
-    probed = [args[1] for args in calls if args[1].startswith("repos/")]
-    # This repository first, then the others.
-    assert len(probed) == 1 + PAT_SCOPE_PROBE_LIMIT
-
-
-def test_pat_repository_scope_skips_an_unreadable_listing():
-    """A listing that fails leaves the check undecided."""
-
-    def gh(args: list[str]) -> str:
-        if "/users/orchard/repos" in args or "/installation/repositories" in args:
-            raise GhCommandError("Bad Gateway (HTTP 502)")
-        return ""
-
-    with patch("repomatic.lint_repo.run_gh_command", side_effect=gh):
-        result = check_pat_repository_scope("orchard/apricot")
+    with patch("repomatic.lint_repo.settings.gh_json", return_value=None):
+        result = check_sha_pinning_required(SETTINGS_CONTEXT)
     assert result.passed is None
-    assert "could not list owner repos" in result.message
+    assert "skipped" in result.message
 
 
-def test_pat_stale_statuses_permission_present():
-    """Warn when a 422 proves the token still grants Commit statuses."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = GhCommandError(
-            "No commit found for SHA: 000... (HTTP 422)"
-        )
-        result = check_pat_stale_statuses_permission("owner/repo")
-        assert result.passed is False
-        assert "Commit statuses" in result.message
-        assert "least privilege" in result.message
+# --- PAT checks in the roster ---
 
 
-@pytest.mark.parametrize(
-    "stderr",
-    (
-        "Resource not accessible by personal access token (HTTP 403)",
-        "Not Found (HTTP 404)",
-        "network unreachable",
-    ),
-)
-def test_pat_stale_statuses_permission_absent_or_indeterminate(stderr):
-    """Stay silent when the token lacks the scope (403) or the probe is inconclusive."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.side_effect = GhCommandError(stderr)
-        result = check_pat_stale_statuses_permission("owner/repo")
-        assert result.passed is not False
+def test_pat_checks_skipped_without_pat():
+    """The PAT checks report one skip line when no PAT is configured."""
+    (result,) = _findings(LintContext(has_pat=False))["pat-permissions"]
+    assert result.passed is None
+    assert "skipped (no REPOMATIC_PAT)" in result.message
 
 
-def test_pat_stale_statuses_permission_unexpected_success():
-    """An impossible 2xx from the null-SHA probe stays silent rather than warning."""
-    with patch("repomatic.lint_repo.run_gh_command") as mock_gh:
-        mock_gh.return_value = ""
-        warning, _msg = check_pat_stale_statuses_permission("owner/repo")
-        assert warning is None
+def test_pat_checks_need_a_repository_to_probe():
+    """A PAT with no repository to probe reports nothing, rather than a pass."""
+    assert list(check_pat_permissions(LintContext(has_pat=True))) == []
 
 
-# --- PAT checks in run_repo_lint ---
-
-
-def test_pat_checks_skipped_without_pat(capsys):
-    """PAT checks are skipped when has_pat is False."""
-    exit_code = run_repo_lint(LintContext(has_pat=False))
-    assert exit_code == 0
-    captured = capsys.readouterr()
-    assert "skipped (no REPOMATIC_PAT)" in captured.out
-
-
-def test_pat_checks_all_pass(capsys):
-    """Return 0 when all PAT capability checks pass."""
-    with (
-        patch("repomatic.lint_repo.run_gh_command", return_value=""),
-        patch(
-            "repomatic.lint_repo.check_all_pat_permissions",
-            return_value=pat_results(),
-        ),
+def test_pat_checks_all_pass():
+    """Every probe's own success message reaches the report."""
+    with patch(
+        "repomatic.lint_repo.context.check_all_pat_permissions",
+        return_value=pat_results(),
     ):
-        exit_code = run_repo_lint(
-            LintContext(
-                repo="owner/repo",
-                has_pat=True,
-            )
+        results = list(
+            check_pat_permissions(LintContext(repo="owner/repo", has_pat=True))
         )
-        assert exit_code == 0
-        captured = capsys.readouterr()
-        assert "Contents: token has access" in captured.out
-        assert "Issues: token has access" in captured.out
-        assert "Pull requests: token has access" in captured.out
-        assert "Dependabot alerts: token has access" in captured.out
-        assert "Workflows: token has access" in captured.out
+    messages = [result.message for result in results]
+    assert all(result.passed for result in results)
+    assert "Contents: token has access" in messages
+    assert "Issues: token has access" in messages
+    assert "Pull requests: token has access" in messages
+    assert "Dependabot alerts: token has access, alerts enabled" in messages
+    assert "Workflows: token has access" in messages
 
 
-def test_pat_checks_fail_on_missing_permission(capsys):
-    """Return 1 when a PAT capability check fails."""
-    with (
-        patch("repomatic.lint_repo.run_gh_command", return_value=""),
-        patch(
-            "repomatic.lint_repo.check_all_pat_permissions",
-            return_value=pat_results(
-                contents=(False, "Cannot access repository contents."),
-                issues=(False, "Cannot access repository issues."),
-                pull_requests=(False, "Cannot access repository pull requests."),
-                vulnerability_alerts=(
-                    False,
-                    "Token lacks 'Dependabot alerts: Read-only' permission.",
-                ),
-                workflows=(False, "Cannot access repository workflows."),
-            ),
+def test_pat_checks_fail_on_missing_permission():
+    """A missing permission fails the run."""
+    ctx = LintContext(repo="owner/repo", has_pat=True)
+    ctx.__dict__["pat_permissions"] = pat_results(
+        contents=(False, "Cannot access repository contents."),
+        vulnerability_alerts=(
+            False,
+            "Token lacks 'Dependabot alerts: Read-only' permission.",
         ),
-    ):
-        exit_code = run_repo_lint(
-            LintContext(
-                repo="owner/repo",
-                has_pat=True,
-            )
-        )
-        assert exit_code == 1
-        captured = capsys.readouterr()
-        assert "::error::" in captured.out
+    )
+    ctx.__dict__["pat_scope"] = CheckResult(True, "PAT scope: limited.")
+    assert _fails(ctx)
+    failed = [r for r in _findings(ctx)["pat-permissions"] if r.passed is False]
+    assert [r.message for r in failed] == [
+        "Cannot access repository contents.",
+        "Token lacks 'Dependabot alerts: Read-only' permission.",
+    ]
 
 
-def test_pypi_trusted_publisher_no_package_name():
-    """Skip when package name is not provided."""
-    passed, msg = check_pypi_trusted_publisher("owner/repo", None)
-    assert passed is None
-    assert "skipped" in msg
-    assert "no package name" in msg
+def test_pat_scope_reads_the_shared_probe():
+    """The roster reads the scope probe the setup guide reads too, once."""
+    overscoped = CheckResult(False, "PAT also has access to orchard/cherry.")
+    ctx = LintContext(repo="orchard/apricot", has_pat=True)
+    with patch(
+        "repomatic.lint_repo.context.check_pat_repository_scope",
+        return_value=overscoped,
+    ) as probe:
+        assert check_pat_scope(ctx) == overscoped
+        assert ctx.pat_scope == overscoped
+    probe.assert_called_once_with("orchard/apricot")
+
+
+def test_pat_permission_entry_names_every_probe():
+    """The help and the docs list the permissions the probes cover, all of them."""
+    check = _roster_check("pat-permissions")
+    for probe in PAT_PERMISSION_PROBES:
+        assert probe.name in check.summary
+        assert probe.name in check.description
+
+
+def test_bootstrap_entry_names_every_seeded_section():
+    """The docs list every tool section `init` seeds once."""
+    description = _roster_check("bootstrap-config-drift").description
+    for comp in SyncMode.BOOTSTRAP.components():
+        assert f"`[{comp.tool_section}]`" in description
+
+
+# --- PyPI Trusted Publisher check unit tests ---
+
+
+PUBLISHER_CONTEXT = LintContext(repo="owner/cherries", package_name="cherries")
+"""A published package whose Trusted Publisher entry the tests below probe."""
 
 
 def test_pypi_trusted_publisher_no_release():
     """Skip when the package has no published version."""
     with patch(
-        "repomatic.lint_repo.get_latest_release_file",
+        "repomatic.lint_repo.settings.get_latest_release_file",
         return_value=None,
     ):
-        passed, msg = check_pypi_trusted_publisher("owner/cherries", "cherries")
+        passed, msg = check_pypi_trusted_publisher(PUBLISHER_CONTEXT)
     assert passed is None
     assert "no released version" in msg
     assert "cherries" in msg
@@ -2574,15 +2433,15 @@ def test_pypi_trusted_publisher_no_provenance():
     """Indeterminate when provenance fetch fails (pre-OIDC release)."""
     with (
         patch(
-            "repomatic.lint_repo.get_latest_release_file",
+            "repomatic.lint_repo.settings.get_latest_release_file",
             return_value=("1.2.3", "cherries-1.2.3-py3-none-any.whl"),
         ),
         patch(
-            "repomatic.lint_repo.get_trusted_publishers",
+            "repomatic.lint_repo.settings.get_trusted_publishers",
             return_value=None,
         ),
     ):
-        passed, msg = check_pypi_trusted_publisher("owner/cherries", "cherries")
+        passed, msg = check_pypi_trusted_publisher(PUBLISHER_CONTEXT)
     assert passed is None
     assert "no provenance" in msg
     assert "API token" in msg
@@ -2592,15 +2451,15 @@ def test_pypi_trusted_publisher_empty_bundles():
     """Indeterminate when provenance contains no publisher bundles."""
     with (
         patch(
-            "repomatic.lint_repo.get_latest_release_file",
+            "repomatic.lint_repo.settings.get_latest_release_file",
             return_value=("1.2.3", "cherries-1.2.3-py3-none-any.whl"),
         ),
         patch(
-            "repomatic.lint_repo.get_trusted_publishers",
+            "repomatic.lint_repo.settings.get_trusted_publishers",
             return_value=[],
         ),
     ):
-        passed, msg = check_pypi_trusted_publisher("owner/cherries", "cherries")
+        passed, msg = check_pypi_trusted_publisher(PUBLISHER_CONTEXT)
     assert passed is None
     assert "no publisher bundles" in msg
 
@@ -2609,11 +2468,11 @@ def test_pypi_trusted_publisher_match():
     """Pass when a publisher bundle names this repo and `release.yaml`."""
     with (
         patch(
-            "repomatic.lint_repo.get_latest_release_file",
+            "repomatic.lint_repo.settings.get_latest_release_file",
             return_value=("1.2.3", "cherries-1.2.3-py3-none-any.whl"),
         ),
         patch(
-            "repomatic.lint_repo.get_trusted_publishers",
+            "repomatic.lint_repo.settings.get_trusted_publishers",
             return_value=[
                 TrustedPublisher(
                     kind="GitHub",
@@ -2624,7 +2483,7 @@ def test_pypi_trusted_publisher_match():
             ],
         ),
     ):
-        passed, msg = check_pypi_trusted_publisher("owner/cherries", "cherries")
+        passed, msg = check_pypi_trusted_publisher(PUBLISHER_CONTEXT)
     assert passed is True
     assert "matches" in msg
     assert "owner/cherries" in msg
@@ -2634,11 +2493,11 @@ def test_pypi_trusted_publisher_workflow_mismatch():
     """Fail when provenance names a different workflow."""
     with (
         patch(
-            "repomatic.lint_repo.get_latest_release_file",
+            "repomatic.lint_repo.settings.get_latest_release_file",
             return_value=("1.2.3", "cherries-1.2.3-py3-none-any.whl"),
         ),
         patch(
-            "repomatic.lint_repo.get_trusted_publishers",
+            "repomatic.lint_repo.settings.get_trusted_publishers",
             return_value=[
                 TrustedPublisher(
                     kind="GitHub",
@@ -2649,7 +2508,7 @@ def test_pypi_trusted_publisher_workflow_mismatch():
             ],
         ),
     ):
-        passed, msg = check_pypi_trusted_publisher("owner/cherries", "cherries")
+        passed, msg = check_pypi_trusted_publisher(PUBLISHER_CONTEXT)
     assert passed is False
     assert "mismatch" in msg
     assert "publish.yaml" in msg
@@ -2657,14 +2516,14 @@ def test_pypi_trusted_publisher_workflow_mismatch():
 
 
 def test_pypi_trusted_publisher_repository_mismatch():
-    """Fail when provenance names a different repository (e.g., upstream)."""
+    """Fail when provenance names a different repository (like the upstream one)."""
     with (
         patch(
-            "repomatic.lint_repo.get_latest_release_file",
+            "repomatic.lint_repo.settings.get_latest_release_file",
             return_value=("1.2.3", "cherries-1.2.3-py3-none-any.whl"),
         ),
         patch(
-            "repomatic.lint_repo.get_trusted_publishers",
+            "repomatic.lint_repo.settings.get_trusted_publishers",
             return_value=[
                 TrustedPublisher(
                     kind="GitHub",
@@ -2675,9 +2534,42 @@ def test_pypi_trusted_publisher_repository_mismatch():
             ],
         ),
     ):
-        passed, msg = check_pypi_trusted_publisher("owner/cherries", "cherries")
+        passed, msg = check_pypi_trusted_publisher(PUBLISHER_CONTEXT)
     assert passed is False
     assert "upstream/orchard" in msg
+
+
+@pytest.mark.parametrize(
+    ("fields", "applies"),
+    (
+        pytest.param({"is_package": True}, True, id="package"),
+        pytest.param({"is_package": False}, False, id="virtual-project"),
+        pytest.param({"is_package": True, "package_name": None}, False, id="no-name"),
+    ),
+)
+def test_pypi_trusted_publisher_gated_on_a_published_package(fields, applies):
+    """A uv virtual project shares its `[project] name`, and publishes nothing."""
+    check = _roster_check("pypi-trusted-publisher")
+    base: dict[str, Any] = {"repo": "owner/cherries", "package_name": "cherries"}
+    assert check.applies(LintContext(**(base | fields))) is applies
+
+
+@pytest.mark.parametrize(
+    ("has_changelog", "applies"),
+    (
+        pytest.param(True, True, id="publishes-releases"),
+        pytest.param(False, False, id="no-changelog"),
+    ),
+)
+def test_immutable_releases_gated_on_the_changelog(has_changelog, applies):
+    """The setup guide and the lint gate the immutable releases step alike.
+
+    The release workflow publishes a GitHub release for any project holding a
+    changelog, Python package or not, so the changelog is the gate.
+    """
+    check = _roster_check("immutable-releases")
+    ctx = LintContext(repo="owner/repo", has_changelog=has_changelog)
+    assert check.applies(ctx) is applies
 
 
 @pytest.mark.parametrize(
@@ -2699,7 +2591,7 @@ def test_check_test_matrix_excludes(tmp_path, monkeypatch, runner, stale):
         f'exclude = [{{os = "{runner}"}}]\n',
     )
 
-    results = check_test_matrix_excludes()
+    results = check_test_matrix_excludes(LintContext())
     if stale:
         assert any(r.passed is False and runner in r.message for r in results)
     else:
@@ -2710,9 +2602,9 @@ def test_check_test_matrix_excludes_names_only_the_stale_half(tmp_path, monkeypa
     """A partially stale exclude is reported by its stale values alone.
 
     Under `full-include` the emitted matrix is a flat job list whose
-    `all_variations()` is empty, and the check used to read its axes from
-    there: every key of the entry then counted as absent, so the message
-    blamed the live half along with the stale one.
+    `all_variations()` is empty, so its axes must come from elsewhere: read
+    from there, every key of the entry would count as absent, and the message
+    would blame the live half along with the stale one.
     """
     metadata_from_pyproject(
         tmp_path,
@@ -2723,7 +2615,7 @@ def test_check_test_matrix_excludes_names_only_the_stale_half(tmp_path, monkeypa
         'exclude = [{os = "ubuntu-26.04", python-version = "9.99"}]\n',
     )
 
-    results = check_test_matrix_excludes()
+    results = check_test_matrix_excludes(LintContext())
     failures = [r for r in results if r.passed is False]
     assert len(failures) == 1
     # Only the value no axis carries is named as absent; the live runner half
@@ -2773,7 +2665,7 @@ _MATRIX = (
 def test_python_floor_disagreeing_with_classifiers(tmp_path, monkeypatch):
     """A floor below the lowest classifier misreports what installs."""
     _write_project(tmp_path, monkeypatch, ["3.11", "3.12"], requires_python=">= 3.9")
-    results = check_python_version_consistency()
+    results = check_python_version_consistency(LintContext())
     assert any(
         r.passed is False and "requires-python floor" in r.message for r in results
     )
@@ -2783,7 +2675,7 @@ def test_python_matrix_missing_an_advertised_boundary(tmp_path, monkeypatch):
     """Advertising a version the matrix never reaches is untested support."""
     _write_project(tmp_path, monkeypatch, ["3.11", "3.12", "3.13"])
     _write_ci_workflow(tmp_path, _MATRIX.format(versions='"3.11", "3.12"'))
-    results = check_python_version_consistency()
+    results = check_python_version_consistency(LintContext())
     assert any(r.passed is False and "3.13" in r.message for r in results)
 
 
@@ -2791,14 +2683,15 @@ def test_python_matrix_may_skip_intermediate_versions(tmp_path, monkeypatch):
     """Only the ends of the range are mandatory, to keep CI load a free choice."""
     _write_project(tmp_path, monkeypatch, ["3.11", "3.12", "3.13"])
     _write_ci_workflow(tmp_path, _MATRIX.format(versions='"3.11", "3.13"'))
-    assert all(r.passed is not False for r in check_python_version_consistency())
+    results = check_python_version_consistency(LintContext())
+    assert all(r.passed is not False for r in results)
 
 
 def test_python_matrix_testing_an_unadvertised_version(tmp_path, monkeypatch):
     """A released version tested but not advertised is support left unclaimed."""
     _write_project(tmp_path, monkeypatch, ["3.11", "3.12"])
     _write_ci_workflow(tmp_path, _MATRIX.format(versions='"3.11", "3.12", "3.13"'))
-    results = check_python_version_consistency()
+    results = check_python_version_consistency(LintContext())
     assert any(r.passed is False and "3.13" in r.message for r in results)
 
 
@@ -2809,7 +2702,8 @@ def test_python_matrix_tolerates_unreleased_versions(tmp_path, monkeypatch):
     _write_ci_workflow(
         tmp_path, _MATRIX.format(versions=f'"3.11", "3.12", "{unstable}"')
     )
-    assert all(r.passed is not False for r in check_python_version_consistency())
+    results = check_python_version_consistency(LintContext())
+    assert all(r.passed is not False for r in results)
 
 
 def test_python_matrix_built_at_runtime_is_skipped(tmp_path, monkeypatch):
@@ -2821,7 +2715,7 @@ def test_python_matrix_built_at_runtime_is_skipped(tmp_path, monkeypatch):
         "      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).test_matrix }}\n"
         "    runs-on: ubuntu-slim\n    steps:\n      - run: echo apricot\n",
     )
-    results = check_python_version_consistency()
+    results = check_python_version_consistency(LintContext())
     assert any(r.passed is None and "no literal axis" in r.message for r in results)
 
 
@@ -2838,15 +2732,13 @@ def test_python_matrix_built_at_runtime_is_skipped(tmp_path, monkeypatch):
         pytest.param("${{ matrix.os }}", False, None, id="expression"),
     ],
 )
-def test_runner_images(tmp_path, monkeypatch, runner, expect_fail, needle):
+def test_runner_images(runner, expect_fail, needle):
     """Floating aliases and off-axis images are flagged; expressions are not."""
-    monkeypatch.chdir(tmp_path)
-    _write_ci_workflow(
-        tmp_path,
-        f"on: push\njobs:\n  build:\n    runs-on: {runner}\n"
-        "    steps:\n      - run: echo apricot\n",
+    ctx = _workflows(
+        ci=f"on: push\njobs:\n  build:\n    runs-on: {runner}\n"
+        "    steps:\n      - run: echo apricot\n"
     )
-    failures = [r for r in check_runner_images() if r.passed is False]
+    failures = [r for r in check_runner_images(ctx) if r.passed is False]
     if expect_fail:
         assert failures
         assert any(needle in r.message for r in failures)
@@ -2854,15 +2746,248 @@ def test_runner_images(tmp_path, monkeypatch, runner, expect_fail, needle):
         assert not failures
 
 
-def test_runner_images_ignores_thin_callers(tmp_path, monkeypatch):
+def test_runner_images_ignores_thin_callers():
     """A job with no steps delegates, and its runner is the callee's business."""
-    monkeypatch.chdir(tmp_path)
-    _write_ci_workflow(
-        tmp_path,
-        "on: push\njobs:\n  build:\n    uses: ./.github/workflows/_build.yaml\n",
+    ctx = _workflows(
+        ci="on: push\njobs:\n  build:\n    uses: ./.github/workflows/_build.yaml\n"
     )
-    results = check_runner_images()
-    assert all(r.passed is not False for r in results)
+    assert all(r.passed is not False for r in check_runner_images(ctx))
+
+
+# --- Thin caller and workflow dispatch checks ---
+
+
+def _caller(workflow: str, ref: str = "v5.8.0", extra: str = "") -> str:
+    """A one-job workflow calling the upstream *workflow* at *ref*."""
+    return (
+        f"---\njobs:\n  {workflow.removesuffix('.yaml')}:\n"
+        f"    uses: {DEFAULT_REPO}/.github/workflows/{workflow}@{ref}\n{extra}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "passed", "needle"),
+    [
+        pytest.param(
+            '---\n"on":\n  workflow_dispatch:\n  push:\n', True, "has", id="present"
+        ),
+        pytest.param('---\n"on":\n  push:\n', False, "missing", id="absent"),
+    ],
+)
+def test_workflow_dispatch(body, passed, needle):
+    """The `workflow_dispatch` check reports presence and absence."""
+    (result,) = check_workflow_dispatch(_workflows(candidate=body))
+    assert result.passed is passed
+    assert needle in result.message
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        pytest.param('---\n"on":\n  workflow_call:\n', id="reusable"),
+        pytest.param(
+            '---\n"on":\n  pull_request:\n  workflow_call:\n', id="reusable-with-push"
+        ),
+        pytest.param(_caller("lint.yaml"), id="thin-caller"),
+    ),
+)
+def test_workflow_dispatch_leaves_out_reusable_workflows_and_callers(body):
+    """A reusable workflow starts as its callers decide, a thin caller as it calls."""
+    (result,) = check_workflow_dispatch(_workflows(candidate=body))
+    assert result.passed is None
+    assert "no standalone workflow" in result.message
+
+
+def test_workflow_dispatch_settled_in_this_repository():
+    """This repository's own workflows carry the trigger, or are exempt from it.
+
+    `_release-build.yaml`, `_release-engine.yaml` and `cancel-runs.yaml` lack
+    a manual trigger on purpose, and `lint-repo` runs on every push here.
+    """
+    results = check_workflow_dispatch(LintContext())
+    assert [r.message for r in results if r.passed is False] == []
+
+
+@pytest.mark.parametrize(
+    ("ref", "passed", "needle"),
+    [
+        pytest.param("v5.8.0", True, "version is pinned", id="version-tag"),
+        pytest.param(
+            "1234567890abcdef1234567890abcdef12345678",
+            True,
+            "version is pinned",
+            id="commit-sha",
+        ),
+        pytest.param("main", False, "@main", id="floating-branch"),
+    ],
+)
+def test_thin_caller_pins(ref, passed, needle):
+    """A caller must pin the upstream workflow to a release, never to a branch."""
+    (result,) = check_thin_caller_pins(_workflows(lint=_caller("lint.yaml", ref)))
+    assert result.passed is passed
+    assert needle in result.message
+
+
+def test_thin_caller_checks_skip_without_a_thin_caller():
+    """A repository calling no upstream workflow has no caller to check."""
+    ctx = _workflows(ci='---\n"on":\n  push:\njobs:\n  build:\n    runs-on: x\n')
+    for check in (
+        check_thin_caller_pins,
+        check_thin_caller_triggers,
+        check_thin_caller_secrets,
+    ):
+        (result,) = check(ctx)
+        assert result.passed is None
+        assert "no thin caller" in result.message
+
+
+def test_thin_caller_triggers_match():
+    """Pass when triggers match canonical."""
+    # lint.yaml has: workflow_dispatch, push, pull_request.
+    body = _caller("lint.yaml").replace(
+        "---\n", '---\n"on":\n  workflow_dispatch:\n  push:\n  pull_request:\n'
+    )
+    (result,) = check_thin_caller_triggers(_workflows(lint=body))
+    assert result.passed is True
+
+
+def test_thin_caller_triggers_missing():
+    """Fail when a trigger is missing."""
+    body = _caller("lint.yaml").replace("---\n", '---\n"on":\n  push:\n')
+    (result,) = check_thin_caller_triggers(_workflows(lint=body))
+    assert result.passed is False
+    assert "missing:" in result.message
+
+
+def test_thin_caller_triggers_extra():
+    """Fail when a caller declares a trigger absent from canonical."""
+    canonical = yaml.safe_load(get_data_content("cancel-runs.yaml"))
+    triggers = canonical.get(True, canonical.get("on"))
+    triggers.pop("workflow_call")
+    triggers["workflow_dispatch"] = None
+    body = yaml.safe_dump({"on": triggers}) + _caller("cancel-runs.yaml").removeprefix(
+        "---\n"
+    )
+    (result,) = check_thin_caller_triggers(_workflows(**{"cancel-runs": body}))
+    assert result.passed is False
+    assert "extra: workflow_dispatch" in result.message
+
+
+def test_generated_release_caller_lints_clean():
+    """The generated downstream `release.yaml` passes every workflow check.
+
+    It synthesizes `push` and `workflow_dispatch` because `_release-engine.yaml`
+    is call-only, and its build lane calls a workflow that declares no secrets.
+    """
+    ctx = _workflows(release=generate_thin_caller("release.yaml", version="v5.8.0"))
+    for check in (
+        check_workflow_dispatch,
+        check_thin_caller_pins,
+        check_thin_caller_triggers,
+        check_thin_caller_secrets,
+        check_workflow_permissions,
+    ):
+        assert [r.message for r in check(ctx) if r.passed is False] == []
+
+
+def test_generated_cancel_runs_caller_is_exempt_from_the_dispatch_check():
+    """`cancel-runs.yaml` lacks a manual trigger on purpose, and so may its caller."""
+    ctx = _workflows(**{
+        "cancel-runs": generate_thin_caller("cancel-runs.yaml", version="v5.8.0")
+    })
+    (dispatch,) = check_workflow_dispatch(ctx)
+    assert dispatch.passed is None
+    (triggers,) = check_thin_caller_triggers(ctx)
+    assert triggers.passed is True
+
+
+ALL_RELEASE_SECRETS = (
+    "    secrets:\n"
+    "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"
+    "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n"
+)
+"""Every secret `_release-engine.yaml` declares, passed explicitly."""
+
+
+@pytest.mark.parametrize(
+    ("workflow", "secrets_block", "passed", "needle"),
+    [
+        pytest.param(
+            "_release-engine.yaml",
+            ALL_RELEASE_SECRETS,
+            True,
+            "all secrets passed",
+            id="all-passed-explicitly",
+        ),
+        # `secrets: inherit` predates the explicit form and still satisfies it.
+        pytest.param(
+            "_release-engine.yaml",
+            "    secrets: inherit\n",
+            True,
+            "inherit",
+            id="inherit",
+        ),
+        pytest.param(
+            "_release-engine.yaml",
+            "",
+            False,
+            "no secrets passed",
+            id="none-passed",
+        ),
+        pytest.param(
+            "_release-engine.yaml",
+            "    secrets:\n"
+            "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n",
+            False,
+            "REPOMATIC_PAT",
+            id="partially-passed",
+        ),
+        pytest.param(
+            "lint.yaml",
+            "    secrets:\n"
+            "      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n"
+            "      CLOUDFLARE_R2_ACCESS_KEY_ID:"
+            " ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}\n"
+            "      CLOUDFLARE_R2_SECRET_ACCESS_KEY:"
+            " ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}\n"
+            "      REPOMATIC_NOTIFICATIONS_PAT:"
+            " ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}\n"
+            "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"
+            "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n",
+            True,
+            "all secrets passed",
+            id="lint-all-passed",
+        ),
+    ],
+)
+def test_thin_caller_secrets(workflow, secrets_block, passed, needle):
+    """A caller must forward every secret its canonical workflow declares."""
+    ctx = _workflows(caller=_caller(workflow, extra=secrets_block))
+    (result,) = check_thin_caller_secrets(ctx)
+    assert result.passed is passed
+    assert needle in result.message
+
+
+def test_thin_caller_secrets_read_the_job_calling_the_canonical_workflow():
+    """Another job's `secrets:` never stands in for the canonical lane's.
+
+    The build lane comes first in the downstream `release.yaml`. Read in
+    document order, its partial mapping was held against the engine's
+    secrets, and the engine lane's own complete mapping was never read.
+    """
+    body = (
+        "---\njobs:\n"
+        "  build:\n"
+        f"    uses: {DEFAULT_REPO}/.github/workflows/_release-build.yaml@v5.8.0\n"
+        "    secrets:\n"
+        "      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}\n"
+        "  release:\n"
+        f"    uses: {DEFAULT_REPO}/.github/workflows/_release-engine.yaml@v5.8.0\n"
+        f"{ALL_RELEASE_SECRETS}"
+    )
+    (result,) = check_thin_caller_secrets(_workflows(release=body))
+    assert result.passed is True
+    assert result.message.startswith("release.yaml:release:")
 
 
 # A SHA-pinned thin-caller `uses:` ref to the upstream toolkit, declaring v6.29.0.
@@ -2874,41 +2999,38 @@ _UPSTREAM_REF = (
 )
 
 
-def test_inline_pins_match_upstream_flags_lagging_pin(tmp_path):
+def test_inline_pins_match_upstream_flags_lagging_pin():
     """An inline pin behind the uses: ref version is a fatal error."""
-    (tmp_path / "lint.yaml").write_text(_UPSTREAM_REF, encoding="UTF-8")
-    (tmp_path / "tests.yaml").write_text(
-        "      - run: uvx --no-progress 'repomatic==6.28.1' metadata\n",
-        encoding="UTF-8",
+    ctx = _workflows(
+        lint=_UPSTREAM_REF,
+        tests="      - run: uvx --no-progress 'repomatic==6.28.1' metadata\n",
     )
-    result = check_inline_pins_match_upstream(tmp_path)
+    result = check_inline_pins_match_upstream(ctx)
     assert result.passed is False
     assert "6.28.1" in result.message
     assert "6.29.0" in result.message
     assert "tests.yaml" in result.message
 
 
-def test_inline_pins_match_upstream_accepts_synced_pin(tmp_path):
+def test_inline_pins_match_upstream_accepts_synced_pin():
     """An inline pin equal to the uses: ref version passes."""
-    (tmp_path / "lint.yaml").write_text(_UPSTREAM_REF, encoding="UTF-8")
-    (tmp_path / "tests.yaml").write_text(
-        "      - run: uvx --no-progress 'repomatic==6.29.0' metadata\n",
-        encoding="UTF-8",
+    ctx = _workflows(
+        lint=_UPSTREAM_REF,
+        tests="      - run: uvx --no-progress 'repomatic==6.29.0' metadata\n",
     )
-    result = check_inline_pins_match_upstream(tmp_path)
+    result = check_inline_pins_match_upstream(ctx)
     assert result.passed is True
     assert "match" in result.message
 
 
-def test_inline_pins_match_upstream_skips_without_refs(tmp_path):
+def test_inline_pins_match_upstream_skips_without_refs():
     """The canonical repo (local `uv run`, no upstream refs) has nothing to check."""
-    (tmp_path / "tests.yaml").write_text(
-        "      - run: uv --no-progress run --frozen -- repomatic metadata\n",
-        encoding="UTF-8",
+    ctx = _workflows(
+        tests="      - run: uv --no-progress run --frozen -- repomatic metadata\n"
     )
-    error, msg = check_inline_pins_match_upstream(tmp_path)
-    assert error is None
-    assert "nothing to compare" in msg
+    result = check_inline_pins_match_upstream(ctx)
+    assert result.passed is None
+    assert "nothing to compare" in result.message
 
 
 # ---------------------------------------------------------------------------
@@ -2919,36 +3041,35 @@ _COOLDOWN_ENV = 'env:\n  UV_EXCLUDE_NEWER: "1 week"\n'
 """The workflow-level cooldown that makes an unexempt inline pin unresolvable."""
 
 
-def test_self_pin_exemption_flags_unexempt_pin(tmp_path):
+def test_self_pin_exemption_flags_unexempt_pin():
     """A pin resolving under a cooldown without the bypass is a fatal error."""
-    (tmp_path / "tests.yaml").write_text(
-        _COOLDOWN_ENV + "      - run: uvx --no-progress 'repomatic==7.11.0' metadata\n",
-        encoding="UTF-8",
+    ctx = _workflows(
+        tests=_COOLDOWN_ENV
+        + "      - run: uvx --no-progress 'repomatic==7.11.0' metadata\n"
     )
-    result = check_self_pin_cooldown_exemption(tmp_path)
+    result = check_self_pin_cooldown_exemption(ctx)
     assert result.passed is False
     assert "tests.yaml" in result.message
     assert SELF_PIN_COOLDOWN_EXEMPTION in result.message
 
 
-def test_self_pin_exemption_accepts_exempt_pin(tmp_path):
+def test_self_pin_exemption_accepts_exempt_pin():
     """The spelling both writers emit passes."""
-    (tmp_path / "tests.yaml").write_text(
-        _COOLDOWN_ENV + f"      - run: uvx --no-progress {SELF_PIN_COOLDOWN_EXEMPTION}"
-        " 'repomatic==7.11.0' metadata\n",
-        encoding="UTF-8",
+    ctx = _workflows(
+        tests=_COOLDOWN_ENV
+        + f"      - run: uvx --no-progress {SELF_PIN_COOLDOWN_EXEMPTION}"
+        " 'repomatic==7.11.0' metadata\n"
     )
-    result = check_self_pin_cooldown_exemption(tmp_path)
+    result = check_self_pin_cooldown_exemption(ctx)
     assert result.passed is True
 
 
-def test_self_pin_exemption_ignores_workflow_without_cooldown(tmp_path):
+def test_self_pin_exemption_ignores_workflow_without_cooldown():
     """No cooldown means nothing to exempt, so a bare pin resolves fine."""
-    (tmp_path / "tests.yaml").write_text(
-        "      - run: uvx --no-progress 'repomatic==7.11.0' metadata\n",
-        encoding="UTF-8",
+    ctx = _workflows(
+        tests="      - run: uvx --no-progress 'repomatic==7.11.0' metadata\n"
     )
-    result = check_self_pin_cooldown_exemption(tmp_path)
+    result = check_self_pin_cooldown_exemption(ctx)
     assert result.passed is None
     assert "no inline pin" in result.message
 
@@ -2972,38 +3093,37 @@ def _setup_uv_workflow(*versions: str | None) -> str:
     return f"on: push\njobs:\n  build:\n    steps:\n{steps}"
 
 
-def test_setup_uv_version_pin_flags_unpinned_step(tmp_path):
+def test_setup_uv_version_pin_flags_unpinned_step():
     """A step with no `version:` input installs whatever uv is newest."""
-    (tmp_path / "tests.yaml").write_text(_setup_uv_workflow(None), encoding="UTF-8")
-    result = check_setup_uv_version_pin(tmp_path)
+    result = check_setup_uv_version_pin(_workflows(tests=_setup_uv_workflow(None)))
     assert result.passed is False
     assert "tests.yaml" in result.message
 
 
-def test_setup_uv_version_pin_accepts_pinned_steps(tmp_path):
+def test_setup_uv_version_pin_accepts_pinned_steps():
     """Every step naming the same version passes."""
-    (tmp_path / "tests.yaml").write_text(
-        _setup_uv_workflow("0.12.1", "0.12.1"), encoding="UTF-8"
+    result = check_setup_uv_version_pin(
+        _workflows(tests=_setup_uv_workflow("0.12.1", "0.12.1"))
     )
-    result = check_setup_uv_version_pin(tmp_path)
     assert result.passed is True
     assert "0.12.1" in result.message
 
 
-def test_setup_uv_version_pin_flags_unpinned_step_next_to_pinned_one(tmp_path):
+def test_setup_uv_version_pin_flags_unpinned_step_next_to_pinned_one():
     """A pinned step does not vouch for an unpinned one beside it."""
-    (tmp_path / "tests.yaml").write_text(
-        _setup_uv_workflow(None, "0.12.1"), encoding="UTF-8"
+    result = check_setup_uv_version_pin(
+        _workflows(tests=_setup_uv_workflow(None, "0.12.1"))
     )
-    result = check_setup_uv_version_pin(tmp_path)
     assert result.passed is False
 
 
-def test_setup_uv_version_pin_flags_split_versions(tmp_path):
+def test_setup_uv_version_pin_flags_split_versions():
     """Steps pinning two versions silently test two uv releases."""
-    (tmp_path / "tests.yaml").write_text(_setup_uv_workflow("0.12.1"), encoding="UTF-8")
-    (tmp_path / "lint.yaml").write_text(_setup_uv_workflow("0.12.2"), encoding="UTF-8")
-    result = check_setup_uv_version_pin(tmp_path)
+    result = check_setup_uv_version_pin(
+        _workflows(
+            tests=_setup_uv_workflow("0.12.1"), lint=_setup_uv_workflow("0.12.2")
+        )
+    )
     assert result.passed is False
     assert "0.12.1" in result.message
     assert "0.12.2" in result.message
@@ -3092,17 +3212,15 @@ def test_requested_metadata_keys(command, expected):
     assert requested_metadata_keys(command, "repomatic") == expected
 
 
-def test_metadata_keys_flags_a_retired_key(tmp_path, monkeypatch):
+def test_metadata_keys_flags_a_retired_key():
     """A key removed upstream fails the lint instead of the next workflow run."""
-    monkeypatch.chdir(tmp_path)
-    _write_ci_workflow(
-        tmp_path,
-        _metadata_step(
+    ctx = _workflows(
+        ci=_metadata_step(
             "uvx --no-progress 'repomatic==7.11.0' show-metadata cli_scripts"
             " coverage_cells"
-        ),
+        )
     )
-    failures = [r for r in check_metadata_keys() if r.passed is False]
+    failures = [r for r in check_metadata_keys(ctx) if r.passed is False]
     assert failures
     assert "coverage_cells" in failures[0].message
     assert "show-metadata --list-keys" in failures[0].message
@@ -3115,35 +3233,30 @@ def test_metadata_keys_flags_a_retired_key(tmp_path, monkeypatch):
         pytest.param("uvx 'repomatic==7.11.0' metadata", id="without-keys"),
     ),
 )
-def test_metadata_keys_flags_the_removed_alias(tmp_path, monkeypatch, command):
+def test_metadata_keys_flags_the_removed_alias(command):
     """A step calling the `metadata` alias fails the lint, naming `show-metadata`.
 
     `8.0.0` removed the alias, so the call dies whatever keys it passes, and
     even when it passes none.
     """
-    monkeypatch.chdir(tmp_path)
-    _write_ci_workflow(tmp_path, _metadata_step(command))
-    (failure,) = [r for r in check_metadata_keys() if r.passed is False]
+    ctx = _workflows(ci=_metadata_step(command))
+    (failure,) = [r for r in check_metadata_keys(ctx) if r.passed is False]
     assert "`repomatic metadata`" in failure.message
     assert "`repomatic show-metadata`" in failure.message
 
 
-def test_metadata_keys_accepts_current_keys(tmp_path, monkeypatch):
+def test_metadata_keys_accepts_current_keys():
     """Keys the command still answers raise nothing."""
-    monkeypatch.chdir(tmp_path)
-    _write_ci_workflow(
-        tmp_path, _metadata_step("repomatic show-metadata cli_scripts package_name")
+    ctx = _workflows(
+        ci=_metadata_step("repomatic show-metadata cli_scripts package_name")
     )
-    results = check_metadata_keys()
-    assert all(r.passed is not False for r in results)
+    assert all(r.passed is not False for r in check_metadata_keys(ctx))
 
 
-def test_metadata_keys_skips_a_repo_that_never_calls_it(tmp_path, monkeypatch):
+def test_metadata_keys_skips_a_repo_that_never_calls_it():
     """No invocation to read is a skip, not a pass."""
-    monkeypatch.chdir(tmp_path)
-    _write_ci_workflow(tmp_path, _metadata_step("echo apricot"))
-    results = check_metadata_keys()
-    assert [r.passed for r in results] == [None]
+    ctx = _workflows(ci=_metadata_step("echo apricot"))
+    assert [r.passed for r in check_metadata_keys(ctx)] == [None]
 
 
 def test_metadata_value_options_match_the_command():
@@ -3167,36 +3280,49 @@ def test_metadata_value_options_match_the_command():
 
 def test_metadata_keys_covers_every_workflow_of_this_repo():
     """This repository's own workflows only ask for keys that exist."""
-    results = check_metadata_keys(Path(".github/workflows"))
+    results = check_metadata_keys(LintContext())
     assert results
     assert all(r.passed is not False for r in results)
 
 
 # ---------------------------------------------------------------------------
-# Branch ruleset check tests
+# Ruleset and branch protection check tests
 # ---------------------------------------------------------------------------
+
+
+def _rulesets_context(rulesets: list[dict] | None) -> LintContext:
+    """A context whose rulesets API answered *rulesets*."""
+    ctx = LintContext(repo="owner/repo")
+    ctx.__dict__["rulesets"] = rulesets
+    return ctx
 
 
 def test_check_branch_ruleset_found():
     """Active branch ruleset is detected."""
-
-    rulesets = [
+    ctx = _rulesets_context([
         {"name": "main", "target": "branch", "enforcement": "active"},
-    ]
-    with patch("repomatic.lint_repo.gh_api_json", return_value=rulesets):
-        passed, msg = check_branch_ruleset_on_default("owner/repo")
+    ])
+    passed, msg = check_branch_ruleset_on_default(ctx)
     assert passed is True
     assert "main" in msg
 
 
-def test_check_branch_ruleset_none():
-    """No branch rulesets returns failure."""
-
-    rulesets = [
-        {"name": "tags", "target": "tag", "enforcement": "active"},
-    ]
-    with patch("repomatic.lint_repo.gh_api_json", return_value=rulesets):
-        passed, _msg = check_branch_ruleset_on_default("owner/repo")
+@pytest.mark.parametrize(
+    "rulesets",
+    (
+        pytest.param(
+            [{"name": "tags", "target": "tag", "enforcement": "active"}],
+            id="tag-ruleset-only",
+        ),
+        pytest.param(
+            [{"name": "main", "target": "branch", "enforcement": "disabled"}],
+            id="disabled-branch-ruleset",
+        ),
+    ),
+)
+def test_check_branch_ruleset_none(rulesets):
+    """No active branch ruleset returns failure."""
+    passed, _msg = check_branch_ruleset_on_default(_rulesets_context(rulesets))
     assert passed is False
 
 
@@ -3206,14 +3332,31 @@ def test_check_branch_ruleset_api_error():
     Matches `check_tag_protection_rules`, which reads the same payload. The
     setup guide still treats the `None` as incomplete and keeps the step open.
     """
-
-    with patch("repomatic.lint_repo.gh_api_json", return_value=None):
-        passed, msg = check_branch_ruleset_on_default("owner/repo")
+    passed, msg = check_branch_ruleset_on_default(_rulesets_context(None))
     assert passed is None
     assert "skipped" in msg
 
 
-# --- check_classic_branch_protection ---------------------------------------------
+@pytest.mark.parametrize(
+    ("rulesets", "passed"),
+    (
+        pytest.param(
+            [{"name": "release-tags", "target": "tag", "enforcement": "active"}],
+            False,
+            id="active-tag-ruleset",
+        ),
+        pytest.param(
+            [{"name": "release-tags", "target": "tag", "enforcement": "evaluate"}],
+            True,
+            id="evaluate-mode",
+        ),
+        pytest.param(None, None, id="unreadable"),
+    ),
+)
+def test_check_tag_protection_rules(rulesets, passed):
+    """Only an active ruleset aimed at tags can block the release tag push."""
+    result = check_tag_protection_rules(_rulesets_context(rulesets))
+    assert result.passed is passed
 
 
 def _graphql_rules(*patterns: str) -> dict:
@@ -3229,9 +3372,10 @@ def _graphql_rules(*patterns: str) -> dict:
 
 def test_check_classic_branch_protection_none():
     """A repository holding only rulesets passes."""
-
-    with patch("repomatic.lint_repo.gh_graphql", return_value=_graphql_rules()):
-        passed, msg = check_classic_branch_protection("owner/repo")
+    with patch(
+        "repomatic.lint_repo.settings.gh_graphql", return_value=_graphql_rules()
+    ):
+        passed, msg = check_classic_branch_protection(SETTINGS_CONTEXT)
     assert passed is True
     assert "rulesets" in msg
 
@@ -3246,11 +3390,11 @@ def test_check_classic_branch_protection_none():
 )
 def test_check_classic_branch_protection_found(patterns, expected):
     """Every surviving rule is named, and both settings pages are linked."""
-
     with patch(
-        "repomatic.lint_repo.gh_graphql", return_value=_graphql_rules(*patterns)
+        "repomatic.lint_repo.settings.gh_graphql",
+        return_value=_graphql_rules(*patterns),
     ):
-        passed, msg = check_classic_branch_protection("owner/repo")
+        passed, msg = check_classic_branch_protection(SETTINGS_CONTEXT)
     assert passed is False
     positions = [msg.find(pattern) for pattern in expected]
     assert all(position >= 0 for position in positions)
@@ -3266,9 +3410,10 @@ def test_check_classic_branch_protection_api_error():
     Answering `True` there would report a clean repository on the strength of
     a question nobody managed to ask.
     """
-
-    with patch("repomatic.lint_repo.gh_graphql", side_effect=GhCommandError("403")):
-        passed, msg = check_classic_branch_protection("owner/repo")
+    with patch(
+        "repomatic.lint_repo.settings.gh_graphql", side_effect=GhCommandError("403")
+    ):
+        passed, msg = check_classic_branch_protection(SETTINGS_CONTEXT)
     assert passed is None
     assert "skipped" in msg
 
@@ -3289,66 +3434,67 @@ def test_check_classic_branch_protection_partial_payload(payload):
     GraphQL answers `200` with a null branch when a field resolves to nothing,
     so every level of the envelope can arrive empty.
     """
-
-    with patch("repomatic.lint_repo.gh_graphql", return_value=payload):
-        passed, _msg = check_classic_branch_protection("owner/repo")
+    with patch("repomatic.lint_repo.settings.gh_graphql", return_value=payload):
+        passed, _msg = check_classic_branch_protection(SETTINGS_CONTEXT)
     assert passed is True
 
 
-# --- check_immutable_releases ---------------------------------------------------
+@pytest.mark.parametrize(
+    ("response", "passed", "fragment"),
+    (
+        pytest.param(
+            {"enabled": True, "enforced_by_owner": False}, True, "enabled", id="on"
+        ),
+        pytest.param(
+            {"enabled": False, "enforced_by_owner": False},
+            False,
+            "not enabled",
+            id="off",
+        ),
+        # An API failure is indeterminate, not a failure.
+        pytest.param(None, None, "skipped", id="unreadable"),
+    ),
+)
+def test_check_immutable_releases(response, passed, fragment):
+    """The immutable releases setting reads as on, off or unknown."""
+    with patch("repomatic.lint_repo.settings.gh_json", return_value=response):
+        result = check_immutable_releases(SETTINGS_CONTEXT)
+    assert result.passed is passed
+    assert fragment in result.message
 
 
-def test_check_immutable_releases_enabled():
-    """Immutable releases enabled is detected."""
-
-    response = {"enabled": True, "enforced_by_owner": False}
-    with patch("repomatic.lint_repo.gh_api_json", return_value=response):
-        passed, msg = check_immutable_releases("owner/repo")
-    assert passed is True
-    assert "enabled" in msg
+# ---------------------------------------------------------------------------
+# Roster conformance tests
+# ---------------------------------------------------------------------------
 
 
-def test_check_immutable_releases_disabled():
-    """Immutable releases disabled returns failure."""
-
-    response = {"enabled": False, "enforced_by_owner": False}
-    with patch("repomatic.lint_repo.gh_api_json", return_value=response):
-        passed, msg = check_immutable_releases("owner/repo")
-    assert passed is False
-    assert "not enabled" in msg
-
-
-def test_check_immutable_releases_api_error():
-    """API failure returns None (indeterminate), not False."""
-
-    with patch("repomatic.lint_repo.gh_api_json", return_value=None):
-        passed, msg = check_immutable_releases("owner/repo")
-    assert passed is None
-    assert "skipped" in msg
+def _package_checks() -> dict[str, Callable]:
+    """Every `check_*` function the `repomatic.lint_repo` modules define."""
+    checks = {}
+    for module_info in pkgutil.iter_modules(lint_repo.__path__):
+        module = importlib.import_module(f"{lint_repo.__name__}.{module_info.name}")
+        for name, value in vars(module).items():
+            if (
+                name.startswith("check_")
+                and callable(value)
+                and getattr(value, "__module__", "") == module.__name__
+            ):
+                checks[f"{module_info.name}.{name}"] = value
+    return checks
 
 
 def test_every_check_is_reachable_from_the_roster():
-    """Every `check_*` this module defines is wired into `REPO_CHECKS`.
+    """Every `check_*` the package defines is a check `lint-repo` runs.
 
-    `check_branch_ruleset_on_default` and `check_immutable_releases` shipped
-    defined here but reached only from `setup_guide`, so `lint-repo` silently
-    skipped two of its own checks. A check nobody calls is a check nobody
-    benefits from: adding one now means adding it to the roster, or the
-    omission fails here.
+    A check nobody calls is a check nobody benefits from: adding one means
+    adding it to the roster, or the omission fails here.
     """
-    module_source = inspect.getsource(lint_repo)
-    roster_source = module_source.split("REPO_CHECKS", 1)[1]
-    defined = {
-        name
-        for name, value in vars(lint_repo).items()
-        if name.startswith("check_")
-        and callable(value)
-        # Defined here, not imported from another module.
-        and getattr(value, "__module__", "") == lint_repo.__name__
-    }
-    unreachable = {name for name in defined if name not in roster_source}
+    run = {check.run for check in REPO_CHECKS}
+    unreachable = sorted(
+        name for name, func in _package_checks().items() if func not in run
+    )
     assert not unreachable, (
-        f"checks defined but never run by lint-repo: {sorted(unreachable)}."
+        f"checks defined but never run by lint-repo: {unreachable}."
         " Add them to REPO_CHECKS."
     )
 
@@ -3405,56 +3551,71 @@ def test_workflows_page_renders_every_check():
     assert rendered == [f"- {check.description}" for check in REPO_CHECKS]
 
 
+@pytest.mark.parametrize(
+    ("passed", "fatal", "fails"),
+    (
+        (False, True, True),
+        (False, False, False),
+        (None, True, False),
+        (True, True, False),
+    ),
+)
+def test_only_a_fatal_failure_fails_the_run(passed, fatal, fails):
+    """A skip or an advisory failure leaves the run green."""
+    check = RepoCheck("fig", lambda ctx: (), summary="", description="", fatal=fatal)
+    assert check.fails(CheckResult(passed, "fig")) is fails
+
+
 # ---------------------------------------------------------------------------
 # setup-uv checksum coverage check tests
 # ---------------------------------------------------------------------------
 
 
-def _coverage(tmp_path, verified, *versions):
+def _coverage(verified, *versions):
     """Run the coverage check over a workflow pinning *versions*."""
-    (tmp_path / "tests.yaml").write_text(
-        _setup_uv_workflow(*versions), encoding="UTF-8"
-    )
-    with patch("repomatic.lint_repo.setup_uv_verified_versions", return_value=verified):
-        return check_setup_uv_checksum_coverage(tmp_path)
+    ctx = _workflows(tests=_setup_uv_workflow(*versions))
+    with patch(
+        "repomatic.lint_repo.pins.setup_uv_verified_versions", return_value=verified
+    ):
+        return check_setup_uv_checksum_coverage(ctx)
 
 
-def test_setup_uv_checksum_coverage_accepts_a_covered_pin(tmp_path):
+def test_setup_uv_checksum_coverage_accepts_a_covered_pin():
     """A pinned uv the pinned action can hash is the state worth having."""
-    result = _coverage(tmp_path, frozenset({"0.12.3"}), "0.12.3")
+    result = _coverage(frozenset({"0.12.3"}), "0.12.3")
     assert result.passed is True
     assert "0.12.3" in result.message
 
 
-def test_setup_uv_checksum_coverage_flags_an_uncovered_pin(tmp_path):
+def test_setup_uv_checksum_coverage_flags_an_uncovered_pin():
     """Two good pins can still verify nothing between them.
 
     `setup-uv` skips validation for a version absent from the table its own
     release bundles, on a debug line no CI log shows, so nothing else reports
     this.
     """
-    result = _coverage(tmp_path, frozenset({"0.11.30"}), "0.12.3")
+    result = _coverage(frozenset({"0.11.30"}), "0.12.3")
     assert result.passed is False
     assert "0.12.3" in result.message
 
 
-def test_setup_uv_checksum_coverage_skips_on_an_unreadable_table(tmp_path):
+def test_setup_uv_checksum_coverage_skips_on_an_unreadable_table():
     """An unreachable API is indeterminate, never a red run."""
-    result = _coverage(tmp_path, None, "0.12.3")
+    result = _coverage(None, "0.12.3")
     assert result.passed is None
     assert "unreadable" in result.message
 
 
-def test_setup_uv_checksum_coverage_skips_without_a_pinned_version(tmp_path):
+def test_setup_uv_checksum_coverage_skips_without_a_pinned_version():
     """An unpinned step is the other check's finding, not this one's."""
-    result = _coverage(tmp_path, frozenset({"0.12.3"}), None)
+    result = _coverage(frozenset({"0.12.3"}), None)
     assert result.passed is None
     assert "no pinned uv version" in result.message
 
 
-def test_setup_uv_checksum_coverage_skips_without_workflows(tmp_path):
+def test_setup_uv_checksum_coverage_skips_without_workflows():
     """A repository with no workflow has nothing to check."""
-    assert check_setup_uv_checksum_coverage(tmp_path).passed is None
+    assert check_setup_uv_checksum_coverage(_workflows()).passed is None
 
 
 # ---------------------------------------------------------------------------
@@ -3501,10 +3662,13 @@ def _pin_cooldown(
     minimum_release_age: str = "1 week",
 ) -> list[CheckResult]:
     """Run the cooldown check over *tool* alone, its releases from *candidates*."""
-    tool_table = {"uv": {"exclude-newer-package": dict(entries or {})}}
-    with patch("repomatic.lint_repo.tool_candidates", side_effect=candidates):
+    ctx = LintContext(
+        config=Config(minimum_release_age=minimum_release_age),
+        tool_table={"uv": {"exclude-newer-package": dict(entries or {})}},
+    )
+    with patch("repomatic.lint_repo.pins.tool_candidates", side_effect=candidates):
         return check_registry_pin_cooldown(
-            tool_table, minimum_release_age, {tool.name: tool}, now=COOLDOWN_NOW
+            ctx, registry={tool.name: tool}, now=COOLDOWN_NOW
         )
 
 
@@ -3639,25 +3803,19 @@ def test_registry_pin_cooldown_skips_without_a_cooldown():
     lookup.assert_not_called()
 
 
-def test_registry_pin_cooldown_never_fails_the_run(capsys):
-    """Every registry pin inside the window warns, and `lint-repo` still exits 0."""
-    check = next(c for c in REPO_CHECKS if c.name == "registry-pin-cooldown")
+def test_registry_pin_cooldown_never_fails_the_run():
+    """Every registry pin inside the window warns, and `lint-repo` still passes."""
+    check = _roster_check("registry-pin-cooldown")
     assert check.fatal is False
     today = datetime.now(UTC).date().isoformat()
-    with patch("repomatic.lint_repo.tool_candidates", side_effect=_dated(today)):
-        exit_code = run_repo_lint(LintContext())
-    assert exit_code == 0
-    assert "⚠ `repomatic run " in capsys.readouterr().out
-
-
-def test_lint_context_carries_the_minimum_release_age(tmp_path, monkeypatch):
-    """`from_project` hands the configured cooldown to the registry pin check."""
-    metadata_from_pyproject(tmp_path, monkeypatch, '[project]\nname = "basket"\n')
-    with patch(
-        "repomatic.lint_repo._resolve_declared_labels", return_value=frozenset()
-    ):
-        ctx = LintContext.from_project(Config(minimum_release_age="3 days"))
-    assert ctx.minimum_release_age == "3 days"
+    ctx = LintContext()
+    with patch("repomatic.lint_repo.pins.tool_candidates", side_effect=_dated(today)):
+        findings = _findings(ctx)
+        assert not _fails(ctx)
+    assert any(
+        r.passed is False and r.message.startswith("`repomatic run ")
+        for r in findings["registry-pin-cooldown"]
+    )
 
 
 # --- Undeclared labels check unit tests ---
@@ -3668,15 +3826,22 @@ def _labels_payload(*names: str) -> list[dict[str, str]]:
     return [{"name": name, "color": "ffffff", "description": ""} for name in names]
 
 
+def _declaring(*names: str) -> LintContext:
+    """A context whose configured label sources declare *names*."""
+    ctx = LintContext(repo="owner/repo")
+    ctx.__dict__["declared_labels"] = frozenset(names)
+    return ctx
+
+
 def test_undeclared_labels_detected():
     """Report a label the repository carries that no source declares."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.repo.gh_json") as mock_gh:
         mock_gh.return_value = _labels_payload("🐛 bug", "📦 manager: nala")
-        result = check_undeclared_labels("owner/repo", frozenset({"🐛 bug"}))
-        assert result.passed is False
-        assert "📦 manager: nala" in result.message
-        # The declared one is never named as an orphan.
-        assert "🐛 bug" not in result.message
+        result = check_undeclared_labels(_declaring("🐛 bug"))
+    assert result.passed is False
+    assert "📦 manager: nala" in result.message
+    # The declared one is never named as an orphan.
+    assert "🐛 bug" not in result.message
 
 
 def test_undeclared_labels_warns_before_deleting():
@@ -3685,33 +3850,31 @@ def test_undeclared_labels_warns_before_deleting():
     Deleting a label detaches every item carrying it, so a check that only
     named the orphans would invite exactly the loss it exists to prevent.
     """
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.repo.gh_json") as mock_gh:
         mock_gh.return_value = _labels_payload("📦 dependencies")
-        result = check_undeclared_labels("owner/repo", frozenset({"🐛 bug"}))
-        assert result.passed is False
-        assert "detaches" in result.message
-        assert "search/issues" in result.message
+        result = check_undeclared_labels(_declaring("🐛 bug"))
+    assert result.passed is False
+    assert "detaches" in result.message
+    assert "search/issues" in result.message
 
 
 def test_undeclared_labels_clean():
     """No finding when every label on the repository is declared."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
+    with patch("repomatic.lint_repo.repo.gh_json") as mock_gh:
         mock_gh.return_value = _labels_payload("🐛 bug", "🤖 ci")
-        result = check_undeclared_labels(
-            "owner/repo", frozenset({"🐛 bug", "🤖 ci", "❔ question"})
-        )
-        assert result.passed is True
-        # A declared label the repository lacks is the sync's job, not a finding.
-        assert "❔ question" not in result.message
+        declared = _declaring("🐛 bug", "🤖 ci", "❔ question")
+        result = check_undeclared_labels(declared)
+    assert result.passed is True
+    # A declared label the repository lacks is the sync's job, not a finding.
+    assert "❔ question" not in result.message
 
 
 def test_undeclared_labels_skips_on_an_unreadable_api():
     """An unreachable API is indeterminate, never a red run."""
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
-        mock_gh.return_value = None
-        result = check_undeclared_labels("owner/repo", frozenset({"🐛 bug"}))
-        assert result.passed is None
-        assert "skipped" in result.message
+    with patch("repomatic.lint_repo.repo.gh_json", return_value=None):
+        result = check_undeclared_labels(_declaring("🐛 bug"))
+    assert result.passed is None
+    assert "skipped" in result.message
 
 
 def test_undeclared_labels_is_advisory():
@@ -3720,8 +3883,20 @@ def test_undeclared_labels_is_advisory():
     A repository may legitimately carry a hand-made label, and deleting one is
     a judgement call. Both make a red run the wrong answer.
     """
-    check = next(c for c in lint_repo.REPO_CHECKS if c.name == "undeclared-labels")
-    assert check.fatal is False
+    assert _roster_check("undeclared-labels").fatal is False
+
+
+def test_declared_labels_are_read_only_when_a_check_asks():
+    """Building a context fetches no label definition.
+
+    A `labels.extra-files` URL is downloaded to know the declared set, which
+    only the undeclared-labels check needs, and only with a repository.
+    """
+    config = Config(labels=LabelsConfig(extra_files=["https://example.com/a.toml"]))
+    with patch("repomatic.github.labels.get_bytes") as fetch:
+        ctx = LintContext.from_project(config)
+        assert not _roster_check("undeclared-labels").applies(ctx)
+    fetch.assert_not_called()
 
 
 def test_declared_label_names_reads_the_bundled_profiles():
@@ -3733,6 +3908,12 @@ def test_declared_label_names_reads_the_bundled_profiles():
     assert "🆕 new link" not in plain
     assert awesome > plain
     assert "🆕 new link" in awesome
+
+
+def test_declared_labels_follow_the_repository_name():
+    """An `awesome-*` repository reads the awesome profile too."""
+    assert LintContext(repo_name="awesome-fruits").is_awesome
+    assert not LintContext(repo_name="fruits").is_awesome
 
 
 def test_declared_label_names_excludes_rename_sources():
@@ -3877,14 +4058,13 @@ def test_undeclared_labels_skips_on_an_unusable_extra_file(url, fetch, error):
     with patch("repomatic.github.labels.get_bytes", **fetch):
         with pytest.raises(error, match="citrus"):
             declared_label_names(config, is_awesome=False)
-        declared = _resolve_declared_labels(config, is_awesome=False)
-    assert declared is None
+        assert _resolve_declared_labels(config, is_awesome=False) is None
 
-    check = next(c for c in REPO_CHECKS if c.name == "undeclared-labels")
-    ctx = LintContext(repo="owner/repo", declared_labels=declared)
-    assert check.applies(ctx)
-    with patch("repomatic.lint_repo.gh_api_json") as mock_gh:
-        (result,) = check.results(ctx)
+        check = _roster_check("undeclared-labels")
+        ctx = LintContext(repo="owner/repo", config=config)
+        assert check.applies(ctx)
+        with patch("repomatic.lint_repo.repo.gh_json") as mock_gh:
+            (result,) = check.results(ctx)
     mock_gh.assert_not_called()
     assert result.passed is None
     assert "skipped" in result.message

@@ -14,70 +14,59 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""GitHub token validation utilities.
+"""GitHub token validation, and the probes of what `REPOMATIC_PAT` can do.
 
-Provides early validation for CLI commands that depend on the GitHub API,
-so users get clear error messages at startup rather than opaque failures
-mid-execution.
+The validators run before a command that depends on the GitHub API, so a user
+gets a clear error at startup rather than an opaque failure mid-run. The probes
+read the permissions and the repository scope of the configured
+`REPOMATIC_PAT`: `lint-repo` reports what they find, and `setup-guide` asks the
+reader to fix it.
 
 ```{note} Why `REPOMATIC_PAT` is needed
 
-GitHub's `GITHUB_TOKEN` cannot modify workflow files in `.github/`.
-Neither `contents: write`, `actions: write`, nor ``permissions:
-write-all`` grant this ability. The only way to push changes to workflow
-YAML files is via a fine-grained Personal Access Token with the
-**Workflows** permission. Without it, pushes are rejected with::
+GitHub's `GITHUB_TOKEN` cannot modify workflow files in `.github/`. Neither
+`contents: write`, `actions: write`, nor `permissions: write-all` grant this
+ability. The only way to push changes to workflow YAML files is through a
+fine-grained Personal Access Token with the **Workflows** permission. Without
+it, GitHub rejects the push:
 
     ! [remote rejected] branch_xxx -> branch_xxx (refusing to allow a
     GitHub App to create or update workflow
     `.github/workflows/my_workflow.yaml` without `workflows` permission)
 
-Additionally, events triggered by `GITHUB_TOKEN` do not start new
-workflow runs (see [GitHub docs](https://docs.github.com/en/actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow)),
-so tag pushes also need the PAT to trigger downstream workflows.
+Events triggered by `GITHUB_TOKEN` also start no new workflow runs (see
+[GitHub docs](https://docs.github.com/en/actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow)),
+so tag pushes need the PAT to trigger downstream workflows too.
 
-The **Settings → Actions → General → Workflow permissions** setting has
-no effect on this limitation — it's a hard security boundary enforced by
-GitHub regardless of repository-level settings.
+The **Settings → Actions → General → Workflow permissions** setting has no
+effect on this limitation: it is a hard security boundary that GitHub enforces
+whatever the repository settings say.
 
-The permission has to reach the actual `git push`, not just the `gh` CLI:
-setting `GH_TOKEN` in a step's `env` only authenticates `gh`/`repomatic` API
-calls made by that process. A bare `git push` (`git_ops.force_push_branch`,
-which every `pr-sync` template goes through) instead authenticates with
-whatever credentials `actions/checkout` configured for the job, which
-defaults to `github.token` regardless of `GH_TOKEN`. A job whose diff can
-touch `.github/workflows/` needs `token: ${{ secrets.REPOMATIC_PAT ||
-github.token }}` on its own checkout step too, or the push is rejected
-exactly as if the PAT had never been set.
+The permission has to reach the actual `git push`, not just the `gh` CLI.
+Setting `GH_TOKEN` in a step's `env` only authenticates the `gh` and
+`repomatic` API calls of that process. A bare `git push`
+(`git_ops.force_push_branch`, which every `pr-sync` template goes through)
+authenticates with the credentials `actions/checkout` configured for the job,
+which default to `github.token` whatever `GH_TOKEN` says. A job whose diff can
+touch `.github/workflows/` needs
+`token: ${{ secrets.REPOMATIC_PAT || github.token }}` on its own checkout step
+too, or the push is rejected as if the PAT had never been set.
 
-Jobs that use `REPOMATIC_PAT`:
-
-- `autofix.yaml`: fix-typos, sync-repomatic, sync-action-pins,
-  sync-workflow-pins, sync-runner-images (PRs touching
-  `.github/workflows/` files), fix-vulnerable-deps (reads the GitHub
-  Advisory Database).
-- `changelog.yaml`: prepare-release (freezes versions in workflow files).
-- `release.yaml`: create-tag (push triggers `on.push.tags`),
-  create-release (triggers downstream workflows).
-- `self-maintenance.yaml`: sync-tool-versions (upstream-only dependency
-  PRs).
-
-All jobs fall back to `GITHUB_TOKEN` when the PAT is unavailable
-(`secrets.REPOMATIC_PAT || github.token`), but
-operations requiring the `workflows` permission or workflow triggering
-will silently fail.
+Every job falls back to `GITHUB_TOKEN` when the PAT is unavailable
+(`secrets.REPOMATIC_PAT || github.token`), and then silently fails any
+operation that needs the `workflows` permission or that must trigger a workflow.
 
 Token permission mapping:
 
-- **Workflows** — PRs that touch `.github/workflows/` files.
-- **Contents** — Tag pushes, release publishing, PR branch creation.
-- **Pull requests** — All PR-creating jobs.
-- **Dependabot alerts** — fix-vulnerable-deps reads vulnerability alerts.
-- **Issues** — Setup guide issue.
-- **Administration** — Reads the Actions settings the setup guide verifies:
-  SHA pinning required, and the fork-PR contributor-approval policy.
-  Read-only: repomatic never writes a repository setting.
-- **Metadata** — Required for all fine-grained token API operations.
+- **Workflows**: PRs that touch `.github/workflows/` files.
+- **Contents**: tag pushes, release publishing, PR branch creation.
+- **Pull requests**: every PR-creating job.
+- **Dependabot alerts**: `fix-vulnerable-deps` reads vulnerability alerts.
+- **Issues**: the setup guide issue.
+- **Administration**: reads the Actions settings the setup guide verifies,
+  SHA pinning required and the fork-PR contributor-approval policy. Read-only:
+  repomatic never writes a repository setting.
+- **Metadata**: required for every fine-grained token API operation.
 ```
 """
 
@@ -86,7 +75,7 @@ from __future__ import annotations
 import functools
 import json
 import logging
-from dataclasses import dataclass, fields
+from collections import UserDict
 from typing import NamedTuple
 
 from click_extra import ClickException
@@ -95,6 +84,7 @@ from ..checks import CheckResult
 from ..http import FetchError, request
 from .gh import GhCommandError, api_headers, resolve_gh_token, run_gh_command
 from .status import with_status_annotation
+from .urls import split_slug
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -138,7 +128,7 @@ def _classify_pat_error(error: GhCommandError, missing_permission_msg: str) -> s
     [githubstatus.com](https://www.githubstatus.com) annotation is appended
     when an incident is active.
 
-    :param error: The failure raised by {func}`run_gh_command`.
+    :param error: The failure raised by {func}`~repomatic.github.gh.run_gh_command`.
     :param missing_permission_msg: Message to return when the failure is
         unambiguously a 403 (permission missing).
     :return: The failure message of the {class}`~repomatic.checks.CheckResult`.
@@ -159,7 +149,7 @@ class PatProbe(NamedTuple):
     """
 
     field: str
-    """The {class}`PatPermissionResults` field receiving this probe's result."""
+    """The key of this probe's result in {class}`PatPermissionResults`."""
 
     permission: str
     """Fine-grained permission label, as GitHub's PAT form spells it."""
@@ -176,6 +166,34 @@ class PatProbe(NamedTuple):
     Empty for probes whose 404 carries no special meaning: those fall
     through to the generic failure classification.
     """
+
+    @property
+    def name(self) -> str:
+        """The permission's name without its access level, like `Contents`."""
+        return self.permission.partition(":")[0]
+
+    def run(self, repo: str) -> CheckResult:
+        """Run this probe against *repo*.
+
+        :param repo: Repository in `owner/repo` format.
+        :return: A passing result, or a failing one that names the cause.
+        """
+        try:
+            run_gh_command(["api", self.endpoint.format(repo=repo), "--silent"])
+        except GhCommandError as exc:
+            if self.not_found and exc.status == 404:
+                return CheckResult(
+                    False, with_status_annotation(self.not_found.format(repo=repo))
+                )
+            return CheckResult(
+                False,
+                _classify_pat_error(
+                    exc,
+                    f"Token lacks {self.permission!r} permission. "
+                    "Update the PAT to include this permission.",
+                ),
+            )
+        return CheckResult(True, self.success)
 
 
 PAT_PERMISSION_PROBES: tuple[PatProbe, ...] = (
@@ -233,92 +251,169 @@ PAT_PERMISSION_PROBES: tuple[PatProbe, ...] = (
         "Workflows: token has access",
     ),
 )
-"""The PAT permission probes, one per {class}`PatPermissionResults` field."""
+"""The PAT permission probes, in report order."""
 
 
-def probe_pat_permission(repo: str, probe: PatProbe) -> CheckResult:
-    """Run one PAT permission probe against *repo*.
+class PatPermissionResults(UserDict[str, CheckResult]):
+    """The result of each PAT permission probe, keyed by {attr}`PatProbe.field`.
 
-    :param repo: Repository in 'owner/repo' format.
-    :param probe: The {class}`PatProbe` row to execute.
-    :return: A passing result, or a failing one that names the cause.
+    Built by {func}`check_all_pat_permissions`, in the order of
+    {data}`PAT_PERMISSION_PROBES`.
     """
-    try:
-        run_gh_command(["api", probe.endpoint.format(repo=repo), "--silent"])
-    except GhCommandError as exc:
-        if probe.not_found and exc.status == 404:
-            return CheckResult(
-                False, with_status_annotation(probe.not_found.format(repo=repo))
-            )
-        return CheckResult(
-            False,
-            _classify_pat_error(
-                exc,
-                f"Token lacks {probe.permission!r} permission. "
-                "Update the PAT to include this permission.",
-            ),
-        )
-    return CheckResult(True, probe.success)
-
-
-@dataclass
-class PatPermissionResults:
-    """Results of all PAT permission checks.
-
-    Each field holds the {class}`~repomatic.checks.CheckResult` of the
-    corresponding {data}`PAT_PERMISSION_PROBES` row.
-    """
-
-    administration: CheckResult
-    """Result of the `administration` {data}`PAT_PERMISSION_PROBES` row."""
-
-    contents: CheckResult
-    """Result of the `contents` {data}`PAT_PERMISSION_PROBES` row."""
-
-    issues: CheckResult
-    """Result of the `issues` {data}`PAT_PERMISSION_PROBES` row."""
-
-    pull_requests: CheckResult
-    """Result of the `pull_requests` {data}`PAT_PERMISSION_PROBES` row."""
-
-    vulnerability_alerts: CheckResult
-    """Result of the `vulnerability_alerts` {data}`PAT_PERMISSION_PROBES` row."""
-
-    workflows: CheckResult
-    """Result of the `workflows` {data}`PAT_PERMISSION_PROBES` row."""
-
-    def iter_results(self) -> list[CheckResult]:
-        """Every probe's result, in field order.
-
-        Each field is filled by {func}`check_all_pat_permissions`, so there is
-        nothing optional to filter: the one loop serves both the full listing
-        and {meth}`failed`'s view of it.
-        """
-        return [getattr(self, f.name) for f in fields(self)]
 
     def failed(self) -> list[tuple[str, str]]:
-        """Return `(field_name, message)` pairs for each failed check."""
+        """Return `(field, message)` pairs for each failed probe."""
         return [
-            (f.name, result.message)
-            for f, result in zip(fields(self), self.iter_results())
+            (field, result.message)
+            for field, result in self.items()
             if not result.passed
         ]
 
 
 def check_all_pat_permissions(repo: str) -> PatPermissionResults:
-    """Run all PAT permission checks and return structured results.
+    """Run every PAT permission probe against *repo*.
 
-    This is the single entry point for PAT permission validation. Both
-    `lint-repo` and `setup-guide` call this function so that adding a
-    new permission check benefits all consumers automatically.
+    The single entry point for PAT permission validation. Both `lint-repo` and
+    `setup-guide` call it, so a new row of {data}`PAT_PERMISSION_PROBES`
+    reaches every consumer.
 
-    :param repo: Repository in 'owner/repo' format.
-    :return: {class}`PatPermissionResults` with all check outcomes.
+    :param repo: Repository in `owner/repo` format.
+    :return: The result of each probe.
     """
-    return PatPermissionResults(**{
-        probe.field: probe_pat_permission(repo, probe)
-        for probe in PAT_PERMISSION_PROBES
-    })
+    return PatPermissionResults(
+        (probe.field, probe.run(repo)) for probe in PAT_PERMISSION_PROBES
+    )
+
+
+PAT_SCOPE_PROBE = next(
+    probe for probe in PAT_PERMISSION_PROBES if probe.field == "administration"
+)
+"""The permission probe {func}`check_pat_repository_scope` sends to other repositories.
+
+The endpoint that reports a token's own repository selection,
+`GET /installation/repositories`, refuses a personal access token. So the check
+reads what the token is allowed to do. A token gets a 2xx from this endpoint
+only for a repository it covers with `Administration: Read-only`. An answer
+from another repository then proves the token covers it.
+
+No other row of {data}`PAT_PERMISSION_PROBES` can do that. A public repository
+answers the contents, issues, pull requests and workflows endpoints to any
+caller. The Dependabot alerts endpoint answers `404` wherever alerts are off,
+which says nothing about the token. Read on 2026-10-13: this endpoint answers
+`401` to a caller with no token, and `403` to an account that does not
+administer the repository.
+
+The `permissions` object that ``GET /repos/{repo}`` returns cannot serve either:
+it describes the account, not the token. Checked on 2026-10-20: a token limited
+to one repository got `push: true` there for another repository of the same
+owner.
+"""
+
+PAT_SCOPE_PROBE_LIMIT = 10
+"""How many other repositories {func}`check_pat_repository_scope` probes.
+
+Each probe is one API call, made on every `lint-repo` and `setup-guide` run. The
+check takes the owner's most recently pushed repositories: a token shared
+between repositories serves the active ones, and a token with access to all of
+them gets an answer from the first one probed.
+"""
+
+
+def check_pat_repository_scope(repo: str) -> CheckResult:
+    """Check that the PAT has no access to another repository of the same owner.
+
+    A fine-grained PAT should name this repository alone under **Only select
+    repositories**, to follow the principle of least privilege. The check sends
+    {data}`PAT_SCOPE_PROBE` to the owner's {data}`PAT_SCOPE_PROBE_LIMIT` most
+    recently pushed other repositories. The first one that answers fails the
+    check.
+
+    Each probe splits three ways:
+
+    - **2xx**: the token covers that repository too. Fail, and name it.
+    - **HTTP 403**: the token is refused there. The check passes once a probe
+      was refused and none answered.
+    - **Anything else** (404, 5xx, network): indeterminate for that repository.
+
+    ```{note}
+    Only a 2xx fails the check, so it never reports a token limited to this
+    repository. A pass is narrower than it reads: it covers the probed
+    repositories, and `/users/{owner}/repos` lists the public ones only. A
+    token is also refused wherever its account has no admin role, whatever the
+    token covers.
+    ```
+
+    :param repo: Repository in `owner/repo` format.
+    :return: A `CheckResult`.
+    """
+    # A refusal from another repository means something only when this
+    # repository answers the same request.
+    endpoint = PAT_SCOPE_PROBE.endpoint
+    try:
+        run_gh_command(["api", endpoint.format(repo=repo), "--silent"])
+    except GhCommandError:
+        return CheckResult(
+            None,
+            "PAT scope check: skipped"
+            f" (no {PAT_SCOPE_PROBE.permission!r} access to probe with).",
+        )
+
+    owner = split_slug(repo)[0]
+    try:
+        # `gh api` sends a POST once a field is passed, which this endpoint
+        # answers with a 404. One more than the limit, so that leaving this
+        # repository out of the page still fills the quota.
+        output = run_gh_command([
+            "api",
+            "--method",
+            "GET",
+            f"/users/{owner}/repos",
+            "--jq",
+            ".[].full_name",
+            "--raw-field",
+            f"per_page={PAT_SCOPE_PROBE_LIMIT + 1}",
+            "--raw-field",
+            "type=owner",
+            "--raw-field",
+            "sort=pushed",
+        ])
+    except GhCommandError:
+        return CheckResult(
+            None, "PAT scope check: skipped (could not list owner repos)."
+        )
+
+    # GitHub matches a repository name whatever its case, and `--repo` takes
+    # the name as typed: an exact comparison would probe this repository as
+    # if it were another one.
+    other_repos = [
+        name
+        for name in map(str.strip, output.splitlines())
+        if name and name.casefold() != repo.casefold()
+    ][:PAT_SCOPE_PROBE_LIMIT]
+    if not other_repos:
+        return CheckResult(None, "PAT scope check: skipped (no other repos to probe).")
+
+    refused = 0
+    for other in other_repos:
+        try:
+            run_gh_command(["api", endpoint.format(repo=other), "--silent"])
+        except GhCommandError as exc:
+            if exc.status == 403:
+                refused += 1
+            continue
+        msg = (
+            f"PAT also has access to {other}."
+            " Limit it to this repository under 'Only select repositories'."
+        )
+        return CheckResult(False, msg)
+
+    if not refused:
+        return CheckResult(
+            None, "PAT scope check: skipped (no probe got a clear answer)."
+        )
+    return CheckResult(
+        True, f"PAT scope: no access to other repositories ({refused} probed)."
+    )
 
 
 def validate_gh_token_env() -> None:
@@ -391,8 +486,7 @@ def validate_classic_pat_scope(required_scope: str) -> list[str]:
     3. Token is a classic PAT (has `X-OAuth-Scopes` header).
     4. Token has the required scope.
 
-    :param required_scope: The OAuth scope to require
-        (e.g. `"notifications"`).
+    :param required_scope: The OAuth scope to require (like `"notifications"`).
     :return: The full list of scopes on the token.
     :raises RuntimeError: If any check fails.
     """
@@ -418,3 +512,22 @@ def validate_classic_pat_scope(required_scope: str) -> list[str]:
 
     logging.info(f"Token validated: scopes='{scopes_header}'.")
     return scope_list
+
+
+def validate_notifications_token() -> None:
+    """Check the token can read the notifications API, and warn when it can do more.
+
+    The unsubscribe command needs a classic PAT holding the `notifications`
+    scope, per {func}`validate_classic_pat_scope`. A token holding other scopes
+    works too, and gets a warning: least privilege asks for that scope alone.
+
+    :raises RuntimeError: If the token is missing, unreadable, fine-grained, or
+        lacks the scope.
+    """
+    scope_list = validate_classic_pat_scope("notifications")
+    if scope_list != ["notifications"]:
+        scopes_header = ", ".join(scope_list)
+        logging.warning(
+            f"GH_TOKEN has more scopes than needed: '{scopes_header}'. Only "
+            "'notifications' is required."
+        )

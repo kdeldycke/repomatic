@@ -26,16 +26,22 @@ and the `<br>` endpoint markup that follows every display name.
 from __future__ import annotations
 
 import pytest
+from extra_platforms import AARCH64, X86_64
 
 from repomatic.matrix.runners import (
-    CATALOG_ARCHITECTURES,
+    RunnerCatalog,
     RunnerImage,
-    newer_version_than,
     parse_catalog,
     runner_architecture,
-    successor_for,
 )
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
+
+CATALOG_ARCHITECTURES = {"arm64": AARCH64, "x64": X86_64}
+"""The *Architecture* column's own spelling, mapped to extra-platforms.
+
+{attr}`~repomatic.matrix.runners.RunnerImage.architecture` keeps the table's
+wording, so the cross-check below translates it before comparing.
+"""
 
 README = """\
 # Runner Images
@@ -58,7 +64,7 @@ README = """\
 
 
 @pytest.fixture
-def catalog() -> list[RunnerImage]:
+def catalog() -> RunnerCatalog:
     return parse_catalog(README)
 
 
@@ -138,7 +144,8 @@ def test_successor_prefers_released_over_preview(
     released successor wins however old it is. `newer_preview_than` is what
     surfaces the fresher option without taking it.
     """
-    successor = successor_for(label, catalog)
+    current = catalog.image(label)
+    successor = catalog.successor_for(current) if current else None
     assert (successor.preferred_label if successor else None) == expected
 
 
@@ -146,8 +153,8 @@ def test_successor_accepts_a_same_version_sibling(catalog) -> None:
     """A dying image with only a same-version sibling still has somewhere to go.
 
     Version is not filtered here, unlike
-    {func}`~repomatic.matrix.runners.newer_version_than`: staying on an image
-    with an end date is worse than moving sideways to one without.
+    {meth}`~repomatic.matrix.runners.RunnerCatalog.newer_version_than`: staying
+    on an image with an end date is worse than moving sideways to one without.
     """
     deprecated_arm = RunnerImage(
         "Windows 11 Arm64", "arm64", ("windows-11-arm",), False, True
@@ -159,7 +166,7 @@ def test_successor_accepts_a_same_version_sibling(catalog) -> None:
         True,
         False,
     )
-    successor = successor_for("windows-11-arm", [deprecated_arm, sibling])
+    successor = RunnerCatalog((deprecated_arm, sibling)).successor_for(deprecated_arm)
     assert successor is not None
     assert successor.preferred_label == "windows-11-vs2026-arm"
 
@@ -179,7 +186,9 @@ def test_newer_version_is_strict(catalog, label: str, expected: str | None) -> N
     This is what keeps a same-version flavour, like a Visual Studio variant,
     from being proposed as a newer image when it is merely a different one.
     """
-    newer = newer_version_than(label, catalog)
+    current = catalog.image(label)
+    assert current is not None
+    newer = catalog.newer_version_than(current)
     assert (newer.preferred_label if newer else None) == expected
 
 
@@ -203,7 +212,7 @@ def test_parse_fails_closed(readme: str) -> None:
     would rewrite a `runs-on:` to an image GitHub does not host, failing every
     job in the repository; a missing one costs a cycle of not noticing.
     """
-    assert parse_catalog(readme) == []
+    assert not parse_catalog(readme)
 
 
 @pytest.mark.parametrize(

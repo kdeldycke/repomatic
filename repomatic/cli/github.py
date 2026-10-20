@@ -22,8 +22,6 @@ under its help section.
 from __future__ import annotations
 
 import logging
-import os
-import tempfile
 from pathlib import Path
 
 from click_extra import (
@@ -40,72 +38,44 @@ from click_extra import (
 )
 
 from ..broken_links import manage_combined_broken_links_issue
+from ..components import is_awesome_repo
 from ..config import Config
-from ..deps.sources import build_release_readiness
-from ..git_ops import current_branch
 from ..github import token as _token_mod, unsubscribe as _unsub_mod
-from ..github.actions import (
-    format_multiline_output,
+from ..github.event import (
     get_default_author,
     get_default_number,
-    get_event_subject,
-    get_github_event,
     is_pull_request,
-    read_file_output,
 )
-from ..github.gh import gh_api_json
-from ..github.issue import (
+from ..github.labels import apply_labels, labels_for_thread
+from ..github.outputs import format_multiline_output
+from ..github.pr import close_open_prs_on_branch, upsert_pr
+from ..github.pr_body import TemplateArgumentError, render_pr
+from ..github.sponsor import is_sponsor
+from ..github.threads import (
     BOT_ISSUE_LABEL,
     LOCK_INACTIVE_DAYS,
     LOCK_ISSUE_COMMENT,
     LOCK_PR_COMMENT,
     LOCK_REASON,
+    LOCK_REASONS,
     LOCK_SEARCH_LIMIT,
     LOCK_THREADS_HEADER_DEFS,
+    ThreadKind,
     add_labels,
     lock_stale_threads,
-)
-from ..github.labels import (
-    apply_labels,
-    match_content_rules,
-    match_file_rules,
-    resolve_content_rules,
-    resolve_file_rules,
-)
-from ..github.pr import (
-    close_open_prs_on_branch,
-    list_changed_files,
-    upsert_pr,
-)
-from ..github.pr_body import (
-    build_pr_body,
-    build_release_review_steps,
-    generate_pr_metadata_block,
-    generate_refresh_tip,
-    get_template_names,
-    render_commit_message,
-    render_template,
-    render_title,
-    template_args,
-    template_docs_url,
-    template_draft,
-    template_labels,
-    template_stem,
-)
-from ..github.sponsor import (
-    get_default_owner,
-    is_sponsor,
 )
 from ..github.token import require_token
 from ..github.unsubscribe import (
     render_report,
     unsubscribe_threads,
 )
-from ..init_project import run_init
+from ..github.urls import repo_name
+from ..lint_repo.context import LintContext
 from ..metadata.core import Metadata
 from ..metadata.project import is_version_bump_allowed
 from ..setup_guide import manage_setup_guide
-from ..versions import BUMP_PARTS, strip_dev_suffix
+from ..templating import PrTemplate, get_template_names
+from ..versions import BUMP_PARTS
 from .main import (
     dry_run_option,
     exit_if_disabled,
@@ -124,200 +94,162 @@ from .main import (
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from typing import Any, TypeVar
 
     from click_extra import Context
 
-
-# The template-feeding options shared verbatim by `pr-body` and `pr-sync`; their
-# `--template`/`--template-file` options stay per-command, whose help texts
-# document command-specific derivations.
-template_arg_option = option(
-    "--template-arg",
-    "template_args_cli",
-    multiple=True,
-    metavar="KEY=VALUE",
-    help=(
-        "Pass an arbitrary key/value pair to the template. Repeat to provide"
-        " multiple. Use this to feed template variables not covered by the"
-        " dedicated --version / --part / --pr-ref flags. Example:"
-        " --template-arg channel=Nix."
-    ),
-)
-template_arg_file_option = option(
-    "--template-arg-file",
-    "template_arg_files",
-    multiple=True,
-    metavar="KEY=PATH",
-    help=(
-        "Read a template value from a file. Repeat to provide multiple. Use"
-        " this for a value with no ceiling on its size, like a generated table:"
-        " a report travels as a path rather than inline. Example:"
-        " --template-arg-file summary=proposal.md."
-    ),
-)
-template_version_option = option(
-    "--version",
-    "version",
-    default=None,
-    help="Version string passed to the template (e.g. 1.2.0).",
-)
-template_part_option = option(
-    "--part",
-    type=Choice(BUMP_PARTS, case_sensitive=False),
-    default=None,
-    help="Version part passed to the bump-version template.",
-)
+    FC = TypeVar("FC", bound="Callable[..., Any]")
 
 
-def _render_pr_content(
-    config: Config,
-    prefix: str = "",
-    prefix_file: Path | None = None,
-    template: str | None = None,
-    template_file: Path | None = None,
-    template_args_cli: tuple[str, ...] = (),
-    template_arg_files: tuple[str, ...] = (),
-    version: str | None = None,
-    part: str | None = None,
-    pr_ref: str | None = None,
-) -> tuple[str, str, str]:
-    """Render a pull request's title, body and commit message.
+SPONSOR_LABEL = "💖 sponsor"
+"""The label `sponsor-label` applies, as `repomatic/data/labels.toml` names it."""
 
-    The rendering core shared by `pr-body` (which emits the three as step
-    outputs for external consumption) and `pr-sync` (which feeds them straight
-    to {func}`~repomatic.github.pr.upsert_pr`, skipping the `$GITHUB_OUTPUT`
-    round-trip and its 32 KiB step-output ceiling entirely).
 
-    :param config: The resolved `[tool.repomatic]` configuration.
-    :return: A `(title, body, commit_message)` tuple; title and commit message
-        are empty when no template supplies them.
-    :raises UsageError: When a template argument cannot be resolved.
+def thread_options(func: FC) -> FC:
+    """`--number` and `--pr/--issue`, read from the event payload when absent.
+
+    The thread a command acts on: {func}`resolve_thread` applies the defaults.
     """
-    if prefix_file:
-        prefix = prefix_file.read_text(encoding="UTF-8")
+    func = option(
+        "--pr/--issue",
+        "is_pr",
+        default=None,
+        help="Specify issue or pull request. Auto-detected from $GITHUB_EVENT_PATH.",
+    )(func)
+    return option(
+        "--number",
+        type=IntRange(min=1),
+        help="Issue or PR number. Defaults to the number in $GITHUB_EVENT_PATH.",
+    )(func)
 
-    # One Metadata for the whole render: the review steps, the `repo_url`
-    # template arg and the metadata block must all read the same CI state.
-    md = Metadata()
 
-    def _auto_version() -> str:
-        """Read current_version from bumpversion config and strip .dev suffix."""
-        ver = Metadata.get_current_version()
-        if not ver:
-            msg = "Cannot auto-detect version: no bumpversion config found."
-            raise ClickException(msg)
-        ver = strip_dev_suffix(ver)
-        logging.info(f"Auto-detected version: {ver}")
-        return ver
+def resolve_thread(number: int | None, is_pr: bool | None) -> tuple[int, ThreadKind]:
+    """Complete the {func}`thread_options` values from the event payload.
 
-    def _resolve_version() -> str:
-        """Resolve the release version from --version, else the bumpversion config."""
-        return version if version is not None else _auto_version()
+    :param number: The `--number` value, read from the event when `None`.
+    :param is_pr: The `--pr/--issue` value, read from the event when `None`.
+    :return: The thread number and kind.
+    :raises UsageError: When neither the option nor the event names a thread.
+    """
+    if number is None:
+        number = get_default_number()
+    if not number:
+        msg = (
+            "Missing --number, and it could not be auto-detected from the environment."
+        )
+        raise UsageError(msg)
+    return number, ThreadKind.of(is_pull_request() if is_pr is None else is_pr)
 
-    # The prepare-release checklist's two review steps share one GitHub
-    # releases lookup; memoize it so both template args reuse a single fetch,
-    # and so no other template pays for it (only prepare-release declares them).
-    review_steps: dict[str, str] = {}
 
-    def _review_step(key: str) -> str:
-        if not review_steps:
-            dev_review, changes_review = build_release_review_steps(
-                md, _resolve_version()
-            )
-            review_steps["dev_release_review"] = dev_review
-            review_steps["changes_review"] = changes_review
-        return review_steps[key]
+def template_options(func: FC) -> FC:
+    """The options that pick a template and feed its arguments.
 
-    cli_extra_args: dict[str, str | None] = {}
+    {func}`resolve_template` reads `--template` and `--template-file` into one
+    template, and {func}`parse_template_args` reads `--template-arg` and
+    `--template-arg-file` into one mapping.
+    """
+    decorators = (
+        option(
+            "--template",
+            type=Choice(get_template_names(), case_sensitive=False),
+            default=None,
+            help="Built-in template to render the content from.",
+        ),
+        option(
+            "--template-file",
+            "template_file",
+            type=file_path(exists=True, readable=True, resolve_path=True),
+            default=None,
+            help=(
+                "Template file to render the content from, instead of --template:"
+                " markdown with optional YAML frontmatter, for project-specific"
+                " content. Set 'footer: false' in its frontmatter: the metadata"
+                " block already carries the attribution footer."
+            ),
+        ),
+        option(
+            "--template-arg",
+            "template_args_cli",
+            multiple=True,
+            metavar="KEY=VALUE",
+            help=(
+                "Pass an arbitrary key/value pair to the template. Repeat to provide"
+                " multiple. Use this to feed template variables not covered by the"
+                " dedicated flags. Example: --template-arg channel=Nix."
+            ),
+        ),
+        option(
+            "--template-arg-file",
+            "template_arg_files",
+            multiple=True,
+            metavar="KEY=PATH",
+            help=(
+                "Read a template value from a file. Repeat to provide multiple. Use"
+                " this for a value with no ceiling on its size, like a generated"
+                " table: a report travels as a path rather than inline. Example:"
+                " --template-arg-file summary=proposal.md."
+            ),
+        ),
+        option(
+            "--version",
+            "version",
+            default=None,
+            help="Version string passed to the template (like 1.2.0).",
+        ),
+        option(
+            "--part",
+            type=Choice(BUMP_PARTS, case_sensitive=False),
+            default=None,
+            help="Version part passed to the bump-version template.",
+        ),
+    )
+    for decorator in reversed(decorators):
+        func = decorator(func)
+    return func
+
+
+def resolve_template(
+    template: str | None, template_file: Path | None
+) -> PrTemplate | None:
+    """The template `--template` or `--template-file` names, if either does.
+
+    :raises UsageError: When both are given.
+    """
+    if template and template_file:
+        msg = "--template and --template-file are mutually exclusive."
+        raise UsageError(msg)
+    ref = template or template_file
+    return PrTemplate.load(ref) if ref else None
+
+
+def parse_template_args(
+    template_args_cli: tuple[str, ...], template_arg_files: tuple[str, ...]
+) -> dict[str, str]:
+    """Read `--template-arg` and `--template-arg-file` into one mapping.
+
+    The files are read after the inline pairs, so a file wins on a key given
+    both ways.
+
+    :raises UsageError: On a malformed pair, or a file that cannot be read.
+    """
+    args: dict[str, str] = {}
     for entry in template_args_cli:
-        if "=" not in entry:
+        key, sep, value = entry.partition("=")
+        if not sep:
             msg = f"--template-arg expects KEY=VALUE, got {entry!r}."
             raise UsageError(msg)
-        key, _, raw_value = entry.partition("=")
-        cli_extra_args[key.strip()] = raw_value
-    # Read after the inline pairs, so a file wins on a key given both ways.
+        args[key.strip()] = value
     for entry in template_arg_files:
-        if "=" not in entry:
+        key, sep, raw_path = entry.partition("=")
+        if not sep:
             msg = f"--template-arg-file expects KEY=PATH, got {entry!r}."
             raise UsageError(msg)
-        key, _, raw_path = entry.partition("=")
         path = Path(raw_path)
         if not path.is_file():
             msg = f"--template-arg-file cannot read {raw_path!r}."
             raise UsageError(msg)
-        cli_extra_args[key.strip()] = path.read_text(encoding="UTF-8").strip()
-
-    # Map argument names to their values or callables. CLI-provided extras
-    # override built-in flag-driven sources so callers can pass any name.
-    def _release_readiness() -> str:
-        # Pinned to the commit the body was rendered from, so the line the
-        # banner points at is the line that was read. A branch ref would drift
-        # onto whatever `main` holds when the maintainer clicks it.
-        blob_url = f"{md.repo_url}/blob/{md.sha}" if md.repo_url and md.sha else None
-        return build_release_readiness(
-            Path("pyproject.toml"),
-            Path("uv.lock"),
-            config.minimum_release_age,
-            allow=config.lint_deps.allow,
-            source_url=blob_url,
-            repo_url=md.repo_url or None,
-        )
-
-    arg_sources: dict[str, str | Callable[[], str | None] | None] = {
-        "changes_review": lambda: _review_step("changes_review"),
-        "dev_release_review": lambda: _review_step("dev_release_review"),
-        "diff_table": read_file_output("REPOMATIC_DIFF_TABLE"),
-        "part": part,
-        "pr_ref": pr_ref,
-        "release_readiness": _release_readiness,
-        # Callable, will be invoked if needed.
-        "repo_url": lambda: md.repo_url,
-        # Step outputs of `init --upgrade`, relayed by the `sync-repomatic` job.
-        "upgrade_report": read_file_output("REPOMATIC_UPGRADE_REPORT"),
-        "upgrade_version": os.getenv("REPOMATIC_UPGRADE_VERSION"),
-        "version": version if version is not None else _auto_version,
-    }
-    arg_sources.update(cli_extra_args)
-
-    title_str = ""
-    commit_msg_str = ""
-
-    template_ref: str | Path | None = template or template_file
-
-    if template_ref:
-        kwargs: dict[str, str | None] = {}
-        for arg in template_args(template_ref):
-            value = arg_sources.get(arg)
-            if value is None:
-                msg = f"--{arg} is required for template {template_ref!r}"
-                raise UsageError(msg)
-            # Call if callable, otherwise use the value directly.
-            kwargs[arg] = value() if callable(value) else value
-
-        template_content = render_template(template_ref, **kwargs)
-        # Combine the --prefix content with the template content.
-        if prefix:
-            prefix = prefix + "\n\n" + template_content
-        else:
-            prefix = template_content
-        title_str = render_title(template_ref, **kwargs)
-        commit_msg_str = render_commit_message(template_ref, **kwargs)
-
-    # Surface the template's job documentation deep link in the metadata
-    # block, standing in for the description section PR bodies used to carry.
-    docs_url = ""
-    docs_name = ""
-    if template_ref:
-        docs_url = template_docs_url(template_ref)
-        if template:
-            docs_name = template
-        elif template_file:
-            docs_name = template_stem(template_file.name)
-    metadata_block = generate_pr_metadata_block(
-        md, docs_url=docs_url, docs_name=docs_name
-    )
-    body = build_pr_body(prefix, metadata_block, refresh_tip=generate_refresh_tip(md))
-    return title_str, body, commit_msg_str
+        args[key.strip()] = path.read_text(encoding="UTF-8").strip()
+    return args
 
 
 @subcommand(
@@ -334,17 +266,7 @@ def _render_pr_content(
         ),
     ),
 )
-@option(
-    "--number",
-    type=IntRange(min=1),
-    help="Issue or PR number. Defaults to the number in $GITHUB_EVENT_PATH.",
-)
-@option(
-    "--pr/--issue",
-    "is_pr",
-    default=None,
-    help="Specify issue or pull request. Auto-detected from $GITHUB_EVENT_PATH.",
-)
+@thread_options
 @repo_option()
 @dry_run_option(default=True)
 @require_token(_token_mod, "validate_gh_token_env")
@@ -375,59 +297,18 @@ def apply_labels_cmd(
 
     Requires the gh CLI to be authenticated.
     """
-    config = get_tool_config(ctx)
+    number, kind = resolve_thread(number, is_pr)
+    labels = labels_for_thread(get_tool_config(ctx), number, kind=kind, repository=repo)
 
-    if number is None:
-        number = get_default_number()
-    if is_pr is None:
-        is_pr = is_pull_request()
-    if not number:
-        raise UsageError(
-            "Missing --number, and it could not be auto-detected from the environment."
-        )
-
-    kind = "pr" if is_pr else "issue"
-
-    # In the labeller job the event payload carries the thread. A manual
-    # invocation naming another thread reads its text from the API instead, so
-    # the content rules see the real title and body rather than an empty
-    # string.
-    subject = get_event_subject()
-    if subject.get("number") != number:
-        subject = (
-            gh_api_json([
-                kind,
-                "view",
-                str(number),
-                "--repo",
-                repo,
-                "--json",
-                "title,body",
-            ])
-            or {}
-        )
-    text = f"{subject.get('title') or ''}\n{subject.get('body') or ''}"
-    matched = match_content_rules(resolve_content_rules(config), text)
-
-    # File rules need a diff, which only a pull request has.
-    if is_pr:
-        matched |= match_file_rules(
-            resolve_file_rules(config),
-            list_changed_files(number, repo),
-        )
-
-    thread = "PR" if is_pr else "issue"
-    if not matched:
-        echo(f"No rule matched {thread} #{number}.")
+    if not labels:
+        echo(f"No rule matched {kind.label} #{number}.")
         return
-
-    labels = sorted(matched)
     if dry_run:
-        echo(f"Would label {thread} #{number} with: {', '.join(labels)}")
+        echo(f"Would label {kind.label} #{number} with: {', '.join(labels)}")
         return
-    if not add_labels(repo, number, labels, is_pr=is_pr):
-        raise ClickException(f"Failed to label {thread} #{number}")
-    echo(f"Labelled {thread} #{number} with: {', '.join(labels)}")
+    if not add_labels(number, labels, kind=kind, repository=repo):
+        raise ClickException(f"Failed to label {kind.label} #{number}")
+    echo(f"Labelled {kind.label} #{number} with: {', '.join(labels)}")
 
 
 @subcommand(
@@ -447,7 +328,11 @@ def apply_labels_cmd(
     "--lychee-exit-code",
     type=int,
     default=None,
-    help="Exit code from lychee (0=no broken links, 2=broken links found).",
+    help=(
+        "Exit code from lychee: 0 for no broken links, 2 for broken links found."
+        " Any other code is a run that did not complete, which leaves the issue"
+        " as it is."
+    ),
 )
 @option(
     "--body-file",
@@ -479,8 +364,10 @@ def broken_links(
     """Manage the broken links issue lifecycle.
 
     Combines Lychee and Sphinx linkcheck results into a single "Broken links"
-    issue. Creates, updates, or closes the issue based on results. The
-    repository name selects the labels the issue carries.
+    issue. Creates or updates the issue when a checker found broken links, and
+    closes it when every checker that ran completed clean. A checker that did
+    not complete leaves the issue as it is. The repository name selects the
+    labels the issue carries.
 
     Requires the gh CLI to be authenticated.
 
@@ -492,13 +379,16 @@ def broken_links(
     - --source-url is composed from $GITHUB_SERVER_URL, $GITHUB_REPOSITORY,
       and $GITHUB_SHA when --output-json is set.
     """
-    manage_combined_broken_links_issue(
-        repo_name=repo_name,
-        lychee_exit_code=lychee_exit_code,
-        lychee_body_file=body_file,
-        sphinx_output_json=output_json,
-        sphinx_source_url=source_url,
-    )
+    try:
+        manage_combined_broken_links_issue(
+            repo_name=repo_name,
+            lychee_exit_code=lychee_exit_code,
+            lychee_body_file=body_file,
+            sphinx_output_json=output_json,
+            sphinx_source_url=source_url,
+        )
+    except ValueError as error:
+        raise UsageError(str(error)) from error
 
 
 @subcommand(
@@ -594,7 +484,7 @@ def close_stale_bump_pr(part: str) -> None:
 )
 @option(
     "--reason",
-    type=Choice(["off_topic", "resolved", "spam", "too_heated"]),
+    type=Choice(LOCK_REASONS),
     default=LOCK_REASON,
     help="Reason recorded with the lock.",
 )
@@ -679,35 +569,12 @@ def lock_threads(
     help="Read the prefix from a file instead of --prefix, for a report too "
     "large to pass as an argument. Wins over --prefix when both are given.",
 )
-@option(
-    "--template",
-    type=Choice(get_template_names(), case_sensitive=False),
-    default=None,
-    help="Use a built-in prefix template instead of --prefix.",
-)
-@option(
-    "--template-file",
-    "template_file",
-    type=file_path(exists=True, readable=True, resolve_path=True),
-    default=None,
-    help=(
-        "Use an external template file (markdown with optional YAML"
-        " frontmatter). Mutually exclusive with --template. Lets downstream"
-        " repos ship project-specific PR templates without modifying"
-        " repomatic. Templates should set 'footer: false' in their"
-        " frontmatter to avoid duplicating the attribution footer that"
-        " ships with the metadata block."
-    ),
-)
-@template_arg_option
-@template_arg_file_option
-@template_version_option
-@template_part_option
+@template_options
 @option(
     "--pr-ref",
     "pr_ref",
     default=None,
-    help="PR reference passed to detect-squash-merge template (e.g. #2316).",
+    help="PR reference passed to detect-squash-merge template (like #2316).",
 )
 @report_options(
     "Write the PR body to this file. github-actions writes the body, title and"
@@ -740,35 +607,32 @@ def pr_body(
     If a template and a prefix are both given, the prefix is prepended before
     the rendered template content.
     """
-
-    if template and template_file:
-        msg = "--template and --template-file are mutually exclusive."
-        raise UsageError(msg)
-
-    title_str, body, commit_msg_str = _render_pr_content(
-        config=get_tool_config(ctx),
-        prefix=prefix,
-        prefix_file=prefix_file,
-        template=template,
-        template_file=template_file,
-        template_args_cli=template_args_cli,
-        template_arg_files=template_arg_files,
-        version=version,
-        part=part,
-        pr_ref=pr_ref,
-    )
+    pr_template = resolve_template(template, template_file)
+    if prefix_file:
+        prefix = prefix_file.read_text(encoding="UTF-8")
+    try:
+        content = render_pr(
+            Metadata(),
+            get_tool_config(ctx),
+            template=pr_template,
+            prefix=prefix,
+            extra_args=parse_template_args(template_args_cli, template_arg_files),
+            version=version,
+            part=part,
+            pr_ref=pr_ref,
+        )
+    except TemplateArgumentError as error:
+        raise UsageError(str(error)) from error
 
     if output_format == "github-actions":
-        parts = [format_multiline_output("body", body)]
-        if title_str:
-            parts.append(f"title={title_str}")
-        if commit_msg_str:
-            parts.append(f"commit_message={commit_msg_str}")
-        content = "\n".join(parts)
+        parts = [format_multiline_output("body", content.body)]
+        if content.title:
+            parts.append(f"title={content.title}")
+        if content.commit_message:
+            parts.append(f"commit_message={content.commit_message}")
+        write_output("PR body", "\n".join(parts), output)
     else:
-        content = body
-
-    write_output("PR body", content, output)
+        write_output("PR body", content.body, output)
 
 
 @subcommand(
@@ -788,32 +652,12 @@ def pr_body(
         ),
     ),
 )
-@option(
-    "--template",
-    type=Choice(get_template_names(), case_sensitive=False),
-    default=None,
-    help="Render title, body and commit message from a built-in template, "
-    "and derive the branch, labels and draft state from it: the branch "
-    "defaults to the template name, labels and draft to its frontmatter.",
-)
-@option(
-    "--template-file",
-    "template_file",
-    type=file_path(exists=True, readable=True, resolve_path=True),
-    default=None,
-    help="Use an external template file instead of --template, for "
-    "project-specific PRs. Same derivations, with the branch defaulting "
-    "to the file's stem.",
-)
-@template_arg_option
-@template_arg_file_option
-@template_version_option
-@template_part_option
+@template_options
 @option(
     "--branch",
     default=None,
     help="Head branch to create, update or retire. By convention the job ID; "
-    "defaults to the template name when a template is given.",
+    "defaults to the template name, or to the stem of the template file.",
 )
 @option(
     "--title",
@@ -913,12 +757,9 @@ def pr_sync(
     a lock file on the way past, wants the narrow form: those writes are not
     what the pull request is for.
     """
-    if template and template_file:
-        msg = "--template and --template-file are mutually exclusive."
-        raise UsageError(msg)
-    template_ref: str | Path | None = template or template_file
+    pr_template = resolve_template(template, template_file)
 
-    if template_ref:
+    if pr_template:
         if title or body or commit_message:
             msg = (
                 "--title, --body and --commit-message are rendered from the "
@@ -926,38 +767,32 @@ def pr_sync(
                 "both."
             )
             raise UsageError(msg)
-        title, body, commit_message = _render_pr_content(
-            config=get_tool_config(ctx),
-            template=template,
-            template_file=template_file,
-            template_args_cli=template_args_cli,
-            template_arg_files=template_arg_files,
-            version=version,
-            part=part,
+        try:
+            content = render_pr(
+                Metadata(),
+                get_tool_config(ctx),
+                template=pr_template,
+                extra_args=parse_template_args(template_args_cli, template_arg_files),
+                version=version,
+                part=part,
+            )
+        except TemplateArgumentError as error:
+            raise UsageError(str(error)) from error
+        title, body, commit_message = (
+            content.title,
+            content.body,
+            content.commit_message,
         )
+        branch = branch or pr_template.name
+        labels = labels or pr_template.labels
+        if draft is None:
+            draft = pr_template.draft
     elif not (title and body and commit_message):
         msg = "Without --template, --title, --body and --commit-message are required."
         raise UsageError(msg)
-
-    if branch is None:
-        if template:
-            branch = template
-        elif template_file:
-            branch = template_stem(template_file.name)
-        else:
-            msg = "Without --template, --branch is required."
-            raise UsageError(msg)
-
-    if not labels and template_ref:
-        labels = tuple(template_labels(template_ref))
-    if draft is None:
-        draft = template_draft(template_ref) if template_ref else False
-
-    # A checkout pinned to a raw SHA has no branch to infer the base from; in
-    # CI the event payload knows the repository default branch, which is what
-    # every automation PR here opens against.
-    if base is None and current_branch() is None:
-        base = (get_github_event().get("repository") or {}).get("default_branch")
+    elif branch is None:
+        msg = "Without --template, --branch is required."
+        raise UsageError(msg)
 
     result = upsert_pr(
         branch=branch,
@@ -967,7 +802,7 @@ def pr_sync(
         base=base,
         labels=labels,
         assignees=assignees,
-        draft=draft,
+        draft=bool(draft),
         add_paths=add_paths,
     )
     if result.number:
@@ -1022,13 +857,15 @@ def setup_guide(
     exit_if_disabled(ctx, config.setup_guide, "setup-guide")
 
     manage_setup_guide(
-        config,
-        has_pat=has_pat,
-        has_notifications_pat=has_notifications_pat,
-        has_virustotal_key=has_virustotal_key,
-        has_cloudflare_api_token=has_cloudflare_api_token,
-        has_cloudflare_r2_keys=has_cloudflare_r2_keys,
-        repo=repo,
+        LintContext.from_project(
+            config,
+            repo=repo,
+            has_pat=has_pat,
+            has_notifications_pat=has_notifications_pat,
+            has_virustotal_key=has_virustotal_key,
+            has_cloudflare_api_token=has_cloudflare_api_token,
+            has_cloudflare_r2_keys=has_cloudflare_r2_keys,
+        )
     )
 
 
@@ -1058,24 +895,11 @@ def setup_guide(
     "Defaults to author from $GITHUB_EVENT_PATH.",
 )
 @repo_option()
-@option(
-    "--number",
-    type=IntRange(min=1),
-    help="Issue or PR number. Defaults to number from $GITHUB_EVENT_PATH.",
-)
+@thread_options
 @option(
     "--label",
-    # The label `repomatic/data/labels.toml` defines, singular: the plural
-    # this option used to default to exists in no synced repository, so every
-    # sponsor-labelling attempt died on an unknown label.
-    default="💖 sponsor",
+    default=SPONSOR_LABEL,
     help="Label to add if author is a sponsor.",
-)
-@option(
-    "--pr/--issue",
-    "is_pr",
-    default=None,
-    help="Specify issue or pull request. Auto-detected from $GITHUB_EVENT_PATH.",
 )
 @require_token(_token_mod, "validate_gh_token_env")
 def sponsor_label(
@@ -1083,8 +907,8 @@ def sponsor_label(
     author: str | None,
     repo: str,
     number: int | None,
-    label: str,
     is_pr: bool | None,
+    label: str,
 ) -> None:
     """Add a label to issues or PRs from GitHub sponsors.
 
@@ -1098,41 +922,26 @@ def sponsor_label(
     ($GITHUB_EVENT_PATH). You can override any auto-detected value by passing it
     explicitly.
     """
-    # Apply defaults from GitHub Actions environment.
-    if owner is None:
-        owner = get_default_owner()
-    if author is None:
-        author = get_default_author()
-    if number is None:
-        number = get_default_number()
-    if is_pr is None:
-        is_pr = is_pull_request()
-
-    # Validate required parameters.
-    missing = []
-    if not owner:
-        missing.append("--owner")
-    if not author:
-        missing.append("--author")
-    if not number:
-        missing.append("--number")
-
-    if missing:
+    owner = owner or Metadata().repo_owner
+    author = author or get_default_author()
+    if not owner or not author:
+        missing = [
+            name
+            for name, value in (("--owner", owner), ("--author", author))
+            if not value
+        ]
         raise UsageError(
             f"Missing required parameters: {', '.join(missing)}. "
             "These could not be auto-detected from the environment."
         )
+    number, kind = resolve_thread(number, is_pr)
 
-    # Type narrowing for mypy.
-    assert owner and author and number
-
-    if is_sponsor(owner, author):
-        if add_labels(repo, number, [label], is_pr=is_pr):
-            echo(f"Added {label!r} label to {'PR' if is_pr else 'issue'} #{number}")
-        else:
-            raise ClickException("Failed to add sponsor label")
-    else:
+    if not is_sponsor(owner, author):
         echo(f"Author {author!r} is not a sponsor of {owner!r}")
+        return
+    if not add_labels(number, [label], kind=kind, repository=repo):
+        raise ClickException("Failed to add sponsor label")
+    echo(f"Added {label!r} label to {kind.label} #{number}")
 
 
 @subcommand(short_help="Sync repository labels via labelmaker")
@@ -1141,9 +950,11 @@ def sponsor_label(
 def sync_labels(ctx: Context, repo: str) -> None:
     """Sync repository labels from bundled definitions using labelmaker.
 
-    Exports label definitions to a scratch directory, then applies them to the
-    repository using labelmaker. Applies the default profile to all
-    repositories, plus the awesome profile for awesome-* repos.
+    Applies the bundled label definitions to the repository using labelmaker:
+    the default profile to all repositories, plus the awesome profile for
+    awesome-* repos, then the definitions the project adds. Each one is staged
+    in a scratch directory, so syncing labels leaves the working tree
+    untouched.
 
     Authentication follows the canonical token resolution (REPOMATIC_PAT,
     then GH_TOKEN, then GITHUB_TOKEN). Downloads labelmaker automatically via
@@ -1151,22 +962,10 @@ def sync_labels(ctx: Context, repo: str) -> None:
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.labels.sync, "labels.sync")
-
-    # Dump label files somewhere disposable: they are labelmaker inputs, not
-    # repository content, so syncing labels leaves the working tree untouched.
-    with tempfile.TemporaryDirectory(prefix="repomatic-labels-") as tmpdir:
-        labels_dir = Path(tmpdir)
-        result = run_init(output_dir=labels_dir, components=("labels",), config=config)
-        for path in [*result.created, *result.updated]:
-            logging.info(f"Exported: {path}")
-
-        try:
-            apply_labels(
-                config, repo, is_awesome=Metadata().is_awesome, labels_dir=labels_dir
-            )
-        except RuntimeError as e:
-            raise ClickException(str(e))
-
+    try:
+        apply_labels(config, repo, is_awesome=is_awesome_repo(repo_name(repo)))
+    except RuntimeError as error:
+        raise ClickException(str(error)) from error
     echo("Labels synced.")
 
 

@@ -38,7 +38,7 @@ A release cycle produces exactly two commits that **must** be merged via
    - Adds a new unreleased changelog section.
 
 The auto-tagging job in `release.yaml` depends on these being **separate
-commits** — it uses `release_commits_matrix` to identify and tag only the
+commits**: it uses `release_commits_matrix` to identify and tag only the
 freeze commit. Squash-merging would collapse both into one, breaking the
 tagging logic. See the `detect-squash-merge` job for the safeguard.
 
@@ -74,7 +74,7 @@ from ..components import INSTALL_GUIDE_PATH, UPSTREAM_PACKAGE
 from ..config import load_repomatic_config
 from ..deps.pins import frozen_cli_invocation
 from ..file_ops import write_if_changed
-from ..github.workflow_files import WORKFLOW_DIR
+from ..github.workflow_files import WORKFLOW_DIR, workflow_paths
 from ..humanize import today_utc
 from ..metadata.core import Metadata
 from .binary import binary_filename_re
@@ -82,6 +82,9 @@ from .binary import binary_filename_re
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+CITATION_PATH = Path("citation.cff")
+"""Citation file whose `date-released` the freeze sets, relative to the root."""
 
 MARKETPLACE_REF_RE = re.compile(r'("ref":\s*")[^"]*(")')
 """The git ref the plugin marketplace entry reads its plugin directory from.
@@ -196,7 +199,7 @@ class PrepareRelease:
         self.changelog_path = changelog_path or resolved_changelog_path(
             load_repomatic_config()
         )
-        self.citation_path = citation_path or Path("./citation.cff").resolve()
+        self.citation_path = citation_path or CITATION_PATH.resolve()
         self.workflow_dir = workflow_dir or WORKFLOW_DIR.resolve()
         self.install_path = install_path or Path(INSTALL_GUIDE_PATH).resolve()
         self.marketplace_path = marketplace_path or Path(MARKETPLACE_PATH).resolve()
@@ -264,10 +267,10 @@ class PrepareRelease:
     ) -> bool:
         """Apply every substitution in *rules* to *path*, writing back on a change.
 
-        The shared body of every single-file freeze below, which were
-        near-identical copies of an absent-file guard, a read, a chain of
-        {func}`re.sub` calls and a compare-then-write. Each caller keeps its
-        docstring and its rules, which is the part that carries meaning.
+        The shared body of every single-file freeze below: an absent-file
+        guard, a read, a chain of {func}`re.sub` calls and a compare-then-write.
+        Each caller keeps its docstring and its rules, which is the part that
+        carries meaning.
 
         :param path: File to rewrite. A missing one is not an error: a
             downstream repository need not carry every artifact the freeze
@@ -296,19 +299,18 @@ class PrepareRelease:
         from {meth}`_rewrite_file`: a freeze touching four of nine workflows is
         worth reporting as such.
 
+        Both YAML extensions are covered: `repomatic init` writes `.yaml`, but
+        downstream-authored workflows may use `.yml`, and a file skipped here
+        would ship with unfrozen (mutable) refs in the release.
+
         :param transform: Maps a workflow's current content to its new content.
         :return: Number of files modified.
         """
-        if not self.workflow_dir.exists():
-            logging.debug(f"Workflow directory not found: {self.workflow_dir}")
-            return 0
-
         count = 0
-        for workflow_file in self._workflow_files():
+        for workflow_file in workflow_paths(self.workflow_dir):
             original = workflow_file.read_text(encoding="UTF-8")
             if self._update_file(workflow_file, transform(original), original):
                 count += 1
-
         return count
 
     def set_citation_release_date(self) -> bool:
@@ -319,27 +321,12 @@ class PrepareRelease:
         return self._rewrite_file(
             self.citation_path,
             "Citation file",
-            # Anchored to a line start, which is what keeps a nested
-            # `preferred-citation` block's own `date-released` out of scope. It
-            # replaces the `count=1` this pass used before being shared, and is
-            # the stricter of the two: position rather than ordinal.
+            # Anchored to a line start, which keeps a nested
+            # `preferred-citation` block's own `date-released` out of scope.
             (
                 r"(?m)^date-released: \d{4}-\d{2}-\d{2}",
                 f"date-released: {self.release_date}",
             ),
-        )
-
-    def _workflow_files(self) -> list[Path]:
-        """Enumerate the workflow files under {attr}`workflow_dir`.
-
-        Covers both YAML extensions: `repomatic init` writes `.yaml`, but
-        downstream-authored workflows may use `.yml`, and a file skipped here
-        would ship with unfrozen (mutable) refs in the release.
-        """
-        return sorted(
-            path
-            for pattern in ("*.yaml", "*.yml")
-            for path in self.workflow_dir.glob(pattern)
         )
 
     @cached_property
@@ -407,48 +394,17 @@ class PrepareRelease:
         )
 
     @staticmethod
-    def _map_noncomment_lines(
-        content: str,
-        transform: Callable[[str], str],
-        comment_prefix: str = "#",
-    ) -> str:
-        """Apply *transform* to every line that is not a comment.
+    def _map_noncomment_lines(content: str, transform: Callable[[str], str]) -> str:
+        """Apply *transform* to every line that is not a YAML comment.
 
-        Comment lines (where the first non-whitespace character is
-        `comment_prefix`) are preserved unchanged. This prevents
-        freeze/unfreeze operations from corrupting explanatory comments that
-        mention the string being rewritten. The shared body of the two
-        rewriters below, which used to be near-identical copies.
+        Comment lines (where the first non-whitespace character is `#`) are
+        preserved unchanged. This prevents freeze/unfreeze operations from
+        corrupting explanatory comments that mention the string being
+        rewritten.
         """
         return "".join(
-            line if line.lstrip().startswith(comment_prefix) else transform(line)
+            line if line.lstrip().startswith("#") else transform(line)
             for line in content.splitlines(keepends=True)
-        )
-
-    @classmethod
-    def _replace_skip_comments(
-        cls,
-        content: str,
-        search: str,
-        replacement: str,
-        comment_prefix: str = "#",
-    ) -> str:
-        """Replace a literal string only in non-comment lines."""
-        return cls._map_noncomment_lines(
-            content, lambda line: line.replace(search, replacement), comment_prefix
-        )
-
-    @classmethod
-    def _sub_skip_comments(
-        cls,
-        content: str,
-        pattern: re.Pattern[str],
-        replacement: str,
-        comment_prefix: str = "#",
-    ) -> str:
-        """Regex-substitute only in non-comment lines."""
-        return cls._map_noncomment_lines(
-            content, lambda line: pattern.sub(replacement, line), comment_prefix
         )
 
     def freeze_install_download_urls(self, version: str) -> bool:
@@ -607,8 +563,7 @@ class PrepareRelease:
         This is part of the **freeze** step: the install guide's `Specific
         version` tab demonstrates a pinned invocation (`uvx {package}@X.Y.Z`
         or a `{package}==X.Y.Z` requirement), which must always showcase the
-        latest release. Without this pass the pinned example silently rots
-        (click-extra's install guide sat on a 14-releases-old pin).
+        latest release. Without this pass the pinned example silently rots.
 
         ```{note}
         Like {meth}`freeze_install_download_urls`, this ratchets forward with
@@ -674,8 +629,8 @@ class PrepareRelease:
         )
 
         return self._rewrite_workflows(
-            lambda content: self._replace_skip_comments(
-                content, LOCAL_CLI_INVOCATION, yaml_replace
+            lambda content: self._map_noncomment_lines(
+                content, lambda line: line.replace(LOCAL_CLI_INVOCATION, yaml_replace)
             )
         )
 
@@ -683,28 +638,25 @@ class PrepareRelease:
         """Replace frozen PyPI CLI invocations with local source.
 
         This is part of the **unfreeze** step: it reverts `repomatic`
-        invocations back to local source (`--from . repomatic`) for the next
-        development cycle on `main`.
+        invocations back to {data}`LOCAL_CLI_INVOCATION`, which runs the CLI
+        from the lockfile, for the next development cycle on `main`.
 
-        Replaces `uvx --no-progress 'repomatic==X.Y.Z'` with
-        {data}`LOCAL_CLI_INVOCATION`, taking {data}`SELF_PIN_COOLDOWN_EXEMPTION`
-        with it when the freeze put one there: the lockfile resolves from the
-        working tree, so it never needs the escape hatch. The exemption is
-        optional in the pattern so a workflow frozen by an older release still
-        unfreezes cleanly. Comment lines are skipped (see
-        {meth}`freeze_cli_version`).
+        Replaces the `uvx --no-progress` invocation {meth}`freeze_cli_version`
+        writes, {data}`SELF_PIN_COOLDOWN_EXEMPTION` included: the lockfile
+        resolves from the working tree, so it never needs the escape hatch.
+        Comment lines are skipped (see {meth}`freeze_cli_version`).
 
         :return: Number of files modified.
         """
         yaml_pattern = re.compile(
             r"uvx --no-progress "
-            rf"(?:{re.escape(SELF_PIN_COOLDOWN_EXEMPTION)} )?"
+            rf"{re.escape(SELF_PIN_COOLDOWN_EXEMPTION)} "
             rf"'{re.escape(UPSTREAM_PACKAGE)}==[\d.]+'"
         )
 
         return self._rewrite_workflows(
-            lambda content: self._sub_skip_comments(
-                content, yaml_pattern, LOCAL_CLI_INVOCATION
+            lambda content: self._map_noncomment_lines(
+                content, lambda line: yaml_pattern.sub(LOCAL_CLI_INVOCATION, line)
             )
         )
 

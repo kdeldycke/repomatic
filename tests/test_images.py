@@ -23,13 +23,53 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from click_extra.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.images import (
     OPTIMIZERS,
     OptimizationResult,
+    _check_tool,
     generate_markdown_summary,
     optimize_image,
 )
+from repomatic.tooling.registry import TOOL_REGISTRY, BinaryInstallError
+
+
+def test_image_optimizers_resolve_through_registry_or_path() -> None:
+    """`oxipng` comes from the registry; `jpegoptim` still needs `$PATH`.
+
+    oxipng ships prebuilt binaries and is pinned and checksummed, while
+    jpegoptim publishes source only and stays a distro package.
+    """
+    assert TOOL_REGISTRY["oxipng"].binary is not None
+    assert "jpegoptim" not in TOOL_REGISTRY
+    _check_tool.cache_clear()
+    # Registry-backed tools report available without consulting $PATH.
+    with patch("repomatic.images.shutil.which", return_value=None):
+        assert _check_tool("oxipng") is True
+        assert _check_tool("jpegoptim") is False
+    _check_tool.cache_clear()
+
+
+def test_format_images_reports_an_install_failure(tmp_path: Path) -> None:
+    """An oxipng that cannot be installed ends the command with a message."""
+    image = tmp_path / "pear.png"
+    image.write_bytes(b"\x89PNG" + b"\x00" * 2000)
+    with (
+        patch("repomatic.cli.repo.Metadata") as mock_metadata,
+        patch(
+            "repomatic.images.ensure_binary",
+            side_effect=BinaryInstallError("Cannot download oxipng"),
+        ),
+    ):
+        mock_metadata.return_value.image_files = [image]
+        result = CliRunner().invoke(repomatic, ["format-images"])
+
+    assert result.exit_code == 1, result.output
+    assert "Cannot download oxipng" in result.output
+    # The image is left as it was.
+    assert image.read_bytes() == b"\x89PNG" + b"\x00" * 2000
 
 
 def test_optimization_result_saved_bytes() -> None:

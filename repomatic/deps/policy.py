@@ -16,7 +16,7 @@
 
 """How a dependency is *declared*, as opposed to where it resolves from.
 
-{mod}`~repomatic.deps.sources` answers "can this ship": a git branch or a local
+{mod}`~repomatic.deps.shippable` answers "can this ship": a git branch or a local
 path breaks the install for whoever pulls the published artifact, so those
 findings block a release. This module answers a narrower question that never
 blocks anything: is the declaration written the way the project's own version
@@ -57,19 +57,23 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from itertools import pairwise
-from pathlib import Path
 
-from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
-from ..pyproject import read_pyproject_toml
+from .requirements import (
+    BUILD_TABLE,
+    iter_toml_lines,
+    parse_requirement,
+    read_project,
+    requirement_arrays,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
-RUNTIME_LOCATION = "[project] dependencies"
-"""Where a runtime dependency is declared, as the report spells it."""
+    from packaging.requirements import Requirement
 
 STUB_PREFIX = "types-"
 """Distribution-name prefix marking a [PEP 561](https://peps.python.org/pep-0561/)
@@ -103,8 +107,8 @@ rather than guessing.
 class PolicyFinding:
     """One declaration that departs from the project's version policy.
 
-    Deliberately not a {class}`~repomatic.deps.sources.DepFinding`: that type
-    carries a {class}`~repomatic.deps.sources.SourceKind` because every one of
+    Deliberately not a {class}`~repomatic.deps.shippable.DepFinding`: that type
+    carries a {class}`~repomatic.deps.shippable.SourceKind` because every one of
     its findings is about where a package resolves from, and a style finding
     has no answer to give there.
     """
@@ -136,53 +140,48 @@ class PolicyFinding:
 def _entry_lines(text: str, table: str, key: str) -> list[tuple[int, str]] | None:
     """Locate each entry of a one-per-line dependency array in the raw text.
 
-    Reading the file rather than the parsed document is what makes the comment
-    check possible at all: a comment is trivia no plain-data parser keeps.
+    Reading the file rather than the parsed document is what gives each entry
+    the line number the report points the reader to.
 
     :param text: Full `pyproject.toml` contents.
-    :param table: Table header to find, without brackets.
+    :param table: Dotted path of the table holding the array.
     :param key: Array key inside that table.
-    :return: `(line index, requirement string)` per entry, or `None` when the
+    :return: `(line number, requirement string)` per entry, or `None` when the
         array is written inline, where there is no per-entry line. The array's
         own opening line is included as the first tuple with an empty
         requirement, so a caller can ask whether a comment documents the whole
         array rather than each entry.
     """
-    lines = text.splitlines()
-    in_table = False
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("[") and not stripped.startswith("[" * 2):
-            in_table = stripped == f"[{table}]"
+    opening = re.compile(rf"^\s*{re.escape(key)}\s*=\s*\[\s*$")
+    lines = iter_toml_lines(text)
+    for number, current, line in lines:
+        if current != table or not opening.match(line):
             continue
-        if not in_table:
-            continue
-        if not re.match(rf"^\s*{re.escape(key)}\s*=\s*\[\s*$", line):
-            continue
-        entries = [(index, "")]
-        for offset in range(index + 1, len(lines)):
-            if lines[offset].strip().startswith("]"):
-                return entries
-            match = _ENTRY_RE.match(lines[offset])
+        entries = [(number, "")]
+        for entry_number, _table, entry_line in lines:
+            if entry_line.strip().startswith("]"):
+                break
+            match = _ENTRY_RE.match(entry_line)
             if match:
-                entries.append((offset, match.group("requirement")))
+                entries.append((entry_number, match.group("requirement")))
         return entries
     return None
 
 
-def _comment_above(text: str, line_index: int) -> list[str]:
-    """The contiguous run of comment lines sitting above *line_index*.
+def _comment_above(lines: list[str], number: int) -> list[str]:
+    """The contiguous run of comment lines sitting above line *number*.
 
     Read bottom-up from the adjacent line and stopping at the first line that
     is not a comment, so a comment separated from the entry by a blank line is
     not attached to it. Returned in reading order, each line stripped of its
     `#` marker, which is what makes the run countable as prose.
 
+    :param lines: The file's lines.
+    :param number: The 1-based number of the line the comment documents.
     :return: The comment lines, or an empty list when the entry carries none.
     """
-    lines = text.splitlines()
     comment: list[str] = []
-    cursor = line_index - 1
+    cursor = number - 2
     while cursor >= 0 and lines[cursor].strip().startswith("#"):
         comment.append(lines[cursor].strip().removeprefix("#").strip())
         cursor -= 1
@@ -198,23 +197,6 @@ def count_comment_words(comment: list[str]) -> int:
     past on the way to the floor.
     """
     return len(" ".join(comment).split())
-
-
-def _requirements(raw: object) -> Iterator[str]:
-    """Yield each requirement string of a dependency array, skipping junk."""
-    if not isinstance(raw, list):
-        return
-    for entry in raw:
-        if isinstance(entry, str):
-            yield entry
-
-
-def _parse(requirement: str) -> Requirement | None:
-    """Parse a PEP 508 requirement, or `None` when it is malformed."""
-    try:
-        return Requirement(requirement)
-    except InvalidRequirement:
-        return None
 
 
 def _check_specifier(
@@ -327,46 +309,23 @@ def scan_policy(
     Entirely offline, reading only `pyproject.toml`, so it costs nothing to
     run on every push.
 
-    :param pyproject_path: Path to the `pyproject.toml` file.
+    :param pyproject_path: Path to the `pyproject.toml` file, whatever its
+        name.
     :param comment_word_threshold: Word ceiling per floor comment. `0` (or
         less) disables the check, which is what a caller with no configuration
         to read gets.
     :return: Findings sorted by location, then by package.
     """
-    if not pyproject_path.exists():
+    data = read_project(pyproject_path)
+    if not data:
         return []
-    # Takes the directory holding the file, not the file itself.
-    data = read_pyproject_toml(pyproject_path.parent)
     text = pyproject_path.read_text(encoding="UTF-8")
+    lines = text.splitlines()
     findings: list[PolicyFinding] = []
 
-    arrays: list[tuple[str, str, str, object, bool]] = [
-        (
-            RUNTIME_LOCATION,
-            "project",
-            "dependencies",
-            data.get("project", {}).get("dependencies"),
-            True,
-        )
-    ]
-    for group, entries in (data.get("dependency-groups") or {}).items():
-        arrays.append((
-            f"[dependency-groups] {group}",
-            "dependency-groups",
-            group,
-            entries,
-            False,
-        ))
-    for extra, entries in (
-        data.get("project", {}).get("optional-dependencies") or {}
-    ).items():
-        arrays.append((
-            f"[project.optional-dependencies] {extra}",
-            "project.optional-dependencies",
-            extra,
-            entries,
-            True,
-        ))
+    # The build front end alone reads `[build-system] requires`, so none of
+    # the rules below speak to it.
+    arrays = [array for array in requirement_arrays(data) if array.table != BUILD_TABLE]
 
     # Every name floored anywhere in the file, so a second mention selecting an
     # extra is not read as an unconstrained dependency. The project's own name
@@ -377,35 +336,29 @@ def scan_policy(
     own_name = data.get("project", {}).get("name")
     floored = frozenset(
         canonicalize_name(requirement.name)
-        for _location, _table, _key, raw_entries, _runtime in arrays
-        for requirement in map(_parse, _requirements(raw_entries))
-        if requirement is not None and str(requirement.specifier)
+        for array in arrays
+        for _index, _raw, requirement in array.requirements()
+        if str(requirement.specifier)
     ) | ({canonicalize_name(own_name)} if own_name else set())
 
-    for location, table, key, raw_entries, runtime in arrays:
-        raws = list(_requirements(raw_entries))
-        if not raws:
+    for array in arrays:
+        location = array.location
+        parsed = [
+            (raw, requirement) for _index, raw, requirement in array.requirements()
+        ]
+        if not parsed:
             continue
 
-        parsed = [(raw, _parse(raw)) for raw in raws]
         for raw, requirement in parsed:
-            if requirement is None:
-                continue
             findings.extend(
-                _check_specifier(requirement, raw, location, runtime, floored)
+                _check_specifier(requirement, raw, location, array.published, floored)
             )
 
-        findings.extend(
-            _check_ordering(
-                [req.name for _raw, req in parsed if req is not None], location
-            )
-        )
+        findings.extend(_check_ordering([req.name for _raw, req in parsed], location))
 
         # Stub packages belong in the typing group, wherever else they appear.
-        if key != STUB_GROUP:
+        if array.key != STUB_GROUP:
             for raw, requirement in parsed:
-                if requirement is None:
-                    continue
                 if not canonicalize_name(requirement.name).startswith(STUB_PREFIX):
                     continue
                 findings.append(
@@ -424,7 +377,7 @@ def scan_policy(
 
         # The comment check needs a line per entry, which an inline array
         # cannot offer.
-        entry_lines = _entry_lines(text, table, key)
+        entry_lines = _entry_lines(text, array.table, array.key)
         if entry_lines is None:
             continue
         # The first tuple is the array's own opening line. A comment above it
@@ -434,27 +387,28 @@ def scan_policy(
         # comment is over-long wherever it sits, or a wall would escape the
         # length check by moving up one line.
         (array_line, _marker), *entries = entry_lines
-        block_comment = _comment_above(text, array_line)
+        block_comment = _comment_above(lines, array_line)
         # The first entry with nothing of its own, so the block above the array
         # is what documents it. Absent one, that block justifies no floor at
         # all: a project restating its version policy there is writing a
         # preamble, and length is not its measure.
         leans_on_block: tuple[str, str] | None = None
-        for line_index, raw in entries:
-            requirement = _parse(raw)
-            if requirement is None or not str(requirement.specifier):
+        for line_number, raw in entries:
+            floor = parse_requirement(raw)
+            if floor is None or not str(floor.specifier):
                 continue
-            comment = _comment_above(text, line_index)
+            package = canonicalize_name(floor.name)
+            comment = _comment_above(lines, line_number)
             if not comment:
                 if block_comment:
                     if leans_on_block is None:
-                        leans_on_block = (canonicalize_name(requirement.name), raw)
+                        leans_on_block = (package, raw)
                     continue
                 findings.append(
                     PolicyFinding(
-                        package=canonicalize_name(requirement.name),
+                        package=package,
                         location=location,
-                        detail=f"`{raw}` at line {line_index + 1}",
+                        detail=f"`{raw}` at line {line_number}",
                         consequence=(
                             "An uncommented floor cannot be audited: nothing "
                             "distinguishes a deliberate API minimum from a "
@@ -473,7 +427,7 @@ def scan_policy(
             if words > comment_word_threshold:
                 findings.append(
                     _over_long(
-                        canonicalize_name(requirement.name),
+                        package,
                         location,
                         f"`{raw}` documented in {words} words",
                         comment_word_threshold,

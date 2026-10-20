@@ -25,6 +25,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
+from dataclasses import fields
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
@@ -32,15 +33,17 @@ import pytest
 from click_extra import Context
 from click_extra.testing import CliRunner
 from extra_platforms import is_windows
+from packaging.version import Version
 
 from repomatic.cli.ci import (
+    CELL_STATE_SEPARATOR,
+    EMPTY_CELL,
     JOB_COUNT_MARK,
     TEST_MATRIX_STATE_DISPLAY,
     UNIVERSAL_AXIS_KEYS,
     MatrixAxis,
     flat_matrix_table,
     format_matrix_cell,
-    matrix_axis_keys,
     show_test_matrix,
 )
 from repomatic.cli.main import repomatic
@@ -50,31 +53,39 @@ from repomatic.config import (
     publish_config,
 )
 from repomatic.file_inventory import FileInventory
-from repomatic.github.actions import NULL_SHA
+from repomatic.github.actions import (
+    MAX_STEP_OUTPUT_BYTES,
+    NULL_SHA,
+    WorkflowEvent,
+)
 from repomatic.matrix.axes import (
     PRERELEASE_LABEL_SUFFIX,
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_PYTHON_FULL,
+    TEST_PYTHON_PR,
     TEST_RUNNERS_FULL,
     TEST_RUNNERS_PR,
     UNSTABLE_PYTHON_VERSIONS,
+    MatrixName,
     python_version_sort_key,
 )
 from repomatic.matrix.model import (
     OS_AXIS,
-    PIVOT_CELL_SEPARATOR,
     PYTHON_VERSION_AXIS,
+    Matrix,
 )
 from repomatic.metadata.core import (
     _METADATA_KEY_DESCRIPTIONS,
-    Dialect,
+    FILE_GROUP_KEYS,
+    METADATA_CONFIG_FIELDS,
     Metadata,
     MetadataRequest,
-    _metadata_config_fields,
     all_metadata_keys,
     metadata_keys_reference,
     unknown_metadata_keys,
 )
+from repomatic.metadata.output import Dialect, format_github_value
+from repomatic.metadata.project import BumpBaseline
 from repomatic.pyproject import read_pyproject_toml
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from tests.conftest import IN_GIT_CHECKOUT, metadata_from_pyproject
@@ -103,28 +114,6 @@ def _scrub_workflow_event(monkeypatch):
         "GITHUB_HEAD_REF",
     ):
         monkeypatch.delenv(envvar, raising=False)
-
-
-class OptionalList:
-    """Matcher for values that can be None or a list matching a pattern.
-
-    Used for fields like ``new_commits`` that are ``None`` outside GitHub Actions
-    but contain commit SHAs when running in CI with event data.
-    """
-
-    def __init__(self, item_pattern: re.Pattern) -> None:
-        self.item_pattern = item_pattern
-
-
-class OptionalString:
-    """Matcher for GitHub format values that can be empty or space-separated items.
-
-    GitHub Actions format converts None to empty string and lists to space-separated
-    quoted strings. This class matches either case.
-    """
-
-    def __init__(self, item_pattern: re.Pattern) -> None:
-        self.item_pattern = item_pattern
 
 
 class AnyBool:
@@ -279,35 +268,6 @@ def iter_checks(metadata: Any, expected: Any, context: Any) -> None:
         assert re.fullmatch(expected, metadata) is not None, (
             f"{metadata!r} does not match {expected.pattern!r} in {context!r}"
         )
-
-    elif isinstance(expected, OptionalList):
-        # Allow None or a list of items matching the pattern.
-        if metadata is None:
-            return
-        assert isinstance(metadata, list), (
-            f"{metadata!r} should be None or a list in {context!r}"
-        )
-        for item in metadata:
-            assert isinstance(item, str), f"{item!r} should be a string in {context!r}"
-            assert re.fullmatch(expected.item_pattern, item) is not None, (
-                f"{item!r} does not match {expected.item_pattern.pattern!r} in {context!r}"
-            )
-
-    elif isinstance(expected, OptionalString):
-        # Allow None, empty string, or space-separated items matching the pattern.
-        # None occurs in github_json format (JSON null); empty string in github format.
-        if metadata is None:
-            return
-        assert isinstance(metadata, str), (
-            f"{metadata!r} should be a string in {context!r}"
-        )
-        if metadata == "":
-            return
-        # Parse space-separated items: "sha1" "sha2" -> ["sha1", "sha2"].
-        for item in metadata.split():
-            assert re.fullmatch(expected.item_pattern, item) is not None, (
-                f"{item!r} does not match {expected.item_pattern.pattern!r} in {context!r}"
-            )
 
     elif isinstance(expected, AnyBool):
         # Accept either True or False.
@@ -559,7 +519,7 @@ MARKDOWN_EXTENSIONS = (
     "mdtext",
     "mdx",
 )
-"""The `markdown_files` brace set, mirroring `Metadata.markdown_files`."""
+"""The `markdown_files` brace set, mirroring `FileInventory.markdown_files`."""
 
 MARKDOWN_INVENTORY = _tracked_inventory(*MARKDOWN_EXTENSIONS)
 """Every Markdown file tracked in the repository, in `glob_files` order.
@@ -580,12 +540,6 @@ expected: dict[str, Any] = {
     "yaml_changed": AnyBool(),
     "zsh_changed": AnyBool(),
     "workflows_changed": AnyBool(),
-    # new_commits is None when running outside GitHub Actions (no event data).
-    # In CI, it contains commit SHAs extracted from the push event payload.
-    "new_commits": OptionalList(regex(r"[a-f0-9]{40}")),
-    # release_commits is None when there are no release commits in the event.
-    # It contains SHAs only when a "[changelog] Release vX.Y.Z" commit is present.
-    "release_commits": OptionalList(regex(r"[a-f0-9]{40}")),
     "mailmap_exists": True,
     "gitignore_exists": True,
     "python_files": _tracked_inventory("py", "pyi", "pyw", "pyx", "ipynb"),
@@ -966,7 +920,7 @@ def test_dump_factories_match_key_descriptions():
     `--list-keys` and the rendered docs.
     """
     factories = set(Metadata().dump_factories())
-    config_keys = set(_metadata_config_fields())
+    config_keys = set(METADATA_CONFIG_FIELDS)
 
     assert set(_METADATA_KEY_DESCRIPTIONS) == factories - config_keys
     assert all_metadata_keys() == factories
@@ -985,17 +939,45 @@ def test_metadata_keys_reference_documents_every_key():
     )
 
 
-@pytest.mark.parametrize("field_name", sorted(_metadata_config_fields()))
+@pytest.mark.parametrize("field_name", METADATA_CONFIG_FIELDS)
 def test_config_defaults_render_as_github_values(field_name):
     """Every config field exposed as metadata must survive GitHub encoding.
 
-    A nested config dataclass has no GitHub encoding, so adding one without
-    listing it in `SUBCOMMAND_CONFIG_FIELDS` makes `repomatic show-metadata` raise
+    A nested config dataclass has no GitHub encoding, so listing one in
+    `METADATA_CONFIG_FIELDS` makes `repomatic show-metadata` raise
     `NotImplementedError` on every run. Checking the dataclass defaults rather
     than this repository's own values keeps the guard on the declared surface.
     """
     value = getattr(Config(), field_name)
-    assert isinstance(Metadata.format_github_value(value), str)
+    assert isinstance(format_github_value(value), str)
+
+
+def test_metadata_config_fields_are_sorted_config_fields():
+    """Each allowed name is a `Config` field, so a renamed field fails here."""
+    assert list(METADATA_CONFIG_FIELDS) == sorted(METADATA_CONFIG_FIELDS)
+    assert set(METADATA_CONFIG_FIELDS) <= {field.name for field in fields(Config)}
+
+
+@pytest.mark.repo_maintenance
+@pytest.mark.parametrize("field_name", METADATA_CONFIG_FIELDS)
+def test_metadata_config_fields_are_read_by_a_workflow(field_name):
+    """A config field joins the metadata output only for a workflow to read.
+
+    The subcommands read `[tool.repomatic]` themselves, so an allowed field no
+    workflow mentions is surface nobody consumes.
+    """
+    workflows = sorted(Path(".github/workflows").glob("*.y*ml"))
+    assert workflows
+    assert any(
+        field_name in workflow.read_text(encoding="UTF-8") for workflow in workflows
+    ), f"No workflow reads the {field_name} metadata key."
+
+
+def test_file_group_keys_are_inventory_attributes():
+    """Every file-group key names an output key and an inventory attribute."""
+    assert FILE_GROUP_KEYS <= set(_METADATA_KEY_DESCRIPTIONS)
+    for key in FILE_GROUP_KEYS:
+        assert hasattr(FileInventory, key), key
 
 
 @pytest.mark.repo_maintenance
@@ -1019,10 +1001,7 @@ def test_metadata_github_json_format():
     # dict lists become JSON strings.
     github_json_expected = dict(expected)
     for key, value in github_json_expected.items():
-        if isinstance(value, OptionalList):
-            # Convert OptionalList to OptionalString for github_json format.
-            github_json_expected[key] = OptionalString(value.item_pattern)
-        elif isinstance(value, list):
+        if isinstance(value, list):
             if not value:
                 github_json_expected[key] = ""
             elif all(isinstance(i, str) for i in value):
@@ -1227,9 +1206,6 @@ def test_metadata_github_format():
             new_value = str(value).lower()
         elif isinstance(value, int):
             new_value = str(value)
-        elif isinstance(value, OptionalList):
-            # Convert OptionalList to OptionalString for GitHub format.
-            new_value = OptionalString(value.item_pattern)
         elif isinstance(value, AnyBool):
             # Convert AnyBool to AnyBoolString for GitHub format.
             new_value = AnyBoolString()
@@ -1372,7 +1348,7 @@ def test_show_test_matrix_no_emoji_uses_plain_words():
 def test_format_matrix_cell_labels_every_state():
     """Each state of a cell shared by several jobs gets its own glyph."""
     tally = Counter(dict.fromkeys(TEST_MATRIX_STATE_DISPLAY, 1))
-    assert format_matrix_cell("", tally) == PIVOT_CELL_SEPARATOR.join(
+    assert format_matrix_cell(tally) == CELL_STATE_SEPARATOR.join(
         TEST_MATRIX_STATE_DISPLAY.values()
     )
 
@@ -1380,18 +1356,18 @@ def test_format_matrix_cell_labels_every_state():
 @pytest.mark.parametrize(("state", "label"), tuple(TEST_MATRIX_STATE_DISPLAY.items()))
 def test_format_matrix_cell_counts_jobs_past_the_first(state, label):
     """A state carrying several jobs says how many; a lone job stays bare."""
-    assert format_matrix_cell("", Counter({state: 1})) == label
-    assert format_matrix_cell("", Counter({state: 3})) == f"{label} {JOB_COUNT_MARK}3"
+    assert format_matrix_cell(Counter({state: 1})) == label
+    assert format_matrix_cell(Counter({state: 3})) == f"{label} {JOB_COUNT_MARK}3"
     # A count is data, not decoration: --no-emoji keeps it.
     assert (
-        format_matrix_cell("", Counter({state: 3}), emoji=False)
+        format_matrix_cell(Counter({state: 3}), emoji=False)
         == f"{state} {JOB_COUNT_MARK}3"
     )
 
 
-def test_format_matrix_cell_keeps_the_empty_intersection_placeholder():
-    """A cell no job occupies renders whatever `pivot` put there."""
-    assert format_matrix_cell("—", None) == "—"
+def test_format_matrix_cell_marks_an_empty_intersection():
+    """A cell no job occupies renders the placeholder."""
+    assert format_matrix_cell(None) == EMPTY_CELL
 
 
 def test_show_test_matrix_pivots_on_the_chosen_axes():
@@ -1491,7 +1467,7 @@ def test_show_test_matrix_help_lists_the_axis_keys(axis_option):
     """Both axis options render the keys they accept as a Choice metavar."""
     result = CliRunner().invoke(repomatic, ["show-test-matrix", "--help"])
     assert result.exit_code == 0, result.output
-    metavar = "[" + "|".join(matrix_axis_keys(Metadata().test_matrix)) + "]"
+    metavar = "[" + "|".join(Metadata().test_matrix.job_keys()) + "]"
     assert f"{axis_option} {metavar}" in result.output
 
 
@@ -1502,7 +1478,7 @@ def test_show_test_matrix_help_and_validation_read_the_same_keys():
     matrix dropped, or miss the `[tool.repomatic.test-matrix]` variation this
     project just added.
     """
-    assert MatrixAxis().choices == matrix_axis_keys(Metadata().test_matrix)
+    assert MatrixAxis().choices == Metadata().test_matrix.job_keys()
 
 
 def test_matrix_axis_falls_back_to_the_universal_keys(monkeypatch):
@@ -1660,45 +1636,6 @@ def test_null_sha_constant():
     assert bool(NULL_SHA) is True
 
 
-def test_new_commits_degrades_when_git_rejects_checkout(monkeypatch, caplog):
-    """A git failure degrades new_commits to None with git's stderr surfaced,
-    instead of crashing the whole `metadata` command.
-
-    Reproduces the compiled-binary self-test running inside a manylinux container
-    over a checkout git refuses as "dubious ownership".
-    """
-    monkeypatch.setattr(Metadata, "commit_range", ("a" * 40, "b" * 40))
-
-    def reject(self, commit_id, **kwargs):
-        raise subprocess.CalledProcessError(
-            128,
-            ["git", "rev-list", "--count", "HEAD"],
-            stderr="fatal: detected dubious ownership in repository",
-        )
-
-    monkeypatch.setattr(Metadata, "git_deepen", reject)
-    with caplog.at_level(logging.WARNING):
-        assert Metadata().new_commits is None
-    assert "dubious ownership" in caplog.text
-
-
-def test_changed_files_surfaces_git_stderr(monkeypatch, caplog):
-    """A `git diff` failure degrades changed_files to None and logs git's stderr."""
-    monkeypatch.setattr(Metadata, "commit_range", ("a" * 40, "b" * 40))
-
-    def reject(start, end):
-        raise subprocess.CalledProcessError(
-            128,
-            ["git", "diff", "--name-only"],
-            stderr="fatal: detected dubious ownership in repository",
-        )
-
-    monkeypatch.setattr("repomatic.metadata.git.diff_names", reject)
-    with caplog.at_level(logging.WARNING):
-        assert Metadata().changed_files is None
-    assert "dubious ownership" in caplog.text
-
-
 def test_is_bot_false_by_default(monkeypatch):
     """Test that is_bot is False when not in a bot context."""
     # Clear CI env vars that could make is_bot return True when tests run on a
@@ -1797,13 +1734,13 @@ def test_repo_name_derived_from_slug(monkeypatch):
 @pytest.mark.parametrize(
     ("gh_slug", "remote_slug", "expected"),
     [
-        pytest.param("owner/papaya", "owner/ignored", "owner/papaya", id="gh-cli"),
-        pytest.param(None, "owner/mango", "owner/mango", id="git-remote"),
+        pytest.param("owner/ignored", "owner/mango", "owner/mango", id="git-remote"),
+        pytest.param("owner/papaya", None, "owner/papaya", id="gh-cli"),
         pytest.param(None, None, None, id="neither"),
     ],
 )
 def test_repo_slug_fallback_chain(monkeypatch, gh_slug, remote_slug, expected):
-    """Without `GITHUB_REPOSITORY`, the slug falls back to gh, then the remote.
+    """Without `GITHUB_REPOSITORY`, the slug falls back to the remote, then gh.
 
     Both fallbacks are stubbed rather than probed: on a runner with no `gh`
     auth the real chain yields `None`, which is what made the original pair of
@@ -1828,6 +1765,9 @@ def test_repo_slug_fallback_chain(monkeypatch, gh_slug, remote_slug, expected):
 def test_repo_name_fallback_to_gh_cli(monkeypatch):
     """`repo_name` is the trailing segment of a gh-resolved slug."""
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    monkeypatch.setattr(
+        "repomatic.metadata.env.get_repo_slug_from_remote", lambda: None
+    )
     monkeypatch.setattr(
         "repomatic.metadata.env.run_gh_command", lambda args, **kwargs: "owner/papaya\n"
     )
@@ -1877,6 +1817,9 @@ def test_repo_url_fallback(monkeypatch):
     """`repo_url` composes the default server with a gh-resolved slug."""
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.delenv("GITHUB_SERVER_URL", raising=False)
+    monkeypatch.setattr(
+        "repomatic.metadata.env.get_repo_slug_from_remote", lambda: None
+    )
     monkeypatch.setattr(
         "repomatic.metadata.env.run_gh_command", lambda args, **kwargs: "owner/papaya\n"
     )
@@ -2689,3 +2632,162 @@ def test_metadata_config_warns_once_about_an_unknown_key(tmp_path, monkeypatch, 
     monkeypatch.chdir(tmp_path)
     assert Metadata().config == load_repomatic_config()
     assert caplog.text.count("Unknown configuration option(s)") == 1
+
+
+@pytest.mark.parametrize(
+    ("conf", "expected"),
+    [
+        pytest.param(
+            'extensions = ["myst_parser", "sphinx.ext.autodoc"]\n',
+            {"myst_parser", "sphinx.ext.autodoc"},
+            id="plain",
+        ),
+        pytest.param(
+            'extensions: tuple[str, ...] = ("myst_parser",)\n',
+            {"myst_parser"},
+            id="annotated-tuple",
+        ),
+        pytest.param(
+            'extensions = ["myst_parser"]\nextensions += ["sphinx.ext.autodoc"]\n',
+            {"myst_parser", "sphinx.ext.autodoc"},
+            id="augmented",
+        ),
+        pytest.param(
+            'extensions = ["sphinx.ext.autodoc"]\nextensions = ["myst_parser"]\n',
+            {"myst_parser"},
+            id="reassigned",
+        ),
+        pytest.param(
+            'project, author = "papaya", "mango"\n'
+            "html_context = {}\n"
+            'html_context["fruits"] = ["kiwi"]\n'
+            'extensions = ["myst_parser"]\n',
+            {"myst_parser"},
+            id="tuple-and-subscript-targets",
+        ),
+        pytest.param("extensions = [\n", set(), id="syntax-error"),
+    ],
+)
+def test_sphinx_extensions_reads_every_assignment_shape(
+    tmp_path, monkeypatch, conf, expected
+):
+    """Every assignment shape of `conf.py` reads, and none crashes.
+
+    A tuple or subscript target carries no name, and reading one as if it did
+    crashed `show-metadata` and `update-docs` on the project assigning it.
+    """
+    conf_path = tmp_path / "conf.py"
+    conf_path.write_text(conf, encoding="UTF-8")
+    monkeypatch.setattr(Metadata, "sphinx_conf_path", conf_path)
+    metadata = Metadata()
+    assert metadata.sphinx_extensions == expected
+    assert metadata.uses_myst is ("myst_parser" in expected)
+    assert metadata.active_autodoc is ("sphinx.ext.autodoc" in expected)
+
+
+def test_sphinx_extensions_without_sphinx(tmp_path, monkeypatch):
+    """A project with no Sphinx configuration lists no extension."""
+    monkeypatch.setattr(Metadata, "sphinx_conf_path", tmp_path / "conf.py")
+    assert Metadata().sphinx_extensions == frozenset()
+
+
+def test_github_dialect_trims_an_oversized_heredoc(caplog):
+    """A heredoc value past the step-output ceiling is trimmed, with a warning.
+
+    A consuming step receives the value in its environment, and a value past
+    the ceiling kills that step with `E2BIG` before its command starts.
+    """
+    line = "papaya mango kiwi\n"
+    oversized = line * (MAX_STEP_OUTPUT_BYTES // len(line) + 100)
+    content = Dialect.github.serialize({"release_notes": oversized, "is_bot": False})
+    assert len(content.encode("UTF-8")) < MAX_STEP_OUTPUT_BYTES + 200
+    assert content.startswith("release_notes<<GHA_DELIMITER_")
+    assert content.endswith("is_bot=false\n")
+    assert "release_notes" in caplog.text
+
+
+@pytest.mark.parametrize("base_ref", ["main", ""])
+def test_event_type_needs_the_event_name(monkeypatch, caplog, base_ref):
+    """Without `GITHUB_EVENT_NAME` the event is unknown, whatever else is set."""
+    monkeypatch.setattr("repomatic.metadata.env.is_github_ci", lambda: True)
+    monkeypatch.setenv("GITHUB_BASE_REF", base_ref)
+    assert Metadata().event_type is None
+    assert "GITHUB_EVENT_NAME" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("event_name", "expected"),
+    [
+        ("schedule", WorkflowEvent.schedule),
+        ("pull_request", WorkflowEvent.pull_request),
+        ("orchard_harvest", None),
+    ],
+)
+def test_event_type_reads_the_event_name(monkeypatch, event_name, expected):
+    """The event name maps onto its member, and an unknown one onto nothing."""
+    monkeypatch.setattr("repomatic.metadata.env.is_github_ci", lambda: True)
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event_name)
+    assert Metadata().event_type is expected
+
+
+@pytest.mark.parametrize(
+    ("actor", "sender", "expected"),
+    [
+        pytest.param("dependabot[bot]", {}, True, id="dependabot-login"),
+        pytest.param("renovate[bot]", {"type": "Bot"}, True, id="app-sender"),
+        pytest.param("papaya", {"type": "User"}, False, id="user"),
+        pytest.param("orchard", {"type": "Organization"}, False, id="organization"),
+    ],
+)
+def test_is_bot_reads_the_sender_then_the_login(monkeypatch, actor, sender, expected):
+    """A GitHub App sender is a bot, and so is the Dependabot login alone."""
+    monkeypatch.setenv("GITHUB_ACTOR", actor)
+    monkeypatch.setattr(Metadata, "github_event", {"sender": sender})
+    assert Metadata().is_bot is expected
+
+
+def test_bump_gates_read_the_versions_once(monkeypatch):
+    """Both bump keys share one read of the version file and of the tags."""
+    calls: list[None] = []
+
+    def resolve() -> BumpBaseline:
+        calls.append(None)
+        return BumpBaseline(Version("5.1.0"), Version("5.0.1"))
+
+    monkeypatch.setattr(BumpBaseline, "resolve", staticmethod(resolve))
+    metadata = Metadata()
+    assert metadata.minor_bump_allowed is False
+    assert metadata.major_bump_allowed is True
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("name", "runners", "python_versions", "attribute"),
+    [
+        (MatrixName.FULL, TEST_RUNNERS_FULL, TEST_PYTHON_FULL, "test_matrix"),
+        (MatrixName.PR, TEST_RUNNERS_PR, TEST_PYTHON_PR, "test_matrix_pr"),
+    ],
+)
+def test_matrix_name_designates_its_matrix(name, runners, python_versions, attribute):
+    """Each matrix name seeds its axes and designates its metadata key."""
+    assert name.runners == runners
+    assert name.python_versions == python_versions
+    metadata = Metadata()
+    assert metadata.test_matrix_named(name) is getattr(metadata, attribute)
+
+
+def test_current_version_reads_the_most_recent_commit(monkeypatch):
+    """A release push reports the post-release version of its most recent commit.
+
+    The commit matrix lists the new commits oldest first, so the release commit
+    comes before the post-release bump that follows it.
+    """
+    release, bump = "a" * 40, "b" * 40
+    matrix = Matrix()
+    matrix.add_variation("commit", [release, bump])
+    matrix.add_includes(
+        {"commit": release, "short_sha": release[:7], "current_version": "5.0.0"},
+        {"commit": bump, "short_sha": bump[:7], "current_version": "5.0.1.dev0"},
+    )
+    monkeypatch.setattr(Metadata, "new_commits_matrix", matrix)
+    assert Metadata().current_version == "5.0.1.dev0"

@@ -32,6 +32,8 @@ from __future__ import annotations
 import urllib.parse
 from dataclasses import dataclass
 from enum import Enum
+from functools import reduce
+from operator import getitem
 
 from ..github.gh import gh_graphql
 from ..http import get_json_soft
@@ -45,10 +47,10 @@ if TYPE_CHECKING:
 class Forge(Enum):
     """Forge software a host runs, which owns how to read its API.
 
-    Supporting a fourth forge means a new member plus its collector behind
-    {meth}`metrics`, which keeps the config-side validation and the dispatch
-    from drifting: {func}`forge_of` resolves declared values through the
-    member lookup, so a `[tool.repomatic.metrics] forges` entry naming
+    Supporting a fourth forge means a new member plus its entry in
+    {data}`REST_ENDPOINTS`, which keeps the config-side validation and the
+    dispatch from drifting: {func}`forge_of` resolves declared values through
+    the member lookup, so a `[tool.repomatic.metrics] forges` entry naming
     anything else fails there rather than at sampling time.
     """
 
@@ -67,9 +69,45 @@ class Forge(Enum):
         """
         if self is Forge.GITHUB:
             return github_metrics(path)
-        if self is Forge.GITLAB:
-            return gitlab_metrics(host, path)
-        return forgejo_metrics(host, path)
+        return rest_metrics(REST_ENDPOINTS[self], host, path)
+
+
+@dataclass(frozen=True)
+class RestEndpoints:
+    """Where the REST API of a forge answers each reading of one repository.
+
+    GitLab and Forgejo answer the same four questions in four calls each: the
+    repository object, then the newest release, tag and commit. Only the
+    paths and the field names differ, so one reader,
+    {func}`rest_metrics`, serves both through this table.
+    """
+
+    repository: str
+    """URL of the repository object, with ``{host}`` and ``{path}`` fields."""
+
+    quote_path: bool
+    """Whether the path travels URL-encoded, as one segment."""
+
+    stars: str
+    """Field of the repository object holding its star count."""
+
+    releases: str
+    """Suffix of the endpoint listing the newest release first, one per page."""
+
+    release_date: tuple[str, ...]
+    """Keys leading to the date of a listed release."""
+
+    tags: str
+    """Suffix of the endpoint listing the newest tag first, one per page."""
+
+    tag_date: tuple[str, ...]
+    """Keys leading to the date of a listed tag."""
+
+    commits: str
+    """Suffix of the endpoint listing the newest commit first, one per page."""
+
+    commit_date: tuple[str, ...]
+    """Keys leading to the date of a listed commit."""
 
 
 FORGE_APIS: dict[str, Forge] = {
@@ -313,61 +351,75 @@ def github_metrics(path: str) -> ForgeMetrics:
     )
 
 
-def gitlab_metrics(host: str, path: str) -> ForgeMetrics | None:
-    """Read a GitLab project, on whichever instance hosts it.
+REST_ENDPOINTS: dict[Forge, RestEndpoints] = {
+    Forge.FORGEJO: RestEndpoints(
+        repository="https://{host}/api/v1/repos/{path}",
+        quote_path=False,
+        stars="stars_count",
+        releases="/releases?limit=1",
+        release_date=("published_at",),
+        tags="/tags?limit=1",
+        tag_date=("commit", "created"),
+        commits="/commits?limit=1",
+        commit_date=("commit", "committer", "date"),
+    ),
+    Forge.GITLAB: RestEndpoints(
+        repository="https://{host}/api/v4/projects/{path}",
+        quote_path=True,
+        stars="star_count",
+        releases="/releases?per_page=1",
+        release_date=("released_at",),
+        # Ordering spelled out rather than inherited: it is GitLab's current
+        # default for tags, but the whole point of asking is to not depend on
+        # that.
+        tags="/repository/tags?per_page=1&order_by=updated&sort=desc",
+        tag_date=("commit", "created_at"),
+        commits="/repository/commits?per_page=1",
+        commit_date=("committed_date",),
+    ),
+}
+"""How to read each forge served over REST, which is every forge but GitHub.
 
+Gitea instances read as Forgejo, whose API they share.
+"""
+
+
+def rest_metrics(endpoints: RestEndpoints, host: str, path: str) -> ForgeMetrics | None:
+    """Read a repository through the REST API of a forge, on any instance.
+
+    :param endpoints: Where that forge answers each reading.
     :param host: The instance's hostname.
-    :param path: The project's namespace path.
-    :return: The project's metrics, or `None` when unreadable.
-    """
-    project = f"https://{host}/api/v4/projects/{urllib.parse.quote(path, safe='')}"
-    payload = forge_json(project)
-    if not payload:
-        return None
-    releases = forge_json(f"{project}/releases?per_page=1")
-    # Ordering spelled out rather than inherited: it is GitLab's current
-    # default for tags, but the whole point of asking is to not depend on that.
-    tags = forge_json(
-        f"{project}/repository/tags?per_page=1&order_by=updated&sort=desc"
-    )
-    commits = forge_json(f"{project}/repository/commits?per_page=1")
-    dated, source = newest_dated(
-        releases[0]["released_at"][:10] if releases else None,
-        tags[0]["commit"]["created_at"][:10] if tags else None,
-    )
-    return ForgeMetrics(
-        stars=payload["star_count"],
-        created=str(payload["created_at"])[:10] if payload.get("created_at") else None,
-        release=dated,
-        release_source=source,
-        commit=commits[0]["committed_date"][:10] if commits else None,
-    )
-
-
-def forgejo_metrics(host: str, path: str) -> ForgeMetrics | None:
-    """Read a Forgejo or Gitea repository, on whichever instance hosts it.
-
-    :param host: The instance's hostname.
-    :param path: The repository's `owner/name` path.
+    :param path: The repository's `owner/name` or namespace path.
     :return: The repository's metrics, or `None` when unreadable.
     """
-    repo = f"https://{host}/api/v1/repos/{path}"
-    payload = forge_json(repo)
+    repository = endpoints.repository.format(
+        host=host,
+        path=urllib.parse.quote(path, safe="") if endpoints.quote_path else path,
+    )
+    payload = forge_json(repository)
     if not payload:
         return None
-    releases = forge_json(f"{repo}/releases?limit=1")
-    tags = forge_json(f"{repo}/tags?limit=1")
-    commits = forge_json(f"{repo}/commits?limit=1")
+
+    def newest(suffix: str, keys: tuple[str, ...]) -> str | None:
+        """The date of the newest item a listing holds, `None` when empty."""
+        items = forge_json(f"{repository}{suffix}")
+        if not items:
+            return None
+        # Indexed rather than looked up with a default: an answer of a shape
+        # nobody anticipated raises, and costs its subject one row.
+        timestamp: str = reduce(getitem, keys, items[0])
+        return timestamp[:10]
+
     dated, source = newest_dated(
-        releases[0]["published_at"][:10] if releases else None,
-        tags[0]["commit"]["created"][:10] if tags else None,
+        newest(endpoints.releases, endpoints.release_date),
+        newest(endpoints.tags, endpoints.tag_date),
     )
     return ForgeMetrics(
-        stars=payload["stars_count"],
+        stars=payload[endpoints.stars],
         created=str(payload["created_at"])[:10] if payload.get("created_at") else None,
         release=dated,
         release_source=source,
-        commit=commits[0]["commit"]["committer"]["date"][:10] if commits else None,
+        commit=newest(endpoints.commits, endpoints.commit_date),
     )
 
 

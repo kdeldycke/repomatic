@@ -16,70 +16,64 @@
 
 """Unified tool runner with managed config resolution.
 
-Provides `repomatic run <tool>` — a single entry point that installs an
+Provides `repomatic run <tool>`: a single entry point that installs an
 external tool at a pinned version, resolves its configuration through a strict
 4-level precedence chain, translates `[tool.X]` sections from
 `pyproject.toml` into the tool's native format, and invokes the tool with
 the resolved config. The tool catalog it drives (`ToolSpec` entries, pinned
-versions, checksums) lives in `tooling/registry.py`.
+versions, checksums) lives in `tooling/registry.py`, and `tooling/binaries.py`
+installs the binary tools.
 
 ```{important}
 Config resolution precedence (first match wins, no merging):
 
-1. **Native config file** — tool's own config file in the repo.
-2. **`[tool.X]` in `pyproject.toml`** — translated to native format.
-3. **Bundled default** — from `repomatic/data/`.
-4. **Bare invocation** — no config at all.
+1. **Native config file**: the tool's own config file in the repo.
+2. **`[tool.X]` in `pyproject.toml`**: translated to the native format.
+3. **Bundled default**: from `repomatic/data/`.
+4. **Bare invocation**: no config at all.
 ```
 """
 
 from __future__ import annotations
 
-import functools
 import hashlib
 import logging
 import os
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
-import zipfile
-from contextlib import ExitStack, contextmanager, nullcontext
-from dataclasses import replace
-from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
-from urllib.request import Request, urlopen
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
+from enum import IntEnum
+from pathlib import Path
 
-import tomlrt
-from click_extra import ClickException, Spinner, config_table_to_flags, progressbar
+from click_extra import config_table_to_flags
 from extra_platforms import is_github_ci
 from packaging.version import Version
 
-from ..bundle import get_data_file_path
-from ..cache import (
-    binary_sidecar_path,
-    cache_dir,
-    get_cached_binary,
-    store_binary,
-    store_config,
-)
+from .. import bundle
+from ..cache import lock_path, store_config
 from ..config import load_repomatic_config
 from ..deps.pins import exclude_newer_cutoff, min_release_age_days
 from ..deps.uv import uv_cmd, uvx_cmd
 from ..file_inventory import FileInventory
-from ..hashing import READ_CHUNK_SIZE, compute_file_sha256
+from ..hashing import compute_file_sha256
+from ..humanize import today_utc
 from ..metadata.core import Metadata
 from ..pyproject import read_pyproject_toml
+from . import binaries
 from .registry import (
     NPM_MIN_VERSION_FOR_COOLDOWN,
     TOOL_REGISTRY,
-    ArchiveFormat,
-    BinarySpec,
+    BinaryInstallError,
     NativeFormat,
+    ToolBackend,
+    ToolInstallError,
     ToolSpec,
     UnsupportedPlatformError,
+    lookup_tool,
 )
 
 if sys.platform == "win32":
@@ -87,10 +81,60 @@ if sys.platform == "win32":
 else:
     import fcntl
 
+# 8.0.0 shim: re-export for callers not migrated yet.
+ensure_binary = binaries.ensure_binary
+
+# 8.0.0 shim: re-export for callers not migrated yet.
+get_data_file_path = bundle.get_data_file_path
+
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator, Sequence
     from typing import IO, Any
+
+
+GIT_DIRECTORY = ".git"
+"""Directory `_digest_targets` leaves out of the tree it walks.
+
+No tool rewrites a file there, and another process can: an editor that
+refreshes the index during a run would read as a file the tool rewrote.
+"""
+
+LOCK_POLL_SECONDS = 0.1
+"""Delay between two attempts to take a lock Windows reported as held.
+
+Windows has no blocking lock call that waits indefinitely: `msvcrt.LK_LOCK`
+gives up after ten one-second attempts, so `_acquire_lock` polls instead.
+"""
+
+NPM_INSTALL_FLAGS = (
+    "--ignore-scripts",
+    "--no-progress",
+    "--no-update-notifier",
+    "--no-fund",
+    "--no-audit",
+)
+"""Flags of every `npm install` repomatic runs.
+
+`--ignore-scripts` skips the `preinstall`, `install` and `postinstall` scripts of
+the package and of its whole transitive tree: the install-time vector behind
+most npm supply-chain worms. It is safe here because the npm backend only
+installs a repomatic-pinned, cooldown-gated tool, where no install script is
+needed. `--no-audit` stops npm from sending the resolved dependency tree to the
+audit endpoint of the registry on every install.
+
+The `lint-awesome` job installs npm itself with the same flags, which a test
+holds in step with this tuple.
+"""
+
+TOOL_CRASH_EXIT_CODE = 70
+"""Exit code reported when a tool contradicts its own rewrite status.
+
+`EX_SOFTWARE` from `sysexits.h`: an internal error in the tool being run.
+Deliberately outside the set a formatter's caller tolerates, so a crash cannot
+land on the code that means "I reformatted a file". See
+{attr}`~repomatic.tooling.registry.ToolSpec.rewrite_exit_code`.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -98,28 +142,80 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def load_pyproject_tool_section(tool_name: str) -> dict[str, Any]:
-    """Load `[tool.<tool_name>]` from `pyproject.toml` in the current directory.
+class ConfigLevel(IntEnum):
+    """Precedence level of a tool's configuration: the first one present wins."""
 
-    Returns the live `tomlrt.Table` (a `dict` subclass) rather than a plain-dict
-    copy, so the section keeps its comment trivia for formats that can preserve
-    it on materialization (see
-    {meth}`~repomatic.tooling.registry.NativeFormat.serialize`). Callers
-    that only read values or test truthiness are unaffected.
+    NATIVE = 1
+    """The tool's own config file in the repository."""
 
-    :return: The tool's config table, or empty dict if not found.
+    PYPROJECT = 2
+    """The tool's `[tool.X]` table in `pyproject.toml`."""
+
+    BUNDLED = 3
+    """The default repomatic bundles in `repomatic/data/`."""
+
+    BARE = 4
+    """No configuration: the tool runs on its own defaults."""
+
+
+@dataclass(frozen=True)
+class ConfigSource:
+    """The configuration a tool resolves to, as the precedence walk finds it.
+
+    ```{caution}
+    The levels do not merge. The walk stops at its first hit, so a native
+    config file or a `[tool.X]` section replaces the bundled default in full
+    rather than layering on top of it. A downstream repo overriding one rule
+    must restate every bundled rule it wants to keep, and gains nothing when
+    the bundled default later grows a rule. {attr}`label` names such a
+    shadowing config, so `repomatic run --list` shows the loss.
+    ```
     """
-    pyproject_path = Path("pyproject.toml")
-    if not pyproject_path.exists():
-        logging.debug("No pyproject.toml found in CWD.")
-        return {}
-    pyproject_data = tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
-    tool_section: dict[str, Any] = pyproject_data.get("tool", {}).get(tool_name, {})
-    if tool_section:
-        logging.debug(f"[tool.{tool_name}] found in pyproject.toml: {tool_section!r}")
-    else:
-        logging.debug(f"No [tool.{tool_name}] section in pyproject.toml.")
-    return tool_section
+
+    spec: ToolSpec
+    """The tool the configuration is for."""
+
+    level: ConfigLevel
+    """The level that wins."""
+
+    native_file: Path | None = None
+    """The config file of the repository, at {attr}`ConfigLevel.NATIVE`."""
+
+    table: dict[str, Any] | None = None
+    """The `[tool.X]` table, at {attr}`ConfigLevel.PYPROJECT`.
+
+    The live table of the parsed `pyproject.toml`, a `tomlrt.Table`. It keeps
+    its comments for the formats that can carry them (see
+    {meth}`~repomatic.tooling.registry.NativeFormat.serialize`). The parse is
+    shared, so the table is read-only.
+    """
+
+    @classmethod
+    def find(cls, spec: ToolSpec) -> ConfigSource:
+        """Walk the precedence chain of *spec* in the working directory."""
+        native = spec.find_native_config()
+        if native is not None:
+            return cls(spec, ConfigLevel.NATIVE, native_file=native)
+        table = read_pyproject_toml().get("tool", {}).get(spec.pyproject_key)
+        if table:
+            return cls(spec, ConfigLevel.PYPROJECT, table=table)
+        if spec.default_config:
+            return cls(spec, ConfigLevel.BUNDLED)
+        return cls(spec, ConfigLevel.BARE)
+
+    @property
+    def label(self) -> str:
+        """Describe the source, as `repomatic run --list` shows it."""
+        # A level-1 or level-2 config replaces the bundled default whole: every
+        # bundled rule it does not restate is dropped, so the label says so.
+        shadowed = " (replaces bundled default)" if self.spec.default_config else ""
+        if self.native_file is not None:
+            return f"{self.native_file.as_posix()}{shadowed}"
+        if self.level is ConfigLevel.PYPROJECT:
+            return f"[tool.{self.spec.pyproject_key}] in pyproject.toml{shadowed}"
+        if self.level is ConfigLevel.BUNDLED:
+            return "bundled default"
+        return "(bare)"
 
 
 def _config_filename(spec: ToolSpec) -> str:
@@ -153,7 +249,6 @@ def _store_config_to_cache(
         )
         return [spec.config_flag, str(cached)], None
 
-    # Cache not writable — fall back to temp file.
     logging.warning(
         f"{spec.name}: cache directory not writable, falling back to temp file."
     )
@@ -169,7 +264,7 @@ def _store_config_to_cache(
     return [spec.config_flag, str(tmp_path)], tmp_path
 
 
-def _write_cwd_config(spec: ToolSpec, content: str, level: int) -> Path:
+def _write_cwd_config(spec: ToolSpec, content: str, level: ConfigLevel) -> Path:
     """Write config content to the first native config path for CWD-discovery.
 
     For tools without a `--config` flag. The caller must clean up the file
@@ -177,25 +272,96 @@ def _write_cwd_config(spec: ToolSpec, content: str, level: int) -> Path:
 
     :param spec: Tool specification (must have `native_config_files`).
     :param content: Config file content to write.
-    :param level: Precedence level (2 or 3) for the log message.
+    :param level: Precedence level, for the log message.
     :return: Path to the written file.
     """
     target = Path(spec.native_config_files[0])
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="UTF-8")
     logging.warning(
-        f"{spec.name}: wrote config to repo at {target.resolve()} (level {level}). This "
-        "tool has no --config flag; the file will be removed after the run."
+        f"{spec.name}: wrote config to repo at {target.resolve()} (level"
+        f" {level.value}). This tool has no --config flag; the file will be removed"
+        " after the run."
     )
     return target
 
 
-LOCK_POLL_SECONDS = 0.1
-"""Delay between two attempts to take a lock Windows reported as held.
+def _deliver_config(
+    spec: ToolSpec,
+    content: str,
+    level: ConfigLevel,
+) -> tuple[list[str], Path | None]:
+    """Deliver resolved config content via the appropriate mechanism.
 
-Windows has no blocking lock call that waits indefinitely: `msvcrt.LK_LOCK`
-gives up after ten one-second attempts, so `_acquire_lock` polls instead.
-"""
+    Tools with `config_flag` get a cached file passed via CLI. Tools with
+    only `native_config_files` get a CWD file that must be cleaned up.
+
+    :param spec: Tool specification.
+    :param content: Config file content.
+    :param level: Precedence level for logging.
+    :return: Tuple of (extra CLI args, cleanup path or None).
+    """
+    if spec.config_flag:
+        return _store_config_to_cache(spec, content)
+
+    if spec.native_config_files:
+        return [], _write_cwd_config(spec, content, level)
+
+    msg = (
+        f"{spec.name} has config content at level {level.value} but no config_flag "
+        f"and no native_config_files to write to."
+    )
+    raise NotImplementedError(msg)
+
+
+def resolve_config(spec: ToolSpec) -> tuple[list[str], Path | None]:
+    """Resolve config for a tool using the 4-level precedence chain.
+
+    See {class}`ConfigSource` for the walk, and why its levels do not merge.
+
+    :param spec: Tool specification.
+    :return: Tuple of (extra CLI args for config, path to clean up).
+        The path is `None` when no cleanup is needed (cache-based configs
+        persist across runs). Non-`None` paths are CWD files written for
+        tools that have no `--config` flag.
+    """
+    source = ConfigSource.find(spec)
+
+    if source.level is ConfigLevel.NATIVE:
+        logging.info(
+            f"{spec.name}: using native config file: {source.native_file} (level 1)."
+        )
+        return [], None
+
+    if source.table is not None:
+        if spec.reads_pyproject:
+            logging.info(
+                f"{spec.name}: using [tool.{spec.pyproject_key}] in pyproject.toml,"
+                " read natively (level 2)."
+            )
+            return [], None
+
+        if spec.native_format is NativeFormat.FLAGS:
+            flags = config_table_to_flags(source.table)
+            logging.info(
+                f"{spec.name}: translated [tool.{spec.pyproject_key}] to {len(flags)}"
+                " CLI flag(s) (level 2)."
+            )
+            return flags, None
+
+        content = spec.native_format.serialize(source.table, tool_name=spec.name)
+        logging.debug(
+            f"Translated [tool.{spec.pyproject_key}] to"
+            f" {spec.native_format.value}:\n{content}"
+        )
+        return _deliver_config(spec, content, source.level)
+
+    if spec.default_config and source.level is ConfigLevel.BUNDLED:
+        content = bundle.get_data_content(spec.default_config)
+        return _deliver_config(spec, content, source.level)
+
+    logging.info(f"{spec.name}: no config found, bare invocation (level 4).")
+    return [], None
 
 
 def _acquire_lock(handle: IO[bytes], *, blocking: bool) -> bool:
@@ -248,22 +414,22 @@ def _cwd_config_lock(spec: ToolSpec) -> Generator[None, None, None]:
     halfway when the first run deletes it, and formats its remaining files with
     no config at all. Parallel agents sharing one checkout run into exactly that.
 
-    The lock file lives under the cache root, keyed by the config's absolute
-    path, so only runs that would write the same file wait for each other. When
-    it cannot be opened (a read-only cache), the run goes ahead unlocked.
+    The lock file lives in the cache, named after the config's absolute path,
+    so only runs that would write the same file wait for each other. When it
+    cannot be opened (a read-only cache), the run goes ahead unlocked.
 
     :param spec: Tool specification with `native_config_files`.
     """
     target = Path(spec.native_config_files[0]).resolve()
     digest = hashlib.sha256(str(target).encode("UTF-8")).hexdigest()[:16]
-    lock_path = cache_dir() / "locks" / f"{spec.name}-{digest}.lock"
+    path = lock_path(f"{spec.name}-{digest}")
     with ExitStack() as stack:
         handle: IO[bytes] | None = None
         try:
-            lock_path.parent.mkdir(parents=True, exist_ok=True)
-            handle = stack.enter_context(lock_path.open("a+b"))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            handle = stack.enter_context(path.open("a+b"))
         except OSError:
-            logging.debug(f"{spec.name}: cannot open {lock_path}, running unlocked.")
+            logging.debug(f"{spec.name}: cannot open {path}, running unlocked.")
         if handle is not None and not _acquire_lock(handle, blocking=False):
             logging.info(f"{spec.name}: waiting for another run that uses {target}.")
             _acquire_lock(handle, blocking=True)
@@ -274,535 +440,9 @@ def _cwd_config_lock(spec: ToolSpec) -> Generator[None, None, None]:
                 _release_lock(handle)
 
 
-def _deliver_config(
-    spec: ToolSpec,
-    content: str,
-    level: int,
-) -> tuple[list[str], Path | None]:
-    """Deliver resolved config content via the appropriate mechanism.
-
-    Tools with `config_flag` get a cached file passed via CLI. Tools with
-    only `native_config_files` get a CWD file that must be cleaned up.
-
-    :param spec: Tool specification.
-    :param content: Config file content.
-    :param level: Precedence level for logging.
-    :return: Tuple of (extra CLI args, cleanup path or None).
-    """
-    if spec.config_flag:
-        return _store_config_to_cache(spec, content)
-
-    if spec.native_config_files:
-        return [], _write_cwd_config(spec, content, level)
-
-    msg = (
-        f"{spec.name} has config content at level {level} but no config_flag "
-        f"and no native_config_files to write to."
-    )
-    raise NotImplementedError(msg)
-
-
-def resolve_config(
-    spec: ToolSpec,
-    tool_config: dict[str, Any] | None = None,
-) -> tuple[list[str], Path | None]:
-    """Resolve config for a tool using the 4-level precedence chain.
-
-    ```{caution}
-    The levels do not merge. The walk stops at its first hit, so a native
-    config file or a `[tool.X]` section replaces the bundled default in full
-    rather than layering on top of it. A downstream repo overriding one rule
-    must restate every bundled rule it wants to keep, and gains nothing when
-    the bundled default later grows a rule. {func}`resolve_config_source`
-    labels a shadowing config so `repomatic run --list` shows the loss.
-    ```
-
-    :param spec: Tool specification.
-    :param tool_config: Pre-loaded `[tool.X]` config dict. If `None`,
-        reads from `pyproject.toml` in the current directory.
-    :return: Tuple of (extra CLI args for config, path to clean up).
-        The path is `None` when no cleanup is needed (cache-based configs
-        persist across runs). Non-`None` paths are CWD files written for
-        tools that have no `--config` flag.
-    """
-    # Level 1: Native config file exists in the repo.
-    for config_file in spec.native_config_files:
-        if Path(config_file).exists():
-            logging.info(
-                f"{spec.name}: using native config file: {config_file} (level 1)."
-            )
-            return [], None
-
-    # Level 2: [tool.X] in pyproject.toml.
-    if tool_config is None:
-        tool_config = load_pyproject_tool_section(spec.name)
-
-    if tool_config:
-        if spec.reads_pyproject:
-            logging.info(
-                f"{spec.name}: using [tool.{spec.name}] in pyproject.toml, read "
-                "natively (level 2)."
-            )
-            return [], None
-
-        if spec.native_format is NativeFormat.FLAGS:
-            flags = config_table_to_flags(tool_config)
-            logging.info(
-                f"{spec.name}: translated [tool.{spec.name}] to {len(flags)} CLI "
-                "flag(s) (level 2)."
-            )
-            return flags, None
-
-        content = spec.native_format.serialize(tool_config, tool_name=spec.name)
-        logging.debug(
-            f"Translated [tool.{spec.name}] to {spec.native_format.value}:\n{content}"
-        )
-        return _deliver_config(spec, content, level=2)
-
-    # Level 3: Bundled default from repomatic/data/.
-    if spec.default_config:
-        with get_data_file_path(spec.default_config) as bundled_path:
-            content = bundled_path.read_text(encoding="UTF-8")
-        return _deliver_config(spec, content, level=3)
-
-    # Level 4: Bare invocation.
-    logging.info(f"{spec.name}: no config found, bare invocation (level 4).")
-    return [], None
-
-
 # ---------------------------------------------------------------------------
-# Binary download infrastructure
+# Installation
 # ---------------------------------------------------------------------------
-
-
-DOWNLOAD_TIMEOUT = 30
-"""Socket-level timeout for artifact downloads, in seconds.
-
-A stall guard, not a transfer budget: `urlopen` applies it to each blocking
-socket operation, so a healthy multi-minute download is unaffected while a dead
-connection fails in seconds instead of hanging a CI job to the runner ceiling.
-Deliberately larger than {data}`repomatic.http.DEFAULT_TIMEOUT`, which is sized
-for small JSON API responses.
-"""
-
-_DOWNLOAD_ATTEMPTS = 3
-"""Attempts at downloading one artifact before giving up.
-
-```{note}
-Runner egress is flaky in ways that clear on the next connection: `v7.9.0`
-lost its windows-x64 attestation sidecar to a one-off
-`CERTIFICATE_VERIFY_FAILED: self-signed certificate` from a Windows runner's
-TLS-intercepting proxy, and short bodies surface as the truncation guard's
-`OSError`. One artifact download aborting a whole release job over a
-transient is the wrong trade, so `download_with_retry` retries with a short
-pause and lets only a repeated failure surface.
-```
-"""
-
-
-def download_to(
-    url: str,
-    dest_path: Path,
-    *,
-    label: str | None = None,
-    progress: bool = True,
-) -> str:
-    """Stream *url* into *dest_path* and return its SHA-256 hex digest.
-
-    Chunked download with incremental hash computation, so large binaries never
-    load fully into memory. Shows a progress bar on interactive terminals when
-    the server provides a `Content-Length` header; pass `progress=False` from
-    concurrent callers whose fan-out draws its own progress display.
-
-    The single download seam for every artifact repomatic fetches by hand:
-    whatever consumes the digest (verification in `_download_and_verify`,
-    checksum harvesting in `checksums.py`) builds on this so the truncation
-    guard below applies to all of them. A short body (proxy hiccup, dropped
-    connection) hashes to a wrong digest, so without the guard it would surface
-    later as a checksum mismatch: that reads as a stale pin or a tampered
-    artifact when nothing is wrong upstream. Name the real failure instead.
-
-    :param url: URL to download.
-    :param dest_path: Where to write the downloaded file.
-    :param label: Progress bar label. Defaults to the destination filename.
-    :param progress: Draw per-download feedback on interactive terminals.
-    :return: Lowercase hex SHA-256 digest of the downloaded bytes.
-    :raises OSError: If the body is shorter than the advertised `Content-Length`.
-    """
-    request = Request(url)
-    sha256 = hashlib.sha256()
-    bytes_read = 0
-    with (
-        urlopen(request, timeout=DOWNLOAD_TIMEOUT) as response,
-        dest_path.open("wb") as f,
-    ):
-        content_length = response.headers.get("Content-Length")
-        total = int(content_length) if content_length else 0
-        # Determinate vs indeterminate feedback, both silent off a TTY (CI logs,
-        # pipes, captured test output): with a Content-Length, click_extra's
-        # progressbar draws a percentage bar; without one there is nothing to
-        # measure, so a Spinner just signals the download is still alive.
-        feedback: Any
-        if not progress:
-            feedback = nullcontext()
-        elif total:
-            feedback = progressbar(
-                length=total, label=label or dest_path.name, file=sys.stderr
-            )
-        else:
-            feedback = Spinner(label or dest_path.name)
-        with feedback as bar:
-            while chunk := response.read(READ_CHUNK_SIZE):
-                f.write(chunk)
-                sha256.update(chunk)
-                bytes_read += len(chunk)
-                # Only the determinate progressbar advances per chunk; the
-                # Spinner animates on its own background thread and the
-                # nullcontext yields None, neither exposing update().
-                if bar is not None and not isinstance(bar, Spinner):
-                    bar.update(len(chunk))
-    if total and bytes_read != total:
-        dest_path.unlink(missing_ok=True)
-        msg = f"Truncated download for {url}: got {bytes_read} of {total} bytes."
-        raise OSError(msg)
-    return sha256.hexdigest()
-
-
-def download_with_retry(
-    url: str,
-    dest_path: Path,
-    *,
-    label: str | None = None,
-    progress: bool = True,
-) -> str:
-    """Download *url* through {func}`download_to`, and retry a network failure.
-
-    Network-level failures (TLS errors, timeouts, truncated bodies: all
-    `OSError` subclasses, `URLError` included) are retried up to
-    `_DOWNLOAD_ATTEMPTS` times, after a pause that grows with each
-    attempt. A failed attempt leaves no partial file behind.
-
-    :param url: URL to download.
-    :param dest_path: Where to write the downloaded file.
-    :param label: Progress bar label. Defaults to the destination filename.
-    :param progress: Draw per-download feedback on interactive terminals.
-    :return: Lowercase hex SHA-256 digest of the downloaded bytes.
-    :raises OSError: If every attempt fails at the network level, including a
-        body shorter than the advertised `Content-Length`.
-    """
-    for attempt in range(1, _DOWNLOAD_ATTEMPTS + 1):
-        try:
-            digest = download_to(url, dest_path, label=label, progress=progress)
-            break
-        except OSError as ex:
-            dest_path.unlink(missing_ok=True)
-            if attempt == _DOWNLOAD_ATTEMPTS:
-                raise
-            logging.warning(
-                f"Download attempt {attempt}/{_DOWNLOAD_ATTEMPTS} of {url}"
-                f" failed ({ex}); retrying."
-            )
-            time.sleep(2 * attempt)
-    return digest
-
-
-def _download_and_verify(
-    url: str,
-    expected_sha256: str | None,
-    dest_path: Path,
-    *,
-    label: str | None = None,
-) -> None:
-    """Download a file and verify its SHA-256 checksum.
-
-    {func}`download_with_retry` retries a network-level failure. A checksum
-    mismatch on a complete body is not retried, since identical bytes would
-    fail identically.
-
-    :param url: URL to download.
-    :param expected_sha256: Expected lowercase hex SHA-256 digest.
-        `None` skips verification (logs the computed digest for reference).
-    :param dest_path: Where to write the downloaded file.
-    :param label: Progress bar label. Defaults to the destination filename.
-    :raises OSError: If every attempt fails at the network level, including a
-        body shorter than the advertised `Content-Length`.
-    :raises ValueError: If the checksum does not match.
-    """
-    actual = download_with_retry(url, dest_path, label=label)
-    if expected_sha256 is None:
-        logging.info(f"SHA-256 of {url}: {actual} (not verified).")
-        return
-    if actual != expected_sha256:
-        dest_path.unlink(missing_ok=True)
-        msg = f"SHA-256 mismatch for {url}: expected {expected_sha256}, got {actual}"
-        raise ValueError(msg)
-    logging.debug(f"SHA-256 verified for {url}: {actual}")
-
-
-def _check_member_safety(member_path: str) -> None:
-    """Reject archive members with path traversal or absolute paths.
-
-    :raises ValueError: If the member path is unsafe.
-    """
-    parts = PurePosixPath(member_path).parts
-    if ".." in parts or member_path.startswith("/"):
-        msg = f"Unsafe archive member path: {member_path}"
-        raise ValueError(msg)
-
-
-def _finalize_extracted(
-    member_path: str,
-    dest_dir: Path,
-    target: str,
-) -> Path:
-    """Rename an extracted member to its final location and make executable.
-
-    :param member_path: Archive member path as extracted.
-    :param dest_dir: Directory the member was extracted into.
-    :param target: Expected (stripped) filename.
-    :return: Final path to the executable.
-    """
-    extracted = dest_dir / member_path
-    final = dest_dir / PurePosixPath(target).name
-    if extracted != final:
-        extracted.rename(final)
-    final.chmod(0o755)
-    return final
-
-
-def _extract_binary(
-    archive_path: Path,
-    spec: BinarySpec,
-    dest_dir: Path,
-    tool_name: str,
-    archive_format: ArchiveFormat,
-    strip_components: int,
-) -> Path:
-    """Extract the tool executable from a downloaded archive.
-
-    :param archive_path: Path to the downloaded archive file.
-    :param spec: Binary specification with format and executable info.
-    :param dest_dir: Directory to extract into.
-    :param tool_name: Tool name, used as default for `archive_executable`.
-    :param archive_format: Per-platform archive format, from
-        `BinarySpec.get_archive_format`.
-    :param strip_components: Per-platform strip count, from
-        `BinarySpec.get_strip_components`.
-    :return: Path to the extracted executable.
-    :raises FileNotFoundError: If the executable is not found in the archive.
-    """
-    executable = spec.archive_executable or tool_name
-    # Dispatch by archive format. A RAW download is the executable itself,
-    # renamed into place; the archive formats delegate to their extractors.
-    if archive_format is ArchiveFormat.RAW:
-        dest = dest_dir / executable
-        archive_path.rename(dest)
-        dest.chmod(0o755)
-        return dest
-    if archive_format is ArchiveFormat.ZIP:
-        return _extract_from_zip(archive_path, dest_dir, executable, strip_components)
-    return _extract_from_tar(
-        archive_path, archive_format, dest_dir, executable, strip_components
-    )
-
-
-def _extract_from_tar(
-    archive_path: Path,
-    fmt: ArchiveFormat,
-    dest_dir: Path,
-    executable: str,
-    strip_components: int,
-) -> Path:
-    """Extract a tool executable from a tar archive."""
-    with tarfile.open(str(archive_path), fmt.tarfile_mode()) as tar:
-        for member in tar.getmembers():
-            parts = PurePosixPath(member.name).parts
-            if len(parts) <= strip_components:
-                continue
-            stripped = str(PurePosixPath(*parts[strip_components:]))
-            if stripped == executable:
-                _check_member_safety(member.name)
-                if sys.version_info >= (3, 12):
-                    tar.extract(member, dest_dir, filter="data")
-                else:
-                    tar.extract(member, dest_dir)
-                return _finalize_extracted(member.name, dest_dir, executable)
-
-    msg = f"Executable {executable!r} not found in archive"
-    raise FileNotFoundError(msg)
-
-
-def _extract_from_zip(
-    archive_path: Path,
-    dest_dir: Path,
-    executable: str,
-    strip_components: int,
-) -> Path:
-    """Extract a tool executable from a ZIP archive."""
-    # Windows executables may have a .exe suffix inside the archive.
-    targets = {executable, f"{executable}.exe"}
-
-    with zipfile.ZipFile(archive_path) as zf:
-        for info in zf.infolist():
-            if info.is_dir():
-                continue
-            parts = PurePosixPath(info.filename).parts
-            if len(parts) <= strip_components:
-                continue
-            stripped = str(PurePosixPath(*parts[strip_components:]))
-            if stripped in targets:
-                _check_member_safety(info.filename)
-                zf.extract(info, dest_dir)
-                return _finalize_extracted(info.filename, dest_dir, stripped)
-
-    msg = f"Executable {executable!r} not found in archive"
-    raise FileNotFoundError(msg)
-
-
-def _write_binary_sidecar(binary_path: Path) -> None:
-    """Compute and write the SHA-256 sidecar for a cached binary.
-
-    Called after a verified archive download + extraction + cache store.
-    The sidecar is the trust anchor for subsequent cache hits: it stores the
-    digest of the *extracted* binary, distinct from the archive checksum in
-    the registry. The archive checksum defends against supply-chain tampering
-    at download time; the sidecar defends against local cache tampering
-    between runs. The sidecar's location is cache layout, so
-    {func}`~repomatic.cache.binary_sidecar_path` owns it.
-    """
-    digest = compute_file_sha256(binary_path)
-    sidecar = binary_sidecar_path(binary_path)
-    sidecar.write_text(digest, encoding="UTF-8")
-    logging.debug(f"Wrote binary sidecar: {sidecar} ({digest}).")
-
-
-def _verify_cached_binary(path: Path) -> bool:
-    """Verify a cached binary against its `.sha256` sidecar.
-
-    :param path: Path to the cached binary.
-    :return: `True` if the sidecar exists and the digest matches.
-    """
-    sidecar = binary_sidecar_path(path)
-    if not sidecar.is_file():
-        return False
-    expected = sidecar.read_text(encoding="UTF-8").strip()
-    return compute_file_sha256(path) == expected
-
-
-def _install_binary(
-    spec: ToolSpec,
-    tmp_dir: Path,
-    skip_checksum: bool = False,
-    no_cache: bool = False,
-) -> Path:
-    """Download, verify, and extract a binary tool.
-
-    Two-layer integrity model:
-
-    - **Archive checksum** (download time): the registry checksum is verified
-      against the downloaded archive. This defends against supply-chain
-      tampering and is auditable against the upstream release page.
-    - **Binary sidecar** (cache hit): after a verified download, extraction,
-      and cache store, a `.sha256` sidecar is written next to the cached
-      binary. Subsequent cache hits verify the binary against this sidecar,
-      defending against local cache tampering between runs.
-
-    :param spec: Tool specification with `binary` set.
-    :param tmp_dir: Temporary directory for download and extraction.
-    :param skip_checksum: Skip SHA-256 verification when `True`.
-    :param no_cache: Bypass the cache entirely when `True`.
-    :return: Path to the ready-to-run executable.
-    :raises RuntimeError: If no binary is available for the current platform.
-    """
-    binary = spec.binary
-    assert binary is not None
-
-    key = binary.resolve_platform()
-    cache_key = BinarySpec.platform_cache_key(key)
-
-    # Names the cache entry and nothing else: extraction reads
-    # `archive_executable` off the spec itself. `store_binary` keys an entry on
-    # the *extracted file's* own name, so the probe has to be normalized the
-    # same two ways to ever match it: flatten a path inside the archive
-    # (`bin/gh` becomes `gh`), and allow the `.exe` a Windows archive carries,
-    # mirroring the candidates `_extract_from_zip` matches on. Probing the raw
-    # `bin/gh` missed every time, re-downloading a tool already sitting in the
-    # cache: since every `gh` call routes through the pinned binary, that was
-    # one 13 MB fetch per invocation, on laptops and CI runners alike.
-    stem = (binary.archive_executable or spec.name).rsplit("/", 1)[-1]
-    # Fail closed on a spec that maps the platform to a URL but records no
-    # digest for it (only reachable through hand-built specs: the registry
-    # enforces URL/checksum key parity). Falling through with an empty digest
-    # would report a nonsensical "expected , got abc…" mismatch instead.
-    checksum = None if skip_checksum else binary.checksums.get(key)
-    if not skip_checksum and checksum is None:
-        msg = f"No SHA-256 recorded for {spec.name} {spec.version} on {cache_key}."
-        raise RuntimeError(msg)
-
-    # Check cache (unless --no-cache).
-    if not no_cache:
-        cached = None
-        for candidate in (stem, f"{stem}.exe"):
-            cached = get_cached_binary(spec.name, spec.version, cache_key, candidate)
-            if cached is not None:
-                break
-        if cached is not None:
-            if skip_checksum:
-                logging.info(
-                    f"Using cached {spec.name} {spec.version} for {cache_key} (checksum "
-                    "skipped)."
-                )
-                return cached
-            if _verify_cached_binary(cached):
-                logging.info(
-                    f"Using cached {spec.name} {spec.version} for {cache_key} (sidecar "
-                    "verified)."
-                )
-                return cached
-            # Sidecar missing or digest mismatch: re-download from source.
-            logging.warning(
-                f"Cached {spec.name} {spec.version} failed integrity check, "
-                "re-downloading."
-            )
-            cached.unlink(missing_ok=True)
-            binary_sidecar_path(cached).unlink(missing_ok=True)
-
-    url = binary.urls[key].format(version=spec.version)
-
-    # Derive archive filename from URL.
-    archive_name = url.rsplit("/", 1)[-1]
-    archive_path = tmp_dir / archive_name
-
-    logging.info(f"Downloading {spec.name} {spec.version} for {cache_key}...")
-    if skip_checksum:
-        logging.warning(f"Checksum verification skipped for {spec.name}.")
-    _download_and_verify(
-        url,
-        checksum,
-        archive_path,
-        label=f"{spec.name} {spec.version}",
-    )
-
-    fmt = binary.get_archive_format(key)
-    extracted = _extract_binary(
-        archive_path, binary, tmp_dir, spec.name, fmt, binary.get_strip_components(key)
-    )
-
-    # Store in cache for future use. Verify the cached copy is accessible
-    # before returning it; fall back to the temp directory copy otherwise.
-    # A containerized CI runner can silently lose cached files to overlay
-    # filesystem or mount restrictions, and an unwritable cache root makes
-    # store_binary return None.
-    if not no_cache:
-        cached = store_binary(spec.name, spec.version, cache_key, extracted)
-        if cached is not None and cached.is_file():
-            _write_binary_sidecar(cached)
-            return cached
-        logging.warning(
-            "Cached binary unavailable after store at "
-            f"{cached if cached is not None else 'cache'}, using temp path."
-        )
-    return extracted
 
 
 def _npm_supports_cooldown(npm: str) -> bool:
@@ -828,52 +468,27 @@ def _npm_supports_cooldown(npm: str) -> bool:
 def _install_npm(spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
     """Install an npm tool into *dest* and return its executable path.
 
-    The npm counterpart to {func}`_install_binary`: installs
-    `<package>@<version>` into a throwaway prefix, relying on npm's own
-    per-tarball integrity checks (no repomatic-pinned checksum), and applies the
-    `minimum-release-age` cooldown through npm's `min-release-age` when
-    *cooldown_days* is non-zero. On npm older than
-    {data}`NPM_MIN_VERSION_FOR_COOLDOWN` the gate is a no-op and the runner warns
-    (via {func}`_npm_supports_cooldown`); the `lint-awesome` job provisions a
-    new-enough npm so CI enforces it.
-
-    ```{note}
-    `--ignore-scripts` skips `preinstall`/`install`/`postinstall` scripts for
-    the package and its whole transitive tree: the install-time-script vector
-    behind most npm supply-chain worms. Safe here because `_install_npm` only
-    ever installs a repomatic-pinned, cooldown-gated tool (unlike a
-    general-purpose installer taking arbitrary package names, where a
-    postinstall step can be load-bearing); see the sibling `meta-package-manager`
-    project's `NPM` manager for that broader case, which cannot assume the same.
-    The other flags match that project's npm `pre_args` for consistency,
-    including `--no-audit` (disables sending the resolved dependency tree to
-    the registry's audit endpoint on every install, not just log noise).
-    ```
+    The npm counterpart to {func}`~repomatic.tooling.binaries.install_binary`:
+    installs `<package>@<version>` into a throwaway prefix with
+    {data}`NPM_INSTALL_FLAGS`, relying on npm's own per-tarball integrity checks
+    (no repomatic-pinned checksum), and applies the `minimum-release-age`
+    cooldown through npm's `min-release-age` when *cooldown_days* is non-zero.
+    On npm older than {data}`NPM_MIN_VERSION_FOR_COOLDOWN` the gate is a no-op
+    and the runner warns (via {func}`_npm_supports_cooldown`); the
+    `lint-awesome` job provisions a new-enough npm so CI enforces it.
 
     :param dest: Directory to install into (`dest/node_modules/.bin/<exe>`).
     :param cooldown_days: `minimum-release-age` in whole days; `0` omits the gate.
     :return: Path to the installed executable.
-    :raises RuntimeError: npm is absent, the install fails, or the executable is
-        missing afterward.
+    :raises ToolInstallError: npm is absent, the install fails, or the
+        executable is missing afterward.
     """
     npm = shutil.which("npm")
     if npm is None:
-        raise RuntimeError(
-            f"{spec.name} needs Node.js and npm on PATH, but npm was not found."
-        )
-    package_pin = f"{spec.package or spec.name}@{spec.version}"
-    cmd = [
-        npm,
-        "install",
-        "--ignore-scripts",
-        "--no-progress",
-        "--no-update-notifier",
-        "--no-fund",
-        "--no-audit",
-        "--prefix",
-        str(dest),
-        package_pin,
-    ]
+        msg = f"{spec.name} needs Node.js and npm on PATH, but npm was not found."
+        raise ToolInstallError(msg)
+    package_pin = f"{spec.install_target}@{spec.version}"
+    cmd = [npm, "install", *NPM_INSTALL_FLAGS, "--prefix", str(dest), package_pin]
     if cooldown_days:
         cmd.append(f"--min-release-age={cooldown_days}")
         if not _npm_supports_cooldown(npm):
@@ -885,21 +500,13 @@ def _install_npm(spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
     logging.info(f"Installing {spec.name} via npm: {' '.join(cmd)}")
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
-        raise RuntimeError(
-            f"npm install of {package_pin} failed with exit code {result.returncode}."
-        )
-    executable = spec.executable or spec.name
-    bin_path = dest / "node_modules" / ".bin" / executable
+        msg = f"npm install of {package_pin} failed with exit code {result.returncode}."
+        raise ToolInstallError(msg)
+    bin_path = dest / "node_modules" / ".bin" / spec.name
     if not bin_path.exists():
-        raise RuntimeError(
-            f"{executable!r} not found under {dest} after installing {package_pin}."
-        )
+        msg = f"{spec.name!r} not found under {dest} after installing {package_pin}."
+        raise ToolInstallError(msg)
     return bin_path
-
-
-# ---------------------------------------------------------------------------
-# Tool invocation
-# ---------------------------------------------------------------------------
 
 
 def _build_install_args(spec: ToolSpec, exclude_newer: str | None = None) -> list[str]:
@@ -925,8 +532,6 @@ def _build_install_args(spec: ToolSpec, exclude_newer: str | None = None) -> lis
     already in that virtualenv when a `uv.lock` exists, so its command carries
     no `--with` layer: see {func}`_install_into_venv`.
     """
-    executable = spec.executable or spec.name
-
     if spec.needs_venv:
         if _installs_into_venv(spec):
             # The project virtualenv already holds the tool, and was synced by
@@ -940,12 +545,12 @@ def _build_install_args(spec: ToolSpec, exclude_newer: str | None = None) -> lis
         if spec.module:
             cmd.extend(["--", "python", "-m", spec.module])
         else:
-            cmd.extend(["--", executable])
+            cmd.extend(["--", spec.name])
     else:
         cmd = uvx_cmd(exclude_newer=exclude_newer)
         for pkg in spec.with_packages:
             cmd.extend(["--with", pkg])
-        cmd.extend(["--from", spec.pypi_pin, executable])
+        cmd.extend(["--from", spec.pypi_pin, spec.name])
 
     return cmd
 
@@ -979,7 +584,7 @@ def _install_into_venv(spec: ToolSpec) -> None:
     {attr}`~repomatic.tooling.registry.ToolSpec.install_into_venv` for
     the reason.
 
-    :raises click.ClickException: uv cannot locate the virtualenv, or cannot
+    :raises ToolInstallError: uv cannot locate the virtualenv, or cannot
         install the tool into it.
     """
     locate = [
@@ -1000,7 +605,7 @@ def _install_into_venv(spec: ToolSpec) -> None:
             f"Cannot locate the project virtualenv to install {spec.name} into: "
             f"`{' '.join(locate)}` exited with code {located.returncode}."
         )
-        raise ClickException(msg)
+        raise ToolInstallError(msg)
 
     install = _venv_install_args(spec, venv)
     logging.info(f"Running: {' '.join(install)}")
@@ -1010,102 +615,20 @@ def _install_into_venv(spec: ToolSpec) -> None:
             f"Cannot install {spec.name} into {venv}: `{' '.join(install)}` "
             f"exited with code {result.returncode}."
         )
-        raise ClickException(msg)
-
-
-def _splice_config_args(
-    config_args: list[str],
-    extra_args: Sequence[str],
-    spec: ToolSpec,
-) -> list[str]:
-    """Combine config and extra args in the order the tool expects.
-
-    When `spec.config_after_subcommand` is `True` and `extra_args`
-    starts with a subcommand name, config args are inserted after it::
-
-        [subcommand] + config_args + [remaining extra_args]
-
-    Otherwise config args come first (the default).
-    """
-    if spec.config_after_subcommand and config_args and extra_args:
-        return [extra_args[0], *config_args, *extra_args[1:]]
-    return [*config_args, *extra_args]
-
-
-_STAGING_DIRS: list[tempfile.TemporaryDirectory[str]] = []
-"""Staging directories still backing a path {func}`ensure_binary` handed out.
-
-Only populated when the cache store fell back to the staging copy (a Docker
-overlay mount losing the cache write, an unwritable cache root). Keeping the
-objects referenced pins the directories until interpreter exit, when their
-finalizers reclaim them; dropping them at function return would delete the
-binary the caller is about to exec.
-"""
-
-
-@functools.cache
-def ensure_binary(name: str) -> Path:
-    """Install a registry binary tool and return the path to its executable.
-
-    The seam for repomatic code that shells out to a third-party binary but is
-    not itself a {func}`run_tool` invocation. It buys the same guarantees every
-    `repomatic run` binary gets: the registry-pinned version, its archive
-    verified against the recorded SHA-256, and a shared cache so repeated calls
-    in one run download once.
-
-    Prefer this over looking the tool up on `PATH`. Whatever `PATH` offers is
-    whichever version the machine or CI image happens to carry, unpinned and
-    unverified, and it differs between a developer's laptop and every runner.
-
-    Memoized per tool name: callers in a loop (`format-images` optimizing one
-    PNG per call) hit the install-and-verify path once per process, not once
-    per file. Failures are not memoized, so a transient download error can be
-    retried.
-
-    :param name: Registry key of a tool whose
-        {class}`~repomatic.tooling.registry.ToolSpec` declares a `binary`.
-    :return: Absolute path to the ready-to-run executable.
-    :raises click.ClickException: If the tool is unknown, ships no binary, or
-        cannot be downloaded and verified.
-    """
-    spec = TOOL_REGISTRY.get(name)
-    if spec is None or spec.binary is None:
-        msg = f"{name!r} is not a binary tool in the repomatic registry."
-        raise ClickException(msg)
-    # The staging dir is scratch for download and extraction. On the happy path
-    # _install_binary returns the path inside the persistent cache and staging
-    # is deleted right away; on the cache-store fallback it returns the staging
-    # copy itself, which must then live as long as the process.
-    staging = tempfile.TemporaryDirectory(prefix=f"repomatic-{name}-bin-")
-    try:
-        binary_path = _install_binary(spec, Path(staging.name))
-    except RuntimeError as exc:
-        staging.cleanup()
-        raise ClickException(str(exc)) from exc
-    if Path(staging.name) in binary_path.parents:
-        _STAGING_DIRS.append(staging)
-    else:
-        staging.cleanup()
-    return binary_path
+        raise ToolInstallError(msg)
 
 
 def _path_tools_env(
-    spec: ToolSpec,
-    skip_checksum: bool,
-    no_cache: bool,
-    path_dirs: list[tempfile.TemporaryDirectory[str]],
+    spec: ToolSpec, *, skip_checksum: bool, no_cache: bool
 ) -> dict[str, str] | None:
     """Build the child environment exposing *spec*'s companion binaries.
 
     Installs each {attr}`~repomatic.tooling.registry.ToolSpec.path_tools` entry
-    through {func}`_install_binary`, so it arrives at the registry-pinned version
-    with its checksum verified, then prepends the directories holding them to
-    `PATH`. Prepending (rather than appending) is
+    through {func}`~repomatic.tooling.binaries.install_binary`, so it arrives
+    at the registry-pinned version with its checksum verified, then prepends the
+    directories holding them to `PATH`. Prepending (rather than appending) is
     what makes the pin authoritative: a system-installed build of the same tool
     further down `PATH` is shadowed instead of winning by accident.
-
-    Temporary directories are appended to *path_dirs* for the caller to clean up,
-    since they must outlive this function and stay alive for the tool's run.
 
     A companion publishing no binary for the running platform is skipped with a
     warning rather than failing the run, since no retry can make it exist:
@@ -1116,10 +639,9 @@ def _path_tools_env(
     :param spec: Specification of the tool about to run.
     :param skip_checksum: Skip SHA-256 verification, as for the primary tool.
     :param no_cache: Bypass the binary cache when `True`.
-    :param path_dirs: Accumulator the caller cleans up in its `finally` block.
     :return: The environment to hand the child, or `None` to inherit unchanged
         when the tool declares no companions.
-    :raises click.ClickException: If a companion fails to install for any reason
+    :raises BinaryInstallError: If a companion fails to install for any reason
         other than the platform having no binary at all.
     """
     if not spec.path_tools:
@@ -1128,14 +650,9 @@ def _path_tools_env(
     prefixes = []
     for tool_name in spec.path_tools:
         companion = TOOL_REGISTRY[tool_name]
-        tmp_dir = tempfile.TemporaryDirectory(prefix=f"repomatic-{tool_name}-path-")
-        path_dirs.append(tmp_dir)
         try:
-            bin_path = _install_binary(
-                companion,
-                Path(tmp_dir.name),
-                skip_checksum,
-                no_cache=no_cache,
+            bin_path = binaries.install_binary(
+                companion, skip_checksum=skip_checksum, no_cache=no_cache
             )
         except UnsupportedPlatformError as exc:
             # The companion publishes nothing for this platform, so no run can
@@ -1145,9 +662,9 @@ def _path_tools_env(
             # blocks untouched.
             logging.warning(f"Skipping {tool_name} on PATH for {spec.name}: {exc}")
             continue
-        except RuntimeError as exc:
+        except BinaryInstallError as exc:
             msg = f"Cannot provision {tool_name} on PATH for {spec.name}: {exc}"
-            raise ClickException(msg) from exc
+            raise BinaryInstallError(msg) from exc
         logging.info(
             f"Exposing {tool_name} {companion.version} on PATH for {spec.name}."
         )
@@ -1156,6 +673,56 @@ def _path_tools_env(
     env = dict(os.environ)
     env["PATH"] = os.pathsep.join([*prefixes, env.get("PATH", "")])
     return env
+
+
+def _command_prefix(
+    spec: ToolSpec, stack: ExitStack, *, skip_checksum: bool, no_cache: bool
+) -> list[str]:
+    """Install the tool and build the command that starts it.
+
+    The command carries everything the run adds ahead of the caller's
+    arguments: the default flags, the CI flags and the computed parameters.
+
+    :param spec: The tool to install.
+    :param stack: Owner of the scratch directory an npm install goes into.
+    :param skip_checksum: Skip SHA-256 verification of a binary download.
+    :param no_cache: Bypass the binary cache.
+    :raises ToolInstallError: If the tool cannot be installed.
+    """
+    if spec.backend is ToolBackend.BINARY:
+        binary = binaries.install_binary(
+            spec, skip_checksum=skip_checksum, no_cache=no_cache
+        )
+        cmd = [str(binary)]
+    elif spec.backend is ToolBackend.NPM:
+        prefix = stack.enter_context(
+            tempfile.TemporaryDirectory(prefix=f"repomatic-{spec.name}-npm-")
+        )
+        # Gate the transitive tree by the same minimum-release-age window the
+        # sync jobs apply to pins, via npm's min-release-age.
+        cooldown = min_release_age_days(load_repomatic_config().minimum_release_age)
+        cmd = [str(_install_npm(spec, Path(prefix), cooldown))]
+    else:
+        # Gate the isolated uvx resolution (tool + transitive tree) by the
+        # same minimum-release-age window the sync jobs apply to pins.
+        cutoff = exclude_newer_cutoff(
+            load_repomatic_config().minimum_release_age, today_utc()
+        )
+        if _installs_into_venv(spec):
+            _install_into_venv(spec)
+        cmd = _build_install_args(spec, exclude_newer=cutoff)
+
+    cmd.extend(spec.default_flags)
+    if spec.ci_flags and is_github_ci():
+        cmd.extend(spec.ci_flags)
+    if spec.computed_params:
+        cmd.extend(spec.computed_params(Metadata()))
+    return cmd
+
+
+# ---------------------------------------------------------------------------
+# Tool invocation
+# ---------------------------------------------------------------------------
 
 
 def resolve_default_args(spec: ToolSpec) -> list[list[str]] | None:
@@ -1182,27 +749,13 @@ def resolve_default_args(spec: ToolSpec) -> list[list[str]] | None:
 
     paths = [str(path) for path in getattr(FileInventory(), spec.default_paths)]
     if not paths:
+        logging.info(
+            f"Skipping {spec.name}: the repository holds no {spec.default_paths}."
+        )
         return None
     if spec.per_file:
         return [[*base, path] for path in paths]
     return [[*base, *paths]]
-
-
-GIT_DIRECTORY = ".git"
-"""Directory `_digest_targets` leaves out of the tree it walks.
-
-No tool rewrites a file there, and another process can: an editor that
-refreshes the index during a run would read as a file the tool rewrote.
-"""
-
-TOOL_CRASH_EXIT_CODE = 70
-"""Exit code reported when a tool contradicts its own rewrite status.
-
-`EX_SOFTWARE` from `sysexits.h`: an internal error in the tool being run.
-Deliberately outside the set a formatter's caller tolerates, so a crash cannot
-land on the code that means "I reformatted a file". See
-{attr}`~repomatic.tooling.registry.ToolSpec.rewrite_exit_code`.
-"""
 
 
 def _digest_targets(args: Sequence[str]) -> dict[str, str]:
@@ -1238,6 +791,90 @@ def _digest_targets(args: Sequence[str]) -> dict[str, str]:
     return digests
 
 
+def _run_batch(
+    spec: ToolSpec,
+    prefix: Sequence[str],
+    config_args: Sequence[str],
+    batch: Sequence[str],
+    env: dict[str, str] | None,
+) -> int:
+    """Run the tool once, on one batch of arguments.
+
+    :param spec: The tool to run.
+    :param prefix: The command that starts the tool, from {func}`_command_prefix`.
+    :param config_args: The config arguments from {func}`resolve_config`.
+    :param batch: The arguments of this invocation.
+    :param env: The environment of the child, `None` to inherit it.
+    :return: The exit code of the tool, or {data}`TOOL_CRASH_EXIT_CODE` when
+        it reports a rewrite it did not perform.
+    """
+    cmd = [*prefix, *spec.splice_config_args(config_args, batch)]
+
+    # See ToolSpec.output_flag for why the runner creates these.
+    for destination in spec.output_paths(batch):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+    # Snapshot the targets when the files have to say what the tool rewrote.
+    before = _digest_targets(batch) if spec.tracks_rewrites else {}
+
+    logging.info(f"Running: {' '.join(cmd)}")
+    result = subprocess.run(cmd, check=False, env=env)
+    logging.info(f"{spec.name} exited with code {result.returncode}.")
+
+    # A rewrite status that rewrote nothing is a contradiction, and the shape a
+    # crash takes in a tool whose caller has to tolerate that status:
+    # pyproject-fmt exits 1 on a PanicException exactly as it does on a
+    # successful reformat. Trust the files over the code.
+    crashed = (
+        spec.rewrite_exit_code is not None
+        and result.returncode == spec.rewrite_exit_code
+        and _digest_targets(batch) == before
+    )
+    if crashed:
+        logging.error(
+            f"{spec.name} exited with code {result.returncode}, which it uses "
+            "to report rewritten files, but left every target unchanged. "
+            f"Treating it as a crash and reporting {TOOL_CRASH_EXIT_CODE}; "
+            "re-run it directly to see why."
+        )
+
+    # post_process is a write-mode-only fixup: it rewrites files on disk, so it
+    # runs only after a successful write (return code 0), never in check or
+    # dry-run mode, which writes nothing. The warning below covers that gap;
+    # see ToolSpec.check_bypasses_post_process.
+    if result.returncode == 0 and spec.post_process:
+        # A directory argument names no file, so add the ones this run
+        # rewrote below it. A file the tool's own exclude list skipped is
+        # unchanged, which keeps it out of the fixup as well.
+        rewritten = [
+            path
+            for path, digest in _digest_targets(batch).items()
+            if before.get(path) != digest and path not in batch
+        ]
+        spec.post_process([*batch, *rewritten])
+
+    # A check/dry-run invocation of a post_process tool cannot be trusted: the
+    # fixup never ran, so warn rather than report a misleading status.
+    if spec.check_bypasses_post_process(batch):
+        logging.warning(
+            f"{spec.name} ran in check mode, but it relies on a repomatic "
+            "post-processing step that only runs when files are written. Its "
+            "exit status is unreliable here: it can flag drift the write path "
+            "would reconcile, or miss drift the write path would introduce. "
+            "Re-run in write mode and inspect the diff for an authoritative "
+            f"result; from the CLI, `repomatic run {spec.name} --verify` does "
+            "that against throwaway copies."
+        )
+
+    return TOOL_CRASH_EXIT_CODE if crashed else result.returncode
+
+
+def _remove_config_file(path: Path) -> None:
+    """Delete a config file written for one run."""
+    logging.debug(f"Cleaning up temp config: {path.resolve()}")
+    path.unlink(missing_ok=True)
+
+
 def run_tool(
     name: str,
     extra_args: Sequence[str] = (),
@@ -1266,201 +903,48 @@ def run_tool(
         tool declaring
         {attr}`~repomatic.tooling.registry.ToolSpec.rewrite_exit_code` reports a
         rewrite it did not perform.
+    :raises ValueError: If no tool goes by *name*.
+    :raises ToolInstallError: If the tool or one of its companions cannot be
+        installed.
     """
-    if name not in TOOL_REGISTRY:
-        msg = (
-            f"Unknown tool: {name!r}. "
-            f"Available tools: {', '.join(sorted(TOOL_REGISTRY))}"
-        )
-        raise ValueError(msg)
-
-    spec = TOOL_REGISTRY[name]
+    spec = lookup_tool(name).with_overrides(version=version, checksum=checksum)
 
     # A caller-supplied argument means the caller is driving: the registry
     # defaults apply only to a bare invocation. See ToolSpec.default_args.
-    if extra_args:
-        arg_batches: list[list[str]] = [list(extra_args)]
-    else:
-        resolved = resolve_default_args(spec)
-        if resolved is None:
-            logging.info(
-                f"Skipping {name}: the repository holds no {spec.default_paths}."
-            )
-            return 0
-        arg_batches = resolved
+    batches = [list(extra_args)] if extra_args else resolve_default_args(spec)
+    if batches is None:
+        return 0
 
-    # Apply CLI overrides to the frozen spec.
-    if version:
-        spec = replace(spec, version=version)
-    if checksum and spec.binary:
-        key = spec.binary.resolve_platform()
-        new_checksums = {**spec.binary.checksums, key: checksum}
-        spec = replace(spec, binary=replace(spec.binary, checksums=new_checksums))
+    with ExitStack() as stack:
+        # A tool with no `--config` flag may get its config written into the
+        # working directory for the length of this run, so any other run that
+        # would write the same file waits for this one: see _cwd_config_lock.
+        # Entered first, the lock is released last, once the file is gone.
+        config_lock = stack.enter_context(ExitStack())
+        if spec.writes_config_in_cwd:
+            config_lock.enter_context(_cwd_config_lock(spec))
 
-    # A tool with no `--config` flag may get its config written into the working
-    # directory for the length of this run, so any other run that would write
-    # the same file waits for this one: see _cwd_config_lock.
-    config_lock = ExitStack()
-    if spec.config_flag is None and spec.native_config_files:
-        config_lock.enter_context(_cwd_config_lock(spec))
-
-    tmp_path: Path | None = None
-    bin_dir = None
-    path_dirs: list[tempfile.TemporaryDirectory[str]] = []
-    try:
         logging.info(f"Resolving config for {spec.name} {spec.version}...")
-        config_args, tmp_path = resolve_config(spec)
-        if tmp_path is None:
+        config_args, config_file = resolve_config(spec)
+        if config_file is None:
             # Nothing was written into the directory, so nothing to guard.
             config_lock.close()
-
-        # Build command prefix: binary download or uvx/uv-run.
-        if spec.binary is not None:
-            bin_dir = tempfile.TemporaryDirectory(
-                prefix=f"repomatic-{name}-bin-",
-            )
-            try:
-                bin_path = _install_binary(
-                    spec,
-                    Path(bin_dir.name),
-                    skip_checksum,
-                    no_cache=no_cache,
-                )
-            except RuntimeError as exc:
-                raise ClickException(str(exc)) from exc
-            cmd = [str(bin_path)]
-        elif spec.npm is not None:
-            bin_dir = tempfile.TemporaryDirectory(prefix=f"repomatic-{name}-npm-")
-            # Gate awesome-lint's transitive tree by the same minimum-release-age
-            # window the sync jobs apply to pins, via npm's min-release-age.
-            cooldown = min_release_age_days(load_repomatic_config().minimum_release_age)
-            try:
-                bin_path = _install_npm(spec, Path(bin_dir.name), cooldown)
-            except RuntimeError as exc:
-                raise ClickException(str(exc)) from exc
-            cmd = [str(bin_path)]
         else:
-            # Gate the isolated uvx resolution (tool + transitive tree) by the
-            # same minimum-release-age window the sync jobs apply to pins.
-            cutoff = exclude_newer_cutoff(
-                load_repomatic_config().minimum_release_age,
-                datetime.now(UTC).date(),
-            )
-            if _installs_into_venv(spec):
-                _install_into_venv(spec)
-            cmd = _build_install_args(spec, exclude_newer=cutoff)
+            stack.callback(_remove_config_file, config_file)
 
-        # Default flags (always applied).
-        if spec.default_flags:
-            cmd.extend(spec.default_flags)
+        prefix = _command_prefix(
+            spec, stack, skip_checksum=skip_checksum, no_cache=no_cache
+        )
+        env = _path_tools_env(spec, skip_checksum=skip_checksum, no_cache=no_cache)
 
-        # CI output format flags.
-        if spec.ci_flags and is_github_ci():
-            cmd.extend(spec.ci_flags)
-
-        # Computed parameters derived from project metadata.
-        if spec.computed_params:
-            cmd.extend(spec.computed_params(Metadata()))
-
-        env = _path_tools_env(spec, skip_checksum, no_cache, path_dirs)
-        # The prefix (executable, flags, computed params) is resolved once and
-        # reused: a per-file tool must not re-install itself per file.
-        prefix = cmd
         exit_code = 0
-
-        for batch in arg_batches:
-            # Config args from resolution (cache path or empty).
-            cmd = [*prefix, *_splice_config_args(config_args, batch, spec)]
-
-            # Pre-create parent directories for the tool's declared report
-            # destination; see `ToolSpec.output_flag` for why.
-            if spec.output_flag:
-                for i, arg in enumerate(batch):
-                    if arg == spec.output_flag and i + 1 < len(batch):
-                        destination = Path(batch[i + 1])
-                    elif arg.startswith(f"{spec.output_flag}="):
-                        destination = Path(arg.split("=", 1)[1])
-                    else:
-                        continue
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-
-            # Snapshot the targets when the files have to say what the tool
-            # rewrote: to check a rewrite it reports through its exit code, and
-            # to find the files below a directory that a post_process must fix.
-            before = (
-                _digest_targets(batch)
-                if spec.rewrite_exit_code is not None or spec.post_process
-                else {}
-            )
-
-            logging.info(f"Running: {' '.join(cmd)}")
-            result = subprocess.run(cmd, check=False, env=env)
-
-            logging.info(f"{spec.name} exited with code {result.returncode}.")
-
-            # A rewrite status that rewrote nothing is a contradiction, and the
-            # shape a crash takes in a tool whose caller has to tolerate that
-            # status: pyproject-fmt exits 1 on a PanicException exactly as it
-            # does on a successful reformat. Trust the files over the code.
-            crashed = (
-                spec.rewrite_exit_code is not None
-                and result.returncode == spec.rewrite_exit_code
-                and _digest_targets(batch) == before
-            )
-            if crashed:
-                logging.error(
-                    f"{spec.name} exited with code {result.returncode}, which it uses "
-                    "to report rewritten files, but left every target unchanged. "
-                    f"Treating it as a crash and reporting {TOOL_CRASH_EXIT_CODE}; "
-                    "re-run it directly to see why."
-                )
-
-            # post_process is a write-mode-only fixup: it rewrites files on
-            # disk, so it runs only after a successful write (return code 0),
-            # never in check/dry-run mode, which writes nothing. The warning
-            # below covers that gap; see ToolSpec.check_bypasses_post_process.
-            if result.returncode == 0 and spec.post_process:
-                # A directory argument names no file, so add the ones this run
-                # rewrote below it. A file the tool's own exclude list skipped
-                # is unchanged, which keeps it out of the fixup as well.
-                rewritten = [
-                    path
-                    for path, digest in _digest_targets(batch).items()
-                    if before.get(path) != digest and path not in batch
-                ]
-                spec.post_process([*batch, *rewritten])
-
-            # A check/dry-run invocation of a post_process tool cannot be
-            # trusted: the fixup never ran, so warn rather than report a
-            # misleading status.
-            if spec.check_bypasses_post_process(batch):
-                logging.warning(
-                    f"{spec.name} ran in check mode, but it relies on a repomatic "
-                    "post-processing step that only runs when files are written. Its "
-                    "exit status is unreliable here: it can flag drift the write path "
-                    "would reconcile, or miss drift the write path would introduce. "
-                    "Re-run in write mode and inspect the diff for an authoritative "
-                    f"result; from the CLI, `repomatic run {spec.name} --verify` does "
-                    "that against throwaway copies."
-                )
-
+        for batch in batches:
+            batch_code = _run_batch(spec, prefix, config_args, batch, env)
             # Keep going after a failure, the way `xargs` does, but never let a
             # later success overwrite an earlier failure.
-            batch_code = TOOL_CRASH_EXIT_CODE if crashed else result.returncode
             if batch_code != 0 and exit_code == 0:
                 exit_code = batch_code
-
         return exit_code
-
-    finally:
-        if bin_dir is not None:
-            bin_dir.cleanup()
-        for path_dir in path_dirs:
-            path_dir.cleanup()
-        if tmp_path is not None:
-            logging.debug(f"Cleaning up temp config: {tmp_path.resolve()}")
-            tmp_path.unlink(missing_ok=True)
-        config_lock.close()
 
 
 def verify_via_write_path(
@@ -1502,8 +986,9 @@ def verify_via_write_path(
         yields its own exit code and no drift, since it measured nothing. So
         does a call with no existing path to copy, which yields `2`, and a
         path that cannot be copied, which is logged and yields `2` too.
+    :raises ValueError: If no tool goes by *name*.
     """
-    spec = TOOL_REGISTRY[name]
+    spec = lookup_tool(name)
     # An argument resolving to the working directory means "every file the tool
     # handles", which is exactly what the default batches below answer, and
     # answer cheaply. Copying the tree instead cannot work: the scratch root is
@@ -1520,9 +1005,6 @@ def verify_via_write_path(
     if not extra_args:
         batches = resolve_default_args(spec)
         if batches is None:
-            logging.info(
-                f"Skipping {name}: the repository holds no {spec.default_paths}."
-            )
             return 0, []
         # Deduplicate while preserving order: a non-per-file tool repeats its
         # `default_args` in no batch, but a per-file one repeats them in each.
@@ -1629,49 +1111,6 @@ def _walk_pair(original: Path, copy: Path) -> Iterator[tuple[Path, Path]]:
 # ---------------------------------------------------------------------------
 
 
-def _detect_config_level(spec: ToolSpec) -> tuple[int, str]:
-    """Detect which precedence level is active for a tool's config.
-
-    Performs the same 4-level walk as {func}`resolve_config` but only
-    detects the level without producing config content or CLI args.
-
-    :return: `(level, description)` where level is 1-4 and description
-        is a human-readable source label.
-    """
-    # The walk stops at its first hit and merges nothing, so a level-1 or
-    # level-2 config replaces the bundled default wholesale. Say so here: a
-    # downstream override that restates only the one rule it wanted to change
-    # is silently dropping every other bundled rule, and the drop is invisible
-    # until the bundled default grows a rule the override never knew about.
-    shadowed = " (replaces bundled default)" if spec.default_config else ""
-
-    for config_file in spec.native_config_files:
-        if Path(config_file).exists():
-            return 1, f"{config_file}{shadowed}"
-
-    # The cached plain parse, not `load_pyproject_tool_section`: detection only
-    # tests presence, and `repomatic run --list` probes every registry tool, so
-    # a trivia-preserving tomlrt re-parse per tool would read the same file
-    # dozens of times over.
-    tool_config = read_pyproject_toml().get("tool", {}).get(spec.name)
-    if tool_config:
-        return 2, f"[tool.{spec.name}] in pyproject.toml{shadowed}"
-
-    if spec.default_config:
-        return 3, "bundled default"
-
-    return 4, "(bare)"
-
-
-def resolve_config_source(spec: ToolSpec) -> str:
-    """Return a human-readable description of the active config source.
-
-    Used by `repomatic run --list` to show which precedence level is active
-    for each tool in the current repo.
-    """
-    return _detect_config_level(spec)[1]
-
-
 def find_unmodified_configs(root: Path | None = None) -> list[tuple[str, str]]:
     """Find native config files identical to their bundled defaults.
 
@@ -1698,8 +1137,7 @@ def find_unmodified_configs(root: Path | None = None) -> list[tuple[str, str]]:
         if not spec.default_config:
             continue
 
-        with get_data_file_path(spec.default_config) as bundled_path:
-            bundled = bundled_path.read_text(encoding="UTF-8").rstrip() + "\n"
+        bundled = bundle.get_data_content(spec.default_config).rstrip() + "\n"
 
         for config_file in spec.native_config_files:
             path = base / config_file

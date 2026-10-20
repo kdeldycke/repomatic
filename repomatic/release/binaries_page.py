@@ -25,7 +25,7 @@ of how antivirus engines treat each release.
 
 The data lives in `docs/assets/binaries.csv`, regenerated wholesale on every
 release from the GitHub Releases API (the single source of truth for
-published assets) and the JSON scan history maintained by `scan-virustotal`.
+published assets) and the CSV scan history maintained by `scan-virustotal`.
 The Markdown page renders it through a single `csv-table` directive and is
 otherwise static: it is created once from {data}`PAGE_TEMPLATE` and only its
 marker-delimited region (the detection trend chart) is rewritten afterwards,
@@ -56,6 +56,7 @@ from pathlib import Path
 from click_extra.blocks import region_markers, replace_region
 
 from ..bundle import get_data_content
+from ..file_ops import write_if_changed
 from ..tabular import render_csv, write_csv
 from ..versions import parse_tag_version
 from .binary import BINARY_ASSET_SUFFIXES, NUITKA_BUILD_TARGETS
@@ -67,6 +68,13 @@ if TYPE_CHECKING:
 
     from ..github.releases import ReleaseAsset, ReleaseWithAssets
     from .virustotal import ScanRecord
+
+CATALOG_CSV = Path("assets/binaries.csv")
+"""Location of the catalog data, relative to the directory of the page.
+
+The `:file:` option of the `csv-table` directive in {data}`PAGE_TEMPLATE`
+reads it from there.
+"""
 
 CHART_JS_URL = "https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"
 """Pinned CDN artifact drawing the detections trend chart.
@@ -105,21 +113,6 @@ FLAGGED_DANGER_PCT = 10
 Below it, a flagged binary is the routine Nuitka false-positive tail worth a
 warning tint; from one engine in ten upward, the release deserves a
 false-positive submission round (see the `/av-false-positive` skill).
-"""
-
-LEGACY_PAGE_END_MARKER = "<!-- binaries-end -->"
-"""Oldest closing marker, migrated to {data}`PAGE_END_MARKER` on first touch."""
-
-LEGACY_PAGE_START_MARKERS = (
-    "<!-- binaries-start -->",
-    "<!-- binaries-chart-start -->",
-)
-"""Superseded opening markers, migrated to {data}`PAGE_START_MARKER` on first touch.
-
-Two generations precede the current bare open: the original
-`<!-- binaries-start -->`, then the `<!-- binaries-chart-start -->` of the
-short-lived `-start`/`-end` pair. Both collapse to {data}`PAGE_START_MARKER`, so
-a page written by any past version refreshes cleanly.
 """
 
 PAGE_REGION = "binaries-chart"
@@ -330,9 +323,9 @@ def render_binaries_csv(
     other row leaves it empty. A file page exists on VirusTotal solely
     because the file was submitted, while the catalog spans every release a
     repository ever published, including those predating `scan-virustotal`
-    and those whose upload failed. Deriving the URL from the GitHub asset
-    digest alone therefore sent readers to a blank page for each binary
-    nobody ever uploaded, which was most of the catalog on older projects.
+    and those whose upload failed. A URL derived from the GitHub asset digest
+    alone would send readers to a blank page for each binary nobody ever
+    uploaded.
     ```
 
     ```{caution}
@@ -395,20 +388,6 @@ def render_binaries_csv(
     return render_csv(CSV_HEADERS, rows)
 
 
-def update_binaries_csv(csv_path: Path, content: str) -> bool:
-    """Write the catalog CSV, creating parent directories as needed.
-
-    :param csv_path: Path to the CSV file.
-    :param content: Rendered CSV from {func}`render_binaries_csv`.
-    :return: `True` when the file was created or its content changed.
-    """
-    if not write_csv(csv_path, content):
-        logging.info(f"Binaries CSV {csv_path} already up to date.")
-        return False
-    logging.info(f"Wrote binaries CSV {csv_path}.")
-    return True
-
-
 def update_binaries_page(page_path: Path, chart_section: str, repo_slug: str) -> bool:
     """Create the binaries page if missing and refresh its chart region.
 
@@ -416,9 +395,7 @@ def update_binaries_page(page_path: Path, chart_section: str, repo_slug: str) ->
     {data}`PAGE_TEMPLATE`. On an existing page only the region between
     {data}`PAGE_START_MARKER` and {data}`PAGE_END_MARKER` is replaced by
     {func}`click_extra.blocks.replace_region`, leaving all surrounding prose
-    untouched. Pages carrying any {data}`LEGACY_PAGE_START_MARKERS` open or the
-    {data}`LEGACY_PAGE_END_MARKER` close are migrated to the current markers in
-    the same pass.
+    untouched.
 
     :param page_path: Path to the Markdown page.
     :param chart_section: Rendered chart from {func}`render_chart_section`,
@@ -432,13 +409,7 @@ def update_binaries_page(page_path: Path, chart_section: str, repo_slug: str) ->
     """
     original = None
     if page_path.exists():
-        original = page_path.read_text(encoding="UTF-8")
-        # Migrate pages written before the marker grammar aligned on
-        # click-extra's bare `<!-- name -->` open.
-        text = original
-        for legacy_open in LEGACY_PAGE_START_MARKERS:
-            text = text.replace(legacy_open, PAGE_START_MARKER)
-        text = text.replace(LEGACY_PAGE_END_MARKER, PAGE_END_MARKER)
+        original = text = page_path.read_text(encoding="UTF-8")
         if PAGE_START_MARKER not in text or PAGE_END_MARKER not in text:
             raise ValueError(
                 f"{page_path} lacks the {PAGE_START_MARKER} / {PAGE_END_MARKER} "
@@ -448,11 +419,37 @@ def update_binaries_page(page_path: Path, chart_section: str, repo_slug: str) ->
         text = PAGE_TEMPLATE.replace("{repo_url}", f"https://github.com/{repo_slug}")
 
     new_text = replace_region(text, PAGE_REGION, chart_section.strip())
-
-    if new_text == original:
-        logging.info(f"Binaries page {page_path} already up to date.")
+    if not write_if_changed(page_path, new_text, previous=original):
         return False
-    page_path.parent.mkdir(parents=True, exist_ok=True)
-    page_path.write_text(new_text, encoding="UTF-8")
     logging.info(f"Wrote binaries page {page_path}.")
     return True
+
+
+def update_catalog(
+    page_path: Path,
+    repo_slug: str,
+    releases: Sequence[ReleaseWithAssets],
+    records: Sequence[ScanRecord],
+) -> dict[Path, bool]:
+    """Regenerate the catalog CSV beside the page, then refresh the page.
+
+    :param page_path: Path to the Markdown page. The CSV goes to
+        {data}`CATALOG_CSV` under its directory.
+    :param repo_slug: Repository in `owner/repo` form.
+    :param releases: Releases from
+        {func}`repomatic.github.releases.get_releases_with_assets`.
+    :param records: Detection snapshots from the scan history file.
+    :return: Whether each written file changed, keyed by path: the CSV first,
+        then the page.
+    :raises ValueError: When the page exists but lacks its markers, see
+        {func}`update_binaries_page`.
+    """
+    csv_path = page_path.parent / CATALOG_CSV
+    return {
+        csv_path: write_csv(
+            csv_path, render_binaries_csv(repo_slug, releases, records)
+        ),
+        page_path: update_binaries_page(
+            page_path, render_chart_section(records), repo_slug
+        ),
+    }

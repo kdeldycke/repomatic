@@ -34,24 +34,28 @@ import tomlrt
 import yaml
 from click.testing import CliRunner
 
+from repomatic.broken_links import DOCUMENTATION_LABEL, FIX_LINK_LABEL
 from repomatic.bundle import get_data_content
 from repomatic.cli.github import sponsor_label
 from repomatic.cli.main import repomatic
 from repomatic.config import Config, LabelsConfig, load_repomatic_config
 from repomatic.deps.sync import DEPENDENCY_LABEL
 from repomatic.github import labels as labels_module
-from repomatic.github.actions import get_github_event
+from repomatic.github.event import get_github_event
 from repomatic.github.labels import (
     DEFAULT_CONTENT_RULES,
     DEFAULT_FILE_RULES,
     apply_labels,
     compile_content_pattern,
+    declared_label_names,
+    label_sources,
     match_content_rules,
     match_file_rules,
     resolve_content_rules,
     resolve_file_rules,
     serialize_inline_labels,
 )
+from repomatic.github.threads import BOT_ISSUE_LABEL
 
 
 def _make_config(**labels_kwargs):
@@ -111,18 +115,18 @@ def test_bare_string_is_a_single_pattern():
     assert rules["🥭 mango"] == ("mango",)
 
 
-def test_stale_array_of_tables_degrades_to_defaults(caplog):
-    """The pre-7.11.0 list shape is reported, then ignored.
+def test_rules_that_are_not_a_table_degrade_to_defaults(caplog):
+    """A list where a table belongs is reported, then ignored.
 
     The config loader passes a mistyped value through rather than crashing, so
-    a downstream repo that has not migrated keeps every repomatic command
-    working and falls back to the bundled defaults.
+    every repomatic command keeps working and falls back to the bundled
+    defaults.
     """
-    stale = [{"label": "🥭 mango", "patterns": ["mango"]}]
+    malformed = [{"label": "🥭 mango", "patterns": ["mango"]}]
     with caplog.at_level(logging.WARNING):
-        rules = resolve_content_rules(_make_config(content_rules=stale))
+        rules = resolve_content_rules(_make_config(content_rules=malformed))
     assert rules == DEFAULT_CONTENT_RULES
-    assert any("array-of-tables" in record.message for record in caplog.records)
+    assert any("expected a table" in record.message for record in caplog.records)
 
 
 @pytest.mark.parametrize(
@@ -236,10 +240,9 @@ def test_default_rule_labels_exist_in_the_label_registry():
     Applying an unknown label fails the `gh` call outright, so a rule keyed on
     a label the registry dropped or renamed is not a dead rule but a broken
     one. The sponsor-label command's default rides the same registry and gets
-    the same check: its label once carried a stray plural that existed in no
-    repository, and every sponsor-labelling attempt died on it.
-    {data}`~repomatic.deps.sync.DEPENDENCY_LABEL` is in the population for the
-    same reason, being applied to every dependency-update PR.
+    the same check. So do {data}`~repomatic.deps.sync.DEPENDENCY_LABEL`,
+    applied to every dependency-update PR, the labels of the broken links
+    issue, and the label of every issue repomatic maintains.
     """
     registry = tomlrt.loads(get_data_content("labels.toml"))
     defined = {
@@ -256,6 +259,7 @@ def test_default_rule_labels_exist_in_the_label_registry():
     assert sponsor_default in defined
 
     assert DEPENDENCY_LABEL in defined
+    assert {DOCUMENTATION_LABEL, FIX_LINK_LABEL, BOT_ISSUE_LABEL} <= defined
 
 
 @pytest.mark.parametrize(
@@ -361,7 +365,7 @@ def test_label_keys_survive_config_loading():
     }
 
 
-def _invoke_apply_labels(tmp_path, event, gh_responses, *args):
+def _invoke_apply_labels(tmp_path, event, changed_files=(), *args):
     """Run `apply-labels` against a synthetic event, capturing `gh` calls."""
     event_path = tmp_path / "event.json"
     event_path.write_text(json.dumps(event), encoding="UTF-8")
@@ -372,17 +376,17 @@ def _invoke_apply_labels(tmp_path, event, gh_responses, *args):
 
     def fake_gh(gh_args):
         calls.append(list(gh_args))
-        return gh_responses.get(tuple(gh_args[:2]), "")
+        if gh_args[:3] == ["api", "--paginate", "--slurp"]:
+            return json.dumps([[{"filename": name} for name in changed_files]])
+        return ""
 
     runner = CliRunner()
-    # Each consuming module bound `run_gh_command` at import, so every binding
-    # is patched: `pr` (changed files), `issue` (label writes), and `gh`
-    # itself, whose `gh_api_json` backs the manual-invocation subject fetch.
+    # The JSON reads parse through the `gh` module, and the label writes go
+    # through the threads module: one fake serves both.
     try:
         with (
             patch("repomatic.github.gh.run_gh_command", side_effect=fake_gh),
-            patch("repomatic.github.pr.run_gh_command", side_effect=fake_gh),
-            patch("repomatic.github.issue.run_gh_command", side_effect=fake_gh),
+            patch("repomatic.github.threads.run_gh_command", side_effect=fake_gh),
         ):
             result = runner.invoke(
                 repomatic,
@@ -408,7 +412,7 @@ def test_apply_labels_dry_run_on_an_issue(tmp_path):
             "body": "The README does not mention it.",
         },
     }
-    result, calls = _invoke_apply_labels(tmp_path, event, {})
+    result, calls = _invoke_apply_labels(tmp_path, event)
     assert result.exit_code == 0, result.output
     assert "Would label issue #42 with: 🐛 bug, 📚 documentation" in result.output
     assert calls == []
@@ -423,17 +427,26 @@ def test_apply_labels_live_on_a_pull_request(tmp_path):
             "body": "",
         },
     }
-    files = "changelog.md\nuv.lock\n"
     result, calls = _invoke_apply_labels(
-        tmp_path,
-        event,
-        {("api", "repos/kevin/fruits/pulls/7/files"): files},
-        "--live",
+        tmp_path, event, ("changelog.md", "uv.lock"), "--live"
     )
     assert result.exit_code == 0, result.output
     assert "Labelled PR #7 with: 🆙 changelog, 🔗 dependencies" in result.output
+    listing = next(call for call in calls if call[:2] == ["api", "--paginate"])
+    assert listing[3].startswith("repos/kevin/fruits/pulls/7/files?")
     edit = next(call for call in calls if call[:2] == ["pr", "edit"])
     assert edit.count("--add-label") == 2
+    assert edit[edit.index("--repo") + 1] == "kevin/fruits"
+
+
+def test_apply_labels_reads_another_thread_from_the_api(tmp_path):
+    """A thread the event does not carry has its text read from the API."""
+    event = {"issue": {"number": 1, "title": "Unrelated", "body": ""}}
+    result, calls = _invoke_apply_labels(tmp_path, event, (), "--number", "9")
+    assert result.exit_code == 0, result.output
+    view = next(call for call in calls if call[1:2] == ["view"])
+    assert view[:3] == ["issue", "view", "9"]
+    assert view[view.index("--repo") + 1] == "kevin/fruits"
 
 
 # ---------------------------------------------------------------------------
@@ -591,107 +604,135 @@ def test_serialize_inline_labels_escapes_special_characters(name, description):
     assert label["description"] == description
 
 
-# --- apply_labels path handling ---
+# --- Label sources ---
 
 
 @pytest.fixture
 def captured_labelmaker(monkeypatch):
-    """Record every labelmaker invocation instead of running the binary."""
+    """Record every labelmaker invocation, with the staged file's content."""
     calls: list[tuple[str, ...]] = []
+    staged: dict[str, str] = {}
+
+    def run(_lm, *args):
+        # The staging directory is gone once `apply_labels` returns.
+        calls.append(args)
+        path = Path(args[1])
+        staged[path.name] = path.read_text(encoding="UTF-8")
 
     monkeypatch.setattr(
         labels_module,
         "ensure_binary",
         lambda _name: Path("/fake/labelmaker"),
     )
-    monkeypatch.setattr(
-        labels_module,
-        "_run_labelmaker",
-        lambda _lm, *args: calls.append(args),
-    )
-    return calls
+    monkeypatch.setattr(labels_module, "_run_labelmaker", run)
+    return calls, staged
 
 
-def test_apply_labels_reads_labels_toml_from_labels_dir(
+def _staged_name(call: tuple[str, ...]) -> str:
+    """The staging-relative path of the file one labelmaker call applies."""
+    path = Path(call[1])
+    if path.parent.name == "extra-labels":
+        return f"extra-labels/{path.name}"
+    return path.name
+
+
+def test_apply_labels_applies_the_bundled_default_profile(
     tmp_path, monkeypatch, captured_labelmaker
 ):
-    """`labels_dir` decides where `labels.toml` is read from, not the CWD."""
-    monkeypatch.chdir(tmp_path)
-    export = tmp_path / "export"
-    export.mkdir()
-
-    apply_labels(Config(), "owner/repo", is_awesome=False, labels_dir=export)
-
-    assert captured_labelmaker == [
-        ("apply", str(export / "labels.toml"), "--profile", "default", "owner/repo")
-    ]
-
-
-def test_apply_labels_defaults_to_current_directory(
-    tmp_path, monkeypatch, captured_labelmaker
-):
-    """Omitting `labels_dir` keeps the historical CWD-relative behaviour."""
+    """The bundled definitions go first, under the `default` profile alone."""
+    calls, staged = captured_labelmaker
     monkeypatch.chdir(tmp_path)
 
     apply_labels(Config(), "owner/repo", is_awesome=False)
 
-    assert captured_labelmaker[0][1] == "labels.toml"
+    assert [(_staged_name(call), *call[2:]) for call in calls] == [
+        ("labels.toml", "--profile", "default", "owner/repo")
+    ]
+    assert staged["labels.toml"] == get_data_content("labels.toml")
 
 
-def test_apply_labels_applies_awesome_profile_from_labels_dir(
+def test_apply_labels_applies_the_awesome_profile(
     tmp_path, monkeypatch, captured_labelmaker
 ):
-    """The awesome profile reads the same relocated `labels.toml`."""
+    """An awesome list gets the `awesome` profile on top of `default`."""
+    calls, _staged = captured_labelmaker
     monkeypatch.chdir(tmp_path)
-    export = tmp_path / "export"
-    export.mkdir()
 
-    apply_labels(Config(), "owner/awesome-list", is_awesome=True, labels_dir=export)
+    apply_labels(Config(), "owner/awesome-list", is_awesome=True)
 
-    profiles = [call[3] for call in captured_labelmaker]
-    assert profiles == ["default", "awesome"]
-    assert {call[1] for call in captured_labelmaker} == {str(export / "labels.toml")}
+    assert [call[3] for call in calls] == ["default", "awesome"]
+    assert {_staged_name(call) for call in calls} == {"labels.toml"}
 
 
-def test_apply_labels_merges_extra_label_directories(
+def test_apply_labels_stages_outside_the_working_tree(
     tmp_path, monkeypatch, captured_labelmaker
 ):
-    """Committed and downloaded `extra-labels/` files are both applied."""
-    monkeypatch.chdir(tmp_path)
-    committed = tmp_path / "extra-labels"
-    committed.mkdir()
-    (committed / "hand-written.toml").write_text("", encoding="UTF-8")
+    """Every file labelmaker reads sits in a scratch directory, never the tree."""
+    calls, _staged = captured_labelmaker
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    monkeypatch.chdir(checkout)
 
-    export = tmp_path / "export"
-    (export / "extra-labels").mkdir(parents=True)
-    (export / "extra-labels" / "downloaded.toml").write_text("", encoding="UTF-8")
+    apply_labels(Config(), "owner/repo", is_awesome=False)
 
-    apply_labels(Config(), "owner/repo", is_awesome=False, labels_dir=export)
+    assert not Path(calls[0][1]).is_relative_to(checkout)
+    assert list(checkout.iterdir()) == []
 
-    applied = [call[1] for call in captured_labelmaker[1:]]
-    # The committed directory stays CWD-relative, the download absolute. Both
-    # are built from `Path`, as the production code does, so the expectation
-    # carries the native separator on every platform.
-    assert applied == [
-        str(export / "extra-labels" / "downloaded.toml"),
-        str(Path("extra-labels") / "hand-written.toml"),
+
+def test_apply_labels_applies_committed_extra_labels(
+    tmp_path, monkeypatch, captured_labelmaker
+):
+    """A hand-written `extra-labels/` file is applied without a profile."""
+    calls, staged = captured_labelmaker
+    (tmp_path / "extra-labels").mkdir()
+    (tmp_path / "extra-labels" / "hand-written.toml").write_text(
+        "# Kiwi.\n", encoding="UTF-8"
+    )
+
+    apply_labels(Config(), "owner/repo", is_awesome=False, root=tmp_path)
+
+    assert calls[1][2:] == ("owner/repo",)
+    assert _staged_name(calls[1]) == "extra-labels/hand-written.toml"
+    assert staged["hand-written.toml"] == "# Kiwi.\n"
+
+
+def test_download_shadows_committed_file_of_same_name(tmp_path):
+    """A `labels.extra-files` download wins over a committed file of that name."""
+    (tmp_path / "extra-labels").mkdir()
+    (tmp_path / "extra-labels" / "shared.toml").write_text(
+        "# Committed.\n", encoding="UTF-8"
+    )
+    config = _make_config(extra_files=["https://example.com/fruits/shared.toml"])
+
+    with patch("repomatic.github.labels.get_bytes", return_value=b"# Downloaded.\n"):
+        sources = list(label_sources(config, is_awesome=False, root=tmp_path))
+
+    extra = [source for source in sources if source.path.startswith("extra-labels/")]
+    assert [(source.path, source.text) for source in extra] == [
+        ("extra-labels/shared.toml", "# Downloaded.\n")
     ]
 
 
-def test_apply_labels_download_shadows_committed_file_of_same_name(
-    tmp_path, monkeypatch, captured_labelmaker
-):
-    """A download wins over a committed file of the same name, applied once."""
-    monkeypatch.chdir(tmp_path)
-    committed = tmp_path / "extra-labels"
-    committed.mkdir()
-    (committed / "shared.toml").write_text("", encoding="UTF-8")
+def test_inline_definitions_come_last(tmp_path):
+    """The inline definitions are applied after every file."""
+    config = _make_config(extra=[{"name": "🍋 citrus", "color": "fef2c0"}])
 
-    export = tmp_path / "export"
-    (export / "extra-labels").mkdir(parents=True)
-    (export / "extra-labels" / "shared.toml").write_text("", encoding="UTF-8")
+    sources = list(label_sources(config, is_awesome=False, root=tmp_path))
 
-    apply_labels(Config(), "owner/repo", is_awesome=False, labels_dir=export)
+    assert [source.path for source in sources] == ["labels.toml", "inline.toml"]
+    assert "🍋 citrus" in sources[-1].text
 
-    applied = [call[1] for call in captured_labelmaker[1:]]
-    assert applied == [str(export / "extra-labels" / "shared.toml")]
+
+def test_declared_names_read_the_applied_sources(tmp_path):
+    """The names a lint calls declared are the names the sync applies."""
+    (tmp_path / "extra-labels").mkdir()
+    (tmp_path / "extra-labels" / "kiwi.yaml").write_text(
+        "profiles:\n  default:\n    labels:\n      - name: 🥝 kiwi\n",
+        encoding="UTF-8",
+    )
+    config = _make_config(extra=[{"name": "🍋 citrus"}])
+
+    names = declared_label_names(config, is_awesome=False, labels_dir=tmp_path)
+
+    assert {"🥝 kiwi", "🍋 citrus"} <= names
+    assert BOT_ISSUE_LABEL in names

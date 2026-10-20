@@ -14,17 +14,13 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for binary verification."""
+"""Tests for `repomatic.release.binary`: the build roster and its asset names."""
 
 from __future__ import annotations
 
 import json
 import struct
-import sys
-from pathlib import Path
 from string import ascii_lowercase, digits
-from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 from extra_platforms import (
@@ -35,30 +31,22 @@ from extra_platforms import (
     WINDOWS,
     X86_64,
 )
+from packaging.version import Version
 
-TYPE_CHECKING = False
-if TYPE_CHECKING:
-    from extra_platforms import Architecture
-
-from repomatic.git_ops import VERSION_BUMP_BRANCHES
-from repomatic.github.actions import WorkflowEvent
 from repomatic.metadata.core import Metadata
 from repomatic.release.binary import (
     BINARY_ASSET_SUFFIXES,
     MACHINE_IDS,
     NUITKA_BUILD_TARGETS,
-    SKIP_BINARY_BUILD_BRANCHES,
     BinaryFormat,
     BuildTarget,
-    _elf_info,
-    _macho_info,
-    _pe_machine,
-    _version_key,
     pack_binary_assets,
-    verify_binary_arch,
-    verify_binary_floor,
 )
 from tests.conftest import metadata_from_pyproject
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from extra_platforms import Architecture
 
 EM_AARCH64 = 183
 EM_X86_64 = 62
@@ -106,7 +94,7 @@ def make_pe(machine: int) -> bytes:
     return dos_header + b"PE\0\0" + struct.pack("<H", machine) + bytes(18)
 
 
-def _macho_cpu_type(arch: Architecture) -> int:
+def macho_cpu_type(arch: Architecture) -> int:
     """The Mach-O `cputype` for an architecture, narrowed for the byte builders.
 
     {data}`~repomatic.release.binary.MACHINE_IDS` spans every format, so its values are
@@ -119,20 +107,11 @@ def _macho_cpu_type(arch: Architecture) -> int:
     return value
 
 
-def _pe_machine_id(arch: Architecture) -> int:
+def pe_machine_id(arch: Architecture) -> int:
     """The PE COFF `Machine` value for an architecture, narrowed to `int`."""
     value = MACHINE_IDS[BinaryFormat.PE, arch]
     assert isinstance(value, int)
     return value
-
-
-def _machines_for(binary_format: BinaryFormat) -> set[str | int]:
-    """Every machine identifier recorded for one executable format."""
-    return {
-        machine
-        for (candidate, _arch), machine in MACHINE_IDS.items()
-        if candidate is binary_format
-    }
 
 
 @pytest.mark.parametrize(
@@ -174,14 +153,6 @@ def test_pack_binary_assets(tmp_path):
     assert pack_binary_assets(tmp_path, "1.2.3") == uploads
 
 
-def test_version_key_ordering():
-    """Dotted versions compare numerically, not lexically."""
-    assert _version_key("2.28") < _version_key("2.34")
-    assert _version_key("2.4") < _version_key("2.38")
-    assert _version_key("10.15") < _version_key("11.0")
-    assert max(["2.4", "2.38", "2.17"], key=_version_key) == "2.38"
-
-
 @pytest.mark.parametrize(
     ("payload", "expected"),
     [
@@ -198,190 +169,6 @@ def test_binary_format_detection(tmp_path, payload, expected):
     sample = tmp_path / "sample.bin"
     sample.write_bytes(payload)
     assert BinaryFormat.detect(sample) is expected
-
-
-def test_unknown_target(tmp_path):
-    """Unknown target raises ValueError."""
-    binary = tmp_path / "test.bin"
-    binary.touch()
-    with pytest.raises(ValueError, match="Unknown target"):
-        verify_binary_arch("unknown-platform", binary)
-
-
-@pytest.mark.parametrize(
-    ("target", "payload"),
-    [
-        ("linux-arm64", make_elf(EM_AARCH64)),
-        ("linux-x64", make_elf(EM_X86_64)),
-        ("macos-arm64", make_macho(_macho_cpu_type(AARCH64))),
-        ("macos-x64", make_fat([make_macho(_macho_cpu_type(X86_64))])),
-        ("windows-arm64", make_pe(_pe_machine_id(AARCH64))),
-        ("windows-x64", make_pe(_pe_machine_id(X86_64))),
-    ],
-)
-def test_matching_arch(tmp_path, target, payload):
-    """Binary with matching architecture passes verification."""
-    binary = tmp_path / "test.bin"
-    binary.write_bytes(payload)
-    # Should not raise.
-    verify_binary_arch(target, binary)
-
-
-@pytest.mark.parametrize(
-    ("target", "payload"),
-    [
-        # Wrong architecture, right format.
-        ("linux-arm64", make_elf(EM_X86_64)),
-        ("macos-arm64", make_macho(_macho_cpu_type(X86_64))),
-        ("windows-x64", make_pe(_pe_machine_id(AARCH64))),
-        # Wrong executable format entirely.
-        ("linux-x64", make_pe(_pe_machine_id(X86_64))),
-        ("windows-x64", make_elf(EM_X86_64)),
-        # Not an executable at all.
-        ("linux-x64", b""),
-    ],
-)
-def test_mismatched_arch(tmp_path, target, payload):
-    """Binary with mismatched architecture or format raises ValueError."""
-    binary = tmp_path / "test.bin"
-    binary.write_bytes(payload)
-    with pytest.raises(ValueError, match="Binary architecture mismatch"):
-        verify_binary_arch(target, binary)
-
-
-def test_elf_info_without_verneed(tmp_path):
-    """A sectionless ELF reports its machine and no glibc requirement."""
-    sample = tmp_path / "sample.bin"
-    sample.write_bytes(make_elf(EM_X86_64))
-    assert _elf_info(sample) == ("EM_X86_64", None)
-
-
-def test_elf_info_skips_glibc_feature_versions(tmp_path):
-    """A feature entry like `GLIBC_ABI_DT_RELR` sets no glibc floor.
-
-    Files linked with packed relocations require it, like the Python
-    interpreter Arch Linux ships.
-    """
-
-    class FakeVerNeedSection:
-        def iter_versions(self):
-            names = ("GLIBC_2.34", "GLIBC_ABI_DT_RELR", "GLIBC_2.38")
-            yield None, [SimpleNamespace(name=name) for name in names]
-
-    class FakeELFFile:
-        def __init__(self, stream):
-            self.header = {"e_machine": "EM_X86_64"}
-
-        def iter_sections(self):
-            yield FakeVerNeedSection()
-
-    sample = tmp_path / "sample.bin"
-    sample.write_bytes(make_elf(EM_X86_64))
-    with (
-        patch("repomatic.release.binary.ELFFile", FakeELFFile),
-        patch("repomatic.release.binary.GNUVerNeedSection", FakeVerNeedSection),
-    ):
-        assert _elf_info(sample) == ("EM_X86_64", "2.38")
-
-
-def test_macho_info_fat_slices(tmp_path):
-    """CPU types accumulate and the floor maxes across fat slices."""
-    sample = tmp_path / "sample.bin"
-    sample.write_bytes(
-        make_fat([
-            make_macho(_macho_cpu_type(AARCH64), "12.4"),
-            make_macho(_macho_cpu_type(X86_64), "10.15"),
-        ])
-    )
-    cpu_types, floor = _macho_info(sample)
-    assert cpu_types == _machines_for(BinaryFormat.MACHO)
-    assert floor == "12.4"
-
-
-def test_pe_machine_parsing(tmp_path):
-    """The COFF machine field is read from PE headers, None elsewhere."""
-    sample = tmp_path / "sample.exe"
-    sample.write_bytes(make_pe(_pe_machine_id(AARCH64)))
-    assert _pe_machine(sample) == _pe_machine_id(AARCH64)
-    sample.write_bytes(b"MZ not a real PE")
-    assert _pe_machine(sample) is None
-
-
-def test_running_interpreter_parses():
-    """The parsers agree with the running interpreter's own executable."""
-    executable = Path(sys.executable)
-    if sys.platform.startswith("linux"):
-        machine, floor = _elf_info(executable)
-        assert machine in _machines_for(BinaryFormat.ELF)
-        assert floor is None or _version_key(floor) >= (2,)
-    elif sys.platform == "darwin":
-        cpu_types, floor = _macho_info(executable)
-        assert cpu_types & _machines_for(BinaryFormat.MACHO)
-        assert floor is not None
-    elif sys.platform == "win32":
-        assert _pe_machine(executable) in _machines_for(BinaryFormat.PE)
-
-
-def test_floor_within_bounds_macos(tmp_path):
-    """Files at or below the declared macOS floor pass verification."""
-    binary = tmp_path / "test.bin"
-    binary.write_bytes(make_macho(_macho_cpu_type(AARCH64), "11.0"))
-    dist = tmp_path / "app.dist"
-    dist.mkdir()
-    (dist / "lib.dylib").write_bytes(make_macho(_macho_cpu_type(AARCH64), "10.9"))
-    # Should not raise.
-    verify_binary_floor("macos-arm64", binary, [dist])
-
-
-def test_floor_exceeded_macos(tmp_path):
-    """A dist file above the declared macOS floor fails verification."""
-    binary = tmp_path / "test.bin"
-    binary.write_bytes(make_macho(_macho_cpu_type(AARCH64), "11.0"))
-    dist = tmp_path / "app.dist"
-    dist.mkdir()
-    (dist / "lib.dylib").write_bytes(make_macho(_macho_cpu_type(AARCH64), "26.0"))
-    with pytest.raises(ValueError, match="OS floor exceeded") as excinfo:
-        verify_binary_floor("macos-arm64", binary, [dist])
-    assert "26.0" in str(excinfo.value)
-    assert "lib.dylib" in str(excinfo.value)
-
-
-@pytest.mark.parametrize(
-    ("measured", "passes"),
-    [
-        ("2.17", True),
-        ("2.28", True),
-        ("2.39", False),
-    ],
-)
-def test_floor_linux(tmp_path, measured, passes):
-    """Linux floors compare the measured glibc requirement to the declared floor."""
-    binary = tmp_path / "test.bin"
-    binary.write_bytes(make_elf(EM_X86_64))
-    with patch(
-        "repomatic.release.binary._elf_info", return_value=("EM_X86_64", measured)
-    ):
-        if passes:
-            verify_binary_floor("linux-x64", binary)
-        else:
-            with pytest.raises(ValueError, match="OS floor exceeded"):
-                verify_binary_floor("linux-x64", binary)
-
-
-def test_floor_windows_is_documentation_only(tmp_path):
-    """Windows targets have no enforceable floor and always pass."""
-    binary = tmp_path / "test.exe"
-    binary.write_bytes(make_pe(_pe_machine_id(X86_64)))
-    # Should not raise, and must not even look at the headers.
-    verify_binary_floor("windows-x64", binary)
-
-
-def test_floor_unknown_target(tmp_path):
-    """Unknown target raises ValueError."""
-    binary = tmp_path / "test.bin"
-    binary.touch()
-    with pytest.raises(ValueError, match="Unknown target"):
-        verify_binary_floor("unknown-platform", binary)
 
 
 ASSET_ARCH_LABELS = {AARCH64: "arm64", X86_64: "x64"}
@@ -413,8 +200,8 @@ def test_nuitka_targets(target_id: str, build_target: BuildTarget) -> None:
     # Every target declares a floor; only Linux compiles in a container, and
     # what the version counts differs by format (a glibc symbol version below
     # 3, an OS release above 10).
-    assert _version_key(build_target.floor) >= (
-        (2,) if build_target.binary_format is BinaryFormat.ELF else (10,)
+    assert Version(build_target.floor) >= Version(
+        "2" if build_target.binary_format is BinaryFormat.ELF else "10"
     )
     if build_target.platform is LINUX:
         assert build_target.container is not None
@@ -477,51 +264,6 @@ def test_enforced_floor_follows_binary_format(
     else:
         assert build_target.binary_format.floor_label
         assert build_target.enforced_floor == build_target.floor
-
-
-def test_skip_binary_build_branches_constant():
-    """Test that SKIP_BINARY_BUILD_BRANCHES contains expected branch names."""
-    assert isinstance(SKIP_BINARY_BUILD_BRANCHES, frozenset)
-    # Verify the list contains expected branches for non-code changes.
-    assert "sync-mailmap" in SKIP_BINARY_BUILD_BRANCHES
-    assert "format-markdown" in SKIP_BINARY_BUILD_BRANCHES
-    assert "format-images" in SKIP_BINARY_BUILD_BRANCHES
-    assert "sync-gitignore" in SKIP_BINARY_BUILD_BRANCHES
-    # Verify branches that affect code are NOT in the list.
-    assert "format-python" not in SKIP_BINARY_BUILD_BRANCHES
-    assert "main" not in SKIP_BINARY_BUILD_BRANCHES
-
-
-def test_skip_binary_build_disjoint_from_version_bumps():
-    """Version-bump branches rewrite the version string baked into the
-    Nuitka binary, so they must not appear in SKIP_BINARY_BUILD_BRANCHES.
-    """
-    assert SKIP_BINARY_BUILD_BRANCHES.isdisjoint(VERSION_BUMP_BRANCHES)
-
-
-@pytest.mark.parametrize(
-    "workflow_file",
-    [
-        ".github/workflows/_release-engine.yaml",
-        ".github/workflows/release.yaml",
-    ],
-)
-def test_skip_binary_build_release_workflow_push(workflow_file):
-    """A push that only touches a release-pipeline workflow must rebuild binaries.
-
-    Those workflows define how binaries are compiled and self-tested, so any
-    change there needs a full matrix revalidation. Regression test for the
-    ``release.yaml`` split leaving ``_release-engine.yaml`` outside
-    ``BINARY_AFFECTING_PATHS``, which let engine-only fixes skip the Nuitka
-    matrix.
-    """
-    metadata = Metadata()
-    # Prime the cached properties with a push event touching a single file.
-    metadata.__dict__["event_type"] = WorkflowEvent.push
-    metadata.__dict__["head_branch"] = "main"
-    metadata.__dict__["head_commit_message"] = "Water the papaya trees"
-    metadata.__dict__["changed_files"] = (workflow_file,)
-    assert metadata.skip_binary_build is False
 
 
 def test_nuitka_enabled_default():

@@ -1,6 +1,6 @@
 ---
 args: [repo_url]
-footer: 'false'
+footer: false
 ---
 
 Create a [**branch ruleset**]($repo_url/settings/rules/new?target=branch&enforcement=active) so the default branch cannot be force-pushed or deleted:

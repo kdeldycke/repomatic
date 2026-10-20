@@ -1,6 +1,6 @@
 ---
 args: [package_name, repo_owner, repo_name, workflow_filename, settings_url]
-footer: 'false'
+footer: false
 ---
 
 Register a **Trusted Publisher** on PyPI so `publish-pypi` uploads through OIDC.

@@ -22,9 +22,9 @@ output route through: `sync-uv-lock`, `sync-deps`, `sync-dep-sources`, the
 three version-sync bumpers (`sync-tool-versions`, `sync-action-pins`,
 `sync-workflow-pins`), and `audit --fix`.
 
-The computations stay with their datasources ({mod}`repomatic.deps.uv` for the lock,
-{mod}`repomatic.deps.pins` for GitHub/PyPI/npm); this module only renders
-their results.
+The computations stay with their datasources ({mod}`repomatic.deps.lockfile`
+and {mod}`repomatic.deps.cooldown` for the lock, {mod}`repomatic.deps.pins` for
+GitHub/PyPI/npm); this module only renders their results.
 """
 
 from __future__ import annotations
@@ -33,7 +33,6 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from ..github.pr_body import demote_markdown_headings, sanitize_markdown_mentions
 from ..github.releases import get_github_release_body
 from ..humanize import (
     format_countdown,
@@ -41,14 +40,19 @@ from ..humanize import (
     parse_iso_datetime,
     utc_midnight,
 )
+from ..markdown import demote_markdown_headings, sanitize_markdown_mentions
 from ..pypi import (
     PYPI_PACKAGE_URL,
     get_changelog_url as get_pypi_changelog_url,
-    get_release_dates as get_pypi_release_dates,
     get_source_url as get_pypi_source_url,
+    pypi_release_dates,
 )
 from ..tabular import render_markdown_table
 from ..versions import safe_version
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
 
 RELEASE_NOTES_MAX_LENGTH = 2000
 """Maximum characters per package release body before truncation."""
@@ -59,7 +63,7 @@ RELEASE_NOTES_MAX_LENGTH = 2000
 # ---------------------------------------------------------------------------
 
 
-def link_name(name: str, name_urls: dict[str, str] | None) -> str:
+def link_name(name: str, name_urls: Mapping[str, str] | None) -> str:
     """Render a table's subject cell, linked when a URL is known for it.
 
     :param name: Package, action or tool name.
@@ -86,9 +90,6 @@ def markdown_section(
     and not the other.
 
     :param heading: Full heading line, emoji included, without the `## `.
-        Omitted when empty, for a caller embedding the table under a title of
-        its own (the release PR's blocker banner sits inside a `[!CAUTION]`
-        blockquote that already says what it is).
     :param note: Intro paragraph shown between heading and table. Omitted
         when empty.
     :param headers: Column titles.
@@ -96,7 +97,7 @@ def markdown_section(
         *headers*.
     :return: The rendered markdown, with no trailing newline.
     """
-    lines = [f"## {heading}", ""] if heading else []
+    lines = [f"## {heading}", ""]
     if note:
         lines += [note, ""]
     lines.append(render_markdown_table(headers, rows, align=("left",) * len(headers)))
@@ -159,13 +160,13 @@ def format_released(raw_upload: str, reference: date | datetime | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def pypi_name_urls(changes: list[tuple[str, str, str]]) -> dict[str, str]:
-    """Map each changed package name to its PyPI project URL.
+def pypi_name_urls(names: Iterable[str]) -> dict[str, str]:
+    """Map each package name to its PyPI project URL.
 
-    Convenience for {func}`format_diff_table`'s `name_urls` when the changes
+    Convenience for the `name_urls` of the renderers below, when the names
     come from a PyPI-resolved source (`sync-uv-lock`, `fix-vulnerable-deps`).
     """
-    return {name: PYPI_PACKAGE_URL.format(package=name) for name, _old, _new in changes}
+    return {name: PYPI_PACKAGE_URL.format(package=name) for name in names}
 
 
 def format_exclude_newer_note(exclude_newer: str) -> str:
@@ -179,7 +180,7 @@ def format_exclude_newer_note(exclude_newer: str) -> str:
 
     :param exclude_newer: ISO 8601 datetime from the lock's
         `[options].exclude-newer`, as carried by
-        {attr}`repomatic.deps.uv.LockFile.exclude_newer`, or empty.
+        {attr}`repomatic.deps.lockfile.LockFile.exclude_newer`, or empty.
     :return: A one-line markdown note, or empty when *exclude_newer* is empty.
     """
     if not exclude_newer:
@@ -194,15 +195,15 @@ def format_exclude_newer_note(exclude_newer: str) -> str:
 
 def format_diff_table(
     changes: list[tuple[str, str, str]],
-    upload_times: dict[str, str] | None = None,
+    upload_times: Mapping[str, str] | None = None,
     cooldown_note: str = "",
-    comparison_urls: dict[str, str] | None = None,
+    comparison_urls: Mapping[str, str] | None = None,
     reference_date: date | None = None,
-    name_urls: dict[str, str] | None = None,
+    name_urls: Mapping[str, str] | None = None,
     heading: str = "Updated packages",
     subject: str = "Package",
-    released_overrides: dict[str, str] | None = None,
-    change_labels: dict[str, str] | None = None,
+    released_overrides: Mapping[str, str] | None = None,
+    change_labels: Mapping[str, str] | None = None,
 ) -> str:
     """Format version changes as a markdown table with heading.
 
@@ -221,10 +222,10 @@ def format_diff_table(
     version-sync updaters) is shown above the table.
 
     :param changes: List of `(name, old_version, new_version)` tuples
-        as returned by {func}`repomatic.deps.uv.diff_lock_versions`.
+        as returned by {func}`repomatic.deps.lockfile.diff_lock_versions`.
     :param upload_times: Optional mapping of package names to ISO 8601
         upload-time strings, as held by
-        {attr}`repomatic.deps.uv.LockFile.upload_times`.
+        {attr}`repomatic.deps.lockfile.LockFile.upload_times`.
     :param cooldown_note: Optional pre-rendered markdown sentence describing
         the cooldown cutoff, shown above the table. Build it with
         {func}`format_exclude_newer_note` (uv) or
@@ -292,7 +293,7 @@ def format_diff_table(
 class HeldBackPackage:
     """A newer release withheld from the lock by the `exclude-newer` cooldown.
 
-    Built by {func}`repomatic.deps.uv.compute_held_back_packages` for the `## Held
+    Built by {func}`repomatic.deps.cooldown.compute_held_back_packages` for the `## Held
     back by cooldown` report section: a package has already published a newer
     version, but it is still inside the cooldown window, so `uv lock --upgrade`
     keeps the older {attr}`locked_version`.
@@ -316,6 +317,18 @@ class HeldBackPackage:
     with a human-readable countdown (`2026-06-25 (in 4 days)`), or empty when
     it cannot be computed."""
 
+    @property
+    def row(self) -> tuple[str, str, str, str, str]:
+        """The release as a terminal row: its name, then the
+        {data}`HELD_BACK_COLUMNS` cells."""
+        return (
+            self.name,
+            self.locked_version,
+            self.available_version,
+            self.released,
+            self.eligible,
+        )
+
 
 EXCLUDE_NEWER_HELD_BACK_NOTE = (
     "Newer releases already published but withheld because they are still"
@@ -331,7 +344,7 @@ wording to {func}`format_held_back_table` instead.
 HELD_BACK_COLUMNS = ("Locked", "Available", "Released", "Eligible")
 """Held-back columns following the caller-supplied subject column.
 
-Shared with {func}`repomatic.deps.sync.print_held_back_table`, so a run's
+Shared with {func}`repomatic.cli.deps.print_plan_tables`, so a run's
 markdown PR body and its terminal table name the same columns in the same
 order instead of drifting apart as two hand-kept literals.
 """
@@ -351,7 +364,7 @@ def build_held_back(
     {func}`repomatic.deps.pins.select_held_back` picks the withheld
     candidate, and this turns its raw version and upload date into the same
     `released`/`eligible` strings
-    {func}`repomatic.deps.uv.compute_held_back_packages` produces for uv, so
+    {func}`repomatic.deps.cooldown.compute_held_back_packages` produces for uv, so
     {func}`format_held_back_table` renders both identically. Unlike the uv
     path, no second resolution is needed: the candidates are already in hand
     from the datasource sweep.
@@ -378,13 +391,13 @@ def format_held_back_table(
     held_back: list[HeldBackPackage],
     note: str = EXCLUDE_NEWER_HELD_BACK_NOTE,
     *,
-    name_urls: dict[str, str] | None = None,
+    name_urls: Mapping[str, str] | None = None,
     subject: str = "Package",
 ) -> str:
     """Format cooldown-withheld releases as a markdown section.
 
     Shared by every cooldown-gated updater: `sync-uv-lock` (rows from
-    {func}`repomatic.deps.uv.compute_held_back_packages`) and the version-sync
+    {func}`repomatic.deps.cooldown.compute_held_back_packages`) and the version-sync
     commands (rows from {func}`build_held_back`), so the section renders
     identically.
 
@@ -447,8 +460,8 @@ entry's own timestamp. The markdown report renders the marker in italics, like
 class BypassForecast:
     """A cooldown-bypass freeze and the date it self-clears.
 
-    Built by {func}`repomatic.deps.uv.compute_bypass_forecasts` (freezes still
-    active) and {func}`repomatic.deps.uv.compute_pruned_forecasts` (freezes the run
+    Built by {func}`repomatic.deps.cooldown.active_forecasts` (freezes still
+    active) and {func}`repomatic.deps.cooldown.pruned_forecasts` (freezes the run
     just cleared) for the `## ❄️ Cooldown bypasses` report section: a
     fixed-timestamp `exclude-newer-package` entry holds {attr}`name` at
     {attr}`held_version` until that version ages past the `exclude-newer`
@@ -472,6 +485,17 @@ class BypassForecast:
     to forecast against. For a package the lock does not hold, the date is
     projected from the entry's own cutoff."""
 
+    @property
+    def awaits_release(self) -> bool:
+        """Whether the freeze holds an unreleased version, which only a release
+        can end."""
+        return self.expires == BYPASS_NEEDS_RELEASE
+
+    @property
+    def row(self) -> tuple[str, str, str]:
+        """The freeze as a terminal row of {data}`BYPASS_COLUMNS`."""
+        return self.name, self.held_version or BYPASS_NOT_LOCKED, self.expires
+
 
 BYPASS_SECTION_NOTE = (
     "Packages pulled in ahead of the cooldown by an [`exclude-newer-package`]"
@@ -483,7 +507,7 @@ BYPASS_SECTION_NOTE = (
 BYPASS_COLUMNS = ("Package", "Held at", "Held until")
 """Columns of the cooldown-bypass table.
 
-Shared with {func}`repomatic.deps.sync.print_bypass_table` for the reason
+Shared with {func}`repomatic.cli.deps.print_plan_tables` for the reason
 {data}`HELD_BACK_COLUMNS` is.
 """
 
@@ -494,7 +518,7 @@ def format_bypass_section(
     frozen: list[str] | None = None,
     *,
     stale_comments: list[str] | None = None,
-    name_urls: dict[str, str] | None = None,
+    name_urls: Mapping[str, str] | None = None,
 ) -> str:
     """Format the cooldown-bypass lifecycle as a single markdown table.
 
@@ -510,14 +534,14 @@ def format_bypass_section(
     a version.
 
     :param forecasts: Active freezes from
-        {func}`repomatic.deps.uv.compute_bypass_forecasts`.
+        {func}`repomatic.deps.cooldown.active_forecasts`.
     :param pruned: Expired entries the run removed, snapshot by
-        {func}`repomatic.deps.uv.compute_pruned_forecasts` before the prune.
+        {func}`repomatic.deps.cooldown.pruned_forecasts` before the prune.
     :param frozen: Names of the entries the run rewrote into freeze cutoffs;
         their *forecasts* rows get the `📌 frozen:` label.
     :param stale_comments: Cleared entries the comment above
         `exclude-newer-package` still names, from
-        {func}`repomatic.deps.uv.bypass_comment_mentions`. A warning under the
+        {meth}`repomatic.deps.cooldown.UvSettings.comment_mentions`. A warning under the
         table asks for the comment to be updated by hand.
     :param name_urls: Optional mapping of names to a URL the name links to.
         Names absent from the mapping render plain.
@@ -547,10 +571,10 @@ def format_bypass_section(
             held = f"🧹 cleared: {held}"
         elif marker == "frozen":
             held = f"📌 frozen: {held}"
-        elif forecast.expires == BYPASS_NEEDS_RELEASE:
+        elif forecast.awaits_release:
             held = f"🚧 unreleased: {held}"
         expires = forecast.expires
-        if expires == BYPASS_NEEDS_RELEASE:
+        if forecast.awaits_release:
             expires = f"*{expires}*"
         rows.append((link_name(forecast.name, name_urls), held, expires))
 
@@ -584,7 +608,7 @@ def _versions_in_range(package: str, old: str, new: str) -> list[str]:
     release has no notes worth advertising, and the sweep that produced *new*
     never picked a prerelease either.
     """
-    releases = get_pypi_release_dates(package)
+    releases = pypi_release_dates(package)
     if not releases:
         return [new]
     old_v = safe_version(old)

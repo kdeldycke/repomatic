@@ -623,7 +623,7 @@ def test_settings_wiring_rejects_a_non_object_document() -> None:
 def test_merge_plugin_settings_creates_then_converges(tmp_path: Path) -> None:
     """First call writes the file, the second is a no-op."""
     target = tmp_path / ".claude" / "settings.json"
-    assert merge_plugin_settings(target) is True
+    assert merge_plugin_settings(target, tmp_path) is True
     written = target.read_text(encoding="UTF-8")
-    assert merge_plugin_settings(target) is False
+    assert merge_plugin_settings(target, tmp_path) is False
     assert target.read_text(encoding="UTF-8") == written

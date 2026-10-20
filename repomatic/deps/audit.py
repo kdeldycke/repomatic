@@ -38,20 +38,19 @@ from __future__ import annotations
 
 import json
 import logging
-import re
-import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from pathlib import Path
 
 from click_extra import ColumnSpec
 from packaging.utils import canonicalize_name
-from packaging.version import Version
 
-from ..github.gh import run_gh_command
+from ..github.gh import gh_json
 from ..pypi import PYPI_PACKAGE_URL
+from .cooldown import LIFT_SPAN, UvSettings
+from .lockfile import LockFile, diff_lock_versions
 from .report import (
+    build_comparison_urls,
     fetch_release_notes,
     format_diff_table,
     format_exclude_newer_note,
@@ -59,16 +58,13 @@ from .report import (
     markdown_section,
     pypi_name_urls,
 )
-from .uv import (
-    LockFile,
-    add_exclude_newer_packages,
-    diff_lock_versions,
-    packages_outside_cooldown,
-    parse_lock_versions,
-    uv_cmd,
-    uv_executable,
-    uv_lock_command,
-)
+from .uv import run_uv, uv_cmd
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from datetime import date
+    from pathlib import Path
 
 AUDIT_HEADER_DEFS: tuple[ColumnSpec, ...] = (
     ColumnSpec("package", "Package"),
@@ -79,16 +75,9 @@ AUDIT_HEADER_DEFS: tuple[ColumnSpec, ...] = (
 )
 """Column definitions for the `repomatic audit` table.
 
-Lives beside the rows' domain model so the columns and the fields they
-render cannot drift apart; the CLI derives its `--sort-by` choices from it.
-"""
-
-MIN_UV_AUDIT_JSON_VERSION = Version("0.11.15")
-"""Minimum `uv` version exposing `uv audit --output-format json`.
-
-The structured JSON output landed in uv 0.11.15 as a preview feature. Below
-this, `uv audit` emits only human-readable text, so `_run_uv_audit`
-refuses to run rather than silently scanning nothing.
+Lives beside {class}`VulnerablePackage`, whose {attr}`~VulnerablePackage.row`
+fills the columns, so the two cannot drift apart. The CLI derives its
+`--sort-by` choices from it.
 """
 
 _SUPPORTED_AUDIT_SCHEMA_VERSIONS = frozenset({"preview"})
@@ -106,8 +95,8 @@ class AdvisorySource(StrEnum):
     """Where a vulnerability advisory was detected.
 
     Each source has a distinct upstream database and ingestion pipeline, so
-    coverage diverges in practice (e.g., GHSA frequently lists a CVE before
-    the PyPA Advisory Database mirrors it). Tracking the source per
+    coverage diverges in practice (GHSA frequently lists a CVE before the PyPA
+    Advisory Database mirrors it, for one). Tracking the source per
     {class}`VulnerablePackage` lets the union deduplicate by advisory ID
     while still attributing each entry to the database that produced it.
     """
@@ -117,6 +106,28 @@ class AdvisorySource(StrEnum):
 
     GITHUB_ADVISORIES = "github-advisories"
     """Detected via the repository's Dependabot alerts (GitHub Advisory Database)."""
+
+    @classmethod
+    def from_config(cls, values: Iterable[str]) -> list[AdvisorySource]:
+        """Read `[tool.repomatic] vulnerable-deps.sources`.
+
+        An unknown name is logged and skipped. The list stays empty when the
+        configuration names no known source: an empty list queries nothing,
+        where `None` would mean every source.
+
+        :param values: The configured source names.
+        :return: The known sources, in configuration order.
+        """
+        sources = []
+        for value in values:
+            try:
+                sources.append(cls(value))
+            except ValueError:
+                logging.warning(
+                    f"Unknown vulnerable-deps source {value!r};"
+                    f" expected one of {[source.value for source in cls]}."
+                )
+        return sources
 
 
 @dataclass
@@ -130,7 +141,7 @@ class VulnerablePackage:
     """Currently resolved version."""
 
     advisory_id: str
-    """Advisory identifier (e.g., `GHSA-xxxx-xxxx-xxxx`)."""
+    """Advisory identifier (like `GHSA-xxxx-xxxx-xxxx`)."""
 
     advisory_title: str
     """Short description of the vulnerability."""
@@ -165,10 +176,21 @@ class VulnerablePackage:
     """Per-source URL pointing to the advisory page in each database.
 
     Each source has its own canonical URL even when reporting the same
-    advisory ID (PyPA's `osv.dev` page vs. GitHub's `/advisories/` page),
+    advisory ID (PyPA's `osv.dev` page against GitHub's `/advisories/` page),
     so the rendered table can link the source name to the database that
     actually surfaced it.
     """
+
+    @property
+    def row(self) -> tuple[str, str, str, str, str]:
+        """The advisory as a row of {data}`AUDIT_HEADER_DEFS`."""
+        return (
+            self.name,
+            self.current_version,
+            self.advisory_id,
+            self.fixed_version or "unknown",
+            ", ".join(sorted(source.value for source in self.sources)) or "—",
+        )
 
 
 def parse_uv_audit_json(output: str) -> list[VulnerablePackage]:
@@ -277,49 +299,22 @@ def format_vulnerability_table(vulns: list[VulnerablePackage]) -> str:
     )
 
 
-def _uv_version() -> Version:
-    """Return the version of the `uv` binary on `PATH`.
-
-    :return: The version parsed from `uv --version`.
-    :raises RuntimeError: when `uv --version` output cannot be parsed.
-    """
-    result = subprocess.run(
-        [uv_executable(), "--version"],
-        capture_output=True,
-        text=True,
-        encoding="UTF-8",
-        check=False,
-    )
-    # `uv --version` prints e.g. `uv 0.11.15 (abc1234 2026-05-18)`.
-    match = re.search(r"\d+\.\d+\.\d+", result.stdout)
-    if not match:
-        raise RuntimeError(f"Could not parse uv version from {result.stdout!r}.")
-    return Version(match.group())
-
-
 def _run_uv_audit(lock_path: Path) -> list[VulnerablePackage]:
     """Run `uv audit --output-format json` and parse the result.
 
-    Requires uv >= {data}`MIN_UV_AUDIT_JSON_VERSION` for the structured JSON
-    output (a preview feature); raises when the `uv` on `PATH` is older rather
-    than silently scanning nothing. See {func}`parse_uv_audit_json`.
+    The `[tool.uv] required-version` floor and the uv the workflows pin both
+    sit above the release that introduced the JSON output, and a uv too old
+    to know the flag dies before printing anything, which the empty-output
+    guard below reports.
 
     :param lock_path: Path to the `uv.lock` file (used to derive the project
         directory).
     :return: A list of {class}`VulnerablePackage` entries detected by
         `uv audit`. Empty when no vulnerabilities are found.
-    :raises RuntimeError: when `uv` is older than the minimum, when it exits
-        without emitting JSON (its stderr is surfaced as the cause), or when
-        its JSON output is unparsable.
+    :raises RuntimeError: when `uv` exits without emitting JSON (its stderr is
+        surfaced as the cause), or when its JSON output is unparsable.
     """
-    version = _uv_version()
-    if version < MIN_UV_AUDIT_JSON_VERSION:
-        raise RuntimeError(
-            "Vulnerability scanning requires uv >= "
-            f"{MIN_UV_AUDIT_JSON_VERSION} for `uv audit --output-format json`, "
-            f"but found uv {version}."
-        )
-    result = subprocess.run(
+    result = run_uv(
         [
             *uv_cmd("audit", frozen=True),
             "--output-format",
@@ -327,11 +322,8 @@ def _run_uv_audit(lock_path: Path) -> list[VulnerablePackage]:
             "--preview-features",
             "json-output",
         ],
-        capture_output=True,
-        text=True,
-        encoding="UTF-8",
-        check=False,
         cwd=lock_path.parent,
+        check=False,
     )
     # An empty stdout means uv died before emitting JSON (a `required-version`
     # mismatch, an unknown flag), not that the audit found nothing: its stderr
@@ -383,27 +375,20 @@ def collect_vulnerable_packages(
         collected.extend(_run_uv_audit(lock_path))
     if AdvisorySource.GITHUB_ADVISORIES in sources and repo:
         ghsa = fetch_dependabot_alerts(repo)
-        # Backfill current versions that the alerts API does not report.
-        # uv.lock stores names PEP 503-normalized (lowercase, dashes), while
-        # GHSA preserves the package's display name (e.g., "GitPython").
-        # Index the lock by canonical name so case/separator mismatches
-        # still resolve to the locked version.
+        # The alerts carry the vulnerable range, not the locked version: read
+        # it from the lock, in whatever spelling the alert names the package.
         if ghsa:
-            locked = parse_lock_versions(lock_path)
-            locked_canonical = {canonicalize_name(k): v for k, v in locked.items()}
+            lock = LockFile.load(lock_path)
             for v in ghsa:
-                if v.current_version:
-                    continue
-                pkg_canonical = canonicalize_name(v.name)
-                if pkg_canonical in locked_canonical:
-                    v.current_version = locked_canonical[pkg_canonical]
+                if not v.current_version:
+                    v.current_version = lock.version_of(v.name)
             collected.extend(ghsa)
 
     # Deduplicate within each canonical package name, unioning sources. Two
     # advisories are the same when their identifier sets overlap: a shared
     # CVE/GHSA/PYSEC/OSV alias links the same advisory reported under
-    # different primary IDs by different sources (e.g. a PYSEC from `uv audit`
-    # and the equivalent GHSA from Dependabot).
+    # different primary IDs by different sources (a PYSEC from `uv audit`
+    # and the equivalent GHSA from Dependabot, say).
     groups: dict[str, list[tuple[VulnerablePackage, set[str]]]] = {}
     for v in collected:
         ids = {v.advisory_id, *v.aliases}
@@ -435,81 +420,117 @@ def collect_vulnerable_packages(
     )
 
 
+@dataclass
+class AuditFix:
+    """What `audit --fix` found, and what it upgraded."""
+
+    vulnerabilities: list[VulnerablePackage] = field(default_factory=list)
+    """Every advisory the sources reported."""
+
+    changes: list[tuple[str, str, str]] = field(default_factory=list)
+    """The `(name, old, new)` version moves the upgrade made."""
+
+    lock: LockFile = field(default_factory=LockFile)
+    """The upgraded lock."""
+
+    release_notes: dict[str, tuple[str, list[tuple[str, str]]]] = field(
+        default_factory=dict
+    )
+    """Release notes of the upgraded packages, as
+    {func}`repomatic.deps.report.fetch_release_notes` returns them."""
+
+    @property
+    def has_fixes(self) -> bool:
+        """Whether the upgrade moved at least one package."""
+        return bool(self.changes)
+
+    def render(self, reference_date: date) -> str:
+        """Render the advisories, the version moves and the release notes.
+
+        :param reference_date: The day the "Released" hints count back from.
+        :return: The markdown report, sections separated by a blank line.
+        """
+        sections = (
+            format_vulnerability_table(self.vulnerabilities),
+            format_diff_table(
+                self.changes,
+                self.lock.upload_times,
+                format_exclude_newer_note(self.lock.exclude_newer),
+                comparison_urls=build_comparison_urls(self.changes, self.release_notes),
+                reference_date=reference_date,
+                name_urls=pypi_name_urls(name for name, _old, _new in self.changes),
+            ),
+            format_release_notes(self.release_notes),
+        )
+        return "\n\n".join(section for section in sections if section)
+
+
 def fix_vulnerable_deps(
     lock_path: Path,
     repo: str | None = None,
     sources: list[AdvisorySource] | None = None,
-) -> tuple[bool, str]:
+) -> AuditFix:
     """Detect vulnerable packages and upgrade them in the lock file.
 
     Queries every advisory source enabled by *sources* (defaults to all),
     then upgrades each fixable package with `uv lock --upgrade-package`
     using `--exclude-newer-package` to bypass the `exclude-newer` cooldown
     for security fixes. Also persists the exemptions in `pyproject.toml`
-    so that subsequent `uv lock --upgrade` runs (e.g. from the
-    `sync-uv-lock` job) do not downgrade the fixed packages back within
-    the cooldown window.
+    so that subsequent `uv lock --upgrade` runs (from the `sync-uv-lock` job,
+    say) do not downgrade the fixed packages back within the cooldown window.
 
     An upgrade that resolves to the versions already locked leaves the file
     byte-identical to how it was found, because uv writes the overrides it was
     handed into the lock's `[options]` table even when they change nothing.
-    See the restore in step 5.
+    See the restore below.
 
     :param lock_path: Path to the `uv.lock` file.
     :param repo: Repository in `owner/repo` format. Required when
         {attr}`AdvisorySource.GITHUB_ADVISORIES` is among *sources*.
     :param sources: Advisory databases to consult. Defaults to all known
         sources.
-    :return: A tuple of `(has_fixes, diff_table)`. `has_fixes` is `True`
-        when at least one vulnerable package was upgraded. `diff_table` is a
-        markdown-formatted string with vulnerability details and version changes,
-        or an empty string if no fixable vulnerabilities were found.
+    :return: The advisories, and the upgrade they led to. No change when
+        nothing was fixable.
     """
-    # Step 1: Collect vulnerabilities from every enabled advisory source.
     vulns = collect_vulnerable_packages(lock_path, repo=repo, sources=sources)
     if not vulns:
         logging.info("No vulnerabilities found.")
-        return False, ""
+        return AuditFix()
 
-    # Step 2: Deduplicate packages, since multiple advisories can target one.
-    fixable_packages = {v.name for v in vulns if v.fixed_version}
-    if not fixable_packages:
+    # Several advisories can target one package.
+    fixable = sorted({v.name for v in vulns if v.fixed_version})
+    if not fixable:
         logging.warning(
             f"Found {len(vulns)} vulnerabilities but none have a known fix version."
         )
-        return False, ""
-
-    fixable_sorted = sorted(fixable_packages)
-    fixable_list = ", ".join(fixable_sorted)
+        return AuditFix(vulnerabilities=vulns)
     logging.info(
-        f"Found {len(vulns)} vulnerabilities across"
-        f" {len(fixable_packages)} fixable packages: {fixable_list}."
+        f"Found {len(vulns)} vulnerabilities across {len(fixable)} fixable"
+        f" packages: {', '.join(fixable)}."
     )
 
-    # Step 3: Snapshot the lock before upgrading. The raw bytes ride along with
-    # the version map so a resolution that moves nothing can be rolled back
-    # verbatim, per the restore in step 5.
-    before = parse_lock_versions(lock_path)
+    # The raw bytes ride along with the version map, so a resolution that
+    # moves nothing can be rolled back verbatim.
+    before = LockFile.load(lock_path)
     lock_before = lock_path.read_bytes()
+    settings = UvSettings.load(lock_path.parent / "pyproject.toml")
 
-    # Step 4: Upgrade all fixable packages in a single resolution pass.
-    # Running one command avoids sequential re-resolution undoing earlier
-    # upgrades. The project's own exclude-newer window rides along explicitly
-    # (see uv_lock_command), so only the named packages bypass the cooldown.
-    cmd = uv_lock_command(lock_path.parent / "pyproject.toml")
-    for pkg in fixable_sorted:
-        cmd.extend([
-            "--upgrade-package",
-            pkg,
-            "--exclude-newer-package",
-            f"{pkg}=0 day",
-        ])
-    logging.info(f"Upgrading: {fixable_list}...")
-    subprocess.run(cmd, check=True, cwd=lock_path.parent)
+    # One resolution for every package: sequential ones would undo each other.
+    # The project's own window rides along explicitly (see UvSettings.window),
+    # so only the named packages bypass the cooldown.
+    upgrades: list[str] = []
+    for name in fixable:
+        upgrades += ["--upgrade-package", name]
+    logging.info(f"Upgrading: {', '.join(fixable)}...")
+    run_uv(
+        settings.lock_command(
+            *upgrades, exclude_newer_packages=dict.fromkeys(fixable, LIFT_SPAN)
+        ),
+        cwd=lock_path.parent,
+    )
 
-    # Step 5: Compute version diff, reading the upgraded lock state once.
-    post = LockFile.load(lock_path)
-    changes = diff_lock_versions(before, post.versions)
+    after = LockFile.load(lock_path)
+    changes = diff_lock_versions(before.versions, after.versions)
     if not changes:
         logging.info("No version changes after upgrading vulnerable packages.")
         # uv records the `--exclude-newer-package` overrides it was handed in
@@ -523,42 +544,20 @@ def fix_vulnerable_deps(
         # passing is intentional: normalizing the lock belongs to
         # `sync-uv-lock`, which runs in the same workflow.
         lock_path.write_bytes(lock_before)
-        return False, ""
+        return AuditFix(vulnerabilities=vulns)
 
-    # Step 6: Persist cooldown exemptions only for packages whose fixed
-    # version falls outside the exclude-newer window. Packages already
-    # reachable by a normal `uv lock --upgrade` do not need an override.
-    pyproject_path = lock_path.parent / "pyproject.toml"
-    if pyproject_path.exists():
-        upgraded = {name for name, _old, _new in changes}
-        needs_exemption = packages_outside_cooldown(
-            pyproject_path,
-            lock_path,
-            upgraded,
-        )
-        if needs_exemption:
-            add_exclude_newer_packages(pyproject_path, needs_exemption, lock_path)
+    # Persist an exemption only for a fixed release still inside the window: a
+    # package a normal `uv lock --upgrade` reaches needs no override.
+    upgraded = (name for name, _old, _new in changes)
+    if settings.exempt(upgraded, after, datetime.now(UTC)):
+        settings.save()
 
-    # Step 7: Build the combined output.
-    vuln_table = format_vulnerability_table(vulns)
-    diff_table = format_diff_table(
-        changes,
-        post.upload_times,
-        format_exclude_newer_note(post.exclude_newer),
-        name_urls=pypi_name_urls(changes),
-        reference_date=datetime.now(UTC).date(),
+    return AuditFix(
+        vulnerabilities=vulns,
+        changes=changes,
+        lock=after,
+        release_notes=fetch_release_notes(changes),
     )
-
-    # Fetch and append release notes.
-    notes = fetch_release_notes(changes)
-    notes_section = format_release_notes(notes)
-
-    sections = [vuln_table, diff_table]
-    if notes_section:
-        sections.append(notes_section)
-    combined = "\n\n".join(s for s in sections if s)
-
-    return True, combined
 
 
 def fetch_dependabot_alerts(repo: str) -> list[VulnerablePackage]:
@@ -580,7 +579,7 @@ def fetch_dependabot_alerts(repo: str) -> list[VulnerablePackage]:
         skipped (no upgrade target).
     """
     try:
-        raw = run_gh_command([
+        alerts = gh_json([
             "api",
             "--paginate",
             f"repos/{repo}/dependabot/alerts?state=open&ecosystem=pip&per_page=100",
@@ -592,14 +591,8 @@ def fetch_dependabot_alerts(repo: str) -> list[VulnerablePackage]:
         )
         return []
 
-    try:
-        alerts = json.loads(raw) if raw.strip() else []
-    except json.JSONDecodeError as exc:
-        logging.warning(f"Could not parse Dependabot alerts response: {exc}.")
-        return []
-
     vulns: list[VulnerablePackage] = []
-    for alert in alerts:
+    for alert in alerts or []:
         vuln = alert.get("security_vulnerability") or {}
         package = vuln.get("package") or {}
         advisory = alert.get("security_advisory") or {}
@@ -607,12 +600,7 @@ def fetch_dependabot_alerts(repo: str) -> list[VulnerablePackage]:
         first_patched = (vuln.get("first_patched_version") or {}).get("identifier", "")
         if not name or not first_patched:
             continue
-        # Left empty here: the alert metadata carries only the vulnerable
-        # range, not the actual locked version. The caller backfills the
-        # resolved version from parse_lock_versions.
-        current_version = ""
         ghsa_id = advisory.get("ghsa_id", "")
-        summary = advisory.get("summary", "")
         # Cross-referenced identifiers (CVE, GHSA) let the same advisory
         # deduplicate against `uv audit`, which keys records by OSV/PYSEC IDs.
         aliases = {advisory.get("cve_id") or ""}
@@ -628,9 +616,11 @@ def fetch_dependabot_alerts(repo: str) -> list[VulnerablePackage]:
         vulns.append(
             VulnerablePackage(
                 name=name,
-                current_version=current_version,
+                # The alert carries the vulnerable range, not the locked
+                # version: collect_vulnerable_packages reads that from the lock.
+                current_version="",
                 advisory_id=ghsa_id,
-                advisory_title=summary,
+                advisory_title=advisory.get("summary", ""),
                 fixed_version=first_patched,
                 advisory_url=url,
                 aliases=aliases,

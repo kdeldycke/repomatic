@@ -24,6 +24,8 @@ and easier to update when runner images or Python releases change.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from typing import Final
@@ -175,6 +177,26 @@ the default single-runner pick: the fastest measured on compute-bound parallel
 work and the cheapest tier, and free-threading targets server workloads where
 Linux/ARM is the norm (see {doc}`/test-matrix`).
 """
+
+
+class MatrixName(StrEnum):
+    """The two test matrices every project gets, and the axes each one starts from."""
+
+    FULL = "full"
+    """The matrix of pushes to the default branch and of scheduled runs."""
+
+    PR = "pr"
+    """The reduced matrix of pull requests, for fast feedback."""
+
+    @property
+    def runners(self) -> tuple[str, ...]:
+        """The runner images this matrix seeds its `os` axis with, in order."""
+        return TEST_RUNNERS_FULL if self is MatrixName.FULL else TEST_RUNNERS_PR
+
+    @property
+    def python_versions(self) -> tuple[str, ...]:
+        """The Python versions this matrix seeds its `python-version` axis with."""
+        return TEST_PYTHON_FULL if self is MatrixName.FULL else TEST_PYTHON_PR
 
 
 def python_version_sort_key(version: str) -> tuple[tuple[int, ...], int]:

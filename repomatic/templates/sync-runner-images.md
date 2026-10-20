@@ -2,6 +2,7 @@
 args: [proposal]
 title: Sync runner images
 docs: https://repomatic.net/workflows#sync-runner-images-sync-runner-images
+footer: false
 labels: [🤖 ci]
 ---
 

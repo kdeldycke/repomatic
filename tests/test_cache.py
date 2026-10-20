@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the global binary cache."""
+"""Tests for the global cache of binaries, HTTP responses and tool configs."""
 
 from __future__ import annotations
 
@@ -23,21 +23,25 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from extra_platforms.pytest import skip_windows
 
 from repomatic.cache import (
+    BinaryCacheEntry,
+    ConfigCacheEntry,
+    HttpCacheEntry,
     _max_age_days,
     _prune_empty_dirs,
     auto_purge,
     cache_dir,
-    cache_info,
+    cache_rows,
     cached_binary_path,
-    clear_cache,
-    clear_http_cache,
+    clean,
     get_cached_binary,
     get_cached_response,
-    http_cache_info,
+    lock_path,
     store_binary,
+    store_config,
     store_response,
 )
 from repomatic.config import CacheConfig, Config
@@ -262,13 +266,13 @@ def test_store_binary_unwritable_cache_returns_none(tmp_path, cache_env):
 
 
 # ---------------------------------------------------------------------------
-# cache_info
+# BinaryCacheEntry.entries
 # ---------------------------------------------------------------------------
 
 
 def test_cache_info_empty(cache_env):
     """Returns empty list when cache is empty."""
-    assert cache_info() == []
+    assert BinaryCacheEntry.entries() == []
 
 
 def test_cache_info_lists_entries(tmp_path, cache_env):
@@ -282,7 +286,7 @@ def test_cache_info_lists_entries(tmp_path, cache_env):
     source2.write_bytes(b"biome-bin")
     store_binary("biome", "2.0.0", "macos-arm64", source2)
 
-    entries = cache_info()
+    entries = BinaryCacheEntry.entries()
     assert len(entries) == 2
     tools = {e.tool for e in entries}
     assert tools == {"biome", "ruff"}
@@ -294,41 +298,41 @@ def test_cache_info_lists_entries(tmp_path, cache_env):
 
 
 # ---------------------------------------------------------------------------
-# clear_cache
+# BinaryCacheEntry.clear
 # ---------------------------------------------------------------------------
 
 
 def test_clear_cache_all(tmp_path, cache_env):
-    """clear_cache() removes all entries."""
+    """A clear with no filter removes every binary."""
     source = tmp_path / "staging" / "tool"
     source.parent.mkdir()
     source.write_bytes(b"data")
     store_binary("ruff", "0.11.0", "linux-x64", source)
     store_binary("biome", "2.0.0", "linux-x64", source)
 
-    deleted, freed = clear_cache()
+    deleted, freed = BinaryCacheEntry.clear()
     assert deleted == 2
     assert freed > 0
-    assert cache_info() == []
+    assert BinaryCacheEntry.entries() == []
 
 
 def test_clear_cache_specific_tool(tmp_path, cache_env):
-    """clear_cache(tool=...) removes only matching tool."""
+    """A scoped clear removes only the binaries of that tool."""
     source = tmp_path / "staging" / "tool"
     source.parent.mkdir()
     source.write_bytes(b"data")
     store_binary("ruff", "0.11.0", "linux-x64", source)
     store_binary("biome", "2.0.0", "linux-x64", source)
 
-    deleted, _ = clear_cache(tool="ruff")
+    deleted, _ = BinaryCacheEntry.clear(scope="ruff")
     assert deleted == 1
-    entries = cache_info()
+    entries = BinaryCacheEntry.entries()
     assert len(entries) == 1
     assert entries[0].tool == "biome"
 
 
 def test_clear_cache_max_age(tmp_path, cache_env):
-    """clear_cache(max_age_days=...) removes only old entries."""
+    """An age-limited clear removes only old binaries."""
     source = tmp_path / "staging" / "tool"
     source.parent.mkdir()
     source.write_bytes(b"data")
@@ -342,21 +346,21 @@ def test_clear_cache_max_age(tmp_path, cache_env):
     # Store a fresh one.
     store_binary("biome", "2.0.0", "linux-x64", source)
 
-    deleted, _ = clear_cache(max_age_days=30)
+    deleted, _ = BinaryCacheEntry.clear(max_age_days=30)
     assert deleted == 1
-    entries = cache_info()
+    entries = BinaryCacheEntry.entries()
     assert len(entries) == 1
     assert entries[0].tool == "biome"
 
 
 def test_clear_cache_prunes_empty_dirs(tmp_path, cache_env):
-    """clear_cache removes empty parent directories after deletion."""
+    """A clear removes the directories it empties."""
     source = tmp_path / "staging" / "tool"
     source.parent.mkdir()
     source.write_bytes(b"data")
     store_binary("ruff", "0.11.0", "linux-x64", source)
 
-    clear_cache()
+    BinaryCacheEntry.clear()
     # The bin/ directory tree should be fully pruned.
     bin_dir = cache_env / "bin"
     if bin_dir.exists():
@@ -387,7 +391,7 @@ def test_auto_purge_removes_old_entries(monkeypatch, tmp_path, cache_env):
     os.utime(cached, (old_time, old_time))
 
     auto_purge()
-    assert cache_info() == []
+    assert BinaryCacheEntry.entries() == []
 
 
 def test_auto_purge_disabled_when_zero(tmp_path, cache_env):
@@ -405,7 +409,7 @@ def test_auto_purge_disabled_when_zero(tmp_path, cache_env):
     os.utime(cached, (old_time, old_time))
 
     auto_purge()
-    assert len(cache_info()) == 1
+    assert len(BinaryCacheEntry.entries()) == 1
 
 
 def test_auto_purge_keeps_fresh_entries(monkeypatch, tmp_path, cache_env):
@@ -420,7 +424,7 @@ def test_auto_purge_keeps_fresh_entries(monkeypatch, tmp_path, cache_env):
         store_binary("ruff", "0.11.0", "linux-x64", source)
 
     auto_purge()
-    assert len(cache_info()) == 1
+    assert len(BinaryCacheEntry.entries()) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -534,12 +538,12 @@ def test_store_response_nested_key(cache_env):
 
 
 def test_http_cache_info_lists_entries(cache_env):
-    """http_cache_info returns all cached responses."""
+    """Every cached response is listed."""
     store_response("pypi", "requests", b'{"a": 1}')
     store_response("pypi", "flask", b'{"b": 2}')
     store_response("github-releases", "astral-sh/ruff", b'{"c": 3}')
 
-    entries = http_cache_info()
+    entries = HttpCacheEntry.entries()
     assert len(entries) == 3
     namespaces = {e.namespace for e in entries}
     assert namespaces == {"github-releases", "pypi"}
@@ -550,34 +554,34 @@ def test_http_cache_info_lists_entries(cache_env):
 
 def test_http_cache_info_empty(cache_env):
     """Returns empty list when HTTP cache is empty."""
-    assert http_cache_info() == []
+    assert HttpCacheEntry.entries() == []
 
 
 def test_clear_http_cache_all(cache_env):
-    """clear_http_cache() removes all HTTP entries."""
+    """A clear with no filter removes every HTTP entry."""
     store_response("pypi", "requests", b"data1")
     store_response("github-releases", "astral-sh/ruff", b"data2")
 
-    deleted, freed = clear_http_cache()
+    deleted, freed = HttpCacheEntry.clear()
     assert deleted == 2
     assert freed > 0
-    assert http_cache_info() == []
+    assert HttpCacheEntry.entries() == []
 
 
 def test_clear_http_cache_by_namespace(cache_env):
-    """clear_http_cache(namespace=...) removes only matching namespace."""
+    """A scoped clear removes only the entries of that namespace."""
     store_response("pypi", "requests", b"data1")
     store_response("github-releases", "astral-sh/ruff", b"data2")
 
-    deleted, _ = clear_http_cache(namespace="pypi")
+    deleted, _ = HttpCacheEntry.clear(scope="pypi")
     assert deleted == 1
-    entries = http_cache_info()
+    entries = HttpCacheEntry.entries()
     assert len(entries) == 1
     assert entries[0].namespace == "github-releases"
 
 
 def test_clear_http_cache_by_age(cache_env):
-    """clear_http_cache(max_age_days=...) removes only old entries."""
+    """An age-limited clear removes only old HTTP entries."""
     store_response("pypi", "old-pkg", b"old")
     cached = cache_env / "http" / "pypi" / "old-pkg.json"
     old_time = time.time() - 10 * 86400
@@ -585,8 +589,135 @@ def test_clear_http_cache_by_age(cache_env):
 
     store_response("pypi", "new-pkg", b"new")
 
-    deleted, _ = clear_http_cache(max_age_days=5)
+    deleted, _ = HttpCacheEntry.clear(max_age_days=5)
     assert deleted == 1
-    entries = http_cache_info()
+    entries = HttpCacheEntry.entries()
     assert len(entries) == 1
     assert entries[0].key == "new-pkg"
+
+
+# ---------------------------------------------------------------------------
+# Config cache
+# ---------------------------------------------------------------------------
+
+
+def test_store_config_keys_the_file_on_its_content(cache_env):
+    """Different content lands on different files; the same content on one.
+
+    Two checkouts generating different configs for one tool used to overwrite
+    each other's file, so a run could read the config of the other.
+    """
+    pears = store_config("yamllint", "yamllint.yaml", "fruit: pear\n")
+    plums = store_config("yamllint", "yamllint.yaml", "fruit: plum\n")
+    again = store_config("yamllint", "yamllint.yaml", "fruit: pear\n")
+
+    assert pears is not None
+    assert plums is not None
+    assert pears != plums
+    assert again == pears
+    assert pears.read_text(encoding="UTF-8") == "fruit: pear\n"
+    assert plums.read_text(encoding="UTF-8") == "fruit: plum\n"
+    assert pears.name == plums.name == "yamllint.yaml"
+    assert pears.parent.parent == cache_env / "config" / "yamllint"
+
+
+def test_config_entries_list_both_layouts(cache_env):
+    """A config with no digest directory is listed too, so a clean reaches it."""
+    stored = store_config("biome", "biome.json", "{}\n")
+    assert stored is not None
+    flat = cache_env / "config" / "biome" / "biome.json"
+    flat.write_text("{}\n", encoding="UTF-8")
+
+    entries = ConfigCacheEntry.entries()
+
+    assert {entry.path for entry in entries} == {stored, flat}
+    assert {entry.digest for entry in entries} == {stored.parent.name, ""}
+    assert all(entry.tool == "biome" for entry in entries)
+
+
+def test_store_config_triggers_auto_purge(cache_env):
+    """A stored config ages like every other entry, so a store sweeps the cache."""
+    with patch("repomatic.cache.auto_purge") as mock_purge:
+        store_config("yamllint", "yamllint.yaml", "fruit: pear\n")
+    mock_purge.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# clean
+# ---------------------------------------------------------------------------
+
+
+def _fill_every_cache(tmp_path: Path) -> None:
+    """Store one binary and one config of `ruff`, and one PyPI response."""
+    source = tmp_path / "staging" / "ruff"
+    source.parent.mkdir()
+    source.write_bytes(b"binary")
+    store_binary("ruff", "0.11.0", "linux-x64", source)
+    store_config("ruff", "ruff.toml", "line-length = 88\n")
+    store_response("pypi", "requests", b"{}")
+
+
+@pytest.mark.parametrize(
+    ("options", "left"),
+    [
+        pytest.param({}, set(), id="everything"),
+        pytest.param({"tool": "ruff"}, {"http"}, id="tool-spares-http"),
+        pytest.param({"namespace": "pypi"}, {"binary", "config"}, id="namespace"),
+        pytest.param({"tool": "biome"}, {"binary", "config", "http"}, id="other-tool"),
+        pytest.param({"max_age_days": 30}, {"binary", "config", "http"}, id="fresh"),
+    ],
+)
+def test_clean_reaches_the_caches_its_filters_apply_to(
+    tmp_path, cache_env, options, left
+):
+    """A scope filter narrows only the caches it names, and spares the rest."""
+    _fill_every_cache(tmp_path)
+
+    deleted, _ = clean(**options)
+
+    remaining = {row[0] for row in cache_rows()[0]}
+    assert remaining == left
+    assert deleted == 3 - len(left)
+
+
+def test_auto_purge_reaches_configs(monkeypatch, tmp_path, cache_env):
+    """A stale config is purged with the binaries and the HTTP responses."""
+    monkeypatch.setenv("REPOMATIC_CACHE_MAX_AGE", "7")
+    with patch("repomatic.cache.auto_purge"):
+        stored = store_config("ruff", "ruff.toml", "line-length = 88\n")
+    assert stored is not None
+    old_time = time.time() - 10 * 86400
+    os.utime(stored, (old_time, old_time))
+
+    auto_purge()
+
+    assert ConfigCacheEntry.entries() == []
+
+
+def test_cache_rows_lists_every_cache_in_order(tmp_path, cache_env):
+    """Binaries come first, then HTTP responses, then tool configs."""
+    _fill_every_cache(tmp_path)
+
+    rows, total = cache_rows()
+
+    assert [row[0] for row in rows] == ["binary", "http", "config"]
+    assert [row[1] for row in rows] == ["ruff", "pypi", "ruff"]
+    assert total > 0
+
+
+# ---------------------------------------------------------------------------
+# lock_path
+# ---------------------------------------------------------------------------
+
+
+def test_lock_files_stay_out_of_listings_and_cleans(cache_env):
+    """A lock file another run may hold is never listed nor deleted."""
+    lock = lock_path("mdformat-0123456789abcdef")
+    assert lock == cache_env / "locks" / "mdformat-0123456789abcdef.lock"
+    lock.parent.mkdir(parents=True)
+    lock.touch()
+
+    clean()
+
+    assert lock.is_file()
+    assert cache_rows() == ([], 0)

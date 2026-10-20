@@ -21,7 +21,11 @@ from __future__ import annotations
 import hashlib
 from unittest.mock import MagicMock, patch
 
-from repomatic.tooling.checksums import _download_sha256, update_registry_checksums
+from repomatic.tooling.checksums import (
+    _download_sha256,
+    checksum_targets,
+    update_registry_checksums,
+)
 from repomatic.tooling.registry import TOOL_REGISTRY
 
 FAKE_HASH_OLD = "a" * 64
@@ -58,10 +62,10 @@ def test_download_sha256_retries_a_failed_first_attempt():
 
     with (
         patch(
-            "repomatic.tooling.runner.urlopen",
+            "repomatic.http.urlopen",
             side_effect=[ConnectionResetError("Connection reset by peer"), response],
         ) as fake_urlopen,
-        patch("repomatic.tooling.runner.time.sleep") as fake_sleep,
+        patch("repomatic.http.time.sleep") as fake_sleep,
     ):
         digest = _download_sha256("https://example.com/pear-tart.tar.gz")
 
@@ -158,3 +162,50 @@ def test_update_registry_checksums_version_override(tmp_path):
     # The override version drove the download URL.
     override_url = next(iter(spec.binary.urls.values())).format(version=new_version)
     assert override_url in seen_urls
+
+
+def test_update_registry_checksums_override_limits_the_run_to_its_tools(tmp_path):
+    """An override verifies the bumped tool alone, and stamps no other tool.
+
+    A version bump touches one or two tools: downloading the artifacts of every
+    binary tool for it multiplied the run several times over. A tool left out
+    keeps the stamp of its pinned version, which its checksums still match.
+    """
+    bumped, other = [n for n, s in TOOL_REGISTRY.items() if s.binary is not None][:2]
+    bumped_spec = TOOL_REGISTRY[bumped]
+    assert bumped_spec.binary is not None
+
+    registry = tmp_path / "tool_registry.py"
+    registry.write_text(
+        f'VERSIONS = {{\n    "{bumped}": "1.0.0",\n    "{other}": "1.0.0",\n}}\n',
+        encoding="UTF-8",
+    )
+
+    seen_urls: list[str] = []
+
+    def capture(url):
+        seen_urls.append(url)
+        return FAKE_HASH_NEW
+
+    with patch("repomatic.tooling.checksums._download_sha256", side_effect=capture):
+        update_registry_checksums(registry, version_overrides={bumped: "99.0.0"})
+
+    assert len(seen_urls) == len(bumped_spec.binary.urls)
+    assert all("99.0.0" in url for url in seen_urls)
+    content = registry.read_text(encoding="UTF-8")
+    assert f'"{bumped}": "99.0.0"' in content
+    assert f'"{other}": "1.0.0"' in content
+
+
+def test_checksum_targets_cover_every_binary_platform():
+    """With no override, every platform of every binary tool is verified."""
+    expected = sum(
+        len(spec.binary.urls)
+        for spec in TOOL_REGISTRY.values()
+        if spec.binary is not None
+    )
+    targets = checksum_targets()
+    assert len(targets) == expected
+    for spec, resolved in targets:
+        assert spec.version in resolved.url
+        assert resolved.checksum is not None

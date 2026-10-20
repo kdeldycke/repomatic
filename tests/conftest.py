@@ -35,10 +35,9 @@ from repomatic import pypi, pyproject
 from repomatic.bundle import get_data_content
 from repomatic.checks import CheckResult
 from repomatic.config import config_key_paths, publish_config
-from repomatic.github.actions import get_github_event
+from repomatic.github.event import get_github_event
 from repomatic.github.token import PatPermissionResults
 from repomatic.github.workflow_sync import _canonical
-from repomatic.lint_repo import _fetch_rulesets
 from repomatic.metadata.core import Metadata
 from repomatic.tooling.runner import ensure_binary, run_tool
 
@@ -248,7 +247,6 @@ def _reset_process_caches() -> None:
     Metadata.reset()
     get_github_event.cache_clear()
     pypi._FETCH_MEMO.clear()
-    _fetch_rulesets.cache_clear()
     get_data_content.cache_clear()
     _canonical.cache_clear()
     config_key_paths.cache_clear()

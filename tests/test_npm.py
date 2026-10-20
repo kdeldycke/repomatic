@@ -24,10 +24,10 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from repomatic.npm import get_release_dates
+from repomatic.npm import npm_release_dates
 
 
-def test_get_release_dates_maps_versions_to_dates():
+def test_npm_release_dates_maps_versions_to_dates():
     """Each version maps to its publication date, truncated to `YYYY-MM-DD`."""
     payload = {
         "time": {
@@ -38,13 +38,13 @@ def test_get_release_dates_maps_versions_to_dates():
         },
     }
     with patch("repomatic.npm._fetch_json", return_value=payload):
-        dates = get_release_dates("papaya")
+        dates = npm_release_dates("papaya")
 
     # Housekeeping keys are dropped; timestamps are trimmed to the date.
     assert dates == {"1.0.0": "2026-01-02", "2.1.0": "2026-03-04"}
 
 
-def test_get_release_dates_empty_when_fetch_fails():
+def test_npm_release_dates_empty_when_fetch_fails():
     """A failed metadata fetch degrades to an empty mapping."""
     with patch("repomatic.npm._fetch_json", return_value=None):
-        assert get_release_dates("papaya") == {}
+        assert npm_release_dates("papaya") == {}

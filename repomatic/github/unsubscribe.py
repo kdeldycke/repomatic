@@ -40,20 +40,20 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
+from urllib.parse import urlencode
 
 import arrow
 
 from ..config import Config
-from ..humanize import parse_iso_datetime
-from ..tabular import render_markdown_table
-from .actions import ReportAction
-from .gh import gh_api_json, gh_graphql, iter_graphql_nodes, run_gh_command
-from .pr_body import render_template
+from ..humanize import format_elapsed, parse_iso_datetime
+from ..tabular import ReportAction, render_markdown_table
+from ..templating import render_template
+from .gh import gh_api_pages, gh_graphql, gh_json, iter_graphql_nodes, run_gh_command
 from .token import validate_classic_pat_scope
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from typing import Any
 
 GRAPHQL_PAGE_SIZE = 25
@@ -81,6 +81,9 @@ REST reports a merged pull request as `closed`, where GraphQL distinguishes
 the batched lookup a drop-in for the one-subject REST lookup,
 `_get_thread_details`.
 """
+
+REPORT_TEMPLATE = "unsubscribe-report"
+"""The template the report of both phases renders through."""
 
 SUBJECT_URL_PATTERN = re.compile(
     r"/repos/(?P<owner>[^/]+)/(?P<repo>[^/]+)/(?:issues|pulls)/(?P<number>\d+)$"
@@ -145,47 +148,128 @@ class DetailRow:
     """Per-item detail for the markdown report table."""
 
     action: ReportAction
+    """What the run did to the item."""
+
     html_url: str
+    """Browser URL of the issue or pull request."""
+
     number: int | None
+    """Issue or pull request number, `None` when unknown."""
+
     repo: str
+    """Repository the item belongs to, in `owner/name` form."""
+
     title: str
+    """Title of the issue or pull request."""
+
     updated_at: datetime | None
+    """When the item last moved, `None` when unknown."""
 
 
 @dataclass
-class Phase1Result:
+class PhaseResult:
+    """Counts and rows one phase accumulates."""
+
+    cutoff: datetime | None = None
+    """Inactivity boundary the phase compared against."""
+
+    max_unsubscribes: int = 0
+    """Most unsubscribes the phase may make."""
+
+    total: int = 0
+    """Candidates the phase inspected."""
+
+    unsubscribed: int = 0
+    """Items unsubscribed from, or that a dry run would unsubscribe from."""
+
+    failed: int = 0
+    """Eligible items whose unsubscribe failed."""
+
+    deferred: int = 0
+    """Eligible items left for a later run because the cap was reached."""
+
+    skipped_recent: int = 0
+    """Closed items that moved since the cutoff."""
+
+    rows: list[DetailRow] = field(default_factory=list)
+    """One row per item acted on."""
+
+    skipped: bool = False
+    """Whether the phase could not run at all."""
+
+    skip_reason: str = ""
+    """Why the phase could not run, for the report."""
+
+    def skip(self, reason: str, error: Exception) -> None:
+        """Mark the phase as unable to run, for the reason the report gives.
+
+        :param reason: What the report says, one sentence.
+        :param error: The failure behind it, logged rather than reported.
+        """
+        logging.warning(f"{reason} {error}")
+        self.skipped = True
+        self.skip_reason = reason
+
+    def act(
+        self,
+        label: str,
+        make_row: Callable[..., DetailRow],
+        unsubscribe: Callable[[], bool],
+        *,
+        dry_run: bool,
+    ) -> None:
+        """Unsubscribe from one eligible item, unless the cap is reached.
+
+        An item past the cap is counted as deferred rather than acted on, so the
+        report can say how much a later run still owes.
+
+        :param label: How the log line names the item.
+        :param make_row: Builds the item's row from the `action` it records.
+        :param unsubscribe: Performs the unsubscribe, returning its success.
+        :param dry_run: Record what would be done without acting.
+        """
+        if self.unsubscribed + self.failed >= self.max_unsubscribes:
+            self.deferred += 1
+            return
+        logging.info(f"  {'[dry-run] ' if dry_run else ''}Unsubscribing from {label}.")
+        if dry_run:
+            action = ReportAction.DRY_RUN
+        elif unsubscribe():
+            action = ReportAction.UNSUBSCRIBED
+        else:
+            self.failed += 1
+            self.rows.append(make_row(action=ReportAction.FAILED))
+            return
+        self.unsubscribed += 1
+        self.rows.append(make_row(action=action))
+
+
+@dataclass
+class Phase1Result(PhaseResult):
     """Accumulated counts and details from REST notification phase."""
 
-    cutoff: datetime | None = None
-    max_unsubscribes: int = 0
     newest_updated: datetime | None = None
+    """Latest activity among the inspected subjects."""
+
     oldest_updated: datetime | None = None
-    rows: list[DetailRow] = field(default_factory=list)
-    threads_deferred: int = 0
-    threads_failed: int = 0
-    threads_skipped_open: int = 0
-    threads_skipped_recent: int = 0
-    threads_skipped_unknown: int = 0
-    threads_total: int = 0
-    threads_unsubscribed: int = 0
+    """Earliest activity among the inspected subjects."""
+
+    skipped_open: int = 0
+    """Subjects still open."""
+
+    skipped_unknown: int = 0
+    """Subjects whose state or activity could not be read."""
 
 
 @dataclass
-class Phase2Result:
+class Phase2Result(PhaseResult):
     """Accumulated counts and details from GraphQL threadless phase."""
 
-    cutoff: datetime | None = None
-    items_deferred: int = 0
-    items_failed: int = 0
-    items_not_subscribed: int = 0
-    items_skipped_recent: int = 0
-    items_total: int = 0
-    items_unsubscribed: int = 0
-    max_unsubscribes: int = 0
-    rows: list[DetailRow] = field(default_factory=list)
+    not_subscribed: int = 0
+    """Search results the user is not subscribed to."""
+
     search_query: str = ""
-    skipped: bool = False
-    skip_reason: str = ""
+    """The search the phase ran."""
 
 
 @dataclass
@@ -193,9 +277,16 @@ class UnsubscribeResult:
     """Accumulated results from both unsubscribe phases."""
 
     dry_run: bool = False
+    """Whether the run only reported."""
+
     months: int = Config.notification_months
+    """Inactivity threshold of the run, in months."""
+
     phase1: Phase1Result = field(default_factory=Phase1Result)
+    """Results of the REST notification phase."""
+
     phase2: Phase2Result = field(default_factory=Phase2Result)
+    """Results of the GraphQL threadless phase."""
 
 
 def _compute_cutoff(months: int) -> datetime:
@@ -243,47 +334,28 @@ def _fetch_notification_threads(cutoff: datetime) -> list[dict[str, Any]]:
     :return: Every candidate the filter returned, oldest first. Each thread
         dict contains `id`, `updated_at`, `subject_url`, `subject_type`,
         `repo`, `title`.
+    :raises RuntimeError: When the notifications cannot be read.
     """
-    # The --jq filter selects Issue/PullRequest types and extracts fields.
-    jq_filter = (
-        ".[] | select(.subject.type == "
-        + " or .subject.type == ".join(
-            f'"{t}"' for t in sorted(NOTIFICATION_SUBJECT_TYPES)
-        )
-        + ")"
-        " | {id, updated_at, repo: .repository.full_name,"
-        " subject_type: .subject.type, subject_url: .subject.url,"
-        " title: .subject.title}"
-    )
-    try:
-        output = run_gh_command([
-            "api",
-            "--method",
-            "GET",
-            "/notifications",
-            "--paginate",
-            "--jq",
-            jq_filter,
-            "--raw-field",
-            "all=true",
-            "--raw-field",
-            f"before={cutoff.astimezone(UTC):%Y-%m-%dT%H:%M:%SZ}",
-            "--raw-field",
-            f"per_page={NOTIFICATION_PAGE_SIZE}",
-        ])
-    except RuntimeError as exc:
-        logging.warning(f"Failed to fetch notification threads: {exc}")
-        return []
-
+    query = urlencode({
+        "all": "true",
+        "before": f"{cutoff.astimezone(UTC):%Y-%m-%dT%H:%M:%SZ}",
+        "per_page": NOTIFICATION_PAGE_SIZE,
+    })
     threads = []
-    for line in output.strip().splitlines():
-        line = line.strip()
-        if not line:
+    for notification in gh_api_pages(f"/notifications?{query}"):
+        if not isinstance(notification, dict):
             continue
-        try:
-            threads.append(json.loads(line))
-        except json.JSONDecodeError:
-            logging.warning(f"Skipping malformed notification line: {line!r}")
+        subject = notification.get("subject") or {}
+        if subject.get("type") not in NOTIFICATION_SUBJECT_TYPES:
+            continue
+        threads.append({
+            "id": notification.get("id"),
+            "updated_at": notification.get("updated_at"),
+            "repo": (notification.get("repository") or {}).get("full_name", ""),
+            "subject_type": subject["type"],
+            "subject_url": subject.get("url"),
+            "title": subject.get("title", ""),
+        })
 
     # Sorted here rather than trusted from the response. The endpoint documents
     # itself as "sorted by most recently updated", but a probe against 1637 real
@@ -302,13 +374,11 @@ def _get_thread_details(subject_url: str) -> dict[str, Any] | None:
     :return: Dict with `state`, `updated_at`, `html_url`, `number`,
         or `None` if the subject is inaccessible.
     """
-    details = gh_api_json([
-        "api",
-        subject_url,
-        "--jq",
-        "{state, updated_at, html_url, number}",
-    ])
-    if details is None:
+    details = gh_json(
+        ["api", subject_url, "--jq", "{state, updated_at, html_url, number}"],
+        soft=True,
+    )
+    if not isinstance(details, dict):
         logging.debug(f"Subject inaccessible or malformed: {subject_url}")
     return details
 
@@ -335,18 +405,25 @@ def _subject_query(targets: dict[str, tuple[str, str, str]]) -> str:
     return "{\n" + "\n".join(blocks) + "\n}"
 
 
-def _batch_subject_details(subject_urls: list[str]) -> dict[str, dict[str, Any]]:
+def _batch_subject_details(
+    subject_urls: list[str],
+) -> dict[str, dict[str, Any] | None]:
     """Look up many subjects in one GraphQL request.
 
     The batched counterpart of {func}`_get_thread_details`, returning the same
     four fields under the same names so either can feed the phase.
 
+    GitHub answers a query that fails in part with the subjects it could
+    resolve, and `null` for the others, so a partial answer is kept. A `null`
+    is final: the subject is inaccessible (a repository the token cannot see,
+    a deleted issue), and a REST call would answer the same.
+
     :param subject_urls: Subject URLs from the notification list.
-    :return: Subject URL to its detail dict. A subject GraphQL answered `null`
-        for (an inaccessible repository, a deleted issue) is absent, exactly as
-        the single lookup returns `None` for it.
-    :raises RuntimeError: When the `gh` invocation fails, leaving the caller to
-        fall back.
+    :return: Subject URL to its detail dict, or to `None` for a subject GraphQL
+        answered `null` for. A subject absent from the answer, or whose URL
+        this code cannot parse, is absent here too.
+    :raises RuntimeError: When the `gh` invocation fails with no answer at
+        all, leaving the caller to fall back.
     """
     targets = {}
     for index, url in enumerate(subject_urls):
@@ -360,20 +437,24 @@ def _batch_subject_details(subject_urls: list[str]) -> dict[str, dict[str, Any]]
         )
     if not targets:
         return {}
-    data = gh_graphql(_subject_query(targets)) or {}
+    data = gh_graphql(_subject_query(targets), partial=True) or {}
 
-    details = {}
+    details: dict[str, dict[str, Any] | None] = {}
     for alias in targets:
-        node = (data.get(alias) or {}).get("issueOrPullRequest")
-        if not node:
+        if alias not in data:
             continue
         url = subject_urls[int(alias[1:])]
-        details[url] = {
-            "state": SUBJECT_STATES.get(node.get("state", ""), "unknown"),
-            "updated_at": node.get("updatedAt", ""),
-            "html_url": node.get("url", ""),
-            "number": node.get("number"),
-        }
+        node = (data[alias] or {}).get("issueOrPullRequest")
+        details[url] = (
+            {
+                "state": SUBJECT_STATES.get(node.get("state", ""), "unknown"),
+                "updated_at": node.get("updatedAt", ""),
+                "html_url": node.get("url", ""),
+                "number": node.get("number"),
+            }
+            if node
+            else None
+        )
     return details
 
 
@@ -381,10 +462,11 @@ def _fetch_subject_details(subject_urls: list[str]) -> dict[str, dict[str, Any]]
     """Resolve every subject's state, batched, with a per-subject fallback.
 
     Defence in depth rather than a bet on one API: a batch that fails for any
-    reason (a `gh` error, a malformed envelope, a subject URL this code cannot
-    parse) is re-read one REST call per subject through
-    {func}`_get_thread_details`. The run then costs one call per subject
-    instead of reporting a pool of inaccessible subjects.
+    reason (a `gh` error, a malformed envelope) is re-read one REST call per
+    subject through {func}`_get_thread_details`, and so is a subject URL this
+    code cannot parse. The run then costs one call per subject instead of
+    reporting a pool of inaccessible subjects. A subject the batch answered
+    `null` for is not re-read.
 
     :param subject_urls: Subject URLs from the notification list.
     :return: Subject URL to its detail dict, omitting whatever neither route
@@ -398,10 +480,11 @@ def _fetch_subject_details(subject_urls: list[str]) -> dict[str, dict[str, Any]]
             resolved = _batch_subject_details(chunk)
         except (RuntimeError, ValueError, KeyError, TypeError) as exc:
             logging.warning(f"Batched subject lookup failed ({exc}); falling back.")
-            resolved = {}
             pending.extend(chunk)
             continue
-        details.update(resolved)
+        details.update(
+            (url, detail) for url, detail in resolved.items() if detail is not None
+        )
         pending.extend(url for url in chunk if url not in resolved)
 
     for url in pending:
@@ -512,28 +595,24 @@ def _graphql_unsubscribe(node_id: str) -> bool:
     :return: `True` if the mutation succeeded, `False` otherwise.
     """
     try:
-        run_gh_command([
-            "api",
-            "graphql",
-            "--raw-field",
-            f"query={UNSUBSCRIBE_MUTATION}",
-            "--raw-field",
-            f"id={node_id}",
-        ])
+        gh_graphql(UNSUBSCRIBE_MUTATION, id=node_id)
     except RuntimeError:
         logging.warning(f"GraphQL unsubscribe failed for node {node_id}.")
         return False
     return True
 
 
-def _render_detail_table(rows: list[DetailRow]) -> str:
+def _render_detail_table(rows: list[DetailRow], now: datetime | None = None) -> str:
     """Render a details table with header and data rows.
 
     :param rows: Detail rows to render.
+    :param now: The instant the last activity is measured from, the current
+        one when `None`.
     :return: Details heading and table, or empty string if no rows.
     """
     if not rows:
         return ""
+    reference = now or datetime.now(UTC)
     table = render_markdown_table(
         (
             "\U0001f4ac Title",
@@ -545,7 +624,7 @@ def _render_detail_table(rows: list[DetailRow]) -> str:
             (
                 row.title,
                 _format_link(row),
-                arrow.get(row.updated_at).humanize() if row.updated_at else "-",
+                format_elapsed(row.updated_at, reference) if row.updated_at else "-",
                 row.action.value,
             )
             for row in rows
@@ -554,81 +633,75 @@ def _render_detail_table(rows: list[DetailRow]) -> str:
     return f"### \U0001f4dd Details\n\n{table}"
 
 
-def _phase_summary_line(
-    candidates: int,
-    unsubscribed: int,
-    failed: int,
-    cutoff: datetime | None,
-    months: int,
-    dry_run: bool,
-) -> str:
+def _phase_summary_line(phase: PhaseResult, months: int, dry_run: bool) -> str:
     """One phase's summary line, with identical wording for both phases."""
-    cutoff_str = cutoff.isoformat() if cutoff else "-"
+    cutoff_str = phase.cutoff.isoformat() if phase.cutoff else "-"
     if dry_run:
         return (
-            f"\U0001f50d **Candidates found:** {candidates}"
+            f"\U0001f50d **Candidates found:** {len(phase.rows)}"
             f" \u2014 cutoff: `{cutoff_str}`"
             f" (inactive for more than {months} months, dry-run)"
         )
     return (
-        f"\U0001f515 **Unsubscribed:** {unsubscribed}"
-        f" | \u26a0\ufe0f **Failed:** {failed}"
+        f"\U0001f515 **Unsubscribed:** {phase.unsubscribed}"
+        f" | \u26a0\ufe0f **Failed:** {phase.failed}"
         f" \u2014 cutoff: `{cutoff_str}`"
         f" (inactive for more than {months} months)"
     )
 
 
-def _render_phase1_fragments(
+def _skip_warning(phase: PhaseResult) -> str:
+    """The warning a skipped phase renders in place of its content."""
+    return f"> [!WARNING]\n> {phase.skip_reason}"
+
+
+def _render_phase1_content(
     p1: Phase1Result, months: int, dry_run: bool, repo_url: str | None = None
-) -> dict[str, str]:
-    """Build the phase-1 fragments of the report template.
+) -> str:
+    """Build the phase-1 block of the report.
+
+    Every table is rendered whole here, never as rows spliced into a table the
+    template opens, which also keeps the markup out of reach of the formatter
+    that owns the template file.
 
     :param repo_url: Repository the run belongs to, used to link the backlog
         warning to its workflow. The warning degrades to plain text without it.
     """
-    cutoff_str = p1.cutoff.isoformat() if p1.cutoff else "-"
-    summary_line = _phase_summary_line(
-        len(p1.rows),
-        p1.threads_unsubscribed,
-        p1.threads_failed,
-        p1.cutoff,
-        months,
-        dry_run,
-    )
+    if p1.skipped:
+        return _skip_warning(p1)
 
-    # Whole tables, not rows spliced into a table the template opens: a
-    # multi-row value wrapped in one row's pipes gave the first row an empty
-    # leading cell and the last a pair of trailing ones. Rendering here also
-    # matches {func}`_render_phase2_content`, and puts the markup out of reach
-    # of the formatter that owns the template file.
+    cutoff_str = p1.cutoff.isoformat() if p1.cutoff else "-"
     oldest_str = p1.oldest_updated.isoformat() if p1.oldest_updated else "-"
     newest_str = p1.newest_updated.isoformat() if p1.newest_updated else "-"
-    notification_details_table = render_markdown_table(
+    notification_details = render_markdown_table(
         ("Metric", "Value"),
         (
-            ("\U0001f514 Threads before cutoff", p1.threads_total),
+            ("\U0001f514 Threads before cutoff", p1.total),
             ("\U0001f4e6 Max unsubscribes", p1.max_unsubscribes),
-            ("\U0001f4cb Deferred to a later run", p1.threads_deferred),
+            ("\U0001f4cb Deferred to a later run", p1.deferred),
             ("\u23ea Oldest activity", oldest_str),
             ("\u23e9 Newest activity", newest_str),
             ("\u2702\ufe0f Cutoff", cutoff_str),
         ),
     )
-
-    stale_count = p1.threads_unsubscribed + p1.threads_failed
-    state_breakdown_table = render_markdown_table(
+    state_breakdown = render_markdown_table(
         ("State", "Count"),
         (
-            ("\U0001f7e2 Open", p1.threads_skipped_open),
-            ("\U0001f7e1 Closed (active since cutoff)", p1.threads_skipped_recent),
-            ("\U0001f534 Closed (inactive, eligible)", stale_count),
-            ("\u26aa Unknown", p1.threads_skipped_unknown),
+            ("\U0001f7e2 Open", p1.skipped_open),
+            ("\U0001f7e1 Closed (active since cutoff)", p1.skipped_recent),
+            ("\U0001f534 Closed (inactive, eligible)", p1.unsubscribed + p1.failed),
+            ("\u26aa Unknown", p1.skipped_unknown),
         ),
     )
+    parts = [
+        _phase_summary_line(p1, months, dry_run),
+        "### \U0001f4ca Notification details",
+        notification_details,
+        "### \U0001f3f7\ufe0f Breakdown by state",
+        state_breakdown,
+    ]
 
-    # Backlog warning (empty string if not applicable).
-    backlog_warning = ""
-    if p1.threads_deferred:
+    if p1.deferred:
         manual_run = "run it manually"
         if repo_url:
             workflow_url = f"{repo_url}/actions/workflows/{UNSUBSCRIBE_WORKFLOW}"
@@ -636,62 +709,46 @@ def _render_phase1_fragments(
         # One line per sentence, never wrapped to a column: a job summary
         # renders each newline as a line break, so a source-width wrap becomes
         # a visible one.
-        backlog_warning = "\n".join([
-            "> [!WARNING]",
-            (
-                f"> {p1.threads_deferred} eligible threads were left alone: this"
-                f" run reached its cap of {p1.max_unsubscribes} unsubscribes."
-            ),
-            (
-                f"> Raise `max-unsubscribes`, or {manual_run} with a higher cap,"
-                " to clear the rest in one go."
-            ),
-        ])
+        parts.append(
+            "\n".join([
+                "> [!WARNING]",
+                (
+                    f"> {p1.deferred} eligible threads were left alone: this"
+                    f" run reached its cap of {p1.max_unsubscribes} unsubscribes."
+                ),
+                (
+                    f"> Raise `max-unsubscribes`, or {manual_run} with a higher cap,"
+                    " to clear the rest in one go."
+                ),
+            ])
+        )
 
-    # Details section (includes --- separator).
     detail_table = _render_detail_table(p1.rows)
-    details_section = f"---\n\n{detail_table}" if detail_table else ""
-
-    return {
-        "summary_line": summary_line,
-        "notification_details_table": notification_details_table,
-        "state_breakdown_table": state_breakdown_table,
-        "backlog_warning": backlog_warning,
-        "details_section": details_section,
-    }
+    if detail_table:
+        parts.extend(["---", detail_table])
+    return "\n\n".join(parts)
 
 
 def _render_phase2_content(p2: Phase2Result, months: int, dry_run: bool) -> str:
-    """Build the phase-2 block of the report template."""
+    """Build the phase-2 block of the report."""
     if p2.skipped:
-        return f"> [!WARNING]\n> {p2.skip_reason}"
+        return _skip_warning(p2)
 
-    summary_line = _phase_summary_line(
-        len(p2.rows),
-        p2.items_unsubscribed,
-        p2.items_failed,
-        p2.cutoff,
-        months,
-        dry_run,
-    )
-
-    # Search details table.
-    subscribed_count = p2.items_unsubscribed + p2.items_failed
     search_table = "### \U0001f4ca Search details\n\n" + render_markdown_table(
         ("Metric", "Value"),
         (
             ("\U0001f50e Search query", f"`{p2.search_query}`"),
-            ("\U0001f514 Total results", p2.items_total),
+            ("\U0001f514 Total results", p2.total),
             ("\U0001f4e6 Max unsubscribes", p2.max_unsubscribes),
-            ("\U0001f4cb Deferred to a later run", p2.items_deferred),
-            ("\u2705 Still subscribed", subscribed_count),
-            ("\u23ed\ufe0f Not subscribed", p2.items_not_subscribed),
-            ("\U0001f7e1 Active since cutoff", p2.items_skipped_recent),
+            ("\U0001f4cb Deferred to a later run", p2.deferred),
+            ("\u2705 Still subscribed", p2.unsubscribed + p2.failed),
+            ("\u23ed\ufe0f Not subscribed", p2.not_subscribed),
+            ("\U0001f7e1 Active since cutoff", p2.skipped_recent),
         ),
     )
 
     detail_table = _render_detail_table(p2.rows)
-    parts = [summary_line, "", search_table]
+    parts = [_phase_summary_line(p2, months, dry_run), "", search_table]
     if detail_table:
         parts.extend(["", detail_table])
     return "\n".join(parts)
@@ -711,14 +768,13 @@ def render_report(result: UnsubscribeResult, repo_url: str | None = None) -> str
     :return: Markdown report string.
     """
     return render_template(
-        "unsubscribe-phase1",
-        "unsubscribe-phase2",
+        REPORT_TEMPLATE,
         mode="dry-run" if result.dry_run else "live",
+        phase1_content=_render_phase1_content(
+            result.phase1, result.months, result.dry_run, repo_url
+        ),
         phase2_content=_render_phase2_content(
             result.phase2, result.months, result.dry_run
-        ),
-        **_render_phase1_fragments(
-            result.phase1, result.months, result.dry_run, repo_url
         ),
     )
 
@@ -741,25 +797,27 @@ def _run_rest_phase(
     :param max_unsubscribes: Maximum threads to unsubscribe from.
     :param dry_run: If `True`, record what would be done without acting. The
         cap still applies, so a dry run forecasts the live one.
-    :return: The phase's structured result.
+    :return: The phase's structured result, marked skipped when the
+        notifications cannot be read.
     """
     logging.info("Phase 1: Processing REST notification threads...")
-    prefix = "[dry-run] " if dry_run else ""
     p1 = Phase1Result(cutoff=cutoff, max_unsubscribes=max_unsubscribes)
 
-    threads = _fetch_notification_threads(cutoff)
-    p1.threads_total = len(threads)
+    try:
+        threads = _fetch_notification_threads(cutoff)
+    except RuntimeError as exc:
+        p1.skip("Failed to fetch notification threads. Skipping Phase 1.", exc)
+        return p1
+    p1.total = len(threads)
     subject_details = _fetch_subject_details([t["subject_url"] for t in threads])
 
     for thread in threads:
         thread_id = thread["id"]
         subject_url = thread["subject_url"]
-        thread_repo = thread.get("repo", "")
-        thread_title = thread.get("title", "")
 
         details = subject_details.get(subject_url)
         if details is None:
-            p1.threads_skipped_unknown += 1
+            p1.skipped_unknown += 1
             logging.info(f"  Thread {thread_id}: subject inaccessible, skipping.")
             continue
 
@@ -774,51 +832,34 @@ def _run_rest_phase(
                 p1.newest_updated = updated_at
 
         if state == "unknown" or updated_at is None:
-            p1.threads_skipped_unknown += 1
+            p1.skipped_unknown += 1
             logging.info(f"  Thread {thread_id}: state={state}, skipping.")
             continue
 
         if state != "closed":
-            p1.threads_skipped_open += 1
+            p1.skipped_open += 1
             logging.info(f"  Thread {thread_id}: state={state}, skipping.")
             continue
 
         if updated_at >= cutoff:
-            p1.threads_skipped_recent += 1
+            p1.skipped_recent += 1
             logging.info(f"  Thread {thread_id}: updated recently, skipping.")
             continue
 
-        # Closed and stale: this one is eligible. Everything past the cap is
-        # counted rather than acted on, so the report can say how much a later
-        # run still owes.
-        if p1.threads_unsubscribed + p1.threads_failed >= max_unsubscribes:
-            p1.threads_deferred += 1
-            continue
-
-        # The three outcomes below differ only in the action recorded, so the
-        # row is built once here.
         html_url = details.get("html_url", subject_url)
-        row = partial(
-            DetailRow,
-            html_url=html_url,
-            number=details.get("number"),
-            repo=thread_repo,
-            title=thread_title,
-            updated_at=updated_at,
+        p1.act(
+            f"thread {thread_id} ({html_url})",
+            partial(
+                DetailRow,
+                html_url=html_url,
+                number=details.get("number"),
+                repo=thread.get("repo", ""),
+                title=thread.get("title", ""),
+                updated_at=updated_at,
+            ),
+            partial(_unsubscribe_rest_thread, str(thread_id)),
+            dry_run=dry_run,
         )
-
-        logging.info(f"  {prefix}Unsubscribing from thread {thread_id} ({html_url}).")
-        if dry_run:
-            p1.threads_unsubscribed += 1
-            p1.rows.append(row(action=ReportAction.DRY_RUN))
-            continue
-
-        if _unsubscribe_rest_thread(str(thread_id)):
-            p1.threads_unsubscribed += 1
-            p1.rows.append(row(action=ReportAction.UNSUBSCRIBED))
-        else:
-            p1.threads_failed += 1
-            p1.rows.append(row(action=ReportAction.FAILED))
 
     return p1
 
@@ -839,17 +880,12 @@ def _run_graphql_phase(
         or the search cannot be read.
     """
     logging.info("Phase 2: Processing GraphQL threadless subscriptions...")
-    prefix = "[dry-run] " if dry_run else ""
     p2 = Phase2Result(cutoff=cutoff, max_unsubscribes=max_unsubscribes)
 
     try:
         username = _get_authenticated_username()
     except RuntimeError as exc:
-        logging.warning(
-            f"Failed to get authenticated username. Skipping Phase 2: {exc}"
-        )
-        p2.skipped = True
-        p2.skip_reason = "Failed to get authenticated username. Skipping Phase 2."
+        p2.skip("Failed to get authenticated username. Skipping Phase 2.", exc)
         return p2
 
     cutoff_date = cutoff.strftime("%Y-%m-%d")
@@ -857,17 +893,15 @@ def _run_graphql_phase(
 
     try:
         for item in _iter_closed_items(p2.search_query):
-            p2.items_total += 1
-            node_id = item["id"]
+            p2.total += 1
             repo = item.get("repository", {}).get("nameWithOwner", "unknown")
             number = item.get("number")
 
             # Filter: only act on items the user is subscribed to.
             if item.get("viewerSubscription") != "SUBSCRIBED":
-                p2.items_not_subscribed += 1
+                p2.not_subscribed += 1
                 continue
 
-            # Parse updatedAt and url from GraphQL result.
             gql_updated_at = parse_iso_datetime(item.get("updatedAt", ""))
 
             # Re-validate staleness client-side, mirroring phase 1: the
@@ -876,42 +910,26 @@ def _run_graphql_phase(
             # could unsubscribe an item phase 1's stricter check would
             # keep. An unparsable timestamp is not a green light either.
             if gql_updated_at is None or gql_updated_at >= cutoff:
-                p2.items_skipped_recent += 1
+                p2.skipped_recent += 1
                 continue
 
-            if p2.items_unsubscribed + p2.items_failed >= max_unsubscribes:
-                p2.items_deferred += 1
-                continue
-
-            row = partial(
-                DetailRow,
-                html_url=item.get("url", ""),
-                number=number,
-                repo=repo,
-                title=item.get("title", ""),
-                updated_at=gql_updated_at,
+            p2.act(
+                f"{repo}#{number} (GraphQL)",
+                partial(
+                    DetailRow,
+                    html_url=item.get("url", ""),
+                    number=number,
+                    repo=repo,
+                    title=item.get("title", ""),
+                    updated_at=gql_updated_at,
+                ),
+                partial(_graphql_unsubscribe, item["id"]),
+                dry_run=dry_run,
             )
-
-            logging.info(f"  {prefix}Unsubscribing from {repo}#{number} (GraphQL).")
-            if dry_run:
-                p2.items_unsubscribed += 1
-                p2.rows.append(row(action=ReportAction.DRY_RUN))
-                continue
-
-            if _graphql_unsubscribe(node_id):
-                p2.items_unsubscribed += 1
-                p2.rows.append(row(action=ReportAction.UNSUBSCRIBED))
-            else:
-                p2.items_failed += 1
-                p2.rows.append(row(action=ReportAction.FAILED))
     except RuntimeError as exc:
-        logging.warning(
-            "GraphQL search failed. Phase 2 may be incomplete. Fine-grained PATs may "
-            f"not support GraphQL search: {exc}"
-        )
-        p2.skipped = True
-        p2.skip_reason = (
-            "GraphQL search failed. Fine-grained PATs may not support GraphQL search."
+        p2.skip(
+            "GraphQL search failed. Fine-grained PATs may not support GraphQL search.",
+            exc,
         )
 
     return p2

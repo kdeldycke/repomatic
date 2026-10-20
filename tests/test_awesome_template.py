@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from importlib.resources import files
 
-from repomatic.init_project import _copy_template_tree
+from repomatic.init.run import _copy_template_tree
 
 TEMPLATE_ROOT = files("repomatic.data").joinpath("awesome_template")
 
@@ -100,7 +100,7 @@ def test_awesome_template_has_no_pyproject(tmp_path):
 
     The lychee config is registered as a ToolConfigComponent with
     AWESOME_ONLY scope, so it goes through the standard merge path
-    in _init_tool_configs instead of being blindly overwritten by
+    in _write_tool_configs instead of being blindly overwritten by
     _copy_template_tree.
     """
     _copy_template_tree(TEMPLATE_ROOT, tmp_path)

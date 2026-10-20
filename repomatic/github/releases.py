@@ -20,7 +20,8 @@ The single home for reading GitHub Releases: raw cached API access (tags,
 versions, single bodies), tag-to-version extraction, tag-to-SHA resolution, and
 the range-to-release-notes fetch shared by the dependency updaters. The
 {mod}`repomatic.deps.pins` adapters and {mod}`repomatic.deps.report`
-release-notes helper build on top of these reads.
+release-notes helper build on top of these reads, and so do the review steps of
+the prepare-release checklist ({func}`release_review_steps`).
 
 One write helper lives here too: {func}`edit_release_notes`, the shared
 `gh release edit` path behind the dev pre-release sync
@@ -40,13 +41,11 @@ from ..cache import get_cached_response, store_response
 from ..config import load_repomatic_config
 from ..http import FetchError, get_json
 from ..versions import parse_tag_version
-from .gh import api_headers, run_gh_command
+from .gh import GhCommandError, api_headers, run_gh_command
 from .urls import parse_github_repo
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from packaging.version import Version
 
 GITHUB_API_RELEASES_URL = "https://api.github.com/repos/{owner}/{repo}/releases"
@@ -65,6 +64,15 @@ GITHUB_API_RELEASE_BY_TAG_URL = (
 )
 """GitHub API URL for fetching a single release by tag name."""
 
+RELEASES_PAGE_SIZE = 100
+"""Releases per page of a listing, the most the REST API serves."""
+
+RELEASE_TAGS_CACHE = "github-release-tags"
+"""HTTP-cache namespace of the release map {func}`get_release_tags` reads."""
+
+RELEASE_NOT_FOUND_MARKER = "release not found"
+"""What `gh release edit` writes to its error output for a tag with no release."""
+
 
 def _fetch_release_pages(owner: str, repo: str) -> list[dict]:
     """Fetch every release for a repository, following pagination.
@@ -79,7 +87,7 @@ def _fetch_release_pages(owner: str, repo: str) -> list[dict]:
     while True:
         url = (
             GITHUB_API_RELEASES_URL.format(owner=owner, repo=repo)
-            + f"?per_page=100&page={page}"
+            + f"?per_page={RELEASES_PAGE_SIZE}&page={page}"
         )
         try:
             data = get_json(url, headers=api_headers())
@@ -97,6 +105,10 @@ def _fetch_release_pages(owner: str, repo: str) -> list[dict]:
         if not data:
             break
         releases.extend(data)
+        # A short page is the last one: asking for the next would only fetch
+        # an empty one.
+        if len(data) < RELEASES_PAGE_SIZE:
+            break
         page += 1
     return releases
 
@@ -173,14 +185,6 @@ class ReleaseWithAssets(NamedTuple):
     assets: tuple[ReleaseAsset, ...]
     """Assets attached to the release, in API order."""
 
-    body: str = ""
-    """Release notes body (markdown).
-
-    Carried so `sync-binaries --backfill-records` can recover detection
-    snapshots from the legacy VirusTotal tables that release notes held
-    before the scan history file existed.
-    """
-
     html_url: str = ""
     """Browser URL of the release page.
 
@@ -192,30 +196,31 @@ class ReleaseWithAssets(NamedTuple):
     """
 
 
-def _cached_release_map(
-    namespace: str,
-    repo_url: str,
-    key_for: Callable[[str], str | None],
-    *,
-    force_refresh: bool = False,
+def get_release_tags(
+    repo_url: str, *, force_refresh: bool = False
 ) -> dict[str, GitHubRelease]:
-    """Fetch a repository's releases as a keyed map, through the HTTP cache.
+    """Get every published release, keyed by its raw, unstripped tag name.
 
-    The shared body of {func}`get_github_releases` and
-    {func}`get_release_tags`: check the *namespace* cache, fetch every release
-    page on a miss, key each dated release by `key_for(tag)` (releases mapped
-    to `None` are dropped), and cache a non-empty result.
+    Fetches every release page on a cache miss, and caches a non-empty map
+    under {data}`RELEASE_TAGS_CACHE`. Every tag scheme is kept, so a caller
+    extracts the version with its own pattern: lychee tags `lychee-v…`, biome
+    tags `@biomejs/biome@…`. Uses `published_at` (falling back to
+    `created_at`) for the date.
 
-    :param namespace: HTTP-cache namespace to read and write.
-    :param repo_url: Repository URL.
-    :param key_for: Maps a raw tag name to the result key, or `None` to skip
-        that release.
-    :param force_refresh: Ignore any cached map and re-fetch every page.
-    :return: Dict mapping keys to {class}`GitHubRelease` tuples. Empty when
-        the repository has no releases or *repo_url* does not parse to an
-        `owner/repo` pair.
+    A draft is left out. It is visible to a maintainer's token alone, so a map
+    holding it would answer differently per token, and a draft has no
+    published notes to compare or link to.
+
+    :param repo_url: Repository URL (like `https://github.com/user/repo`).
+    :param force_refresh: Ignore any cached map and re-fetch. A cached map
+        predating a release reports it as absent, so callers acting on an
+        absence around release time should re-confirm live.
+    :return: Dict mapping raw tag names to {class}`GitHubRelease` tuples.
+        Empty only when the repository has no published release or *repo_url*
+        does not parse to an `owner/repo` pair.
     :raises GitHubReleasesUnavailable: When any page fetch fails or returns
-        unparsable JSON.
+        unparsable JSON. An empty return value means "the repo has no
+        releases"; a raised exception means "the answer is unknown."
     """
     parsed = parse_github_repo(repo_url)
     if parsed is None:
@@ -224,32 +229,33 @@ def _cached_release_map(
 
     cache_key = f"{owner}/{repo}"
     ttl = load_repomatic_config().cache.github_releases_ttl
-    cached = None if force_refresh else get_cached_response(namespace, cache_key, ttl)
+    cached = (
+        None
+        if force_refresh
+        else get_cached_response(RELEASE_TAGS_CACHE, cache_key, ttl)
+    )
     if cached is not None:
         try:
             data = json.loads(cached)
             return {
-                key: GitHubRelease(date=r["date"], body=r["body"])
-                for key, r in data.items()
+                tag: GitHubRelease(date=r["date"], body=r["body"])
+                for tag, r in data.items()
             }
         except (json.JSONDecodeError, KeyError, TypeError):
             pass
 
     result: dict[str, GitHubRelease] = {}
     for release in _fetch_release_pages(owner, repo):
-        key = key_for(release.get("tag_name", ""))
-        if key is None:
-            continue
+        tag = release.get("tag_name", "")
         date = _release_date(release)
-        if date:
-            result[key] = GitHubRelease(date=date, body=release.get("body", ""))
+        if tag and date and not release.get("draft"):
+            result[tag] = GitHubRelease(date=date, body=release.get("body") or "")
 
-    # Cache non-empty results.
     if result and ttl > 0:
         serialized = {
-            key: {"date": r.date, "body": r.body} for key, r in result.items()
+            tag: {"date": r.date, "body": r.body} for tag, r in result.items()
         }
-        store_response(namespace, cache_key, json.dumps(serialized).encode())
+        store_response(RELEASE_TAGS_CACHE, cache_key, json.dumps(serialized).encode())
 
     return result
 
@@ -257,55 +263,20 @@ def _cached_release_map(
 def get_github_releases(
     repo_url: str, *, force_refresh: bool = False
 ) -> dict[str, GitHubRelease]:
-    """Get versions and dates for all GitHub releases.
+    """Get the published releases tagged `vX.Y.Z`, keyed by bare version.
 
-    Fetches all releases via the GitHub API with pagination. Extracts
-    version numbers by stripping the `v` prefix from tag names. Uses
-    `published_at` (falling back to `created_at`) for the date.
+    The {func}`get_release_tags` map, narrowed to the `v`-prefixed tags with
+    the prefix stripped.
 
-    :param repo_url: Repository URL (e.g.
-        `https://github.com/user/repo`).
-    :param force_refresh: Ignore any cached map and re-fetch. A cached map
-        predating a release reports it as absent, so callers acting on an
-        absence around release time should re-confirm live.
-    :return: Dict mapping version strings to {class}`GitHubRelease`
-        tuples. Empty dict only when the repository genuinely has no
-        releases (the API returned an empty page) or when `repo_url`
-        does not parse to an `owner/repo` pair.
-    :raises GitHubReleasesUnavailable: When any page fetch fails or
-        returns unparsable JSON. An empty return value from this
-        function means "the repo has no releases"; a raised exception
-        means "the answer is unknown."
-    """
-    return _cached_release_map(
-        "github-releases",
-        repo_url,
-        lambda tag: tag[1:] if tag.startswith("v") else None,
-        force_refresh=force_refresh,
-    )
-
-
-def get_release_tags(repo_url: str) -> dict[str, GitHubRelease]:
-    """Get all releases keyed by their raw, unstripped tag name.
-
-    {func}`get_github_releases` keeps only `v`-prefixed tags (and strips the
-    `v`), which drops tools whose release tags use another scheme (lychee's
-    `lychee-v…`, biome's `@biomejs/biome@…`). `sync-tool-versions` and
-    `sync-action-pins` need every tag, so the version can be extracted with a
-    per-tool pattern.
-
-    :param repo_url: Repository URL.
-    :return: Dict mapping raw tag names to {class}`GitHubRelease` tuples.
-        Empty only when the repository has no releases or `repo_url` does not
-        parse to an `owner/repo` pair.
+    :param repo_url: Repository URL (like `https://github.com/user/repo`).
+    :param force_refresh: Ignore any cached map and re-fetch: see
+        {func}`get_release_tags`.
+    :return: Dict mapping version strings to {class}`GitHubRelease` tuples.
     :raises GitHubReleasesUnavailable: When any page fetch fails or returns
         unparsable JSON.
     """
-    return _cached_release_map(
-        "github-release-tags",
-        repo_url,
-        lambda tag: tag or None,
-    )
+    tags = get_release_tags(repo_url, force_refresh=force_refresh)
+    return {tag[1:]: release for tag, release in tags.items() if tag.startswith("v")}
 
 
 def get_releases_with_assets(repo_url: str) -> list[ReleaseWithAssets]:
@@ -349,7 +320,6 @@ def get_releases_with_assets(repo_url: str) -> list[ReleaseWithAssets]:
                 draft=release.get("draft", False),
                 prerelease=release.get("prerelease", False),
                 assets=assets,
-                body=release.get("body") or "",
                 html_url=release.get("html_url", ""),
             )
         )
@@ -404,6 +374,51 @@ def dev_release_url_and_previous_version(
 
     previous_version = str(max(finals)) if finals else None
     return dev_release_url, previous_version
+
+
+def release_review_steps(repo_url: str | None, version: str) -> tuple[str, str]:
+    """Build the two optional review steps of the prepare-release checklist.
+
+    The `How-to release` list opens with two review steps that render only
+    when their GitHub data is reachable, so the checklist degrades to the bare
+    merge instructions offline (or when the dev pre-release is disabled):
+
+    - **Dev pre-release review**: links the rolling `v{version}.dev0` draft
+      through its {attr}`~ReleaseWithAssets.html_url` (drafts have no public
+      tag URL). Omitted when no such draft is visible.
+    - **Full-changes review**: links the `v{previous}...main` comparison.
+      Omitted when no prior release exists to compare against.
+
+    Both come from a single {func}`dev_release_url_and_previous_version`
+    lookup. Each returned string is a complete ordered-list line ending in a
+    newline (or empty), written with a `1.` marker so the surrounding lazily
+    numbered list renumbers correctly however many steps survive.
+
+    :param repo_url: Repository URL. Without one, both steps are empty.
+    :param version: The release version being prepared (like `1.2.3`).
+    :return: A `(dev_release_review, changes_review)` pair of list-item lines.
+    """
+    if not repo_url:
+        return "", ""
+    dev_release_url, previous_version = dev_release_url_and_previous_version(
+        repo_url, version
+    )
+
+    dev_release_review = ""
+    if dev_release_url:
+        dev_release_review = (
+            f"1. Review the [`v{version}.dev0` GitHub release]({dev_release_url})\n"
+        )
+
+    changes_review = ""
+    if previous_version:
+        changes_review = (
+            "1. Review the full changes: "
+            f"[`v{previous_version}...main`]"
+            f"({repo_url}/compare/v{previous_version}...main)\n"
+        )
+
+    return dev_release_review, changes_review
 
 
 def resolve_tag_to_sha(repo_url: str, tag: str) -> str | None:
@@ -469,20 +484,27 @@ def edit_release_notes(
     dev pre-release sync and the changelog-to-release-notes sync carry the
     same arguments and failure contract. Assets are never touched.
 
-    :param tag: Git tag name of the release (e.g. `v1.2.3`).
+    :param tag: Git tag name of the release (like `v1.2.3`).
     :param repository: GitHub repository in `owner/name` form.
     :param body: The new release body text.
     :param title: When non-empty, also replace the release title.
-    :return: `True` when the edit landed, `False` when the release does not
-        exist or the edit failed.
+    :return: `True` when the edit landed, `False` when no release carries
+        *tag*.
+    :raises GhCommandError: When the edit failed for any other reason. A
+        transient failure is not an absence: a caller reading it as one would
+        create a second release for the same tag.
     """
     args = ["release", "edit", tag, "--repo", repository, "--notes", body]
     if title:
         args += ["--title", title]
     try:
         run_gh_command(args)
-    except RuntimeError:
-        return False
+    except GhCommandError as error:
+        if error.status == 404 or RELEASE_NOT_FOUND_MARKER in error.stderr:
+            logging.debug(f"No release carries {tag} in {repository}.")
+            return False
+        logging.warning(f"Could not edit the release notes of {tag}: {error}")
+        raise
     return True
 
 

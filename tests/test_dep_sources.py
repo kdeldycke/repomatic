@@ -13,7 +13,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-"""Tests for the git-to-release dependency source swaps and the release gate."""
+"""Tests for the git-to-release dependency source swaps
+({mod}`repomatic.deps.sources`) and the release gate
+({mod}`repomatic.deps.shippable`)."""
 
 from __future__ import annotations
 
@@ -24,23 +26,28 @@ import pytest
 
 from repomatic.config import Config
 from repomatic.deps import sources as dep_sources
+from repomatic.deps.cooldown import UvSettings
+from repomatic.deps.lockfile import LockFile
 from repomatic.deps.report import BYPASS_NEEDS_RELEASE
-from repomatic.deps.sources import (
+from repomatic.deps.requirements import dev_floor, read_project
+from repomatic.deps.shippable import (
     BLOCKER_NEEDS_EDIT,
     BLOCKER_SECTION_NOTE,
     COOLDOWN_PR_BRANCH,
+    LINT_DEPS_HEADER_DEFS,
     RELEASE_READY_SENTENCE,
     SWAP_PR_BRANCH,
     UNSHIPPABLE_BANNER_LEAD,
-    ReleaseSwap,
     SourceKind,
-    apply_release_swaps,
     build_release_readiness,
-    dev_floor,
-    find_ready_swaps,
     floors_inside_cooldown,
-    format_swap_section,
     scan_project,
+)
+from repomatic.deps.sources import (
+    ReleaseSwap,
+    apply_release_swaps,
+    find_ready_swaps,
+    format_swap_section,
     strip_dev_bounds,
     tracked_git_overrides,
 )
@@ -94,29 +101,29 @@ def _write_pyproject(tmp_path: Path, content: str = PYPROJECT) -> Path:
 def _mock_releases(monkeypatch, releases: dict[str, dict[str, PyPIRelease]]) -> None:
     """Stub the PyPI lookup with canned release maps."""
     monkeypatch.setattr(
-        dep_sources, "get_release_dates", lambda name: releases.get(name, {})
+        dep_sources, "pypi_release_dates", lambda name: releases.get(name, {})
     )
 
 
 def test_tracked_git_overrides_selects_branch_tracks(tmp_path):
     """Only single-source git entries with a branch are considered tracked."""
     pyproject = _write_pyproject(tmp_path)
-    assert tracked_git_overrides(pyproject) == {"mango": "main"}
+    assert tracked_git_overrides(read_project(pyproject)) == {"mango": "main"}
     # A missing file, or a project without overrides, yields nothing.
-    assert tracked_git_overrides(tmp_path / "absent.toml") == {}
+    assert tracked_git_overrides(read_project(tmp_path / "absent.toml")) == {}
     bare = _write_pyproject(tmp_path, '[project]\nname = "basket"\n')
-    assert tracked_git_overrides(bare) == {}
+    assert tracked_git_overrides(read_project(bare)) == {}
 
 
 def test_dev_floor_takes_highest_dev_bound(tmp_path):
     """The floor is the highest `.dev` lower bound across every table."""
-    pyproject = _write_pyproject(tmp_path)
-    assert dev_floor(pyproject, "mango") == "2.1.0.dev0"
+    doc = read_project(_write_pyproject(tmp_path))
+    assert dev_floor(doc, "mango") == "2.1.0.dev0"
     # Any capitalization or separator style resolves to the same package.
-    assert dev_floor(pyproject, "Mango") == "2.1.0.dev0"
+    assert dev_floor(doc, "Mango") == "2.1.0.dev0"
     # Packages without a dev bound have no floor.
-    assert dev_floor(pyproject, "cherry") is None
-    assert dev_floor(pyproject, "papaya") is None
+    assert dev_floor(doc, "cherry") is None
+    assert dev_floor(doc, "papaya") is None
 
 
 @pytest.mark.parametrize(
@@ -156,7 +163,7 @@ def test_find_ready_swaps_adopts_newest_stable(tmp_path, monkeypatch):
             }
         },
     )
-    swaps = find_ready_swaps(pyproject)
+    swaps = find_ready_swaps(read_project(pyproject))
     assert swaps == [
         ReleaseSwap(
             name="mango",
@@ -168,7 +175,7 @@ def test_find_ready_swaps_adopts_newest_stable(tmp_path, monkeypatch):
         )
     ]
     # The freeze cutoff carries a one-day margin past the release date, the
-    # same convention as the automatic `_freeze_cutoff` freezes.
+    # same convention as the automatic freezes.
     assert swaps[0].freeze_cutoff == "2026-07-14T00:00:00Z"
 
 
@@ -192,7 +199,7 @@ def test_find_ready_swaps_needs_positive_confirmation(
     """Anything short of a live stable release keeps the git track in place."""
     pyproject = _write_pyproject(tmp_path)
     _mock_releases(monkeypatch, {"mango": releases})
-    assert find_ready_swaps(pyproject) == []
+    assert find_ready_swaps(read_project(pyproject)) == []
 
 
 def test_find_ready_swaps_skips_floorless_overrides(tmp_path, monkeypatch):
@@ -207,7 +214,15 @@ def test_find_ready_swaps_skips_floorless_overrides(tmp_path, monkeypatch):
     _mock_releases(
         monkeypatch, {"mango": {"9.9.9": PyPIRelease("2026-07-01", False, "mango")}}
     )
-    assert find_ready_swaps(pyproject) == []
+    assert find_ready_swaps(read_project(pyproject)) == []
+
+
+def _apply_swaps(pyproject: Path, swaps: list[ReleaseSwap]) -> str:
+    """Apply *swaps* to *pyproject* in memory, save it, and return its text."""
+    settings = UvSettings.load(pyproject)
+    apply_release_swaps(settings.doc, swaps)
+    settings.save()
+    return pyproject.read_text(encoding="UTF-8")
 
 
 def test_apply_release_swaps_rewrites_pyproject(tmp_path):
@@ -221,8 +236,7 @@ def test_apply_release_swaps_rewrites_pyproject(tmp_path):
         release="2.1.0",
         released="2026-07-10",
     )
-    apply_release_swaps(pyproject, [swap])
-    content = pyproject.read_text(encoding="UTF-8")
+    content = _apply_swaps(pyproject, [swap])
     # The override is gone; the rev-pinned sibling survives, so does the table.
     assert "mango = { git" not in content
     assert 'papaya = { git = "https://github.com/acme/papaya", rev' in content
@@ -256,8 +270,7 @@ def test_apply_release_swaps_drops_emptied_sources_table(tmp_path):
         release="2.1.0",
         released="2026-07-10",
     )
-    apply_release_swaps(pyproject, [swap])
-    content = pyproject.read_text(encoding="UTF-8")
+    content = _apply_swaps(pyproject, [swap])
     assert "sources" not in content
     assert '"mango>=2.1.0"' in content
 
@@ -356,7 +369,9 @@ def test_floors_inside_cooldown(
         encoding="UTF-8",
     )
 
-    offenders = floors_inside_cooldown(pyproject, lock, "8 days")
+    offenders = floors_inside_cooldown(
+        read_project(pyproject), LockFile.load(lock), "8 days"
+    )
     assert (set(offenders) == {"cherry"}) is flagged
     if flagged:
         stale = offenders["cherry"]
@@ -383,8 +398,8 @@ def test_dependency_floors_clear_the_cooldown() -> None:
     clear the window before raising a floor onto it.
     """
     offenders = floors_inside_cooldown(
-        REPO_ROOT / "pyproject.toml",
-        REPO_ROOT / "uv.lock",
+        read_project(REPO_ROOT / "pyproject.toml"),
+        LockFile.load(REPO_ROOT / "uv.lock"),
         Config.minimum_release_age,
     )
     listed = ", ".join(
@@ -587,6 +602,19 @@ def test_pypi_index_source_is_shippable(tmp_path: Path) -> None:
         '[tool.uv.sources]\ncherry = { index = "pypi" }\n'
     )
     assert _scan(tmp_path, extra) == []
+
+
+def test_finding_row_follows_the_columns(tmp_path: Path) -> None:
+    """The terminal row fills the `lint-deps` columns in their declared order."""
+    extra = "[tool.uv.sources]\ncherry = { workspace = true }\n"
+    (finding,) = _scan(tmp_path, extra)
+    assert len(finding.row) == len(LINT_DEPS_HEADER_DEFS)
+    assert finding.row == (
+        "cherry",
+        "workspace",
+        "tool.uv.sources",
+        "blocks release",
+    )
 
 
 def test_allowlist_downgrades_without_hiding(tmp_path: Path) -> None:

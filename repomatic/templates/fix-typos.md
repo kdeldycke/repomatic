@@ -1,5 +1,5 @@
 ---
-title: Typo
+title: Fix typos
 docs: https://repomatic.net/workflows#fix-typos-fix-typos
 footer: false
 labels: [📚 documentation]

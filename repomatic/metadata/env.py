@@ -22,6 +22,7 @@ the `GITHUB_*` variables) and nothing else: no git, no `pyproject.toml`.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from functools import cached_property
@@ -34,9 +35,10 @@ from ..git_ops import (
 )
 from ..github.actions import (
     WorkflowEvent,
+    get_github_event,
 )
 from ..github.gh import run_gh_command
-from ..github.urls import split_slug
+from ..github.urls import repo_name, split_slug
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -47,17 +49,28 @@ class EnvironmentMetadata:
     """Workflow-run environment: the event payload and `GITHUB_*` variables.
 
     A concern mixin of {class}`~repomatic.metadata.core.Metadata`: never
-    instantiated on its own, and reads sibling concerns through `self`.
+    instantiated on its own.
     """
 
-    if TYPE_CHECKING:
-        # Sibling-concern surface read through `self`: each stub mirrors
-        # the descriptor another mixin (or the assembled `Metadata`
-        # class) defines, so every concern type-checks on its own.
+    @cached_property
+    def github_event(self) -> dict[str, Any]:
+        """Load the GitHub event payload from `GITHUB_EVENT_PATH`.
 
-        @cached_property
-        def github_event(self) -> dict[str, Any]:
-            """See {class}`~repomatic.metadata.core.Metadata`."""
+        GitHub Actions sets `GITHUB_EVENT_PATH` to a JSON file holding the
+        complete webhook event payload.
+
+        Delegates to {func}`repomatic.github.actions.get_github_event`, the one
+        loader of the payload, which reads a missing file as an empty payload.
+        Only the warning about a CI run missing the variable lives here, since
+        the shared loader serves callers outside CI too.
+        """
+        if is_github_ci() and not os.environ.get("GITHUB_EVENT_PATH"):
+            logging.warning("GITHUB_EVENT_PATH not set in environment.")
+        event = get_github_event()
+        if event:
+            logging.debug("--- GitHub event payload ---")
+            logging.debug(json.dumps(event, indent=4))
+        return event
 
     @cached_property
     def event_type(self) -> WorkflowEvent | None:
@@ -69,35 +82,25 @@ class EnvironmentMetadata:
         and `workflow_dispatch` runs resolve to their own event instead of
         falling in a `None` hole that nulls every commit matrix.
 
-        ```{caution}
-        When `GITHUB_EVENT_NAME` is absent or unrecognized, falls back on the
-        historical heuristic: a non-empty `GITHUB_BASE_REF` means a pull
-        request ([only set for pull request events](https://docs.github.com/en/actions/reference/workflows-and-actions/variables#default-environment-variables)),
-        a present-but-empty one means a push.
-        ```
+        :return: The event, or `None` outside CI, or when `GITHUB_EVENT_NAME` is
+            absent or names an event this project does not know. Each case is
+            logged as a warning.
         """
         if not is_github_ci():
             logging.warning(
                 "Cannot guess event type because we're not in a CI environment."
             )
             return None
-        if self.event_name:
-            try:
-                return WorkflowEvent(self.event_name)
-            except ValueError:
-                logging.warning(
-                    f"Unrecognized workflow event {self.event_name!r};"
-                    " falling back on the GITHUB_BASE_REF heuristic."
-                )
-        if "GITHUB_BASE_REF" not in os.environ:
+        if not self.event_name:
             logging.warning(
-                "Cannot guess event type because no GITHUB_BASE_REF env var found."
+                "Cannot guess event type because GITHUB_EVENT_NAME is not set."
             )
             return None
-
-        if bool(os.environ.get("GITHUB_BASE_REF")):
-            return WorkflowEvent.pull_request
-        return WorkflowEvent.push
+        try:
+            return WorkflowEvent(self.event_name)
+        except ValueError:
+            logging.warning(f"Unrecognized workflow event {self.event_name!r}.")
+            return None
 
     @cached_property
     def event_actor(self) -> str | None:
@@ -121,19 +124,16 @@ class EnvironmentMetadata:
         triggered by bots to avoid infinite loops.
 
         The sender type covers every GitHub App, which is how Dependabot and
-        Renovate author their pull requests today. The explicit login list is
-        kept as a second signal for downstream repositories: `sender.type` is
-        absent from the event payload outside `push` and `pull_request` (and
-        empty when the payload cannot be read at all), and the login is then
-        the only thing left to match on.
+        Renovate author their pull requests. The Dependabot login is a second
+        signal for downstream repositories: `sender.type` is absent from the
+        event payload outside `push` and `pull_request` (and empty when the
+        payload cannot be read at all), and the login is then the only thing
+        left to match on.
 
         The test is deliberately not `sender.type != "User"`, which would also
         classify an `Organization` sender as a bot.
         """
-        return self.event_sender_type == "Bot" or self.event_actor in (
-            "dependabot[bot]",
-            "dependabot-preview[bot]",
-        )
+        return self.event_sender_type == "Bot" or self.event_actor == "dependabot[bot]"
 
     @cached_property
     def head_branch(self) -> str | None:
@@ -181,7 +181,7 @@ class EnvironmentMetadata:
         Derived from {attr}`repo_slug`.
         """
         slug = self.repo_slug
-        return split_slug(slug)[1] if slug else None
+        return repo_name(slug) if slug else None
 
     @cached_property
     def is_awesome(self) -> bool:
@@ -208,10 +208,16 @@ class EnvironmentMetadata:
     def repo_slug(self) -> str | None:
         """Returns the `owner/name` slug for the current repository.
 
-        Resolution order: `GITHUB_REPOSITORY` env var (CI), `gh repo view`
-        (authenticated local), git remote URL parsing (offline fallback).
+        Resolution order: the `GITHUB_REPOSITORY` variable (CI), the URL of the
+        `origin` remote (offline), then `gh repo view`. The remote comes before
+        `gh` because reading it costs no network call, and no `gh` download on
+        a machine that lacks one.
         """
         slug = os.environ.get("GITHUB_REPOSITORY") or None
+        if not slug:
+            slug = get_repo_slug_from_remote()
+            if slug:
+                logging.debug(f"Detected repository slug from git remote: {slug}")
         if not slug:
             try:
                 slug = (
@@ -229,10 +235,6 @@ class EnvironmentMetadata:
                 )
             except RuntimeError:
                 logging.debug("Failed to detect repository slug via gh CLI.")
-        if not slug:
-            slug = get_repo_slug_from_remote()
-            if slug:
-                logging.debug(f"Detected repository slug from git remote: {slug}")
         return slug
 
     @cached_property

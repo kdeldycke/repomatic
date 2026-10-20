@@ -37,6 +37,8 @@ from repomatic.github.ci_status import (
     read_ci_status,
     workflow_files,
 )
+from repomatic.github.gh import GhOutputError
+from repomatic.github.outputs import AnnotationLevel
 from tests.conftest import WORKFLOWS_DIR, load_workflow
 
 
@@ -266,6 +268,50 @@ def test_a_run_still_going_is_not_inconclusive_yet():
     assert status.inconclusive is False
 
 
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    (
+        pytest.param(run(job("✅ a")), [], id="green"),
+        pytest.param(
+            run(job("✅ a", "failure"), job("⁉️ b", "failure"), conclusion="failure"),
+            [
+                (AnnotationLevel.ERROR, "🔬 Tests: required job failed: ✅ a"),
+                (
+                    AnnotationLevel.WARNING,
+                    "🔬 Tests: allowed-failure probe failed: ⁉️ b",
+                ),
+            ],
+            id="required-then-probe",
+        ),
+        pytest.param(
+            run(job("✅ a", "skipped"), conclusion="skipped"),
+            [
+                (
+                    AnnotationLevel.WARNING,
+                    "🔬 Tests: run 1 ran no job, so abc1234d has no result from it.",
+                )
+            ],
+            id="skipped",
+        ),
+    ),
+)
+def test_findings_put_what_gates_a_merge_first(status, expected):
+    """Errors gate a merge, warnings do not: each finding says which it is."""
+    assert list(status.findings()) == expected
+
+
+def test_workflow_level_failure_is_an_error_finding():
+    """A run failing around its jobs names the place to look instead."""
+    (finding,) = run(job("✅ a"), conclusion="failure").findings()
+    assert finding[0] is AnnotationLevel.ERROR
+    assert "workflow-level error" in finding[1]
+
+
+def test_run_cells_follow_the_table_columns():
+    """The table row is the workflow, the short SHA, the status, the verdict."""
+    assert run(job("✅ a")).cells() == ("🔬 Tests", "abc1234d", "completed", "green")
+
+
 # -- Workflow discovery -------------------------------------------------------
 
 
@@ -431,7 +477,7 @@ def test_an_unreadable_run_fails_rather_than_reading_green():
             "repomatic.github.gh.run_gh_command",
             side_effect=_gh(listing=[{"id": 42}], details={42: None}),
         ),
-        pytest.raises(TypeError, match="run 42"),
+        pytest.raises(GhOutputError, match="run 42"),
     ):
         latest_run("tests.yaml", "main")
 
@@ -739,6 +785,22 @@ def test_ci_status_command_reports_a_run_without_a_result():
         " is read on an earlier commit." in result.output
     )
     assert "📚 Docs: run 40" not in result.output
+
+
+def test_ci_status_command_reports_an_unreadable_run_as_an_error():
+    """A run `gh` cannot read fails the command with a message, not a traceback."""
+    with (
+        patch("repomatic.cli.ci.monitored_workflows", return_value=["tests.yaml"]),
+        patch(
+            "repomatic.cli.ci.read_ci_status",
+            side_effect=GhOutputError("Could not read run 42 of tests.yaml."),
+        ),
+    ):
+        result = CliRunner().invoke(repomatic, ["ci-status"])
+
+    assert result.exit_code == 1
+    assert "Could not read run 42 of tests.yaml." in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
 def test_workflow_files_keeps_everything_with_runs_of_its_own(tmp_path):

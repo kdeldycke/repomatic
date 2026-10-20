@@ -32,11 +32,8 @@ from ..github.actions import (
 from ..matrix.axes import (
     PRERELEASE_LABEL_SUFFIX,
     SINGLE_RUNNER_PYTHON_VERSIONS,
-    TEST_PYTHON_FULL,
-    TEST_PYTHON_PR,
-    TEST_RUNNERS_FULL,
-    TEST_RUNNERS_PR,
     UNSTABLE_PYTHON_VERSIONS,
+    MatrixName,
 )
 from ..matrix.model import (
     JOB_STATE_KEY,
@@ -56,6 +53,26 @@ if TYPE_CHECKING:
     from ..config import Config
 
 
+def _known_build_targets(names: list[str], kind: str) -> set[str]:
+    """Keep the recognized Nuitka build targets among *names*.
+
+    Shared by {attr}`MatrixMetadata.dev_targets` and
+    {attr}`MatrixMetadata.unstable_targets`, which read two different config
+    lists against the same roster and would otherwise drift on how they treat a
+    name that roster does not carry.
+
+    :param names: Target names, as configured.
+    :param kind: What the list configures, for the warning naming the strays.
+    :return: The subset of *names* present in
+        {data}`~repomatic.release.binary.NUITKA_BUILD_TARGETS`.
+    """
+    targets = set(names)
+    unknown = targets - set(NUITKA_BUILD_TARGETS)
+    if unknown:
+        logging.warning(f"Unrecognized {kind} targets: {unknown}")
+    return targets & set(NUITKA_BUILD_TARGETS)
+
+
 class MatrixMetadata:
     """The Nuitka build matrix and the test matrices.
 
@@ -65,8 +82,8 @@ class MatrixMetadata:
 
     if TYPE_CHECKING:
         # Sibling-concern surface read through `self`: each stub mirrors
-        # the descriptor another mixin (or the assembled `Metadata`
-        # class) defines, so every concern type-checks on its own.
+        # the descriptor another mixin defines, so every concern type-checks
+        # on its own.
 
         @cached_property
         def config(self) -> Config:
@@ -77,16 +94,8 @@ class MatrixMetadata:
             """See {class}`~repomatic.metadata.git.GitMetadata`."""
 
         @cached_property
-        def dev_targets(self) -> set[str]:
-            """See {class}`~repomatic.metadata.project.ProjectMetadata`."""
-
-        @cached_property
         def event_type(self) -> WorkflowEvent | None:
             """See {class}`~repomatic.metadata.env.EnvironmentMetadata`."""
-
-        @cached_property
-        def nuitka_entry_points(self) -> list[str]:
-            """See {class}`~repomatic.metadata.project.ProjectMetadata`."""
 
         @cached_property
         def release_commits_matrix(self) -> Matrix | None:
@@ -96,9 +105,66 @@ class MatrixMetadata:
         def script_entries(self) -> list[tuple[str, str, str]]:
             """See {class}`~repomatic.metadata.project.ProjectMetadata`."""
 
-        @cached_property
-        def unstable_targets(self) -> set[str]:
-            """See {class}`~repomatic.metadata.project.ProjectMetadata`."""
+    @cached_property
+    def nuitka_entry_points(self) -> list[str]:
+        """Entry points selected for Nuitka binary compilation.
+
+        Reads `[tool.repomatic].nuitka.entry-points` from `pyproject.toml`.
+        When empty (the default), deduplicates by callable target: keeps the
+        first entry point for each unique `module:callable` pair, so alias
+        entry points (like both `mpm` and `meta-package-manager` pointing to
+        the same function) don't produce duplicate binaries.
+        Unrecognized CLI IDs are logged as warnings and discarded.
+        """
+        all_cli_ids = [cli_id for cli_id, _, _ in self.script_entries]
+        if not all_cli_ids:
+            return []
+
+        raw = self.config.nuitka_entry_points
+        if not raw:
+            # Default: first entry point per unique callable target.
+            seen_targets: set[str] = set()
+            unique: list[str] = []
+            for cli_id, module_id, callable_id in self.script_entries:
+                target = f"{module_id}:{callable_id}"
+                if target not in seen_targets:
+                    seen_targets.add(target)
+                    unique.append(cli_id)
+            return unique
+
+        selected = []
+        for cli_id in raw:
+            if cli_id in all_cli_ids:
+                selected.append(cli_id)
+            else:
+                logging.warning(
+                    f"Unrecognized nuitka entry point {cli_id!r}; valid: {all_cli_ids}"
+                )
+        return selected or all_cli_ids[:1]
+
+    @cached_property
+    def dev_targets(self) -> set[str]:
+        """Nuitka build targets compiled on ordinary (non-release) pushes.
+
+        Reads `[tool.repomatic].nuitka.dev-targets` from `pyproject.toml`. An
+        empty list disables dev builds entirely. See
+        {attr}`~repomatic.config.Config.nuitka_dev_targets` for the default and
+        the canary rationale.
+
+        Unrecognized target names are logged as warnings and discarded.
+        """
+        return _known_build_targets(self.config.nuitka_dev_targets, "dev")
+
+    @cached_property
+    def unstable_targets(self) -> set[str]:
+        """Nuitka build targets allowed to fail without blocking the release.
+
+        Reads `[tool.repomatic].nuitka.unstable-targets` from `pyproject.toml`.
+        Defaults to an empty set.
+
+        Unrecognized target names are logged as warnings and discarded.
+        """
+        return _known_build_targets(self.config.nuitka_unstable_targets, "unstable")
 
     @cached_property
     def nuitka_matrix(self) -> Matrix | None:
@@ -113,10 +179,8 @@ class MatrixMetadata:
           (runner, platform, architecture, binary extension, and the glibc floor
           or minimum-OS version that target enforces), narrowed to the
           `[tool.repomatic] nuitka.dev-targets` canary subset on an ordinary
-          push (see
-          {attr}`~repomatic.metadata.project.ProjectMetadata.dev_targets`);
-          release commits, `schedule` and `workflow_dispatch` runs keep the full
-          roster
+          push (see {attr}`dev_targets`); release commits, `schedule` and
+          `workflow_dispatch` runs keep the full roster
 
         Each axis contributes an `include` entry carrying the extra parameters
         the compile job needs, keyed on the axis value that selects it: the
@@ -224,18 +288,19 @@ class MatrixMetadata:
         matrix.add_includes(*build_commit_matrix.include)
 
         # Augment each variation set of the matrix with the binary name Nuitka
-        # produces. Iterate over all matrix variation sets so we have all the
-        # metadata needed to generate a name unique to these variations.
-        for variations in matrix.solve():
-            # We re-attach the binary name with an include directive, so we need a
-            # copy of the main variants it corresponds to.
-            bin_name_include = {k: variations[k] for k in matrix.variations}
-            bin_name_include["bin_name"] = binary_name(
-                variations["cli_id"],
-                variations["target"],
-                variations["current_version"],
+        # produces. Every solved job carries the metadata the name depends on,
+        # and an include keyed on the job's axis values re-attaches it.
+        matrix.add_includes(
+            *(
+                {
+                    **{key: job[key] for key in matrix.variations},
+                    "bin_name": binary_name(
+                        job["cli_id"], job["target"], job["current_version"]
+                    ),
+                }
+                for job in tuple(matrix.solve())
             )
-            matrix.add_includes(bin_name_include)
+        )
 
         # All jobs are stable by default, unless marked otherwise by specific
         # configuration. Unstable targets outside the selected subset are
@@ -297,8 +362,8 @@ class MatrixMetadata:
         here, so it keeps working whichever form {attr}`test_matrix` emits.
         """
         matrix = Matrix()
-        matrix.add_variation(OS_AXIS, TEST_RUNNERS_FULL)
-        matrix.add_variation(PYTHON_VERSION_AXIS, TEST_PYTHON_FULL)
+        matrix.add_variation(OS_AXIS, MatrixName.FULL.runners)
+        matrix.add_variation(PYTHON_VERSION_AXIS, MatrixName.FULL.python_versions)
         removed_os = self.config.test_matrix.remove.get(OS_AXIS, ())
         matrix.add_includes({JOB_STATE_KEY: "stable"})
         # `python-label` is display-only: it spells the version the way pyenv and
@@ -381,11 +446,19 @@ class MatrixMetadata:
         variations are not (to keep the PR matrix small).
         """
         matrix = Matrix()
-        matrix.add_variation(OS_AXIS, TEST_RUNNERS_PR)
-        matrix.add_variation(PYTHON_VERSION_AXIS, TEST_PYTHON_PR)
+        matrix.add_variation(OS_AXIS, MatrixName.PR.runners)
+        matrix.add_variation(PYTHON_VERSION_AXIS, MatrixName.PR.python_versions)
         matrix.add_includes({JOB_STATE_KEY: "stable"})
         self._apply_test_matrix_config(matrix, full=False)
         return matrix
+
+    def test_matrix_named(self, name: MatrixName) -> Matrix:
+        """The test matrix *name* designates.
+
+        :param name: Which of the two matrices.
+        :return: {attr}`test_matrix` or {attr}`test_matrix_pr`.
+        """
+        return self.test_matrix if name is MatrixName.FULL else self.test_matrix_pr
 
     @cached_property
     def runner_arch(self) -> dict[str, str]:

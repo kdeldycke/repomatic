@@ -18,8 +18,8 @@
 
 The lowest layer of bundled-data access, deliberately dependency-free so any
 module can read a data file without import cycles. Policy layers sit above:
-`repomatic.init_project.export_content` validates names against the
-exportable-file registry, and `repomatic.tooling.runner` resolves tool configs.
+the init command validates names against the exportable-file registry, and
+{mod}`repomatic.tooling.runner` resolves tool configs.
 """
 
 from __future__ import annotations
@@ -57,13 +57,13 @@ def get_data_content(filename: str) -> str:
     raise FileNotFoundError(msg)
 
 
+# 8.0.0 shim: re-export for callers not migrated yet.
 @contextmanager
 def get_data_file_path(filename: str) -> Generator[Path, None, None]:
     """Yield the filesystem path of a bundled data file.
 
-    Unlike {func}`get_data_content` which returns string content, this yields
-    a `Path` suitable for passing to external tools via `--config <path>`.
-    The path is valid only within the context manager.
+    Every caller reads the file, which {func}`get_data_content` does in one
+    call: use it instead. The path is valid only within the context manager.
     """
     data_files = files("repomatic.data")
     with as_file(data_files.joinpath(filename)) as path:

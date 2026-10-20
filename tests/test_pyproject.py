@@ -28,6 +28,7 @@ from repomatic.pyproject import (
     cached_toml,
     dependency_group_names,
     extra_names,
+    get_current_version,
     get_project_name,
     is_python_package,
     is_python_project,
@@ -293,3 +294,51 @@ def test_uv_table(tmp_path, content, expected):
     path = tmp_path / "pyproject.toml"
     path.write_text(content, encoding="UTF-8")
     assert dict(uv_table(load_pyproject_doc(path))) == expected
+
+
+PYPROJECT_BUMPVERSION = '[tool.bumpversion]\ncurrent_version = "4.5.6"\n'
+"""A `pyproject.toml` declaring its version in the bump-my-version table."""
+
+
+@pytest.mark.parametrize(
+    ("files", "expected"),
+    [
+        pytest.param(
+            {
+                ".bumpversion.toml": 'current_version = "1.2.3"\n',
+                "pyproject.toml": PYPROJECT_BUMPVERSION,
+            },
+            "1.2.3",
+            id="bumpversion-file-first",
+        ),
+        pytest.param(
+            {"pyproject.toml": PYPROJECT_BUMPVERSION}, "4.5.6", id="pyproject"
+        ),
+        pytest.param(
+            {".bumpversion.toml": "[apple", "pyproject.toml": PYPROJECT_BUMPVERSION},
+            "4.5.6",
+            id="unparsable-file-skipped",
+        ),
+        pytest.param(
+            {".bumpversion.toml": "[orchard]\nrows = 3\n"}, None, id="no-version"
+        ),
+        pytest.param(
+            {"pyproject.toml": '[tool]\nbumpversion = "flat"\n'},
+            None,
+            id="not-a-table",
+        ),
+        pytest.param({}, None, id="no-file"),
+    ],
+)
+def test_get_current_version(tmp_path, files, expected):
+    """The first bump-my-version source declaring a version wins."""
+    for name, content in files.items():
+        (tmp_path / name).write_text(content, encoding="UTF-8")
+    assert get_current_version(tmp_path) == expected
+
+
+def test_get_current_version_reads_the_working_directory(tmp_path, monkeypatch):
+    """With no root given, the version comes from the working directory."""
+    (tmp_path / "pyproject.toml").write_text(PYPROJECT_BUMPVERSION, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    assert get_current_version() == "4.5.6"

@@ -18,26 +18,19 @@
 
 from __future__ import annotations
 
-import hashlib
-import io
 import json
 import logging
 import os
 import re
-import tarfile
-import tempfile
 import threading
-import zipfile
-from contextlib import contextmanager
 from itertools import combinations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from urllib.error import URLError
 
 import pytest
 import tomlrt
 import yaml
-from click_extra import Choice, ClickException
+from click_extra import Choice
 from click_extra.testing import CliRunner
 from extra_platforms import (
     AARCH64,
@@ -53,17 +46,17 @@ from extra_platforms import (
     Platform,
 )
 
-from repomatic.cache import cached_binary_path
+from repomatic.bundle import get_data_content
 from repomatic.cli.main import repomatic
 from repomatic.cli.tools import run as run_command
 from repomatic.file_inventory import FileInventory
-from repomatic.images import _check_tool
 from repomatic.matrix.axes import (
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_RUNNERS_FULL,
     TEST_RUNNERS_PR,
 )
 from repomatic.metadata.core import Metadata
+from repomatic.metadata.project import MYPY_VERSION_MIN
 from repomatic.tooling.registry import (
     _DIRECTIVE_YAML_OPTIONS_RE,
     _ESCAPED_COLON_FENCE_RE,
@@ -71,37 +64,40 @@ from repomatic.tooling.registry import (
     TOOL_REGISTRY,
     VERSIONS,
     ArchiveFormat,
+    BinaryInstallError,
     BinarySpec,
     NativeFormat,
     ToolBackend,
+    ToolInstallError,
     ToolSpec,
     UnsupportedPlatformError,
     _fix_myst_directives,
     _unescape_colon_fence,
     _yaml_block_to_field_list,
+    lookup_tool,
+    tool_reference,
+    tool_summary,
 )
 from repomatic.tooling.runner import (
+    NPM_INSTALL_FLAGS,
     TOOL_CRASH_EXIT_CODE,
+    ConfigLevel,
+    ConfigSource,
     _build_install_args,
     _digest_targets,
-    _download_and_verify,
-    _extract_binary,
-    _install_binary,
     _install_into_venv,
     _install_npm,
     _installs_into_venv,
     _npm_supports_cooldown,
     _path_tools_env,
     _venv_install_args,
-    ensure_binary,
     find_unmodified_configs,
-    get_data_file_path,
     resolve_config,
-    resolve_config_source,
     resolve_default_args,
     run_tool,
     verify_via_write_path,
 )
+from tests.conftest import load_workflow, skip_unless_tool_runs
 
 # ---------------------------------------------------------------------------
 # ToolSpec and registry validation
@@ -125,6 +121,12 @@ def test_tool_spec_integrity(name, spec):
     if spec.package is not None:
         assert spec.package != spec.name, (
             f"{name}: package equals name — set package=None instead"
+        )
+
+    # pyproject_table, when set, must differ from name (otherwise use None).
+    if spec.pyproject_table is not None:
+        assert spec.pyproject_table != spec.name, (
+            f"{name}: pyproject_table equals name, set pyproject_table=None instead"
         )
 
     # pypi_name must be a bare, queryable PyPI project name: package may carry
@@ -248,15 +250,13 @@ def test_tool_spec_integrity(name, spec):
         )
 
     if spec.default_config:
-        with get_data_file_path(spec.default_config) as path:
-            assert path.exists(), f"{spec.default_config} not found in data/"
-            content = path.read_text(encoding="UTF-8")
-            if spec.native_format == NativeFormat.YAML:
-                yaml.safe_load(content)
-            elif spec.native_format == NativeFormat.TOML:
-                tomlrt.loads(content)
-            elif spec.native_format == NativeFormat.JSON:
-                json.loads(content)
+        content = get_data_content(spec.default_config)
+        if spec.native_format == NativeFormat.YAML:
+            yaml.safe_load(content)
+        elif spec.native_format == NativeFormat.TOML:
+            tomlrt.loads(content)
+        elif spec.native_format == NativeFormat.JSON:
+            json.loads(content)
         assert spec.config_flag or spec.native_config_files, (
             f"{name} has default_config but no config_flag or native_config_files"
         )
@@ -338,8 +338,7 @@ def test_bundled_actionlint_labels_name_runners_the_matrix_emits():
     entry surviving a move to a newer image would go on whitelisting a runner
     nothing uses, and read as still load-bearing.
     """
-    with get_data_file_path("actionlint.yaml") as path:
-        config = yaml.safe_load(path.read_text(encoding="UTF-8"))
+    config = yaml.safe_load(get_data_content("actionlint.yaml"))
 
     declared = set(config["self-hosted-runner"]["labels"])
     emitted = (
@@ -539,7 +538,7 @@ def test_install_into_venv_reports_a_uv_failure(mock_run, results, message):
         MagicMock(returncode=code, stdout=stdout) for code, stdout in results
     ]
 
-    with pytest.raises(ClickException, match=message):
+    with pytest.raises(ToolInstallError, match=message):
         _install_into_venv(TOOL_REGISTRY["nuitka"])
 
     assert mock_run.call_count == len(results)
@@ -605,7 +604,7 @@ def test_install_npm_zero_cooldown_omits_flag(mock_which, mock_run, tmp_path):
 @patch("repomatic.tooling.runner.shutil.which", return_value=None)
 def test_install_npm_without_npm_raises(mock_which, tmp_path):
     """A clear error surfaces when Node.js and npm are not on PATH."""
-    with pytest.raises(RuntimeError, match="npm"):
+    with pytest.raises(ToolInstallError, match="npm"):
         _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=0)
 
 
@@ -643,6 +642,123 @@ def test_install_npm_warns_when_npm_too_old(mock_which, mock_run, tmp_path, capl
         _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=8)
 
     assert "minimum-release-age cooldown is not enforced" in caplog.text
+
+
+def test_npm_bootstrap_carries_the_install_flags():
+    """The `lint-awesome` job installs npm with every flag of the npm backend.
+
+    The job installs a recent npm before `repomatic run awesome-lint`. That
+    install is as exposed to install scripts and to the audit endpoint as the
+    install of the tool itself.
+    """
+    steps = load_workflow("lint.yaml")["jobs"]["lint-awesome"]["steps"]
+    (bootstrap,) = (
+        step["run"] for step in steps if "npm install npm@" in step.get("run", "")
+    )
+    missing = set(NPM_INSTALL_FLAGS) - set(bootstrap.split())
+    assert not missing, f"lint-awesome installs npm without {sorted(missing)}"
+
+
+def test_lookup_tool_rejects_an_unknown_name():
+    """One lookup, one error, naming the tools that do exist."""
+    assert lookup_tool("ruff") is TOOL_REGISTRY["ruff"]
+    with pytest.raises(ValueError, match=r"Unknown tool: 'papaya'\. Available tools: "):
+        lookup_tool("papaya")
+
+
+def test_resolve_binary_fills_in_the_platform_download():
+    """A resolved binary carries what one platform's download needs."""
+    spec = ToolSpec(
+        name="papaya",
+        version="1.2.3",
+        binary=BinarySpec(
+            urls={(WINDOWS, X86_64): "https://example.com/{version}/papaya.zip"},
+            checksums={(WINDOWS, X86_64): "a" * 64},
+            archive_format=ArchiveFormat.ZIP,
+            archive_executable="bin/papaya",
+            strip_components=1,
+        ),
+    )
+
+    resolved = spec.resolve_binary((WINDOWS, X86_64))
+
+    assert resolved.url == "https://example.com/1.2.3/papaya.zip"
+    assert resolved.archive_name == "papaya.zip"
+    assert resolved.checksum == "a" * 64
+    assert resolved.archive_format is ArchiveFormat.ZIP
+    assert resolved.strip_components == 1
+    assert resolved.cache_key == "windows-x86_64"
+    assert resolved.archive_members == ("bin/papaya", "bin/papaya.exe")
+    assert resolved.cached_names == ("papaya", "papaya.exe")
+
+
+def test_resolve_binary_refuses_a_tool_without_binary():
+    """Only a binary tool has a download to resolve."""
+    with pytest.raises(ValueError, match="ships no binary"):
+        TOOL_REGISTRY["ruff"].resolve_binary()
+
+
+def test_with_overrides_pins_another_version_and_checksum():
+    """The overrides reach the download URL and the checksum on record."""
+    spec = TOOL_REGISTRY["shfmt"]
+    with (
+        patch("repomatic.tooling.registry.current_platform", return_value=UBUNTU),
+        patch("repomatic.tooling.registry.current_architecture", return_value=X86_64),
+    ):
+        overridden = spec.with_overrides(version="9.9.9", checksum="b" * 64)
+        resolved = overridden.resolve_binary()
+
+    assert "9.9.9" in resolved.url
+    assert resolved.checksum == "b" * 64
+    # The registry entry itself is left alone.
+    assert spec.binary is not None
+    assert spec.binary.checksums[LINUX, X86_64] != "b" * 64
+    assert spec.with_overrides() is spec
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        pytest.param(("--output", "lychee/out.md"), [Path("lychee/out.md")], id="pair"),
+        pytest.param(("--output=lychee/out.md",), [Path("lychee/out.md")], id="equals"),
+        pytest.param(("--output",), [], id="dangling-flag"),
+        pytest.param((".",), [], id="no-flag"),
+    ],
+)
+def test_output_paths_reads_both_flag_forms(args, expected):
+    """The report destination is read off either form of the output flag."""
+    assert TOOL_REGISTRY["lychee"].output_paths(args) == expected
+    assert TOOL_REGISTRY["ruff"].output_paths(args) == []
+
+
+def test_with_package_pins_keep_the_spelling_of_each_entry():
+    """A plugin pin splits into the package name as written and its version."""
+    spec = ToolSpec(
+        name="papaya", with_packages=("papaya_seeds==1.0.0", "papaya-skin==2.1")
+    )
+    assert spec.with_package_pins == (("papaya_seeds", "1.0.0"), ("papaya-skin", "2.1"))
+
+
+def test_tool_docs_name_the_table_each_tool_reads():
+    """bump-my-version is documented under the table it reads."""
+    assert "`[tool.bumpversion]`" in tool_summary()
+    reference = tool_reference()
+    assert "`[tool.bumpversion]` in `pyproject.toml` (native)" in reference
+    assert "`[tool.bump-my-version]` in `pyproject.toml`" not in reference
+
+
+@pytest.mark.parametrize(("name", "spec"), sorted(TOOL_REGISTRY.items()))
+def test_release_badge_follows_the_install_source(name, spec):
+    """The release badge reads the registry each tool is installed from."""
+    reference = tool_reference()
+    section = reference.split(f"### [{spec.label}]")[1].split("\n### ")[0]
+    expected = {
+        ToolBackend.BINARY: "img.shields.io/github/release-date/",
+        ToolBackend.NPM: "img.shields.io/npm/v/",
+        ToolBackend.VENV: "img.shields.io/pypi/v/",
+        ToolBackend.UVX: "img.shields.io/pypi/v/",
+    }[spec.backend]
+    assert expected in section, name
 
 
 def test_tool_registry_sorted_alphabetically():
@@ -708,7 +824,7 @@ def test_checksum_version_matches_registry(name):
 
 
 # ---------------------------------------------------------------------------
-# Binary download infrastructure
+# Platform resolution and companion binaries
 # ---------------------------------------------------------------------------
 
 
@@ -852,362 +968,6 @@ def test_platform_cache_key():
     assert BinarySpec.platform_cache_key((WINDOWS, X86_64)) == "windows-x86_64"
 
 
-def _urlopen_response(content: bytes, *, advertised_length: int | None = -1):
-    """Build a `urlopen` double delivering *content* in one read.
-
-    :param content: The body bytes, served before the terminating empty read.
-    :param advertised_length: What `Content-Length` reports. The default
-        derives it from *content*; `None` omits the header, which sends the
-        download path down its indeterminate-progress branch; any other value
-        is advertised verbatim, which is how a truncated transfer is staged.
-    """
-    response = MagicMock()
-    length = len(content) if advertised_length == -1 else advertised_length
-    response.headers.get = MagicMock(
-        return_value=None if length is None else str(length)
-    )
-    response.read = MagicMock(side_effect=[content, b""])
-    response.__enter__ = MagicMock(return_value=response)
-    response.__exit__ = MagicMock(return_value=False)
-    return response
-
-
-def test_download_and_verify_success(tmp_path):
-    """Successful download with matching checksum writes the file."""
-    content = b"hello binary world"
-    expected = hashlib.sha256(content).hexdigest()
-    dest = tmp_path / "downloaded"
-
-    with patch(
-        "repomatic.tooling.runner.urlopen", return_value=_urlopen_response(content)
-    ):
-        _download_and_verify("https://example.com/file", expected, dest)
-
-    assert dest.exists()
-    assert dest.read_bytes() == content
-
-
-def test_download_and_verify_no_content_length(tmp_path):
-    """A response without Content-Length downloads via the indeterminate Spinner."""
-    content = b"hello binary world"
-    expected = hashlib.sha256(content).hexdigest()
-    dest = tmp_path / "downloaded"
-
-    # No Content-Length: total stays 0, so the download path uses a Spinner
-    # instead of a determinate progress bar.
-    with patch(
-        "repomatic.tooling.runner.urlopen",
-        return_value=_urlopen_response(content, advertised_length=None),
-    ):
-        _download_and_verify("https://example.com/file", expected, dest)
-
-    assert dest.exists()
-    assert dest.read_bytes() == content
-
-
-def test_download_and_verify_mismatch(tmp_path):
-    """Checksum mismatch raises ValueError and cleans up."""
-    content = b"hello binary world"
-    dest = tmp_path / "downloaded"
-
-    with (
-        patch(
-            "repomatic.tooling.runner.urlopen",
-            return_value=_urlopen_response(content),
-        ),
-        pytest.raises(ValueError, match="SHA-256 mismatch"),
-    ):
-        _download_and_verify("https://example.com/file", "bad" * 16, dest)
-
-    assert not dest.exists()
-
-
-def test_download_and_verify_retries_transient_failure(tmp_path):
-    """A transient network failure is retried and the next attempt succeeds."""
-    content = b"hello binary world"
-    expected = hashlib.sha256(content).hexdigest()
-    dest = tmp_path / "downloaded"
-
-    with (
-        patch(
-            "repomatic.tooling.runner.urlopen",
-            side_effect=[
-                URLError("certificate verify failed: self-signed certificate"),
-                _urlopen_response(content),
-            ],
-        ) as fake_urlopen,
-        patch("repomatic.tooling.runner.time.sleep") as fake_sleep,
-    ):
-        _download_and_verify("https://example.com/file", expected, dest)
-
-    assert fake_urlopen.call_count == 2
-    assert fake_sleep.call_count == 1
-    assert dest.read_bytes() == content
-
-
-def test_download_and_verify_gives_up_after_attempts(tmp_path):
-    """A persistent network failure surfaces after the last attempt."""
-    dest = tmp_path / "downloaded"
-
-    with (
-        patch(
-            "repomatic.tooling.runner.urlopen",
-            side_effect=URLError("connection reset"),
-        ) as fake_urlopen,
-        patch("repomatic.tooling.runner.time.sleep"),
-        pytest.raises(URLError, match="connection reset"),
-    ):
-        _download_and_verify("https://example.com/file", "0" * 64, dest)
-
-    assert fake_urlopen.call_count == 3
-    assert not dest.exists()
-
-
-def test_download_and_verify_truncated(tmp_path):
-    """A body shorter than Content-Length raises OSError, not a mismatch.
-
-    A truncated transfer (proxy hiccup, dropped connection) hashes to a wrong
-    digest, so it used to be reported as a SHA-256 mismatch: that reads as a
-    stale pin or a tampered artifact when the registry checksum is correct.
-    Truncation is retried like any network failure, so the error only
-    surfaces once every attempt came up short.
-    """
-    content = b"hello binary world"
-    dest = tmp_path / "downloaded"
-
-    with (
-        patch(
-            "repomatic.tooling.runner.urlopen",
-            # Advertise more bytes than the body delivers, on every attempt.
-            side_effect=[
-                _urlopen_response(content, advertised_length=len(content) + 7)
-                for _ in range(3)
-            ],
-        ),
-        patch("repomatic.tooling.runner.time.sleep"),
-        pytest.raises(OSError, match=r"Truncated download .* got 18 of 25 bytes"),
-    ):
-        _download_and_verify(
-            "https://example.com/file",
-            hashlib.sha256(content).hexdigest(),
-            dest,
-        )
-
-    assert not dest.exists()
-
-
-def test_extract_binary_raw(tmp_path):
-    """RAW format renames the archive to the executable name."""
-    archive = tmp_path / "biome-linux-x64"
-    archive.write_bytes(b"\x7fELF fake binary")
-
-    spec = BinarySpec(
-        urls={},
-        checksums={},
-        archive_format=ArchiveFormat.RAW,
-        archive_executable="biome",
-    )
-    result = _extract_binary(archive, spec, tmp_path, "testtool", ArchiveFormat.RAW, 0)
-
-    assert result == tmp_path / "biome"
-    assert result.exists()
-    assert result.stat().st_mode & 0o755
-
-
-def _create_tar_gz(tmp_path, member_name, content=b"#!/bin/sh\necho hi"):
-    """Create a tar.gz archive with a single member."""
-    archive_path = tmp_path / "tool.tar.gz"
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        info = tarfile.TarInfo(name=member_name)
-        info.size = len(content)
-        tar.addfile(info, io.BytesIO(content))
-    archive_path.write_bytes(buf.getvalue())
-    return archive_path
-
-
-def test_extract_binary_tar_gz(tmp_path):
-    """TAR_GZ extracts the named executable and makes it executable."""
-    archive = _create_tar_gz(tmp_path, "actionlint")
-
-    spec = BinarySpec(
-        urls={},
-        checksums={},
-        archive_format=ArchiveFormat.TAR_GZ,
-        archive_executable="actionlint",
-    )
-    result = _extract_binary(
-        archive, spec, tmp_path, "testtool", ArchiveFormat.TAR_GZ, 0
-    )
-
-    assert result == tmp_path / "actionlint"
-    assert result.exists()
-    assert result.stat().st_mode & 0o755
-
-
-def test_extract_binary_tar_gz_with_strip_components(tmp_path):
-    """TAR_GZ with strip_components strips leading path components."""
-    archive = _create_tar_gz(tmp_path, "subdir/bin/mytool")
-
-    spec = BinarySpec(
-        urls={},
-        checksums={},
-        archive_format=ArchiveFormat.TAR_GZ,
-        archive_executable="bin/mytool",
-        strip_components=1,
-    )
-    result = _extract_binary(
-        archive, spec, tmp_path, "testtool", ArchiveFormat.TAR_GZ, 1
-    )
-
-    assert result.name == "mytool"
-    assert result.exists()
-    assert result.stat().st_mode & 0o755
-
-
-def test_extract_binary_tar_xz(tmp_path):
-    """TAR_XZ extracts the named executable."""
-    archive_path = tmp_path / "tool.tar.xz"
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:xz") as tar:
-        content = b"#!/bin/sh\necho hi"
-        info = tarfile.TarInfo(name="lychee")
-        info.size = len(content)
-        tar.addfile(info, io.BytesIO(content))
-    archive_path.write_bytes(buf.getvalue())
-
-    spec = BinarySpec(
-        urls={},
-        checksums={},
-        archive_format=ArchiveFormat.TAR_XZ,
-        archive_executable="lychee",
-    )
-    result = _extract_binary(
-        archive_path, spec, tmp_path, "testtool", ArchiveFormat.TAR_XZ, 0
-    )
-
-    assert result == tmp_path / "lychee"
-    assert result.exists()
-
-
-def test_extract_binary_tar_missing_executable(tmp_path):
-    """Missing executable in tar archive raises FileNotFoundError."""
-    archive = _create_tar_gz(tmp_path, "other_binary")
-
-    spec = BinarySpec(
-        urls={},
-        checksums={},
-        archive_format=ArchiveFormat.TAR_GZ,
-        archive_executable="nonexistent",
-    )
-    with pytest.raises(FileNotFoundError, match="not found in archive"):
-        _extract_binary(archive, spec, tmp_path, "testtool", ArchiveFormat.TAR_GZ, 0)
-
-
-def test_extract_binary_tar_unsafe_path(tmp_path):
-    """Archive member with path traversal raises ValueError."""
-    archive = _create_tar_gz(tmp_path, "../../../etc/passwd")
-
-    spec = BinarySpec(
-        urls={},
-        checksums={},
-        archive_format=ArchiveFormat.TAR_GZ,
-        archive_executable="../../../etc/passwd",
-    )
-    with pytest.raises(ValueError, match="Unsafe archive member"):
-        _extract_binary(archive, spec, tmp_path, "testtool", ArchiveFormat.TAR_GZ, 0)
-
-
-def _create_zip(tmp_path, member_name, content=b"MZ fake exe"):
-    """Create a ZIP archive with a single member."""
-    archive_path = tmp_path / "tool.zip"
-    with zipfile.ZipFile(archive_path, "w") as zf:
-        zf.writestr(member_name, content)
-    return archive_path
-
-
-def test_extract_binary_zip(tmp_path):
-    """ZIP format extracts the named executable and makes it executable."""
-    archive = _create_zip(tmp_path, "actionlint.exe")
-
-    spec = BinarySpec(
-        urls={},
-        checksums={},
-        archive_format=ArchiveFormat.ZIP,
-    )
-    result = _extract_binary(
-        archive, spec, tmp_path, "actionlint", ArchiveFormat.ZIP, 0
-    )
-
-    assert result == tmp_path / "actionlint.exe"
-    assert result.exists()
-    assert result.stat().st_mode & 0o755
-
-
-def test_extract_binary_zip_with_strip_components(tmp_path):
-    """ZIP with strip_components strips leading path components."""
-    archive = _create_zip(tmp_path, "subdir/bin/mytool.exe")
-
-    spec = BinarySpec(
-        urls={},
-        checksums={},
-        archive_format=ArchiveFormat.ZIP,
-        archive_executable="bin/mytool.exe",
-        strip_components=1,
-    )
-    result = _extract_binary(archive, spec, tmp_path, "testtool", ArchiveFormat.ZIP, 1)
-
-    assert result.name == "mytool.exe"
-    assert result.exists()
-    assert result.stat().st_mode & 0o755
-
-
-def test_extract_binary_zip_missing_executable(tmp_path):
-    """Missing executable in ZIP archive raises FileNotFoundError."""
-    archive = _create_zip(tmp_path, "other.exe")
-
-    spec = BinarySpec(
-        urls={},
-        checksums={},
-        archive_format=ArchiveFormat.ZIP,
-    )
-    with pytest.raises(FileNotFoundError, match="not found in archive"):
-        _extract_binary(archive, spec, tmp_path, "nonexistent", ArchiveFormat.ZIP, 0)
-
-
-def test_extract_binary_zip_unsafe_path(tmp_path):
-    """ZIP member with path traversal raises ValueError."""
-    archive = _create_zip(tmp_path, "../../../etc/passwd")
-
-    spec = BinarySpec(
-        urls={},
-        checksums={},
-        archive_format=ArchiveFormat.ZIP,
-        archive_executable="../../../etc/passwd",
-    )
-    with pytest.raises(ValueError, match="Unsafe archive member"):
-        _extract_binary(archive, spec, tmp_path, "testtool", ArchiveFormat.ZIP, 0)
-
-
-def test_extract_binary_format_override(tmp_path):
-    """Per-platform archive format from dict is used when passed."""
-    archive = _create_zip(tmp_path, "gitleaks.exe")
-
-    spec = BinarySpec(
-        urls={},
-        checksums={},
-        archive_format={
-            ALL_PLATFORMS: ArchiveFormat.TAR_GZ,
-            WINDOWS: ArchiveFormat.ZIP,
-        },
-    )
-    # _install_binary resolves the format and passes it explicitly.
-    result = _extract_binary(archive, spec, tmp_path, "gitleaks", ArchiveFormat.ZIP, 0)
-
-    assert result == tmp_path / "gitleaks.exe"
-    assert result.exists()
-
-
 def test_get_archive_format_dict_resolution():
     """Dict archive_format resolves Platform > Group membership."""
     spec = BinarySpec(
@@ -1223,27 +983,6 @@ def test_get_archive_format_dict_resolution():
     assert spec.get_archive_format((WINDOWS, X86_64)) == ArchiveFormat.ZIP
 
 
-def test_install_binary_missing_platform():
-    """Missing platform key in binary spec raises RuntimeError."""
-    spec = ToolSpec(
-        name="testtool",
-        version="1.0.0",
-        package="testtool",
-        binary=BinarySpec(
-            urls={(LINUX, AARCH64): "https://example.com/{version}/tool"},
-            checksums={(LINUX, AARCH64): "a" * 64},
-            archive_format=ArchiveFormat.RAW,
-            archive_executable="testtool",
-        ),
-    )
-    with (
-        patch("repomatic.tooling.registry.current_platform", return_value=MACOS),
-        patch("repomatic.tooling.registry.current_architecture", return_value=X86_64),
-        pytest.raises(RuntimeError, match="No binary for"),
-    ):
-        _install_binary(spec, Path("/tmp"))
-
-
 def test_path_tools_env_skips_platform_without_binary(caplog):
     """A companion publishing no binary here is skipped, not fatal.
 
@@ -1254,13 +993,12 @@ def test_path_tools_env_skips_platform_without_binary(caplog):
     """
     spec = TOOL_REGISTRY["mdformat"]
     assert "shfmt" in spec.path_tools
-    path_dirs: list[tempfile.TemporaryDirectory[str]] = []
     with (
         patch("repomatic.tooling.registry.current_platform", return_value=WINDOWS),
         patch("repomatic.tooling.registry.current_architecture", return_value=AARCH64),
         caplog.at_level(logging.WARNING),
     ):
-        env = _path_tools_env(spec, False, False, path_dirs)
+        env = _path_tools_env(spec, skip_checksum=False, no_cache=False)
 
     assert env is not None
     assert "shfmt" in caplog.text
@@ -1269,249 +1007,17 @@ def test_path_tools_env_skips_platform_without_binary(caplog):
     assert env["PATH"] == os.environ.get("PATH", "")
 
 
-TARBALL_URL = "https://example.com/{version}/tool.tar.gz"
-"""Download URL for the tests that go through the extract step."""
-
-
-def _binary_spec(
-    *,
-    version: str = "1.0.0",
-    checksum: str = "a" * 64,
-    url: str = "https://example.com/{version}/tool",
-    archive_executable: str | None = None,
-    archive_format: ArchiveFormat = ArchiveFormat.RAW,
-) -> ToolSpec:
-    """A single-platform `ToolSpec` for the Linux x86_64 cache tests.
-
-    Every caller pairs it with `_on_linux_x86_64`, so one URL key is enough:
-    resolution never reaches a second.
-    """
-    return ToolSpec(
-        name="testtool",
-        version=version,
-        binary=BinarySpec(
-            urls={(LINUX, X86_64): url},
-            checksums={(LINUX, X86_64): checksum},
-            archive_format=archive_format,
-            archive_executable=archive_executable,
-        ),
-    )
-
-
-@contextmanager
-def _on_linux_x86_64():
-    """Pin platform detection to Linux x86_64 for the duration of the block.
-
-    `UBUNTU` rather than `LINUX` on purpose: reporting a real distribution is
-    what sends resolution through the group-membership pass, the way an actual
-    runner does.
-    """
-    with (
-        patch("repomatic.tooling.registry.current_platform", return_value=UBUNTU),
-        patch("repomatic.tooling.registry.current_architecture", return_value=X86_64),
-    ):
-        yield
-
-
-def test_install_binary_cache_hit(tmp_path, monkeypatch, cache_env):
-    """_install_binary returns cached path when cache hit and sidecar matches."""
-    # Pre-populate the cache with a fake binary and its .sha256 sidecar.
-    fake_binary = b"cached-binary-content"
-    binary_checksum = hashlib.sha256(fake_binary).hexdigest()
-
-    spec = _binary_spec(checksum="archive-checksum-not-used-for-cache")
-
-    cache_path = cached_binary_path("testtool", "1.0.0", "linux-x86_64", "testtool")
-    cache_path.parent.mkdir(parents=True)
-    cache_path.write_bytes(fake_binary)
-    cache_path.chmod(0o755)
-    # Write the sidecar with the binary's digest.
-    sidecar = cache_path.with_suffix(cache_path.suffix + ".sha256")
-    sidecar.write_text(binary_checksum, encoding="UTF-8")
-
-    with _on_linux_x86_64():
-        result = _install_binary(spec, tmp_path / "staging")
-
-    assert result == cache_path
-
-
-@pytest.mark.parametrize(
-    "cached_name",
-    (
-        # What `store_binary` records on POSIX: the extracted file's own name,
-        # with the archive's directory prefix already gone.
-        "testtool",
-        # What it records on Windows, where the archive carries the suffix.
-        "testtool.exe",
-    ),
-)
-def test_install_binary_cache_hit_on_a_nested_archive_executable(
-    tmp_path, monkeypatch, cache_env, cached_name
-):
-    """A cached entry is found whatever path the executable held in the archive.
-
-    `archive_executable` names a location *inside* the archive, while the cache
-    keys an entry on the extracted file's own name. Probing with the nested path
-    matched nothing, so a tool declaring one re-downloaded on every call despite
-    a complete, sidecar-verified copy sitting in the cache. `gh` (`bin/gh`) was
-    the only registry tool to declare one, and since every `gh` invocation
-    routes through the pinned binary, it re-fetched 13 MB per run.
-    """
-    fake_binary = b"cached-binary-content"
-    spec = _binary_spec(
-        archive_executable="bin/testtool", archive_format=ArchiveFormat.ZIP
-    )
-
-    cache_path = cached_binary_path("testtool", "1.0.0", "linux-x86_64", cached_name)
-    cache_path.parent.mkdir(parents=True)
-    cache_path.write_bytes(fake_binary)
-    cache_path.chmod(0o755)
-    sidecar = cache_path.with_suffix(cache_path.suffix + ".sha256")
-    sidecar.write_text(hashlib.sha256(fake_binary).hexdigest(), encoding="UTF-8")
-
-    with _on_linux_x86_64():
-        result = _install_binary(spec, tmp_path / "staging")
-
-    assert result == cache_path
-
-
-def test_install_binary_cache_miss_stores(tmp_path, monkeypatch, cache_env):
-    """_install_binary stores the binary in cache after download on miss."""
-    fake_binary = b"downloaded-binary"
-    checksum = hashlib.sha256(fake_binary).hexdigest()
-
-    spec = _binary_spec(version="2.0.0", checksum=checksum, url=TARBALL_URL)
-
-    staging = tmp_path / "staging"
-    staging.mkdir()
-
-    with (
-        _on_linux_x86_64(),
-        patch("repomatic.tooling.runner._download_and_verify"),
-        patch("repomatic.tooling.runner._extract_binary") as mock_extract,
-    ):
-        extracted = staging / "testtool"
-        extracted.write_bytes(fake_binary)
-        extracted.chmod(0o755)
-        mock_extract.return_value = extracted
-
-        result = _install_binary(spec, staging)
-
-    expected_cache = cached_binary_path("testtool", "2.0.0", "linux-x86_64", "testtool")
-    assert result == expected_cache
-    assert expected_cache.read_bytes() == fake_binary
-    # Sidecar must be written after cache store.
-    sidecar = expected_cache.with_suffix(expected_cache.suffix + ".sha256")
-    assert sidecar.is_file()
-    assert (
-        sidecar.read_text(encoding="UTF-8") == hashlib.sha256(fake_binary).hexdigest()
-    )
-
-
-def test_install_binary_no_cache_flag(tmp_path, monkeypatch, cache_env):
-    """_install_binary with no_cache=True bypasses cache entirely."""
-    spec = _binary_spec(url=TARBALL_URL)
-
-    staging = tmp_path / "staging"
-    staging.mkdir()
-
-    with (
-        _on_linux_x86_64(),
-        patch("repomatic.tooling.runner._download_and_verify"),
-        patch("repomatic.tooling.runner._extract_binary") as mock_extract,
-        patch("repomatic.tooling.runner.store_binary") as mock_store,
-    ):
-        extracted = staging / "testtool"
-        extracted.write_bytes(b"binary")
-        extracted.chmod(0o755)
-        mock_extract.return_value = extracted
-
-        result = _install_binary(spec, staging, no_cache=True)
-
-    # Should NOT store in cache.
-    mock_store.assert_not_called()
-    assert result == extracted
-
-
-def test_install_binary_cache_integrity_failure(tmp_path, monkeypatch, cache_env):
-    """_install_binary re-downloads when cached binary fails sidecar check."""
-    # Put a tampered binary in the cache with a sidecar for the original.
-    cache_path = cached_binary_path("testtool", "1.0.0", "linux-x86_64", "testtool")
-    cache_path.parent.mkdir(parents=True)
-    cache_path.write_bytes(b"tampered-content")
-    cache_path.chmod(0o755)
-    # Sidecar records the digest of the original binary, not the tampered one.
-    sidecar = cache_path.with_suffix(cache_path.suffix + ".sha256")
-    sidecar.write_text(
-        hashlib.sha256(b"original-content").hexdigest(), encoding="UTF-8"
-    )
-
-    spec = _binary_spec(checksum="archive-checksum", url=TARBALL_URL)
-
-    staging = tmp_path / "staging"
-    staging.mkdir()
-
-    with (
-        _on_linux_x86_64(),
-        patch("repomatic.tooling.runner._download_and_verify"),
-        patch("repomatic.tooling.runner._extract_binary") as mock_extract,
-    ):
-        extracted = staging / "testtool"
-        extracted.write_bytes(b"real-binary")
-        extracted.chmod(0o755)
-        mock_extract.return_value = extracted
-
-        result = _install_binary(spec, staging)
-
-    # Should have re-downloaded and re-cached.
-    new_cached = cached_binary_path("testtool", "1.0.0", "linux-x86_64", "testtool")
-    assert result == new_cached
-    assert new_cached.read_bytes() == b"real-binary"
-
-
-def test_install_binary_cache_store_fallback(tmp_path, monkeypatch, cache_env):
-    """_install_binary falls back to temp path when cached file is missing."""
-    fake_binary = b"downloaded-binary"
-    checksum = hashlib.sha256(fake_binary).hexdigest()
-
-    spec = _binary_spec(version="2.0.0", checksum=checksum, url=TARBALL_URL)
-
-    staging = tmp_path / "staging"
-    staging.mkdir()
-
-    def fake_store(*args, **kwargs):
-        """Return a cache path that doesn't exist on disk."""
-        return cache_env / "bin" / "ghost" / "binary"
-
-    with (
-        _on_linux_x86_64(),
-        patch("repomatic.tooling.runner._download_and_verify"),
-        patch("repomatic.tooling.runner._extract_binary") as mock_extract,
-        patch("repomatic.tooling.runner.store_binary", side_effect=fake_store),
-    ):
-        extracted = staging / "testtool"
-        extracted.write_bytes(fake_binary)
-        extracted.chmod(0o755)
-        mock_extract.return_value = extracted
-
-        result = _install_binary(spec, staging)
-
-    # Should fall back to the temp directory copy.
-    assert result == extracted
-    assert result.read_bytes() == fake_binary
-
-
 # ---------------------------------------------------------------------------
 # run_tool with binary tools
 # ---------------------------------------------------------------------------
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_binary_uses_direct_path(
     mock_ci,
-    mock_install,
+    mock_install_binary,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -1520,7 +1026,7 @@ def test_run_tool_binary_uses_direct_path(
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / "typos"
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=0)
 
     exit_code = run_tool("typos")
@@ -1545,11 +1051,11 @@ def test_run_tool_binary_uses_direct_path(
     ],
 )
 @patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_holds_excludes_for_explicit_paths(
     mock_ci,
-    mock_install,
+    mock_install_binary,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -1566,7 +1072,7 @@ def test_run_tool_holds_excludes_for_explicit_paths(
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / name
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=0)
 
     run_tool(name, extra_args=extra_args)
@@ -1577,11 +1083,11 @@ def test_run_tool_holds_excludes_for_explicit_paths(
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_binary_forwards_extra_args(
     mock_ci,
-    mock_install,
+    mock_install_binary,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -1590,7 +1096,7 @@ def test_run_tool_binary_forwards_extra_args(
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / "biome"
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=0)
 
     run_tool("biome", extra_args=("format", "--write", "file.json"))
@@ -1603,11 +1109,11 @@ def test_run_tool_binary_forwards_extra_args(
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_binary_default_flags(
     mock_ci,
-    mock_install,
+    mock_install_binary,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -1616,7 +1122,7 @@ def test_run_tool_binary_default_flags(
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / "actionlint"
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=0)
 
     run_tool("actionlint")
@@ -1683,67 +1189,21 @@ def test_run_tool_bump_my_version_via_uvx(mock_ci, mock_run, tmp_path, monkeypat
 
 
 # ---------------------------------------------------------------------------
-# ensure_binary memoization and staging lifetime
-# ---------------------------------------------------------------------------
-
-
-@patch("repomatic.tooling.runner._install_binary")
-def test_ensure_binary_memoizes_per_tool(mock_install, tmp_path):
-    """Repeated calls install once and return the same path.
-
-    Callers in a loop (`format-images` optimizing one PNG per call) must not
-    pay the install-and-verify path once per file.
-    """
-    cached = tmp_path / "labelmaker"
-    cached.touch()
-    mock_install.return_value = cached
-
-    assert ensure_binary("labelmaker") == cached
-    assert ensure_binary("labelmaker") == cached
-    assert mock_install.call_count == 1
-
-
-@patch("repomatic.tooling.runner._install_binary")
-def test_ensure_binary_cleans_staging_on_cache_hit(mock_install, tmp_path):
-    """When the install lands in the cache, the staging directory is removed."""
-    cached = tmp_path / "labelmaker"
-    cached.touch()
-    mock_install.return_value = cached
-
-    ensure_binary("labelmaker")
-
-    staging = mock_install.call_args[0][1]
-    assert not staging.exists()
-
-
-@patch("repomatic.tooling.runner._install_binary")
-def test_ensure_binary_keeps_staging_fallback_alive(mock_install):
-    """A staging-path fallback survives the call instead of dangling.
-
-    When the cache store fails (unwritable root, Docker overlay losing the
-    write), `_install_binary` returns the staging copy: the staging directory
-    must then outlive the call, or the caller would exec a just-deleted file.
-    """
-
-    def install(spec, staging_dir, **kwargs):
-        path = staging_dir / "labelmaker"
-        path.touch()
-        return path
-
-    mock_install.side_effect = install
-
-    binary = ensure_binary("labelmaker")
-
-    assert binary.is_file()
-
-
-# ---------------------------------------------------------------------------
 # Config resolution
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_config_reads_pyproject_with_section():
+def _declare_tool_table(directory: Path, name: str, table: dict) -> None:
+    """Write a `pyproject.toml` in *directory* that holds `[tool.<name>]`."""
+    (directory / "pyproject.toml").write_text(
+        tomlrt.Document({"tool": {name: table}}).render(), encoding="UTF-8"
+    )
+
+
+def test_resolve_config_reads_pyproject_with_section(tmp_path, monkeypatch):
     """Tools with reads_pyproject=True skip translation when [tool.X] exists."""
+    monkeypatch.chdir(tmp_path)
+    _declare_tool_table(tmp_path, "testool", {"preview": True})
     spec = ToolSpec(
         name="testool",
         version="1.0.0",
@@ -1751,9 +1211,22 @@ def test_resolve_config_reads_pyproject_with_section():
         default_config="testool.toml",
         reads_pyproject=True,
     )
-    args, tmp = resolve_config(spec, tool_config={"preview": True})
+    args, tmp = resolve_config(spec)
     assert args == []
     assert tmp is None
+
+
+def test_resolve_config_finds_a_table_named_apart_from_the_tool(tmp_path, monkeypatch):
+    """bump-my-version reads `[tool.bumpversion]`, not `[tool.bump-my-version]`."""
+    monkeypatch.chdir(tmp_path)
+    _declare_tool_table(tmp_path, "bumpversion", {"current_version": "1.2.3"})
+    spec = TOOL_REGISTRY["bump-my-version"]
+
+    source = ConfigSource.find(spec)
+
+    assert source.level is ConfigLevel.PYPROJECT
+    assert source.label == "[tool.bumpversion] in pyproject.toml"
+    assert resolve_config(spec) == ([], None)
 
 
 def test_resolve_config_reads_pyproject_falls_through_to_bundled(
@@ -1769,7 +1242,7 @@ def test_resolve_config_reads_pyproject_falls_through_to_bundled(
         default_config="ruff.toml",
         reads_pyproject=True,
     )
-    args, tmp = resolve_config(spec, tool_config={})
+    args, tmp = resolve_config(spec)
     assert len(args) == 2
     assert args[0] == "--config"
     assert Path(args[1]).exists()
@@ -1780,11 +1253,10 @@ def test_resolve_config_native_file_wins(tmp_path, monkeypatch):
     """Native config file takes precedence over everything else."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".yamllint.yaml").write_text("rules: {}", encoding="UTF-8")
+    _declare_tool_table(tmp_path, "yamllint", {"rules": {"line-length": {"max": 80}}})
 
     spec = TOOL_REGISTRY["yamllint"]
-    args, tmp = resolve_config(
-        spec, tool_config={"rules": {"line-length": {"max": 80}}}
-    )
+    args, tmp = resolve_config(spec)
     assert args == []
     assert tmp is None
 
@@ -1795,7 +1267,8 @@ def test_resolve_config_pyproject_section(tmp_path, monkeypatch, cache_env):
 
     spec = TOOL_REGISTRY["yamllint"]
     tool_config = {"rules": {"line-length": {"max": 80}}}
-    args, tmp = resolve_config(spec, tool_config=tool_config)
+    _declare_tool_table(tmp_path, "yamllint", tool_config)
+    args, tmp = resolve_config(spec)
 
     assert len(args) == 2
     assert args[0] == "--config-file"
@@ -1823,8 +1296,10 @@ def test_resolve_config_toml_translation(tmp_path, monkeypatch, cache_env):
         config_flag="--config",
         native_format=NativeFormat.TOML,
     )
-    tool_config = {"max_redirects": 5, "exclude": ["example.com"]}
-    args, tmp = resolve_config(spec, tool_config=tool_config)
+    _declare_tool_table(
+        tmp_path, "lychee", {"max_redirects": 5, "exclude": ["example.com"]}
+    )
+    args, tmp = resolve_config(spec)
 
     assert len(args) == 2
     assert args[0] == "--config"
@@ -1845,8 +1320,10 @@ def test_resolve_config_toml_nested_tables(tmp_path, monkeypatch, cache_env):
         config_flag="--config",
         native_format=NativeFormat.TOML,
     )
-    tool_config = {"cache": {"enable": True, "max_age": 3600}}
-    args, tmp = resolve_config(spec, tool_config=tool_config)
+    _declare_tool_table(
+        tmp_path, "lychee", {"cache": {"enable": True, "max_age": 3600}}
+    )
+    args, tmp = resolve_config(spec)
 
     content = Path(args[1]).read_text(encoding="UTF-8")
     assert "[cache]" in content
@@ -1953,7 +1430,8 @@ def test_resolve_config_json_translation(tmp_path, monkeypatch, cache_env):
         native_format=NativeFormat.JSON,
     )
     tool_config = {"formatter": {"indentStyle": "space", "indentWidth": 2}}
-    args, tmp = resolve_config(spec, tool_config=tool_config)
+    _declare_tool_table(tmp_path, "biome", tool_config)
+    args, tmp = resolve_config(spec)
 
     assert len(args) == 2
     assert args[0] == "--config-path"
@@ -1974,7 +1452,8 @@ def test_resolve_config_cwd_write_no_config_flag(tmp_path, monkeypatch):
         native_config_files=(".mdformat.toml",),
         native_format=NativeFormat.TOML,
     )
-    args, tmp = resolve_config(spec, tool_config={"number": True})
+    _declare_tool_table(tmp_path, "mdformat", {"number": True})
+    args, tmp = resolve_config(spec)
 
     try:
         assert args == []
@@ -1996,8 +1475,9 @@ def test_resolve_config_no_config_flag_no_native_files_raises(tmp_path, monkeypa
         version="1.0.0",
         package="sometool",
     )
+    _declare_tool_table(tmp_path, "sometool", {"key": "value"})
     with pytest.raises(NotImplementedError, match="no config_flag"):
-        resolve_config(spec, tool_config={"key": "value"})
+        resolve_config(spec)
 
 
 def test_resolve_config_bundled_default(tmp_path, monkeypatch, cache_env):
@@ -2005,7 +1485,7 @@ def test_resolve_config_bundled_default(tmp_path, monkeypatch, cache_env):
     monkeypatch.chdir(tmp_path)
 
     spec = TOOL_REGISTRY["yamllint"]
-    args, tmp = resolve_config(spec, tool_config={})
+    args, tmp = resolve_config(spec)
     assert len(args) == 2
     assert args[0] == "--config-file"
     assert Path(args[1]).exists()
@@ -2023,7 +1503,7 @@ def test_resolve_config_bare_invocation(tmp_path, monkeypatch):
         package="sometool",
         native_format=NativeFormat.YAML,
     )
-    args, tmp = resolve_config(spec, tool_config={})
+    args, tmp = resolve_config(spec)
     assert args == []
     assert tmp is None
 
@@ -2031,11 +1511,12 @@ def test_resolve_config_bare_invocation(tmp_path, monkeypatch):
 def test_resolve_config_empty_tool_config_is_not_match(
     tmp_path, monkeypatch, cache_env
 ):
-    """An empty [tool.X] dict does not count as a config match."""
+    """An empty [tool.X] table does not count as a config match."""
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text("[tool.zizmor]\n", encoding="UTF-8")
 
     spec = TOOL_REGISTRY["zizmor"]
-    args, tmp = resolve_config(spec, tool_config={})
+    args, tmp = resolve_config(spec)
     assert len(args) == 2
     assert args[0] == "--config"
     assert Path(args[1]).exists()
@@ -2043,7 +1524,7 @@ def test_resolve_config_empty_tool_config_is_not_match(
 
 
 # ---------------------------------------------------------------------------
-# resolve_config_source
+# Config source
 # ---------------------------------------------------------------------------
 
 
@@ -2061,6 +1542,13 @@ BARE_TOOL = ToolSpec(name="sometool", version="1.0.0", package="sometool")
             {"zizmor.yaml": "rules: {}"},
             "zizmor.yaml (replaces bundled default)",
             id="native-file",
+        ),
+        # The path keeps its forward slashes on every platform.
+        pytest.param(
+            "zizmor",
+            {".github/zizmor.yml": "rules: {}"},
+            ".github/zizmor.yml (replaces bundled default)",
+            id="native-file-in-a-directory",
         ),
         pytest.param("yamllint", {}, "bundled default", id="bundled-default"),
         pytest.param(
@@ -2083,14 +1571,16 @@ BARE_TOOL = ToolSpec(name="sometool", version="1.0.0", package="sometool")
         pytest.param(BARE_TOOL, {}, "(bare)", id="bare"),
     ],
 )
-def test_resolve_config_source(tmp_path, monkeypatch, tool, files, expected):
+def test_config_source_label(tmp_path, monkeypatch, tool, files, expected):
     """The reported config source names where the tool's settings came from."""
     monkeypatch.chdir(tmp_path)
     for name, content in files.items():
-        (tmp_path / name).write_text(content, encoding="UTF-8")
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="UTF-8")
 
     spec = tool if isinstance(tool, ToolSpec) else TOOL_REGISTRY[tool]
-    assert resolve_config_source(spec) == expected
+    assert ConfigSource.find(spec).label == expected
 
 
 # ---------------------------------------------------------------------------
@@ -2242,11 +1732,11 @@ def test_run_tool_pyproject_fmt(mock_ci, mock_run, tmp_path, monkeypatch):
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_mdformat_with_packages(
     mock_ci,
-    mock_install,
+    mock_install_binary,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -2255,7 +1745,7 @@ def test_run_tool_mdformat_with_packages(
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / "shfmt"
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=0)
 
     run_tool("mdformat", extra_args=("readme.md",))
@@ -2272,10 +1762,10 @@ def test_run_tool_mdformat_with_packages(
     assert with_count == len(spec.with_packages)
 
 
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_concurrent_runs_keep_their_cwd_config(
-    mock_ci, mock_install, cache_env, tmp_path, monkeypatch
+    mock_ci, mock_install_binary, cache_env, tmp_path, monkeypatch
 ):
     """Two runs sharing a directory each keep a written config for their whole run.
 
@@ -2286,7 +1776,7 @@ def test_run_tool_concurrent_runs_keep_their_cwd_config(
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / "shfmt"
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
     for name in ("apple.md", "banana.md"):
         (tmp_path / name).write_text("# Orchard\n", encoding="UTF-8")
     config = tmp_path / ".mdformat.toml"
@@ -2322,16 +1812,16 @@ def test_run_tool_concurrent_runs_keep_their_cwd_config(
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_runs_unlocked_when_the_cache_is_unwritable(
-    mock_ci, mock_install, mock_run, tmp_path, monkeypatch
+    mock_ci, mock_install_binary, mock_run, tmp_path, monkeypatch
 ):
     """A lock file that cannot be created does not stop the run."""
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / "shfmt"
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
     # A regular file where the cache root should be: no directory fits under it.
     blocker = tmp_path / "cache"
     blocker.write_text("", encoding="UTF-8")
@@ -2431,6 +1921,30 @@ def test_run_tool_mypy_no_lockfile_falls_back_isolated(
     assert "script.py" in cmd
 
 
+@pytest.mark.once
+def test_mypy_version_floor_matches_the_pinned_mypy(tmp_path, monkeypatch):
+    """The pinned mypy accepts `MYPY_VERSION_MIN` and refuses the release before.
+
+    `mypy_params` floors `--python-version` at this value, so a project that
+    declares an older `requires-python` still hands mypy a dialect it runs.
+    """
+    monkeypatch.chdir(tmp_path)
+    skip_unless_tool_runs("mypy")
+    (tmp_path / "orchard.py").write_text("apples = 3\n", encoding="UTF-8")
+    major, minor = MYPY_VERSION_MIN
+
+    floor = run_tool(
+        "mypy", extra_args=("--python-version", f"{major}.{minor}", "orchard.py")
+    )
+    below = run_tool(
+        "mypy", extra_args=("--python-version", f"{major}.{minor - 1}", "orchard.py")
+    )
+
+    assert floor == 0
+    # Exit code 2 is how mypy refuses an argument.
+    assert below == 2
+
+
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_nuitka_uses_module_invocation(
@@ -2499,11 +2013,11 @@ def test_run_tool_nuitka_nofollow_imports_override(
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_creates_output_parent_directory(
     mock_ci,
-    mock_install,
+    mock_install_binary,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -2512,7 +2026,7 @@ def test_run_tool_creates_output_parent_directory(
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / "lychee"
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=0)
 
     output_path = tmp_path / "subdir" / "nested" / "out.md"
@@ -2522,11 +2036,11 @@ def test_run_tool_creates_output_parent_directory(
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_creates_output_parent_equals_form(
     mock_ci,
-    mock_install,
+    mock_install_binary,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -2535,7 +2049,7 @@ def test_run_tool_creates_output_parent_equals_form(
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / "lychee"
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=0)
 
     output_path = tmp_path / "scratch" / "report.md"
@@ -2545,11 +2059,11 @@ def test_run_tool_creates_output_parent_equals_form(
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_output_existing_directory_is_noop(
     mock_ci,
-    mock_install,
+    mock_install_binary,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -2558,7 +2072,7 @@ def test_run_tool_output_existing_directory_is_noop(
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / "lychee"
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=0)
 
     output_dir = tmp_path / "existing"
@@ -2585,28 +2099,6 @@ def test_run_tool_no_output_flag_skips_mkdir(mock_ci, mock_run, tmp_path, monkey
 
 
 # ---------------------------------------------------------------------------
-# get_data_file_path
-# ---------------------------------------------------------------------------
-
-
-def test_get_data_file_path_existing():
-    """Bundled data files are accessible via get_data_file_path."""
-    with get_data_file_path("zizmor.yaml") as path:
-        assert path.exists()
-        content = path.read_text(encoding="UTF-8")
-        assert "rules:" in content
-
-
-def test_get_data_file_path_missing():
-    """Missing data files raise FileNotFoundError."""
-    with (
-        pytest.raises(FileNotFoundError, match="not found"),
-        get_data_file_path("nonexistent.yaml"),
-    ):
-        pass
-
-
-# ---------------------------------------------------------------------------
 # find_unmodified_configs
 # ---------------------------------------------------------------------------
 
@@ -2615,8 +2107,7 @@ def test_find_unmodified_configs_exact_match(tmp_path, monkeypatch):
     """Native config file matching bundled default is flagged as unmodified."""
     monkeypatch.chdir(tmp_path)
 
-    with get_data_file_path("yamllint.yaml") as bundled:
-        bundled_content = bundled.read_text(encoding="UTF-8")
+    bundled_content = get_data_content("yamllint.yaml")
 
     (tmp_path / ".yamllint.yaml").write_text(bundled_content, encoding="UTF-8")
 
@@ -2629,8 +2120,7 @@ def test_find_unmodified_configs_trailing_whitespace(tmp_path, monkeypatch):
     """Trailing whitespace differences are normalized away."""
     monkeypatch.chdir(tmp_path)
 
-    with get_data_file_path("yamllint.yaml") as bundled:
-        bundled_content = bundled.read_text(encoding="UTF-8")
+    bundled_content = get_data_content("yamllint.yaml")
 
     (tmp_path / ".yamllint.yaml").write_text(
         bundled_content.rstrip() + "\n\n\n", encoding="UTF-8"
@@ -2648,8 +2138,7 @@ def test_find_unmodified_configs_honors_root(tmp_path, monkeypatch):
     anchored elsewhere would report on one tree and let `--delete-unmodified`
     delete from another.
     """
-    with get_data_file_path("yamllint.yaml") as bundled:
-        bundled_content = bundled.read_text(encoding="UTF-8")
+    bundled_content = get_data_content("yamllint.yaml")
 
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
@@ -2691,8 +2180,7 @@ def test_find_unmodified_configs_multiple_tools(tmp_path, monkeypatch):
         ("yamllint.yaml", ".yamllint.yaml"),
         ("zizmor.yaml", "zizmor.yaml"),
     ):
-        with get_data_file_path(data_name) as bundled:
-            content = bundled.read_text(encoding="UTF-8")
+        content = get_data_content(data_name)
         (tmp_path / native_name).write_text(content, encoding="UTF-8")
 
     result = find_unmodified_configs()
@@ -2705,8 +2193,7 @@ def test_find_unmodified_configs_alternative_filename(tmp_path, monkeypatch):
     """Alternative native config filename (.yamllint.yml) is also checked."""
     monkeypatch.chdir(tmp_path)
 
-    with get_data_file_path("yamllint.yaml") as bundled:
-        bundled_content = bundled.read_text(encoding="UTF-8")
+    bundled_content = get_data_content("yamllint.yaml")
 
     (tmp_path / ".yamllint.yml").write_text(bundled_content, encoding="UTF-8")
 
@@ -2947,11 +2434,11 @@ def test_check_bypasses_post_process():
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_warns_when_check_bypasses_post_process(
     mock_ci,
-    mock_install,
+    mock_install_binary,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -2961,7 +2448,7 @@ def test_run_tool_warns_when_check_bypasses_post_process(
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / "shfmt"
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=1)
 
     with caplog.at_level(logging.WARNING):
@@ -2971,11 +2458,11 @@ def test_run_tool_warns_when_check_bypasses_post_process(
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_no_check_warning_in_write_mode(
     mock_ci,
-    mock_install,
+    mock_install_binary,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -2985,7 +2472,7 @@ def test_run_tool_no_check_warning_in_write_mode(
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / "shfmt"
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
     mock_run.return_value = MagicMock(returncode=0)
 
     with caplog.at_level(logging.WARNING):
@@ -2995,11 +2482,11 @@ def test_run_tool_no_check_warning_in_write_mode(
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_post_processes_files_below_a_directory(
     mock_ci,
-    mock_install,
+    mock_install_binary,
     mock_run,
     tmp_path,
     monkeypatch,
@@ -3012,7 +2499,7 @@ def test_run_tool_post_processes_files_below_a_directory(
     monkeypatch.chdir(tmp_path)
     bin_path = tmp_path / "shfmt"
     bin_path.touch()
-    mock_install.return_value = bin_path
+    mock_install_binary.return_value = bin_path
 
     field_list = "```{figure} tart.jpeg\n:alt: A pear tart\n```\n"
     yaml_block = "```{figure} tart.jpeg\n---\nalt: A pear tart\n---\n```\n"
@@ -3042,13 +2529,14 @@ def test_run_tool_post_processes_files_below_a_directory(
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_config_flags_format():
+def test_resolve_config_flags_format(tmp_path, monkeypatch):
     """A FLAGS-format spec turns `[tool.X]` into CLI args, not a file."""
-    spec = ToolSpec(name="nuitka", native_format=NativeFormat.FLAGS)
-    config_args, cleanup = resolve_config(
-        spec,
-        tool_config={"onefile": True, "include-package-data": ["foo", "bar"]},
+    monkeypatch.chdir(tmp_path)
+    _declare_tool_table(
+        tmp_path, "nuitka", {"onefile": True, "include-package-data": ["foo", "bar"]}
     )
+    spec = ToolSpec(name="nuitka", native_format=NativeFormat.FLAGS)
+    config_args, cleanup = resolve_config(spec)
     assert config_args == [
         "--onefile",
         "--include-package-data=foo",
@@ -3057,10 +2545,11 @@ def test_resolve_config_flags_format():
     assert cleanup is None
 
 
-def test_resolve_config_flags_format_empty():
+def test_resolve_config_flags_format_empty(tmp_path, monkeypatch):
     """No `[tool.X]` section yields no flags and no cleanup file."""
+    monkeypatch.chdir(tmp_path)
     spec = ToolSpec(name="nuitka", native_format=NativeFormat.FLAGS)
-    assert resolve_config(spec, tool_config={}) == ([], None)
+    assert resolve_config(spec) == ([], None)
 
 
 def test_native_format_flags_serialize_raises():
@@ -3123,43 +2612,6 @@ def test_gh_spec_matches_upstream_archive_layout():
 
 
 # ---------------------------------------------------------------------------
-# ensure_binary
-# ---------------------------------------------------------------------------
-
-
-def test_ensure_binary_rejects_unknown_tool():
-    """An unregistered name fails loudly rather than falling back to $PATH."""
-    with pytest.raises(ClickException, match="not a binary tool"):
-        ensure_binary("definitely-not-a-registered-tool")
-
-
-def test_ensure_binary_rejects_non_binary_tool():
-    """A uvx- or npm-backed tool has no binary to place, so it is refused.
-
-    `ruff` installs through uvx; asking for its executable path would silently
-    return nothing useful, so the seam rejects it instead.
-    """
-    assert TOOL_REGISTRY["ruff"].binary is None
-    with pytest.raises(ClickException, match="not a binary tool"):
-        ensure_binary("ruff")
-
-
-def test_image_optimizers_resolve_through_registry_or_path():
-    """`oxipng` comes from the registry; `jpegoptim` still needs `$PATH`.
-
-    Guards the split documented in `_check_tool`: oxipng ships prebuilt
-    binaries and is pinned and checksummed, while jpegoptim publishes source
-    only and stays a distro package.
-    """
-    assert TOOL_REGISTRY["oxipng"].binary is not None
-    assert "jpegoptim" not in TOOL_REGISTRY
-    # Registry-backed tools report available without consulting $PATH.
-    with patch("repomatic.images.shutil.which", return_value=None):
-        assert _check_tool("oxipng") is True
-        assert _check_tool("jpegoptim") is False
-
-
-# ---------------------------------------------------------------------------
 # Default argument scope
 # ---------------------------------------------------------------------------
 
@@ -3217,11 +2669,11 @@ def test_resolve_default_args_empty_inventory_means_skip(tmp_path, monkeypatch):
     assert resolve_default_args(TOOL_REGISTRY["mdformat"]) is None
 
 
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_skips_a_tool_with_no_targets(
-    mock_ci, mock_run, mock_install, tmp_path, monkeypatch
+    mock_ci, mock_run, mock_install_binary, tmp_path, monkeypatch
 ):
     """An empty inventory means the tool is never spawned."""
     monkeypatch.chdir(tmp_path)
@@ -3230,11 +2682,11 @@ def test_run_tool_skips_a_tool_with_no_targets(
     mock_run.assert_not_called()
 
 
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_runs_once_per_file(
-    mock_ci, mock_run, mock_install, tmp_path, monkeypatch
+    mock_ci, mock_run, mock_install_binary, tmp_path, monkeypatch
 ):
     """A per-file tool is invoked once per target, installed once."""
     monkeypatch.chdir(tmp_path)
@@ -3250,11 +2702,11 @@ def test_run_tool_runs_once_per_file(
     ]
 
 
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_reports_the_first_failure_across_batches(
-    mock_ci, mock_run, mock_install, tmp_path, monkeypatch
+    mock_ci, mock_run, mock_install_binary, tmp_path, monkeypatch
 ):
     """Every target still runs, and no later success masks an earlier failure."""
     monkeypatch.chdir(tmp_path)
@@ -3266,11 +2718,11 @@ def test_run_tool_reports_the_first_failure_across_batches(
     assert mock_run.call_count == 2
 
 
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_explicit_args_suppress_defaults(
-    mock_ci, mock_run, mock_install, tmp_path, monkeypatch
+    mock_ci, mock_run, mock_install_binary, tmp_path, monkeypatch
 ):
     """A caller-supplied argument means the caller drives the whole argv.
 
@@ -3327,11 +2779,11 @@ MESSY_PYPROJECT = '[project]\nname="orchard"\nversion="1.0"\n'
 """An unformatted `pyproject.toml`, the input a formatter is expected to rewrite."""
 
 
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_reports_a_rewrite_status_that_rewrote_nothing(
-    mock_ci, mock_run, mock_install, tmp_path, monkeypatch, caplog
+    mock_ci, mock_run, mock_install_binary, tmp_path, monkeypatch, caplog
 ):
     """A formatter claiming a rewrite it did not perform is reported as a crash.
 
@@ -3351,11 +2803,11 @@ def test_run_tool_reports_a_rewrite_status_that_rewrote_nothing(
     assert (tmp_path / "pyproject.toml").read_text(encoding="UTF-8") == MESSY_PYPROJECT
 
 
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_passes_a_rewrite_status_that_rewrote_a_file(
-    mock_ci, mock_run, mock_install, tmp_path, monkeypatch
+    mock_ci, mock_run, mock_install_binary, tmp_path, monkeypatch
 ):
     """The same exit code is passed through untouched when a file did change."""
     monkeypatch.chdir(tmp_path)
@@ -3371,11 +2823,11 @@ def test_run_tool_passes_a_rewrite_status_that_rewrote_a_file(
     assert run_tool("pyproject-fmt") == 1
 
 
-@patch("repomatic.tooling.runner._install_binary")
+@patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_leaves_other_tools_exit_codes_alone(
-    mock_ci, mock_run, mock_install, tmp_path, monkeypatch
+    mock_ci, mock_run, mock_install_binary, tmp_path, monkeypatch
 ):
     """A tool declaring no rewrite status keeps reporting its own failures.
 
@@ -3531,6 +2983,50 @@ def test_run_rejects_an_unknown_tool_as_a_usage_error():
     assert "papaya" in result.output
     for tool in ("ruff", "mypy"):
         assert tool in result.output
+
+
+@patch("repomatic.tooling.binaries.install_binary")
+def test_run_reports_an_install_failure_as_an_error(
+    mock_install_binary, tmp_path, monkeypatch
+):
+    """A tool that cannot be installed ends the run with a message, not a traceback.
+
+    A checksum mismatch used to surface as a bare `ValueError`.
+    """
+    monkeypatch.chdir(tmp_path)
+    mock_install_binary.side_effect = BinaryInstallError(
+        "SHA-256 mismatch for https://example.com/typos.tar.gz"
+    )
+    result = CliRunner().invoke(repomatic, ["run", "typos", "--", "pear.md"])
+    assert result.exit_code == 1, result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "SHA-256 mismatch" in result.output
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        # The bare form scans the history, as the lint-secrets job does.
+        pytest.param((), ["git", "."], id="bare"),
+        pytest.param(("dir", "."), ["dir", "."], id="caller-driven"),
+    ],
+)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.binaries.install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
+def test_run_tool_gitleaks_scans_the_history_by_default(
+    mock_ci, mock_install_binary, mock_run, tmp_path, monkeypatch, args, expected
+):
+    """A bare gitleaks run scans what CI scans, with no deprecated `detect`."""
+    monkeypatch.chdir(tmp_path)
+    mock_install_binary.return_value = tmp_path / "gitleaks"
+    mock_run.return_value = MagicMock(returncode=0)
+
+    run_tool("gitleaks", extra_args=args)
+
+    cmd = mock_run.call_args[0][0]
+    assert cmd[1:] == expected
+    assert "detect" not in cmd
 
 
 def test_run_offers_every_registered_tool():

@@ -30,8 +30,8 @@ the canonical dictionary for two questions nothing else answers cleanly:
 - **Which images are current.** The badges mark preview and deprecated images,
   which is what makes a retirement visible before a build starts failing.
 
-This table is the only source read. {mod}`repomatic.matrix.runner_sync` carries why
-it replaced the announcement feed, and what that trade costs.
+This table is the only source read. {mod}`repomatic.matrix.runner_sync` says why
+it reads the table rather than the announcement feed, and what that trade costs.
 
 ```{caution}
 Every parse here fails **closed**. A restyled table yields no rows, which makes
@@ -48,14 +48,15 @@ import base64
 import logging
 import re
 from dataclasses import dataclass
+from functools import cached_property
 
 from extra_platforms import AARCH64, X86_64
 
-from ..github.gh import gh_api_json
+from ..github.gh import gh_json
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator
     from typing import Final
 
     from extra_platforms import Architecture
@@ -106,16 +107,6 @@ against `macos-26-xlarge`, `macos-26-intel` against `macos-26-large`). The
 sized ones are the paid larger runners, so they are never the default. Note
 that `-intel` is *not* a size variant: it is the x64 half of a macOS
 generation, and the label this project runs.
-"""
-
-CATALOG_ARCHITECTURES: Final[dict[str, Architecture]] = {
-    "arm64": AARCH64,
-    "x64": X86_64,
-}
-"""The *Architecture* column's own spelling, mapped to extra-platforms.
-
-{attr}`RunnerImage.architecture` keeps the table's wording, so a comparison
-against anything else in this project has to come through here.
 """
 
 ARCH_SUFFIXES: Final[tuple[tuple[str, Architecture], ...]] = (
@@ -207,12 +198,124 @@ class RunnerImage:
         return min(plain, key=len, default="")
 
 
+@dataclass(frozen=True)
+class RunnerCatalog:
+    """The rows of the *Available Images* table, and the questions they answer.
+
+    Empty when the table could not be read or parsed. Every caller reads an
+    empty catalog as "propose nothing" rather than "nothing exists".
+    """
+
+    images: tuple[RunnerImage, ...] = ()
+    """The table's rows, in the order the table lists them."""
+
+    def __iter__(self) -> Iterator[RunnerImage]:
+        return iter(self.images)
+
+    def __len__(self) -> int:
+        return len(self.images)
+
+    @cached_property
+    def _by_label(self) -> dict[str, RunnerImage]:
+        """Every label of the table, mapped to the image it reaches."""
+        return {label: image for image in self.images for label in image.labels}
+
+    def image(self, label: str) -> RunnerImage | None:
+        """The image behind *label*, or `None` when the table does not list it."""
+        return self._by_label.get(label)
+
+    def live_siblings(self, current: RunnerImage) -> list[RunnerImage]:
+        """Every image that could host a job currently on *current*.
+
+        Same operating system and architecture, not itself, and not on its way
+        out. Version is deliberately *not* filtered: a dying image whose family
+        offers only a same-version sibling still has somewhere to go, and going
+        there beats staying on a deadline.
+
+        :param current: The image being moved off.
+        :return: Candidates, unordered.
+        """
+        return [
+            image
+            for image in self.images
+            if image.family == current.family
+            and image.architecture == current.architecture
+            and image.display_name != current.display_name
+            and not image.deprecated
+        ]
+
+    def successor_for(self, current: RunnerImage) -> RunnerImage | None:
+        """The image a job on *current* should move to when *current* is retiring.
+
+        Prefers a released image over a preview, then the highest version. The
+        ordering matters more than it looks: a retirement is a forced move, and
+        landing it on something GitHub is still rolling out trades a known
+        deadline for an unknown one. So a released successor always wins,
+        however old.
+
+        A preview is still returned when the family offers nothing else, because
+        the alternative is proposing nothing and leaving the job on an image
+        with an end date. {meth}`newer_preview_than` names the preview
+        separately when a released successor was chosen, so a reviewer sees the
+        fresher option without it being taken on their behalf.
+
+        :param current: The image that is retiring.
+        :return: The best replacement, or `None` when the family offers none.
+        """
+        return max(
+            self.live_siblings(current),
+            key=lambda image: (not image.preview, image.version),
+            default=None,
+        )
+
+    def newer_preview_than(
+        self, chosen: RunnerImage, current: RunnerImage
+    ) -> RunnerImage | None:
+        """A preview image newer than the one {meth}`successor_for` settled on.
+
+        Reported rather than adopted. Whether a fresher preview beats a released
+        image is a capacity-and-risk judgement the pull request exists to host,
+        so naming the alternative in the body is the useful half; picking it is
+        not.
+
+        :param chosen: What `successor_for` returned.
+        :param current: The image being moved off.
+        :return: The newest preview above *chosen*, or `None`.
+        """
+        if chosen.preview:
+            return None
+        previews = [
+            image
+            for image in self.live_siblings(current)
+            if image.preview and image.version > chosen.version
+        ]
+        return max(previews, key=lambda image: image.version, default=None)
+
+    def newer_version_than(self, current: RunnerImage) -> RunnerImage | None:
+        """A genuinely newer *version* of *current*, if one exists.
+
+        Strictly newer by version, which is what separates an upgrade from a
+        flavour. `Windows 11 Arm64 with Visual Studio 2026` sits at the same
+        version as `Windows 11 Arm64` and is a different toolchain rather than a
+        newer image, so it is not an upgrade and is not reported as one.
+
+        :param current: The image currently in use.
+        :return: The newest strictly-higher version available, or `None`.
+        """
+        newer = [
+            image
+            for image in self.live_siblings(current)
+            if image.version > current.version
+        ]
+        return max(newer, key=lambda image: image.version, default=None)
+
+
 def _split_row(line: str) -> list[str]:
     """Split a Markdown table row into its cells."""
     return [cell.strip() for cell in line.strip().strip("|").split("|")]
 
 
-def parse_catalog(readme: str) -> list[RunnerImage]:
+def parse_catalog(readme: str) -> RunnerCatalog:
     """Read the *Available Images* table out of a readme.
 
     :param readme: Full Markdown source of the `actions/runner-images` readme.
@@ -222,7 +325,7 @@ def parse_catalog(readme: str) -> list[RunnerImage]:
     header = TABLE_HEADER_RE.search(readme)
     if not header:
         logging.warning("Available Images table not found: catalog unavailable.")
-        return []
+        return RunnerCatalog()
 
     columns = _split_row(readme[header.start() : header.end()].rstrip("|"))
     try:
@@ -231,14 +334,14 @@ def parse_catalog(readme: str) -> list[RunnerImage]:
         label_at = columns.index("YAML Label")
     except ValueError:
         logging.warning("Available Images columns moved: catalog unavailable.")
-        return []
+        return RunnerCatalog()
 
     images: list[RunnerImage] = []
     # The header match ends at its third pipe, mid-line, so rows start after
     # that line's own newline rather than at the match's end.
     row_start = readme.find("\n", header.end())
     if row_start < 0:
-        return []
+        return RunnerCatalog()
     for line in readme[row_start + 1 :].splitlines():
         if not line.startswith("|"):
             # The table ends at the first non-row line, so a later pipe
@@ -276,10 +379,10 @@ def parse_catalog(readme: str) -> list[RunnerImage]:
         logging.warning(
             "Available Images table parsed to nothing: catalog unavailable."
         )
-    return images
+    return RunnerCatalog(tuple(images))
 
 
-def fetch_catalog(repo: str = CATALOG_REPO) -> list[RunnerImage]:
+def fetch_catalog(repo: str = CATALOG_REPO) -> RunnerCatalog:
     """Download and parse the *Available Images* table.
 
     Read through `gh` rather than a bare HTTP GET: the authenticated path
@@ -288,125 +391,17 @@ def fetch_catalog(repo: str = CATALOG_REPO) -> list[RunnerImage]:
 
     :param repo: Repository whose readme to read.
     :return: The catalog, empty when the readme could not be read or parsed.
-        Callers treat an empty catalog as "propose nothing" rather than as
-        "nothing exists".
     """
-    payload = gh_api_json(["api", f"repos/{repo}/readme"])
+    payload = gh_json(["api", f"repos/{repo}/readme"], soft=True)
     if not isinstance(payload, dict):
         logging.warning(f"Could not read the {repo} readme.")
-        return []
+        return RunnerCatalog()
     try:
         readme = base64.b64decode(payload.get("content", "")).decode("UTF-8")
     except (ValueError, UnicodeDecodeError):
         logging.warning(f"The {repo} readme did not decode.")
-        return []
+        return RunnerCatalog()
     return parse_catalog(readme)
-
-
-def by_label(catalog: Sequence[RunnerImage]) -> dict[str, RunnerImage]:
-    """Index a catalog by every label reaching each image."""
-    return {label: image for image in catalog for label in image.labels}
-
-
-def live_siblings(
-    current: RunnerImage, catalog: Sequence[RunnerImage]
-) -> list[RunnerImage]:
-    """Every image that could host a job currently on *current*.
-
-    Same operating system and architecture, not itself, and not on its way out.
-    Version is deliberately *not* filtered: a dying image whose family offers
-    only a same-version sibling still has somewhere to go, and going there beats
-    staying on a deadline.
-
-    :param current: The image being moved off.
-    :param catalog: Parsed catalog.
-    :return: Candidates, unordered.
-    """
-    return [
-        image
-        for image in catalog
-        if image.family == current.family
-        and image.architecture == current.architecture
-        and image.display_name != current.display_name
-        and not image.deprecated
-    ]
-
-
-def successor_for(label: str, catalog: Sequence[RunnerImage]) -> RunnerImage | None:
-    """The image a workflow on *label* should move to when its own is retiring.
-
-    Prefers a released image over a preview, then the highest version. The
-    ordering matters more than it looks: a retirement is a forced move, and
-    landing it on something GitHub is still rolling out trades a known deadline
-    for an unknown one. So a released successor always wins, however old.
-
-    A preview is still returned when the family offers nothing else, because the
-    alternative is proposing nothing and leaving the job on an image with an
-    end date. {func}`newer_preview_than` surfaces the preview separately when a
-    released successor was chosen, so a reviewer sees the fresher option
-    without it being taken on their behalf.
-
-    :param label: Label whose image is retiring, or has vanished.
-    :param catalog: Parsed catalog.
-    :return: The best replacement, or `None` when the family offers none.
-    """
-    current = by_label(catalog).get(label)
-    if not current:
-        return None
-    return max(
-        live_siblings(current, catalog),
-        key=lambda image: (not image.preview, image.version),
-        default=None,
-    )
-
-
-def newer_preview_than(
-    chosen: RunnerImage, current: RunnerImage, catalog: Sequence[RunnerImage]
-) -> RunnerImage | None:
-    """A preview image newer than the one {func}`successor_for` settled on.
-
-    Reported rather than adopted. Whether a fresher preview beats a released
-    image is a capacity-and-risk judgement the pull request exists to host, so
-    naming the alternative in the body is the useful half; picking it is not.
-
-    :param chosen: What `successor_for` returned.
-    :param current: The image being moved off.
-    :param catalog: Parsed catalog.
-    :return: The newest preview above *chosen*, or `None`.
-    """
-    if chosen.preview:
-        return None
-    previews = [
-        image
-        for image in live_siblings(current, catalog)
-        if image.preview and image.version > chosen.version
-    ]
-    return max(previews, key=lambda image: image.version, default=None)
-
-
-def newer_version_than(
-    label: str, catalog: Sequence[RunnerImage]
-) -> RunnerImage | None:
-    """A genuinely newer *version* of the image behind *label*, if one exists.
-
-    Strictly newer by version, which is what separates an upgrade from a
-    flavour. `Windows 11 Arm64 with Visual Studio 2026` sits at the same version
-    as `Windows 11 Arm64` and is a different toolchain rather than a newer
-    image, so it is not an upgrade and is not reported as one.
-
-    :param label: Label currently in use.
-    :param catalog: Parsed catalog.
-    :return: The newest strictly-higher version available, or `None`.
-    """
-    current = by_label(catalog).get(label)
-    if not current:
-        return None
-    newer = [
-        image
-        for image in live_siblings(current, catalog)
-        if image.version > current.version
-    ]
-    return max(newer, key=lambda image: image.version, default=None)
 
 
 def runner_architecture(label: str) -> Architecture:

@@ -31,9 +31,9 @@ from repomatic.pypi import (
     PYPI_TRUSTED_PUBLISHER_SETTINGS_URL,
     TrustedPublisher,
     get_latest_release_file,
-    get_release_dates,
     get_source_url,
     get_trusted_publishers,
+    pypi_release_dates,
     pypi_trusted_publisher_settings_url,
 )
 from tests.conftest import FakeResponse
@@ -197,7 +197,7 @@ def test_release_dates_capture_yank_reason():
         },
     }
     with _patch_pypi_json(payload):
-        releases = get_release_dates("cherries")
+        releases = pypi_release_dates("cherries")
     assert releases["1.0.0"].yanked is True
     assert releases["1.0.0"].yanked_reason == "Superseded by a corrected upload."
     # A live release records no reason at all.

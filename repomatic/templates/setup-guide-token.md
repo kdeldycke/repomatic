@@ -1,6 +1,6 @@
 ---
 args: [repo_url, repo_name, repo_owner, repo_slug, scope_warning]
-footer: 'false'
+footer: false
 ---
 
 \$scope_warning

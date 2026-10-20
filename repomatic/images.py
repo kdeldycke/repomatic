@@ -16,9 +16,6 @@
 
 """Image optimization using external CLI tools.
 
-Replaces the Docker-based `calibreapp/image-actions` GitHub Action with direct
-invocations of lightweight CLI tools, removing the Docker dependency.
-
 Tools used per format:
 
 - PNG: `oxipng` (lossless, multithreaded Rust optimizer).
@@ -27,23 +24,23 @@ Tools used per format:
 ```{note}
 Both tools are strictly **lossless**: `oxipng` finds optimal PNG encoding
 parameters without altering pixel data, and `jpegoptim` (without `-m`)
-rewrites Huffman tables only. This means optimization is **idempotent** — a
+rewrites Huffman tables only. This means optimization is **idempotent**: a
 second run produces no further changes, so the workflow never creates noisy
 PRs for negligible savings.
 ```
 
 ```{warning}
 WebP and AVIF are intentionally **not** optimized. The only available tools
-(`cwebp`, `avifenc`) work by lossy re-encoding: decode → re-compress at
-a target quality. This is **not idempotent** — each pass re-compresses the
-previous output, producing progressively smaller (and worse) files. The
-earlier `calibreapp/image-actions` suffered from this: it required multiple
-workflow runs to stabilize below the savings threshold, generating repeated
-PRs with diminishing returns and cumulative quality loss. Lossless WebP/AVIF
-modes exist but typically *increase* file size when applied to already
-lossy-encoded images, making them counterproductive. Since WebP and AVIF are
-modern formats chosen specifically for their compression efficiency, files in
-these formats are almost always already well-optimized at creation time.
+(`cwebp`, `avifenc`) work by lossy re-encoding: decode, then re-compress at
+a target quality. This is **not idempotent**: each pass re-compresses the
+previous output, producing progressively smaller (and worse) files. A lossy
+optimizer needs several workflow runs to settle below the savings threshold,
+and each run opens a pull request with less to gain and more quality lost.
+Lossless WebP/AVIF modes exist but typically *increase* file size when applied
+to already lossy-encoded images, making them counterproductive. Since WebP and
+AVIF are modern formats chosen specifically for their compression efficiency,
+files in these formats are almost always already well-optimized at creation
+time.
 ```
 """
 
@@ -59,21 +56,24 @@ from pathlib import Path
 
 from .humanize import format_file_size
 from .tabular import render_markdown_table
-from .tooling.registry import TOOL_REGISTRY
-from .tooling.runner import ensure_binary
+from .tooling.binaries import ensure_binary
+from .tooling.registry import TOOL_REGISTRY, ToolBackend
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-# Minimum percentage savings required to keep the optimized file.
-DEFAULT_MIN_SAVINGS_PCT = 5
-
-# Minimum absolute byte savings required to keep the optimized file.
 DEFAULT_MIN_SAVINGS_BYTES = 1024
+"""Minimum absolute byte savings required to keep the optimized file."""
+
+DEFAULT_MIN_SAVINGS_PCT = 5
+"""Minimum percentage savings required to keep the optimized file."""
+
+JPEGOPTIM_FLAGS = ("--strip-all", "--all-progressive")
+"""Flags of every `jpegoptim` run: drop the metadata, write progressive JPEGs."""
 
 OXIPNG_OPT_LEVEL = "4"
-JPEGOPTIM_FLAGS = ("--strip-all", "--all-progressive")
+"""Optimization level `oxipng` runs at."""
 
 
 @dataclass
@@ -101,23 +101,24 @@ class OptimizationResult:
 def _check_tool(name: str) -> bool:
     """Whether *name* can be run, from the registry or from `$PATH`.
 
-    Memoized per process, following {func}`~repomatic.tooling.runner.ensure_binary`
-    and for the same reason: the optimizer loop asks once per image, and a
-    `$PATH` walk per JPEG answers the same question every time.
+    Memoized per process, following
+    {func}`~repomatic.tooling.binaries.ensure_binary` and for the same reason:
+    the optimizer loop asks once per image, and a `$PATH` walk per JPEG answers
+    the same question every time.
 
     A tool the registry ships as a binary is always obtainable, so it never
     depends on what the machine happens to have installed:
-    {func}`~repomatic.tooling.runner.ensure_binary` downloads and verifies it on
-    first use. A download that fails then raises rather than silently skipping
-    the file, which is the intent: a pinned tool that cannot be fetched is a
-    problem to surface, not to work around.
+    {func}`~repomatic.tooling.binaries.ensure_binary` downloads and verifies it
+    on first use. A download that fails then raises rather than silently
+    skipping the file, which is the intent: a pinned tool that cannot be fetched
+    is a problem to surface, not to work around.
 
     Everything else still has to be on `$PATH`. `jpegoptim` is the only such
     tool today, because upstream publishes source tarballs rather than
     prebuilt binaries, leaving the distro package as the sole way to get it.
     """
     spec = TOOL_REGISTRY.get(name)
-    if spec is not None and spec.binary is not None:
+    if spec is not None and spec.backend is ToolBackend.BINARY:
         return True
     return shutil.which(name) is not None
 
@@ -130,6 +131,9 @@ def _optimize_png(path: Path) -> None:
     every runner and every developer machine. `jpegoptim` below cannot follow:
     upstream publishes source tarballs only, leaving the distro package as the
     single way to get it.
+
+    :raises repomatic.tooling.registry.BinaryInstallError: If `oxipng` cannot be
+        installed.
     """
     subprocess.run(
         [
@@ -278,8 +282,8 @@ def optimize_images(
 def generate_markdown_summary(results: list[OptimizationResult]) -> str:
     """Generate a markdown summary table of optimization results.
 
-    Produces a table similar to `calibreapp/image-actions` output, showing
-    before/after sizes and percentage improvement for each optimized file.
+    Shows the size before and after, and the percentage saved, for each
+    optimized file.
     """
     if not results:
         return "No images were optimized."

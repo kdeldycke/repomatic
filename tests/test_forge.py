@@ -23,6 +23,7 @@ import pytest
 from repomatic.metrics.forge import (
     FORGE_APIS,
     GITHUB_HOST,
+    REST_ENDPOINTS,
     Forge,
     ForgeMetrics,
     canonical_url,
@@ -31,6 +32,41 @@ from repomatic.metrics.forge import (
     split_repo_url,
 )
 from repomatic.metrics.store import METRICS_BY_ID
+
+GITLAB_PROJECT = "https://gitlab.example.org/api/v4/projects/fruits%2Fpapaya"
+"""The GitLab endpoint of `fruits/papaya`, its path encoded as one segment."""
+
+FORGEJO_REPO = "https://codeberg.example.org/api/v1/repos/fruits/papaya"
+"""The Forgejo endpoint of `fruits/papaya`, its path left as is."""
+
+REST_ANSWERS = {
+    Forge.GITLAB: {
+        GITLAB_PROJECT: {"star_count": 7, "created_at": "2020-05-01T10:00:00Z"},
+        f"{GITLAB_PROJECT}/releases?per_page=1": [
+            {"released_at": "2026-08-01T09:00:00Z"}
+        ],
+        f"{GITLAB_PROJECT}/repository/tags?per_page=1&order_by=updated&sort=desc": [
+            {"commit": {"created_at": "2026-09-01T09:00:00Z"}}
+        ],
+        f"{GITLAB_PROJECT}/repository/commits?per_page=1": [
+            {"committed_date": "2026-09-02T09:00:00Z"}
+        ],
+    },
+    Forge.FORGEJO: {
+        FORGEJO_REPO: {"stars_count": 7, "created_at": "2020-05-01T10:00:00Z"},
+        f"{FORGEJO_REPO}/releases?limit=1": [{"published_at": "2026-08-01T09:00:00Z"}],
+        f"{FORGEJO_REPO}/tags?limit=1": [
+            {"commit": {"created": "2026-09-01T09:00:00Z"}}
+        ],
+        f"{FORGEJO_REPO}/commits?limit=1": [
+            {"commit": {"committer": {"date": "2026-09-02T09:00:00Z"}}}
+        ],
+    },
+}
+"""What each REST forge answers about one repository, keyed by endpoint."""
+
+HOSTS = {Forge.GITLAB: "gitlab.example.org", Forge.FORGEJO: "codeberg.example.org"}
+"""The instance each REST forge is read on."""
 
 
 @pytest.mark.parametrize(
@@ -209,3 +245,38 @@ def test_readings_default_a_missing_release_source():
     """
     metrics = ForgeMetrics(stars=1, release="2026-08-01")
     assert dict(metrics.readings())["release_source"] == "release"
+
+
+def test_every_forge_but_github_has_rest_endpoints():
+    """Check the dispatch finds a table for every forge it does not query by GraphQL."""
+    assert set(REST_ENDPOINTS) == set(Forge) - {Forge.GITHUB}
+
+
+@pytest.mark.parametrize("forge", (Forge.FORGEJO, Forge.GITLAB))
+def test_rest_metrics_read_each_forge_through_its_table(monkeypatch, forge):
+    """Check one reader serves both REST forges, each through its own endpoints."""
+    monkeypatch.setattr("repomatic.metrics.forge.forge_json", REST_ANSWERS[forge].get)
+    assert forge.metrics(HOSTS[forge], "fruits/papaya") == ForgeMetrics(
+        stars=7,
+        created="2020-05-01",
+        release="2026-09-01",
+        release_source="tag",
+        commit="2026-09-02",
+    )
+
+
+@pytest.mark.parametrize("forge", (Forge.FORGEJO, Forge.GITLAB))
+def test_rest_metrics_leave_out_what_a_listing_lacks(monkeypatch, forge):
+    """Check an empty release, tag or commit listing is a missing reading."""
+    repository = next(iter(REST_ANSWERS[forge]))
+    answers = {repository: REST_ANSWERS[forge][repository]}
+    monkeypatch.setattr("repomatic.metrics.forge.forge_json", answers.get)
+    assert forge.metrics(HOSTS[forge], "fruits/papaya") == ForgeMetrics(
+        stars=7, created="2020-05-01"
+    )
+
+
+def test_rest_metrics_answer_none_for_an_unreadable_repository(monkeypatch):
+    """Check a repository the forge does not serve is unreadable, not empty."""
+    monkeypatch.setattr("repomatic.metrics.forge.forge_json", lambda url: None)
+    assert Forge.GITLAB.metrics("gitlab.example.org", "fruits/papaya") is None

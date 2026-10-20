@@ -18,6 +18,8 @@
 
 Each test enumerates {data}`~repomatic.deps.sync.SYNC_OPERATIONS` and asserts a
 shared invariant, so a new operation that breaks a convention fails by name.
+The CI jobs running the operations are described here, in {data}`CI_JOBS`, and
+held against the workflows.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import dataclasses
 import logging
 import re
 import subprocess
+from dataclasses import dataclass
 from datetime import date, timedelta
 from functools import partial
 from pathlib import Path
@@ -38,7 +41,7 @@ from click_extra import Context
 
 from repomatic.cli.main import repomatic
 from repomatic.components import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComponent
-from repomatic.config import Config
+from repomatic.config import Config, config_key_paths
 from repomatic.deps import sources as dep_sources
 from repomatic.deps.pins import (
     SETUP_UV_SLUG,
@@ -64,7 +67,6 @@ from repomatic.deps.sync import (
     _resolve_tool_versions,
     _resolve_workflow_pins,
     _widest_changes,
-    operation_order,
     render_plan_markdown,
     run_sync_operations,
     selected_operations,
@@ -80,9 +82,63 @@ from tests.conftest import load_workflow
 
 OPERATION_NAMES = [op.name for op in SYNC_OPERATIONS]
 
-AUTOFIX_WORKFLOW = (
-    Path(__file__).resolve().parent.parent / ".github" / "workflows" / "autofix.yaml"
-)
+SHARED_JOB = "sync-deps"
+"""The `autofix.yaml` job most operations share a checkout in."""
+
+
+@dataclass(frozen=True)
+class CiJob:
+    """Where CI runs one operation, as the workflows declare it."""
+
+    write_domain: tuple[str, ...]
+    """Human-readable globs the operation mutates."""
+
+    ci_flags: tuple[str, ...]
+    """Flags the CI step passes to the command."""
+
+    workflow: str = "autofix.yaml"
+    """Workflow file hosting the job."""
+
+    job: str = SHARED_JOB
+    """Job ID inside {attr}`workflow`."""
+
+    @property
+    def consolidated(self) -> bool:
+        """Whether the operation shares the multi-bumper job.
+
+        A consolidated operation must reset the working tree before it runs, so
+        the previous bumper's diff never bleeds into its PR. An operation with a
+        job to itself starts from a clean checkout and needs no reset.
+        """
+        return self.job == SHARED_JOB
+
+
+WORKFLOW_FILES = (".github/workflows/*.yaml", ".github/actions/**/*.yaml")
+
+CI_JOBS: dict[str, CiJob] = {
+    "sync-dep-sources": CiJob(
+        ("uv.lock", "pyproject.toml"), ("--no-table", "--release-notes")
+    ),
+    "sync-uv-lock": CiJob(
+        ("uv.lock", "pyproject.toml [tool.uv]"), ("--no-table", "--release-notes")
+    ),
+    "sync-action-pins": CiJob(WORKFLOW_FILES, ("--release-notes",)),
+    "sync-workflow-pins": CiJob(WORKFLOW_FILES, ("--release-notes",)),
+    # It rewrites this package's own source, so it runs in a workflow
+    # `repomatic init` never materializes downstream.
+    "sync-tool-versions": CiJob(
+        ("repomatic/tooling/registry.py", ".github/workflows/lint.yaml"),
+        ("--release-notes",),
+        workflow="self-maintenance.yaml",
+        job="sync-tool-versions",
+    ),
+}
+"""The CI job of each operation, keyed by operation name."""
+
+
+def test_every_operation_has_a_ci_job() -> None:
+    """A new operation states where CI runs it, or every guard below skips it."""
+    assert set(CI_JOBS) == set(OPERATION_NAMES)
 
 
 def test_sync_deps_and_family_are_registered() -> None:
@@ -94,33 +150,19 @@ def test_sync_deps_and_family_are_registered() -> None:
 
 
 @pytest.mark.parametrize("op", SYNC_OPERATIONS, ids=OPERATION_NAMES)
-def test_operation_identity_is_coherent(op: SyncOperation) -> None:
-    """Command, branch, and template names are identical (naming rule 3)."""
-    assert op.branch == op.name
-    assert op.template == op.name
-    assert op.name in repomatic.list_commands(Context(repomatic))
-
-
-@pytest.mark.parametrize("op", SYNC_OPERATIONS, ids=OPERATION_NAMES)
 def test_operation_has_pr_body_template(op: SyncOperation) -> None:
-    """Each updater ships a PR-body template under its own name."""
-    assert op.template in get_template_names()
+    """Each updater ships a PR-body template under its own name (naming rule 3)."""
+    assert op.name in get_template_names()
 
 
 @pytest.mark.parametrize("op", SYNC_OPERATIONS, ids=OPERATION_NAMES)
-def test_operation_config_flag_exists(op: SyncOperation) -> None:
-    """Each `config_flag` names a real boolean field on the Config schema."""
-    fields = {f.name for f in dataclasses.fields(Config)}
-    assert op.config_flag in fields
-    assert isinstance(getattr(Config(), op.config_flag), bool)
-
-
-@pytest.mark.parametrize("op", SYNC_OPERATIONS, ids=OPERATION_NAMES)
-def test_operation_job_name_is_descriptive(op: SyncOperation) -> None:
-    """Each CI job name embeds the operation's bare noun and an emoji."""
-    assert op.job_name
-    # Job names lead with an emoji, so the first character is non-ASCII.
-    assert ord(op.job_name[0]) > 127
+def test_operation_config_key_exists(op: SyncOperation) -> None:
+    """Each `config_key` names a real boolean setting of the Config schema."""
+    path = config_key_paths()[op.config_key]
+    node: object = Config()
+    for attribute in path:
+        node = getattr(node, attribute)
+    assert isinstance(node, bool)
 
 
 def test_label_is_shared() -> None:
@@ -145,37 +187,45 @@ def test_write_domains_justify_serial_apply() -> None:
     files and resolve in parallel with them, serialized only against each
     other through the uv-project mutex.
     """
-    by_name = {op.name: op for op in SYNC_OPERATIONS}
 
-    def touches_workflows(op: SyncOperation) -> bool:
-        return any(".github/workflows" in entry for entry in op.write_domain)
+    def touches_workflows(name: str) -> bool:
+        return any(".github/workflows" in entry for entry in CI_JOBS[name].write_domain)
 
-    workflow_writers = {op.name for op in SYNC_OPERATIONS if touches_workflows(op)}
+    workflow_writers = {name for name in OPERATION_NAMES if touches_workflows(name)}
     assert workflow_writers == {
         "sync-action-pins",
         "sync-workflow-pins",
         "sync-tool-versions",
     }
-    assert not touches_workflows(by_name["sync-uv-lock"])
-    assert not touches_workflows(by_name["sync-dep-sources"])
+    assert not touches_workflows("sync-uv-lock")
+    assert not touches_workflows("sync-dep-sources")
+
+
+def _set_flag(config: Config, key: str, value: bool) -> None:
+    """Set the `[tool.repomatic]` setting at the dotted *key*."""
+    *parents, leaf = config_key_paths()[key]
+    node: object = config
+    for attribute in parents:
+        node = getattr(node, attribute)
+    setattr(node, leaf, value)
 
 
 @pytest.mark.parametrize("op", SYNC_OPERATIONS, ids=OPERATION_NAMES)
-def test_is_enabled_reads_the_config_flag(op: SyncOperation) -> None:
+def test_is_enabled_reads_the_config_key(op: SyncOperation) -> None:
     """`is_enabled` mirrors the operation's Config boolean."""
     enabled = Config()
-    setattr(enabled, op.config_flag, True)
+    _set_flag(enabled, op.config_key, True)
     assert op.is_enabled(enabled)
     disabled = Config()
-    setattr(disabled, op.config_flag, False)
+    _set_flag(disabled, op.config_key, False)
     assert not op.is_enabled(disabled)
 
 
 def test_selected_operations_drops_disabled() -> None:
-    """A disabled flag removes its operation; `here_only=False` skips probes."""
+    """A disabled flag removes its operation, even when named."""
     config = Config()
     config.action_pins_sync = False
-    selected = selected_operations(config, here_only=False)
+    selected = selected_operations(config, names=OPERATION_NAMES)
     names = {op.name for op in selected}
     assert "sync-action-pins" not in names
     assert "sync-uv-lock" in names
@@ -216,12 +266,10 @@ def _stub_operation(
 
     return SyncOperation(
         name=name,
-        config_flag="uv_lock_sync",
-        job_name=f"🧪 {name}",
+        config_key="uv-lock.sync",
         resolve=resolve,
         apply=apply,
         applies_here=lambda: True,
-        write_domain=(name,),
     )
 
 
@@ -264,12 +312,6 @@ def test_run_sync_operations_isolates_a_failing_resolve() -> None:
     assert applied == ["a", "c"]
 
 
-def test_operation_order_follows_the_registry() -> None:
-    """`operation_order` restores canonical order regardless of input order."""
-    shuffled = list(reversed(SYNC_OPERATIONS))
-    assert operation_order(shuffled) == list(SYNC_OPERATIONS)
-
-
 def test_sync_deps_reports_nothing_to_do_in_an_empty_tree(
     tmp_path, monkeypatch
 ) -> None:
@@ -283,18 +325,19 @@ def test_sync_deps_reports_nothing_to_do_in_an_empty_tree(
 
 def _consolidated_job_steps() -> list[dict]:
     workflow = load_workflow("autofix.yaml")
-    steps: list[dict] = workflow["jobs"]["sync-deps"]["steps"]
+    steps: list[dict] = workflow["jobs"][SHARED_JOB]["steps"]
     return steps
 
 
 def _host_job_steps(op: SyncOperation) -> list[dict]:
-    """Steps of the job that actually runs *op*, per its registry entry.
+    """Steps of the job that actually runs *op*, per {data}`CI_JOBS`.
 
     Most operations share the consolidated `sync-deps` job, but one whose write
     domain exists only upstream gets its own job in a self-maintenance workflow.
     """
-    workflow = load_workflow(op.workflow)
-    steps: list[dict] = workflow["jobs"][op.job]["steps"]
+    ci_job = CI_JOBS[op.name]
+    workflow = load_workflow(ci_job.workflow)
+    steps: list[dict] = workflow["jobs"][ci_job.job]["steps"]
     return steps
 
 
@@ -341,21 +384,21 @@ def test_consolidated_job_covers_every_operation() -> None:
     The drift guard: a new {class}`~repomatic.deps.sync.SyncOperation` added to
     {data}`~repomatic.deps.sync.SYNC_OPERATIONS` without wiring its sync command,
     PR body, and PR into a CI job fails here by name. Each operation is checked
-    against its own {attr}`~repomatic.deps.sync.SyncOperation.workflow` and
-    {attr}`~repomatic.deps.sync.SyncOperation.job`, so moving one out of the
-    consolidated job keeps the guard rather than dropping it.
+    against its own entry in {data}`CI_JOBS`, so moving one out of the
+    consolidated job keeps the guard rather than dropping it. The command, the
+    PR-body template and the PR branch all share the operation's name.
     """
     for op in SYNC_OPERATIONS:
         steps = _host_job_steps(op)
         runs = " ".join(step.get("run", "") for step in steps)
         pr_branches = {_pr_branch(step) for step in _pr_steps(steps)}
         assert f"repomatic {op.name}" in runs, f"{op.name} sync command missing"
-        assert f"--template {op.template}" in runs, f"{op.template} pr-body missing"
-        assert op.branch in pr_branches, f"{op.name} pr-sync step missing"
+        assert f"--template {op.name}" in runs, f"{op.name} pr-body missing"
+        assert op.name in pr_branches, f"{op.name} pr-sync step missing"
 
     # No stray dependency PRs beyond the registry, in either direction.
     assert {_pr_branch(step) for step in _pr_steps(_consolidated_job_steps())} == {
-        op.branch for op in SYNC_OPERATIONS if op.consolidated
+        name for name, ci_job in CI_JOBS.items() if ci_job.consolidated
     }
 
 
@@ -377,7 +420,7 @@ def test_consolidated_job_passes_ci_flags(op: SyncOperation) -> None:
         and "pr-body" not in run
     ]
     assert len(sync_runs) == 1, f"expected exactly one sync step for {op.name}"
-    for flag in op.ci_flags:
+    for flag in CI_JOBS[op.name].ci_flags:
         assert flag in sync_runs[0], f"{op.name} step is missing {flag!r}"
 
 
@@ -409,7 +452,7 @@ def test_consolidated_job_resets_tree_before_each_operation() -> None:
         for step in _consolidated_job_steps()
         if step.get("run", "").strip() == "git checkout -- ."
     ]
-    assert len(resets) == len([op for op in SYNC_OPERATIONS if op.consolidated])
+    assert len(resets) == len([job for job in CI_JOBS.values() if job.consolidated])
 
 
 def test_pinned_with_packages_covers_every_registry_pin() -> None:
@@ -446,7 +489,7 @@ def test_no_standalone_dependency_jobs_remain() -> None:
     """The four bumpers live only in the consolidated job, not as separate jobs."""
     workflow = load_workflow("autofix.yaml")
     jobs = set(workflow["jobs"])
-    assert "sync-deps" in jobs
+    assert SHARED_JOB in jobs
     assert not (jobs & {op.name for op in SYNC_OPERATIONS})
 
 
@@ -463,14 +506,13 @@ def test_sync_tool_versions_routes_npm_tools_to_the_npm_registry(monkeypatch) ->
         seen["package"] = package
         return []
 
-    # The tool pass reads through `tool_candidates`; the `with_packages` pass
-    # calls the PyPI datasource from `sync_ops` itself.
+    # The tool pass reads through `tool_candidates`, and the `with_packages`
+    # pass through the PyPI ecosystem: both resolve in `pins`.
     monkeypatch.setattr("repomatic.deps.pins.npm_candidates", fake_npm)
     monkeypatch.setattr("repomatic.deps.pins.pypi_candidates", lambda _: [])
     monkeypatch.setattr(
         "repomatic.deps.pins.github_candidates", lambda *args, **kwargs: []
     )
-    monkeypatch.setattr("repomatic.deps.sync.pypi_candidates", lambda name: [])
 
     plan = _resolve_tool_versions(
         ResolveContext(config=Config(), today=date(2026, 1, 1))
@@ -676,7 +718,7 @@ def _mock_mango_release(monkeypatch) -> None:
     """Publish `mango` `2.1.0` on the stubbed index."""
     monkeypatch.setattr(
         dep_sources,
-        "get_release_dates",
+        "pypi_release_dates",
         lambda name: (
             {"2.1.0": PyPIRelease("2026-07-10", False, "mango")}
             if name == "mango"
@@ -692,9 +734,9 @@ def _mock_uv_lock(monkeypatch, lock_content: str | Exception) -> None:
         if isinstance(lock_content, Exception):
             raise lock_content
         Path(cwd, "uv.lock").write_text(lock_content, encoding="UTF-8")
-        return SimpleNamespace(returncode=0)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("repomatic.deps.sync.subprocess.run", fake_run)
+    monkeypatch.setattr("repomatic.deps.uv.subprocess.run", fake_run)
 
 
 def test_resolve_dep_sources_swaps_and_freezes(tmp_path, monkeypatch) -> None:
@@ -776,12 +818,12 @@ def test_resolve_dep_sources_is_all_or_nothing(
 def test_resolve_dep_sources_noop_before_release(tmp_path, monkeypatch) -> None:
     """With no qualifying release, the resolve never touches the project."""
     lockfile = _swap_project(tmp_path)
-    monkeypatch.setattr(dep_sources, "get_release_dates", lambda name: {})
+    monkeypatch.setattr(dep_sources, "pypi_release_dates", lambda name: {})
 
     def forbidden_run(*args, **kwargs):
         raise AssertionError("uv lock must not run without a ready swap")
 
-    monkeypatch.setattr("repomatic.deps.sync.subprocess.run", forbidden_run)
+    monkeypatch.setattr("repomatic.deps.uv.subprocess.run", forbidden_run)
 
     rc = ResolveContext(
         config=Config(), today=date(2026, 7, 15), held_back=False, lockfile=lockfile
@@ -809,7 +851,7 @@ def _rewrite_plan(tmp_path, text: str, resolved: dict) -> tuple[SyncPlan, Path]:
         self_pin=("repomatic", SELF_PIN_COOLDOWN_EXEMPTION),
     )
     rc = ResolveContext(config=Config(), today=date(2026, 8, 14), held_back=False)
-    _plan_file_rewrites(plan, rc, {path: text}, rewriter, resolved, timedelta(days=7))
+    _plan_file_rewrites(plan, rc, {path: text}, rewriter, resolved)
     return plan, path
 
 
@@ -956,19 +998,6 @@ def test_apply_file_writes_rebases_on_current_text(tmp_path):
     _apply_file_writes(plan)
 
     assert target.read_text(encoding="UTF-8") == "alpha: 2\nbeta: 2\n"
-
-
-def test_apply_file_writes_verbatim_without_rebase(tmp_path):
-    """A plan carrying no rebase closure still writes its planned text."""
-    target = tmp_path / "registry.py"
-    target.write_text("old\n", encoding="UTF-8")
-
-    plan = SyncPlan(operation="sync-tool-versions", subject="X", heading="X")
-    plan.file_writes[target] = "new\n"
-
-    _apply_file_writes(plan)
-
-    assert target.read_text(encoding="UTF-8") == "new\n"
 
 
 # ---------------------------------------------------------------------------
@@ -1118,7 +1147,7 @@ def _resolve_uv_pin(
     rc = ResolveContext(config=Config(), today=GATE_TODAY)
     with (
         patch("repomatic.deps.sync._pinnable_files", return_value=workflow),
-        patch("repomatic.deps.sync.pypi_candidates", return_value=list(UV_CANDIDATES)),
+        patch("repomatic.deps.pins.pypi_candidates", return_value=list(UV_CANDIDATES)),
         patch("repomatic.deps.sync.setup_uv_verified_versions", return_value=verified),
     ):
         return _resolve_workflow_pins(rc)

@@ -25,7 +25,6 @@ from subprocess import CompletedProcess
 from unittest.mock import patch
 
 import pytest
-from click_extra import ClickException
 
 from repomatic.github.gh import (
     GhCommandError,
@@ -33,6 +32,7 @@ from repomatic.github.gh import (
     _graphql_args,
     api_headers,
     gh_api_json,
+    gh_api_pages,
     gh_executable,
     gh_graphql,
     gh_json,
@@ -40,6 +40,7 @@ from repomatic.github.gh import (
     parse_create_output,
     run_gh_command,
 )
+from repomatic.tooling.binaries import BinaryInstallError
 
 
 @pytest.fixture(autouse=True)
@@ -756,6 +757,46 @@ def test_gh_json_raises_unless_soft(patch_kwargs, error):
         assert gh_json(["api", "repos/kiwi/orchard"], soft=True) is None
 
 
+@pytest.mark.parametrize(
+    ("pages", "key", "expected"),
+    (
+        pytest.param([[{"id": 1}, {"id": 2}], [{"id": 3}]], "", [1, 2, 3], id="arrays"),
+        pytest.param(
+            [{"workflow_runs": [{"id": 1}]}, {"workflow_runs": [{"id": 2}]}],
+            "workflow_runs",
+            [1, 2],
+            id="wrapped",
+        ),
+        pytest.param([{"total_count": 0}], "workflow_runs", [], id="wrapped-empty"),
+        pytest.param([], "", [], id="no-page"),
+    ),
+)
+def test_gh_api_pages_flattens_every_page(pages, key, expected):
+    """Every page's items come back as one list, in API order."""
+    with patch(
+        "repomatic.github.gh.run_gh_command", return_value=json.dumps(pages)
+    ) as mock_gh:
+        items = gh_api_pages("repos/kiwi/orchard/fruits?per_page=100", key=key)
+    assert [item["id"] for item in items] == expected
+    assert mock_gh.call_args.args[0] == [
+        "api",
+        "--paginate",
+        "--slurp",
+        "repos/kiwi/orchard/fruits?per_page=100",
+    ]
+
+
+def test_gh_api_pages_soft_reads_a_failure_as_empty():
+    """A soft read of an endpoint `gh` cannot reach is an empty list."""
+    with patch(
+        "repomatic.github.gh.run_gh_command",
+        side_effect=GhCommandError("HTTP 502: Bad Gateway"),
+    ):
+        assert gh_api_pages("repos/kiwi/orchard/fruits", soft=True) == []
+        with pytest.raises(GhCommandError):
+            gh_api_pages("repos/kiwi/orchard/fruits")
+
+
 def test_gh_api_json_strict_raises_only_for_the_command():
     """A strict read fails on a command that cannot run, not on odd output."""
     with patch(
@@ -821,20 +862,18 @@ def test_parse_create_output_rejects_unparsable_output(output, kind):
 def test_gh_executable_prefers_the_pinned_registry_binary():
     """The pinned, checksum-verified `gh` wins over whatever `$PATH` holds."""
     pinned_path = Path("/cache/gh")
-    with patch(
-        "repomatic.tooling.runner.ensure_binary", return_value=pinned_path
-    ) as ensure:
+    with patch("repomatic.github.gh.ensure_binary", return_value=pinned_path) as ensure:
         gh_executable.cache_clear()
         assert gh_executable() == str(pinned_path)
     assert ensure.call_args.args == ("gh",)
     gh_executable.cache_clear()
 
 
-@pytest.mark.parametrize("failure", (ClickException("no network"), OSError("boom")))
+@pytest.mark.parametrize("failure", (BinaryInstallError("no network"), OSError("boom")))
 def test_gh_executable_falls_back_to_path(failure, caplog):
     """A download failure degrades to `$PATH` loudly, never stranding the job."""
     caplog.set_level(logging.WARNING)
-    with patch("repomatic.tooling.runner.ensure_binary", side_effect=failure):
+    with patch("repomatic.github.gh.ensure_binary", side_effect=failure):
         gh_executable.cache_clear()
         assert gh_executable() == "gh"
     assert "falling back to whatever is on PATH" in caplog.text

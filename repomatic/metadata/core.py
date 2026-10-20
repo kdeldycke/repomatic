@@ -45,8 +45,9 @@ new_commits_matrix={"commit": ["346ce66…", "6f27db4…"], "include": [{"commit
 A scalar prints bare. A list prints as space-joined, individually quoted items,
 not a JSON array: workflow `if:` conditions test membership with a padded
 `contains()` against that string. A matrix prints as inlined JSON for
-`fromJSON()` to parse into a job matrix. See {meth}`Metadata.format_github_value`
-for the encoding, and {class}`Dialect` for the other output formats.
+`fromJSON()` to parse into a job matrix. See
+{func}`~repomatic.metadata.output.format_github_value` for the encoding, and
+{class}`~repomatic.metadata.output.Dialect` for the other output formats.
 
 The full key inventory is generated from this module rather than listed here, so
 it cannot go stale: run `repomatic show-metadata --list-keys`, or read the rendered
@@ -55,20 +56,15 @@ table in [the workflows documentation](https://repomatic.net/workflows).
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import re
 import shlex
-from collections.abc import Callable, Iterable
-from dataclasses import fields
-from enum import StrEnum
+from collections.abc import Callable
 from functools import cached_property, partial
 from pathlib import Path
 from typing import NamedTuple
 
 from click_extra import ColumnSpec, field_docstrings
-from extra_platforms import is_github_ci
 
 from ..changelog import (
     GITHUB_RELEASE_URL,
@@ -76,27 +72,21 @@ from ..changelog import (
     build_release_admonition,
     resolved_changelog_path,
 )
-from ..config import (
-    SUBCOMMAND_CONFIG_FIELDS,
-    Config,
-)
+from ..config import Config
 from ..deps.pins import min_release_age_days
 from ..file_inventory import FileInventory
-from ..github.actions import (
-    generate_delimiter,
-    get_github_event,
-)
 from ..github.release_sync import build_expected_body
 from ..github.workflow_files import iter_steps
 from ..mailmap import MAILMAP_PATH
-from ..matrix.model import Matrix
 from ..pypi import PYPI_PROJECT_URL
+from ..pyproject import get_current_version
 from ..release.binary import (
     FLAT_BUILD_TARGETS,
 )
 from .env import EnvironmentMetadata
 from .git import GitMetadata
 from .matrix import MatrixMetadata
+from .output import Dialect, format_github_value
 from .project import ProjectMetadata
 
 TYPE_CHECKING = False
@@ -105,74 +95,42 @@ if TYPE_CHECKING:
     from typing import Any, Final, Self
 
 
-HEREDOC_FIELDS: Final[frozenset[str]] = frozenset((
-    "release_notes",
-    "release_notes_with_admonition",
+FILE_GROUP_KEYS: Final[frozenset[str]] = frozenset((
+    "doc_files",
+    "gitignore_exists",
+    "image_files",
+    "json_files",
+    "markdown_files",
+    "pyproject_files",
+    "python_files",
+    "shfmt_files",
+    "workflow_files",
+    "yaml_files",
+    "zsh_files",
 ))
-"""Metadata fields that should always use heredoc format in GitHub Actions output.
+"""Metadata keys read off {attr}`Metadata.files`, the attribute of the same name.
 
-Some fields may contain special characters (brackets, parentheses, emojis, or potential
-newlines) that can break GitHub Actions parsing when using simple `key=value` format.
-These fields will use the heredoc delimiter format regardless of whether they currently
-contain multiple lines.
+The inventory answers them with no CI context, no git history and no
+`pyproject.toml`, so {meth}`Metadata.dump_factories` reads them there directly.
 """
 
+METADATA_CONFIG_FIELDS: Final[tuple[str, ...]] = (
+    "binaries_sync",
+    "manpages_asset_name",
+    "manpages_script",
+    "nuitka_extras",
+    "release_assets",
+    "site_cloudflare_project",
+    "site_deploy",
+    "sphinx_builder",
+)
+"""`Config` fields a workflow reads through the metadata output, sorted.
 
-class Dialect(StrEnum):
-    """Output dialect for metadata serialization."""
-
-    github = "github"
-    github_json = "github-json"
-    json = "json"
-
-    def serialize(self, metadata: dict[str, Any]) -> str:
-        """Render *metadata* in this dialect.
-
-        :param metadata: Raw key-to-value mapping from {meth}`Metadata.dump`.
-        :return: The serialized payload.
-        """
-        if self is Dialect.github:
-            content = ""
-            for env_name, value in metadata.items():
-                env_value = Metadata.format_github_value(value)
-
-                # Use heredoc format for multiline values or fields with
-                # special chars.
-                use_heredoc = (
-                    len(env_value.splitlines()) > 1 or env_name in HEREDOC_FIELDS
-                )
-                if not use_heredoc:
-                    content += f"{env_name}={env_value}\n"
-                else:
-                    # Use a random unique delimiter to encode multiline value.
-                    delimiter = generate_delimiter()
-                    content += f"{env_name}<<{delimiter}\n{env_value}\n{delimiter}\n"
-            return content
-
-        if self is Dialect.github_json:
-            # Bundle all metadata into a single `metadata` output key as JSON.
-            # Downstream jobs access values via
-            # `fromJSON(needs.metadata.outputs.metadata).key`,
-            # eliminating the need for per-key `outputs:` declarations.
-            #
-            # Pre-format list/tuple values via format_github_value(). GitHub
-            # Actions stringifies JSON arrays as "Array" when interpolated in
-            # ${{ }} expressions, so workflows that splice lists into `run:`
-            # or `env:` contexts would receive the literal word "Array".
-            # Matrix objects are excluded: they serialize to JSON objects via
-            # JSONMetadata and are consumed directly in `strategy: matrix:`
-            # blocks, which accept expression objects without string coercion.
-            formatted = {}
-            for k, v in metadata.items():
-                if isinstance(v, (list, tuple)):
-                    formatted[k] = Metadata.format_github_value(v)
-                else:
-                    formatted[k] = v
-            json_str = json.dumps(formatted, cls=JSONMetadata, separators=(",", ":"))
-            return f"metadata={json_str}\n"
-
-        assert self is Dialect.json
-        return json.dumps(metadata, cls=JSONMetadata, indent=2)
+Every other field stays out of the output: the subcommand that needs one reads
+it from `[tool.repomatic]` directly. A new field joins this list only when a
+workflow condition or step reads it, like the `binaries.sync` toggle a separate
+`pr-sync` step depends on.
+"""
 
 
 _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
@@ -183,8 +141,6 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "workflows_changed": (
         "Current event's commit range touches at least one GitHub workflow file."
     ),
-    "new_commits": "Hashes of new commits in the push event.",
-    "release_commits": "Hashes of release commits in the push event.",
     "mailmap_exists": "Whether a .mailmap file exists in the repository.",
     "gitignore_exists": "Whether a .gitignore file exists in the repository.",
     "python_files": "List of Python files in the repository.",
@@ -231,55 +187,31 @@ METADATA_KEYS_HEADER_DEFS: tuple[ColumnSpec, ...] = (
 """Column definitions for the metadata keys reference table."""
 
 
-def _metadata_config_fields() -> list[str]:
-    """`Config` field names exposed as metadata outputs.
-
-    One filter shared by {func}`metadata_keys_reference`,
-    {func}`all_metadata_keys`, and {meth}`Metadata.dump`, so the three
-    surfaces can never disagree on which config fields are metadata. Excluded
-    are the Nuitka fields consumed through dedicated computed keys and every
-    field in {data}`~repomatic.config.SUBCOMMAND_CONFIG_FIELDS` (read directly
-    by its subcommand).
-    """
-    skipped = (
-        "nuitka_dev_targets",
-        "nuitka_entry_points",
-        "nuitka_unstable_targets",
-    )
-    return [
-        f.name
-        for f in fields(Config)
-        if f.name not in skipped and f.name not in SUBCOMMAND_CONFIG_FIELDS
-    ]
-
-
 def metadata_keys_reference() -> list[tuple[str, str]]:
     """Build the metadata keys reference as table rows.
 
     Returns a list of `(key, description)` tuples for all keys produced by
-    {meth}`Metadata.dump`, including `[tool.repomatic]` config fields that are
-    exposed as metadata outputs. Rows are unsorted: sorting is handled by the
-    CLI's `SortByOption`.
+    {meth}`Metadata.dump`, including the {data}`METADATA_CONFIG_FIELDS` of
+    `[tool.repomatic]`. Rows are unsorted: sorting is handled by the CLI's
+    `SortByOption`.
     """
-    rows = [(k, v) for k, v in _METADATA_KEY_DESCRIPTIONS.items()]
+    rows = list(_METADATA_KEY_DESCRIPTIONS.items())
 
-    # Add config fields exposed as metadata (same filter as dump()). Collapse
-    # each attribute docstring to its first paragraph, single-spaced: the
-    # metadata table wants the one-line summary, not the full prose.
+    # Collapse each attribute docstring to its first paragraph, single-spaced:
+    # the metadata table wants the one-line summary, not the full prose.
     docstrings = {
         name: " ".join(text.split("\n\n")[0].split())
         for name, text in field_docstrings(Config).items()
     }
-    for name in _metadata_config_fields():
-        desc = docstrings.get(name, "").replace("``", "`")
-        rows.append((name, desc))
+    for name in METADATA_CONFIG_FIELDS:
+        rows.append((name, docstrings.get(name, "").replace("``", "`")))
 
     return rows
 
 
 def all_metadata_keys() -> frozenset[str]:
     """Returns the set of all valid metadata key names."""
-    return frozenset(_METADATA_KEY_DESCRIPTIONS) | frozenset(_metadata_config_fields())
+    return frozenset(_METADATA_KEY_DESCRIPTIONS) | frozenset(METADATA_CONFIG_FIELDS)
 
 
 METADATA_VALUE_OPTIONS: frozenset[str] = frozenset((
@@ -478,19 +410,6 @@ def unknown_metadata_keys(
 logging.getLogger("py_walk").setLevel(logging.WARNING)
 
 
-class JSONMetadata(json.JSONEncoder):
-    """Custom JSON encoder for metadata serialization."""
-
-    def default(self, o: Any) -> Any:
-        if isinstance(o, Matrix):
-            return o.matrix()
-
-        if isinstance(o, Path):
-            return str(o)
-
-        return super().default(o)
-
-
 class Metadata(
     EnvironmentMetadata,
     GitMetadata,
@@ -520,30 +439,8 @@ class Metadata(
         """
         cls._instance = None
 
-    pyproject_path = Path() / "pyproject.toml"
-    sphinx_conf_path = Path() / "docs" / "conf.py"
-
-    @cached_property
-    def github_event(self) -> dict[str, Any]:
-        """Load the GitHub event payload from `GITHUB_EVENT_PATH`.
-
-        GitHub Actions automatically sets `GITHUB_EVENT_PATH` to a JSON file
-        containing the complete webhook event payload.
-
-        Delegates to {func}`repomatic.github.actions.get_github_event`, the
-        one loader of the payload: the two used to parse the file
-        independently and disagree on whether a missing file was fatal. The
-        tolerant contract wins (an unreadable payload degrades every consumer
-        to its no-event behavior); only the CI-context warning lives here,
-        since the shared loader serves non-CI callers too.
-        """
-        if is_github_ci() and not os.environ.get("GITHUB_EVENT_PATH"):
-            logging.warning("GITHUB_EVENT_PATH not set in environment.")
-        event = get_github_event()
-        if event:
-            logging.debug("--- GitHub event payload ---")
-            logging.debug(json.dumps(event, indent=4))
-        return event
+    # 8.0.0 shim: re-export for callers not migrated yet.
+    format_github_value = staticmethod(format_github_value)
 
     @cached_property
     def mailmap_exists(self) -> bool:
@@ -555,66 +452,82 @@ class Metadata(
 
         The inventory is its own concern ({mod}`repomatic.file_inventory`):
         answering "which Markdown files are there" needs no CI context, no git
-        history and no `pyproject.toml`. The group properties below forward to
-        it so every `metadata` output key keeps its name; a caller wanting the
-        argument-taking lookups goes to the inventory itself.
+        history and no `pyproject.toml`. The {data}`FILE_GROUP_KEYS` output
+        keys read the inventory attribute of the same name.
         """
         return FileInventory()
 
-    @property
-    def gitignore_exists(self) -> bool:
-        """Whether a `.gitignore` file is present."""
-        return self.files.gitignore_exists
-
-    @property
-    def python_files(self) -> list[Path]:
-        """Python sources, notebooks included."""
-        return self.files.python_files
-
-    @property
-    def json_files(self) -> list[Path]:
-        """JSON files Biome can format."""
-        return self.files.json_files
-
-    @property
-    def yaml_files(self) -> list[Path]:
-        """YAML files."""
-        return self.files.yaml_files
-
-    @property
-    def pyproject_files(self) -> list[Path]:
-        """Every `pyproject.toml` in the tree."""
-        return self.files.pyproject_files
-
-    @property
-    def workflow_files(self) -> list[Path]:
-        """GitHub workflow definitions."""
-        return self.files.workflow_files
-
-    @property
-    def doc_files(self) -> list[Path]:
-        """Documentation sources."""
-        return self.files.doc_files
-
-    @property
-    def markdown_files(self) -> list[Path]:
-        """Markdown files."""
-        return self.files.markdown_files
-
+    # 8.0.0 shim: re-export for callers not migrated yet.
     @property
     def image_files(self) -> list[Path]:
         """Images the optimizer can losslessly shrink."""
         return self.files.image_files
 
+    # 8.0.0 shim: re-export for callers not migrated yet.
     @property
-    def shfmt_files(self) -> list[Path]:
-        """Shell scripts `shfmt` formats."""
-        return self.files.shfmt_files
+    def workflow_files(self) -> list[Path]:
+        """GitHub workflow definitions."""
+        return self.files.workflow_files
 
+    # 8.0.0 shim: re-export for callers not migrated yet.
+    @property
+    def yaml_files(self) -> list[Path]:
+        """YAML files."""
+        return self.files.yaml_files
+
+    # 8.0.0 shim: re-export for callers not migrated yet.
     @property
     def zsh_files(self) -> list[Path]:
         """Zsh scripts, by extension or shebang."""
         return self.files.zsh_files
+
+    @cached_property
+    def current_version(self) -> str | None:
+        """Returns the current version.
+
+        Current version is fetched from the `bump-my-version` configuration file.
+
+        During a release, two commits are bundled into a single push event:
+
+        1. `[changelog] Release vX.Y.Z` — freezes the version to the release number
+        2. `[changelog] Post-release bump vX.Y.Z → vX.Y.Z` — bumps to the next dev version
+
+        In this situation, the current version returned is the one from the most recent
+        commit (the post-release bump), which represents the next development version.
+        Use `released_version` to get the version from the release commit.
+
+        The commit matrix lists the new commits oldest first, so the most recent
+        one is its last entry.
+        """
+        version = None
+        if self.new_commits_matrix:
+            details = self.new_commits_matrix.include
+            if details:
+                version = details[-1].get("current_version")
+        else:
+            version = get_current_version()
+        return version
+
+    @cached_property
+    def released_version(self) -> str | None:
+        """Returns the version of the release commit.
+
+        During a release push event, this extracts the version from the
+        `[changelog] Release vX.Y.Z` commit, which is distinct from
+        `current_version` (the post-release bump version). This is used for
+        tagging, PyPI publishing, and GitHub release creation.
+
+        Returns `None` if no release commit is found in the current event.
+        """
+        version = None
+        if self.release_commits_matrix:
+            details = self.release_commits_matrix.include
+            if details:
+                # This script is only designed for at most 1 release in the list of new
+                # commits.
+                assert len(details) == 1
+                version = details[0].get("current_version")
+        return version
 
     @cached_property
     def _release_changelog(self) -> tuple[str, Changelog] | None:
@@ -659,10 +572,10 @@ class Metadata(
 
         The engine's `create-release` job bakes this body into the GitHub
         release at draft-creation time, so the admonition is present from the
-        start. Doing it there (rather than editing the release from the
-        caller's fast `publish-pypi` lane) removes the cross-lane race where the
-        edit ran before `create-release` had created the release, and so silently
-        dropped the admonition under `continue-on-error`. The bake is optimistic:
+        start. Baking it there, rather than editing the release from the
+        caller's fast `publish-pypi` lane, avoids a race between the lanes: that
+        edit can run before `create-release` has created the release, and then
+        drops the admonition under `continue-on-error`. The bake is optimistic:
         it assumes the parallel PyPI upload succeeds, which it does on the normal
         path; a failed upload surfaces as a red `publish-pypi` job, not as a
         wrong admonition the user must catch.
@@ -699,87 +612,6 @@ class Metadata(
         )
         return notes or None
 
-    @staticmethod
-    def format_github_value(value: Any) -> str:
-        """Transform Python value to GitHub-friendly, JSON-like, console string.
-
-        Renders:
-
-        - `str` as-is
-        - `None` into empty string
-        - `bool` into lower-cased string
-        - `Matrix` into JSON string
-        - `Iterable` of mixed strings and `Path` into a serialized space-separated
-          string, where `Path` items are double-quoted
-        - other `Iterable` into a JSON string
-        - `dict[str, str]` into a JSON object string
-
-        A mapping serializes as a JSON object so a workflow can index it by key
-        (`fromJSON(...).runner_arch[matrix.os]`), which an array of pairs cannot
-        do in a GitHub expression. Only a flat string-to-string mapping is
-        accepted: a nested one is almost always a `Matrix` or a config
-        dataclass, and the assertion below keeps it from serializing into a
-        shape no consumer expects.
-
-        ```{todo}
-        Widen the JSON branch beyond an iterable of `dict[str, str]` and a flat
-        `dict[str, str]`, the two shapes it asserts on today, when a metadata
-        key needs a richer one.
-        ```
-        """
-        # Structured metadata to be rendered as JSON.
-        if isinstance(value, Matrix):
-            return str(value)
-
-        # Convert non-strings.
-        if not isinstance(value, str):
-            if value is None:
-                value = ""
-
-            elif isinstance(value, bool):
-                value = str(value).lower()
-
-            elif isinstance(value, int):
-                value = str(value)
-
-            elif isinstance(value, dict):
-                assert all(
-                    isinstance(k, str) and isinstance(v, str) for k, v in value.items()
-                ), (
-                    f"Unsupported mapping value: {value!r}. Only a flat "
-                    "string-to-string mapping serializes as a JSON object; "
-                    "wrap a richer one in a Matrix, or expose it to its "
-                    "subcommand through SUBCOMMAND_CONFIG_FIELDS instead."
-                )
-                value = json.dumps(value)
-
-            elif isinstance(value, Iterable):
-                # Cast all items to strings, wrapping Path items with double-quotes.
-                if all(isinstance(i, (str, Path)) for i in value):
-                    items = (
-                        (f'"{i}"' if isinstance(i, Path) else str(i)) for i in value
-                    )
-                    value = " ".join(items)
-                else:
-                    assert all(
-                        isinstance(i, dict)
-                        and all(
-                            isinstance(k, str) and isinstance(v, str)
-                            for k, v in i.items()
-                        )
-                        for i in value
-                    ), f"Unsupported iterable value: {value!r}"
-                    value = json.dumps(value)
-
-            else:
-                raise NotImplementedError(
-                    f"GitHub formatting for {type(value).__name__}: {value!r}. "
-                    "A nested config dataclass belongs in "
-                    "SUBCOMMAND_CONFIG_FIELDS, not in the metadata output."
-                )
-
-        return str(value)
-
     def dump_factories(self) -> dict[str, Callable[[], Any]]:
         """Lazy value factories for every metadata key, in output order.
 
@@ -790,39 +622,32 @@ class Metadata(
 
         Split out of {meth}`dump` so the key inventory is inspectable without
         computing anything: `tests/test_metadata.py` asserts these names match
-        `_METADATA_KEY_DESCRIPTIONS` plus
-        `_metadata_config_fields`, which is what keeps `--list-keys`,
-        {func}`all_metadata_keys` and the emitted output from drifting apart.
+        `_METADATA_KEY_DESCRIPTIONS` plus {data}`METADATA_CONFIG_FIELDS`, which
+        is what keeps `--list-keys`, {func}`all_metadata_keys` and the emitted
+        output from drifting apart.
 
         Derived from `_METADATA_KEY_DESCRIPTIONS` rather than re-listing
-        every key: most keys read the attribute of the same name, so only the
-        handful whose value is not a plain attribute carry an explicit
+        every key: most keys read the attribute of the same name, on this
+        instance or on {attr}`files` for the {data}`FILE_GROUP_KEYS`, so only
+        the handful whose value is not a plain attribute carry an explicit
         factory.
 
         :return: Key name to a zero-argument callable producing its value.
         """
         non_attribute: dict[str, Callable[[], Any]] = {
-            "new_commits": lambda: self.new_commits_hash,
-            "release_commits": lambda: self.release_commits_hash,
             "cli_scripts": lambda: [cli_id for cli_id, _, _ in self.script_entries],
             "build_targets": lambda: FLAT_BUILD_TARGETS,
             "npm_min_release_age_days": lambda: min_release_age_days(
                 self.config.minimum_release_age
             ),
         }
-        factories: dict[str, Callable[[], Any]] = {
+        factories: dict[str, Callable[[], Any]] = {}
+        for key in _METADATA_KEY_DESCRIPTIONS:
+            source = self.files if key in FILE_GROUP_KEYS else self
             # `partial` binds `key` eagerly, dodging the late-binding pitfall.
-            key: non_attribute.get(key, partial(getattr, self, key))
-            for key in _METADATA_KEY_DESCRIPTIONS
-        }
-
-        # Add config from [tool.repomatic] in pyproject.toml.
-        # Convert kebab-case config keys to snake_case metadata keys.
-        # Exclude nuitka internal config (dedicated properties with validation logic)
-        # and subcommand config fields (read directly by dep-graph).
-        for name in _metadata_config_fields():
+            factories[key] = non_attribute.get(key, partial(getattr, source, key))
+        for name in METADATA_CONFIG_FIELDS:
             factories[name] = partial(getattr, self.config, name)
-
         return factories
 
     def dump(

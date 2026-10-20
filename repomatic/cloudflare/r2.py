@@ -51,9 +51,8 @@ Uploads use the S3 API with a key pair limited to the one bucket
 the S3 API only: its REST API needs `Workers R2 Storage Write`, which reaches
 every bucket of the account. The request signer is AWS Signature Version 4 on
 the standard library, tested against AWS's published vectors, so no S3 SDK
-joins the dependencies. The S3 endpoint embeds the account ID, which comes
-from `CLOUDFLARE_API_TOKEN` the same way {mod}`repomatic.cloudflare.pages` derives
-it.
+joins the dependencies. The S3 endpoint embeds the account ID, which
+{func}`repomatic.cloudflare.api.account` derives from `CLOUDFLARE_API_TOKEN`.
 
 `--create` and `--check` manage the bucket itself through the REST API. They
 run on a maintainer's machine with the `wrangler login` session: its
@@ -65,7 +64,7 @@ cannot move (no bucket declared, credentials missing, an upload error, an HTML
 page) is deleted from the tree with an error annotation that says how to serve
 it from R2, and the command exits `1`. The Docs workflow publishes everything
 else first, then fails the job: the dropped file's links are dead, and a green
-run would hide that. A silent trim once hid such a 404 for three years.
+run would hide that.
 """
 
 from __future__ import annotations
@@ -80,6 +79,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from enum import StrEnum
+from functools import cache
 from urllib.parse import quote
 
 from click_extra import echo
@@ -88,19 +89,19 @@ from ..github.actions import AnnotationLevel, ReportAction, emit_annotation
 from ..hashing import compute_file_sha256
 from ..humanize import format_file_size
 from ..tabular import render_markdown_table
-from .pages import (
+from . import api
+from .api import (
     CloudflareError,
     CloudflareHTTPError,
-    _account,
-    _call,
-    _token,
-    _zone_for,
+    Status,
+    print_status,
+    refusal,
 )
 from .redirects import parse_redirects
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
     from typing import IO, Final
 
@@ -159,12 +160,35 @@ while."""
 SECRET_ACCESS_KEY_ENV: Final = "CLOUDFLARE_R2_SECRET_ACCESS_KEY"
 """Environment variable holding the bucket-scoped S3 secret access key."""
 
+SUMMARY_HEADING: Final = "### Files over the Cloudflare Pages size limit"
+"""Heading of the table {meth}`OffloadReport.markdown` renders."""
+
 _MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
 """A Markdown link, captured as its label and its URL."""
 
-_MIME_TYPES = mimetypes.MimeTypes()
-"""Python's own extension table, without the host's `mime.types` files: a
-content type must not depend on the runner that uploaded the file."""
+
+class R2Mode(StrEnum):
+    """What one run of `cloudflare-r2` does, named after its flag."""
+
+    CHECK = "check"
+    """Compare the live bucket against the declared state."""
+
+    CREATE = "create"
+    """Create the bucket when missing, and bring it to the declared state."""
+
+    OFFLOAD = "offload"
+    """Move the files over the Pages limit out of a built site, to the bucket."""
+
+
+@cache
+def _mime_types() -> mimetypes.MimeTypes:
+    """Python's own extension table, without the host's `mime.types` files.
+
+    A content type must not depend on the runner that uploaded the file.
+    Built on first use: the table is only needed when a file moves to the
+    bucket, which is not on the path of every other command.
+    """
+    return mimetypes.MimeTypes()
 
 
 def _hmac(key: bytes, message: str) -> bytes:
@@ -233,26 +257,28 @@ def sign_v4(
 
 
 def _send(request: urllib.request.Request, label: str) -> None:
-    """Send *request*, turning an HTTP refusal into a Cloudflare error.
+    """Send *request*, turning every failure into a Cloudflare error.
 
     The one network call of the S3 half, which the tests replace. *label*
     names the request in an error instead of its URL, which embeds the
     account ID.
+
+    The request goes through `urllib` rather than {func}`repomatic.http.request`
+    because the body of a `PUT` streams from the file: that function takes
+    the whole body as bytes, and a file can weigh gigabytes.
     """
     try:
         with urllib.request.urlopen(request, timeout=S3_TIMEOUT):
             return
     except urllib.error.HTTPError as error:
         detail = error.read().decode(errors="replace")[:400]
-        msg = f"{label} failed: HTTP {error.code}\n{detail}".rstrip()
-        raise CloudflareHTTPError(msg, error.code) from error
+        raise refusal(label, error.code, detail) from error
     # `URLError` covers a refused connection, but a timeout or a reset in the
     # middle of a long upload arrives as a bare `OSError` or `HTTPException`.
     # Converting all of them keeps the offload's promise to leave the tree
     # ready to deploy.
     except (OSError, http.client.HTTPException) as error:
-        msg = f"{label} failed: {getattr(error, 'reason', error)}"
-        raise CloudflareError(msg) from error
+        raise refusal(label, None, str(getattr(error, "reason", error))) from error
 
 
 @dataclass(frozen=True)
@@ -330,7 +356,7 @@ class R2Bucket:
         signed request.
         """
         content_type = (
-            _MIME_TYPES.guess_type(path.name)[0] or "application/octet-stream"
+            _mime_types().guess_type(path.name)[0] or "application/octet-stream"
         )
         headers = {
             "cache-control": CACHE_CONTROL,
@@ -364,11 +390,90 @@ class Offload:
     """Why the file was dropped, in Markdown. Empty otherwise."""
 
 
-def oversized_files(root: Path) -> list[Path]:
-    """Files under *root* that Cloudflare Pages Direct Upload rejects."""
+@dataclass(frozen=True)
+class OffloadReport:
+    """What `--offload` did to the files of one built site."""
+
+    root: Path
+    """The built site the files left."""
+
+    results: tuple[Offload, ...] = ()
+    """One entry per file over the Pages limit, in path order."""
+
+    @property
+    def dropped(self) -> int:
+        """How many files left the tree without reaching the bucket."""
+        return sum(entry.action is ReportAction.DROPPED for entry in self.results)
+
+    @property
+    def exit_code(self) -> int:
+        """`1` when a file was dropped, else `0`.
+
+        The tree is ready to deploy either way: the code only says whether
+        some links are now dead.
+        """
+        return 1 if self.dropped else 0
+
+    def announce(self) -> None:
+        """Print where each file went, with an error annotation for each drop."""
+        if not self.results:
+            print_status(
+                Status.OK,
+                f"no file in {self.root} is over the 25 MiB Cloudflare Pages limit.",
+            )
+            return
+        for entry in self.results:
+            size = format_file_size(entry.size)
+            if entry.action is ReportAction.DROPPED:
+                emit_annotation(
+                    AnnotationLevel.ERROR,
+                    f"{entry.path} ({size}) is over the 25 MiB Cloudflare Pages"
+                    " limit, so this deploy dropped it and its links are dead:"
+                    f" {_spell_out_links(entry.reason)}",
+                )
+            else:
+                print_status(
+                    Status.OK, f"{entry.path} ({size}) now redirects to {entry.url}"
+                )
+        if self.dropped:
+            echo(
+                f"\n{self.dropped} file(s) dropped. The rest of {self.root} is"
+                " ready to deploy."
+            )
+
+    def markdown(self) -> str:
+        """Render one table row per file, under {data}`SUMMARY_HEADING`.
+
+        :return: The Markdown report, empty when no file was over the limit.
+        """
+        if not self.results:
+            return ""
+        table = render_markdown_table(
+            ("File", "Size", "Result", "Served from"),
+            (
+                (
+                    f"`{entry.path}`",
+                    format_file_size(entry.size),
+                    entry.action.value,
+                    entry.url or f"Nowhere: {entry.reason}",
+                )
+                for entry in self.results
+            ),
+            align=("left", "right", "left", "left"),
+        )
+        return f"{SUMMARY_HEADING}\n\n{table}"
+
+
+def oversized_files(paths: Iterable[Path]) -> list[Path]:
+    """Keep the files Cloudflare Pages Direct Upload rejects.
+
+    :param paths: Candidate paths, like the `rglob("*")` of a built site.
+        Directories are skipped.
+    :return: The files over {data}`PAGES_MAX_FILE_SIZE`, sorted.
+    """
     return sorted(
         path
-        for path in root.rglob("*")
+        for path in paths
         if path.is_file() and path.stat().st_size > PAGES_MAX_FILE_SIZE
     )
 
@@ -487,45 +592,11 @@ def offload(
 def _spell_out_links(markdown: str) -> str:
     """Rewrite each Markdown link in *markdown* as its label and its URL.
 
-    A reason is written once, in the Markdown the step summary renders. An
+    A reason is written once, in the Markdown the summary table renders. An
     annotation shows its text as is, so `[label](url)` becomes `label (url)`
     there. Code spans read the same either way, and stay.
     """
     return _MARKDOWN_LINK.sub(r"\1 (\2)", markdown)
-
-
-def _report(results: Sequence[Offload]) -> None:
-    """Print each outcome, annotate each drop, and fill the step summary."""
-    for entry in results:
-        size = format_file_size(entry.size)
-        if entry.action is ReportAction.DROPPED:
-            emit_annotation(
-                AnnotationLevel.ERROR,
-                f"{entry.path} ({size}) is over the 25 MiB Cloudflare Pages"
-                " limit, so this deploy dropped it and its links are dead:"
-                f" {_spell_out_links(entry.reason)}",
-            )
-        else:
-            echo(f"ok    {entry.path} ({size}) now redirects to {entry.url}")
-
-    summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if not summary:
-        return
-    table = render_markdown_table(
-        ("File", "Size", "Result", "Served from"),
-        (
-            (
-                f"`{entry.path}`",
-                format_file_size(entry.size),
-                entry.action.value,
-                entry.url or f"Nowhere: {entry.reason}",
-            )
-            for entry in results
-        ),
-        align=("left", "right", "left", "left"),
-    )
-    with open(summary, "a", encoding="UTF-8") as stream:
-        stream.write(f"### Files over the Cloudflare Pages size limit\n\n{table}\n")
 
 
 def _bucket_from_environment(bucket: str, project: str) -> tuple[R2Bucket | None, str]:
@@ -543,7 +614,7 @@ def _bucket_from_environment(bucket: str, project: str) -> tuple[R2Bucket | None
     if missing:
         return None, f"{' and '.join(missing)} missing for {OFFLOAD_DOCS_LINK}"
     try:
-        account = _account(_token(), project)
+        account = api.account(api.api_token(), project)
     except (CloudflareError, OSError) as error:
         return None, f"the account did not resolve ({str(error).splitlines()[0]})"
     return (
@@ -557,33 +628,31 @@ def _bucket_from_environment(bucket: str, project: str) -> tuple[R2Bucket | None
     )
 
 
-def run_offload(root: Path, *, bucket: str, domain: str, project: str) -> int:
+def run_offload(root: Path, *, bucket: str, domain: str, project: str) -> OffloadReport:
     """Move every file over the Pages limit out of *root*.
 
     Credentials and the account resolve only when a file needs them, so a site
-    with nothing oversized makes no network call.
+    with nothing oversized makes no network call. Prints where each file went,
+    and leaves the summary table to the caller: see
+    {meth}`OffloadReport.markdown`.
 
     :param root: Built site, before `wrangler pages deploy` uploads it.
     :param bucket: `site.cloudflare-r2-bucket`, empty to drop every file.
     :param domain: `site.cloudflare-r2-domain`.
     :param project: Pages project, which resolves the account.
-    :return: `1` when a file was dropped, else `0`. The tree is ready to deploy
-        either way.
+    :return: What happened to each file.
     """
-    files = oversized_files(root)
+    files = oversized_files(root.rglob("*"))
     if not files:
-        echo(f"ok    no file in {root} is over the 25 MiB Cloudflare Pages limit.")
-        return 0
-    target, unavailable = _bucket_from_environment(bucket, project)
-    results = offload(
-        root, files, bucket=target, domain=domain, unavailable=unavailable
-    )
-    _report(results)
-    dropped = sum(entry.action is ReportAction.DROPPED for entry in results)
-    if dropped:
-        echo(f"\n{dropped} file(s) dropped. The rest of {root} is ready to deploy.")
-        return 1
-    return 0
+        report = OffloadReport(root)
+    else:
+        target, unavailable = _bucket_from_environment(bucket, project)
+        results = offload(
+            root, files, bucket=target, domain=domain, unavailable=unavailable
+        )
+        report = OffloadReport(root, tuple(results))
+    report.announce()
+    return report
 
 
 def _custom_domain(base: str, bucket: str, domain: str, token: str, fix: bool) -> int:
@@ -591,22 +660,24 @@ def _custom_domain(base: str, bucket: str, domain: str, token: str, fix: bool) -
 
     :return: `1` when drift or a manual step remains, else `0`.
     """
-    listed = (_call(f"{base}/domains/custom", token) or {}).get("domains") or []
+    listed = (api.call(f"{base}/domains/custom", token) or {}).get("domains") or []
     entry = next((item for item in listed if item.get("domain") == domain), None)
     if entry is None:
         if not fix:
-            echo(f"DRIFT {domain} is not attached to bucket {bucket!r}.")
-            return 1
-        zone = _zone_for(domain, token)
-        if zone is None:
-            echo(
-                f"note  could not read the zone of {domain}, so it is not"
-                " attached. Attach it by hand: wrangler r2 bucket domain add"
-                f" {bucket} --domain {domain} --zone-id {{zone-id}}"
-                f" --min-tls {MIN_TLS}"
+            print_status(
+                Status.DRIFT, f"{domain} is not attached to bucket {bucket!r}."
             )
             return 1
-        _call(
+        zone = api.zone_for(domain, token)
+        if zone is None:
+            print_status(
+                Status.NOTE,
+                f"could not read the zone of {domain}, so it is not attached."
+                f" Attach it by hand: wrangler r2 bucket domain add {bucket}"
+                f" --domain {domain} --zone-id {{zone-id}} --min-tls {MIN_TLS}",
+            )
+            return 1
+        api.call(
             f"{base}/domains/custom",
             token,
             method="POST",
@@ -617,9 +688,10 @@ def _custom_domain(base: str, bucket: str, domain: str, token: str, fix: bool) -
                 "minTLS": MIN_TLS,
             },
         )
-        echo(
-            f"ok    attached {domain} to bucket {bucket!r}, with TLS {MIN_TLS} at"
-            " least. Its certificate issues within minutes: --check shows it."
+        print_status(
+            Status.OK,
+            f"attached {domain} to bucket {bucket!r}, with TLS {MIN_TLS} at least."
+            " Its certificate issues within minutes: --check shows it.",
         )
         return 0
 
@@ -633,16 +705,16 @@ def _custom_domain(base: str, bucket: str, domain: str, token: str, fix: bool) -
     status = entry.get("status") or {}
     progress = f"ownership={status.get('ownership')} ssl={status.get('ssl')}"
     if live == wanted:
-        echo(
-            f"ok    {domain} serves the bucket, with TLS {MIN_TLS} at least"
-            f" ({progress})."
+        print_status(
+            Status.OK,
+            f"{domain} serves the bucket, with TLS {MIN_TLS} at least ({progress}).",
         )
         return 0
     if not fix:
-        echo(f"DRIFT {domain}: live={live} want={wanted} ({progress})")
+        print_status(Status.DRIFT, f"{domain}: live={live} want={wanted} ({progress})")
         return 1
-    _call(f"{base}/domains/custom/{domain}", token, method="PUT", body=wanted)
-    echo(f"ok    set {domain} to {wanted}.")
+    api.call(f"{base}/domains/custom/{domain}", token, method="PUT", body=wanted)
+    print_status(Status.OK, f"set {domain} to {wanted}.")
     return 0
 
 
@@ -654,63 +726,65 @@ def _managed_domain(base: str, token: str, fix: bool) -> int:
 
     :return: `1` when the URL is on and stays on, else `0`.
     """
-    managed = _call(f"{base}/domains/managed", token) or {}
+    managed = api.call(f"{base}/domains/managed", token) or {}
     if not managed.get("enabled"):
-        echo("ok    the r2.dev URL is off.")
+        print_status(Status.OK, "the r2.dev URL is off.")
         return 0
     if not fix:
-        echo(
-            f"DRIFT the r2.dev URL {managed.get('domain')} is on. It serves the"
-            " bucket under a development rate limit, without the custom"
-            " domain's TLS floor."
+        print_status(
+            Status.DRIFT,
+            f"the r2.dev URL {managed.get('domain')} is on. It serves the bucket"
+            " under a development rate limit, without the custom domain's TLS"
+            " floor.",
         )
         return 1
-    _call(f"{base}/domains/managed", token, method="PUT", body={"enabled": False})
-    echo("ok    turned the r2.dev URL off.")
+    api.call(f"{base}/domains/managed", token, method="PUT", body={"enabled": False})
+    print_status(Status.OK, "turned the r2.dev URL off.")
     return 0
 
 
-def run_cloudflare_r2(
-    project: str, bucket: str, domain: str, *, check: bool = False, create: bool = False
-) -> int:
+def run_cloudflare_r2(project: str, bucket: str, domain: str, mode: R2Mode) -> int:
     """Create or check the bucket that serves the site's oversized files.
 
-    Exactly one of *check* and *create* must be set; the CLI enforces that.
+    `--create` makes the bucket when missing, attaches the domain with the TLS
+    floor, and turns the `r2.dev` URL off. An existing bucket is reused and
+    brought to the same state, so a re-run is safe.
 
     :param project: Pages project of the site, which resolves the account.
     :param bucket: `site.cloudflare-r2-bucket`.
     :param domain: `site.cloudflare-r2-domain`.
-    :param check: Report drift from the declared state, and exit `1` on any.
-    :param create: Create the bucket when missing, attach the domain with the
-        TLS floor, and turn the `r2.dev` URL off. An existing bucket is reused
-        and brought to the same state, so a re-run is safe.
+    :param mode: {attr}`R2Mode.CHECK` to report drift from the declared state,
+        or {attr}`R2Mode.CREATE` to fix it. {func}`run_offload` serves the
+        third mode.
     :return: Exit code: `0` when the bucket matches the declared state, `1`
         on drift or on a step left to do by hand.
     """
-    token = _token()
-    account = _account(token, project)
+    create = mode is R2Mode.CREATE
+    token = api.api_token()
+    account = api.account(token, project)
     base = f"/accounts/{account}/r2/buckets/{bucket}"
 
     try:
-        _call(base, token)
+        api.call(base, token)
     except CloudflareHTTPError as error:
         if error.status != 404:
             raise
-        if check:
-            echo(
-                f"DRIFT bucket {bucket!r} does not exist. Create it with"
-                " `repomatic cloudflare-r2 --create`."
+        if not create:
+            print_status(
+                Status.DRIFT,
+                f"bucket {bucket!r} does not exist. Create it with"
+                " `repomatic cloudflare-r2 --create`.",
             )
             return 1
-        _call(
+        api.call(
             f"/accounts/{account}/r2/buckets",
             token,
             method="POST",
             body={"name": bucket},
         )
-        echo(f"ok    created bucket {bucket!r}.")
+        print_status(Status.OK, f"created bucket {bucket!r}.")
     else:
-        echo(f"ok    bucket {bucket!r} exists.")
+        print_status(Status.OK, f"bucket {bucket!r} exists.")
 
     drift = _custom_domain(base, bucket, domain, token, fix=create)
     drift += _managed_domain(base, token, fix=create)

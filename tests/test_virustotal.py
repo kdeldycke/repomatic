@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -29,16 +29,63 @@ from repomatic.cli.main import repomatic
 from repomatic.release.virustotal import (
     RELEASE_ASSET_POLL_ATTEMPTS,
     SCAN_HEADERS,
+    UPLOAD_REQUESTS,
     DetectionStats,
+    RequestPacer,
     ScanRecord,
     ScanResult,
     download_release_binaries,
     load_scan_records,
     poll_detection_stats,
-    records_from_release_notes,
     records_from_results,
+    scan_files,
     upsert_scan_records,
 )
+from tests.conftest import patch_gh as shared_patch_gh
+
+patch_gh = partial(shared_patch_gh, "repomatic.release.virustotal")
+"""The conftest `patch_gh`, bound to this module's dispatch points."""
+
+
+class FakeClock:
+    """A monotonic clock that only `sleep` moves, recording every sleep."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Drive the module's `time` calls through a {class}`FakeClock`."""
+    fake = FakeClock()
+    monkeypatch.setattr("repomatic.release.virustotal.time.monotonic", fake.monotonic)
+    monkeypatch.setattr("repomatic.release.virustotal.time.sleep", fake.sleep)
+    return fake
+
+
+def _vt_client(**stats: int) -> MagicMock:
+    """A `vt.Client` whose analyses report *stats*."""
+    client = MagicMock()
+    client.get_object.return_value = SimpleNamespace(
+        last_analysis_stats={
+            "malicious": 0,
+            "suspicious": 0,
+            "undetected": 0,
+            "harmless": 0,
+            **stats,
+        }
+    )
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
+    return client
 
 
 @pytest.fixture
@@ -142,59 +189,27 @@ def test_records_from_results_stamps_today():
     assert len(day) == 2
 
 
-# --- records_from_release_notes ---
-
-
-def test_records_from_release_notes():
-    """Legacy release-note table rows become at-release snapshots."""
-    body = (
-        "## Release notes\n\n- A change.\n\n---\n\n"
-        "### \U0001f6e1️ VirusTotal scans\n\n"
-        "| Binary | Detections | Analysis |\n"
-        "| --- | --- | --- |\n"
-        "| [`papaya-1.0.0-linux-x64.bin`](https://github.com/o/r/releases/"
-        "download/v1.0.0/papaya-1.0.0-linux-x64.bin) | 0 / 62 "
-        f"| [View scan](https://www.virustotal.com/gui/file/{'a' * 64}) |\n"
-        "| [`papaya-1.0.0-windows-x64.exe`](https://github.com/o/r/releases/"
-        "download/v1.0.0/papaya-1.0.0-windows-x64.exe) | 12 / 70 "
-        f"| [View scan](https://www.virustotal.com/gui/file/{'b' * 64}) |\n"
-    )
-    records = records_from_release_notes(body, "v1.0.0", "2026-06-27")
-    assert len(records) == 2
-    assert records[0].filename == "papaya-1.0.0-linux-x64.bin"
-    assert records[0].sha256 == "a" * 64
-    assert records[0].scanned == "2026-06-27"
-    assert records[0].tag == "v1.0.0"
-    assert str(records[0].stats) == "0 / 62"
-    assert records[1].stats.flagged == 12
-    assert records[1].stats.total == 70
-
-
-def test_records_from_release_notes_skips_rows_without_detections():
-    """Link-only and pending rows carry no snapshot to recover."""
-    body = (
-        "| Binary | Analysis |\n"
-        "| --- | --- |\n"
-        "| [`papaya.bin`](https://example.com/dl) "
-        f"| [View scan](https://www.virustotal.com/gui/file/{'a' * 64}) |\n"
-        "| `papaya.exe` | *pending* "
-        f"| [View scan](https://www.virustotal.com/gui/file/{'b' * 64}) |\n"
-    )
-    assert records_from_release_notes(body, "v1.0.0", "2026-06-27") == []
-
-
-def test_records_from_release_notes_plain_body():
-    """Notes without a VirusTotal table yield nothing."""
-    body = "## Release\n\n- Fixed a bug in the `parser` | tokenizer."
-    assert records_from_release_notes(body, "v1.0.0", "2026-01-01") == []
-
-
 # --- load_scan_records / upsert_scan_records ---
 
 
 def test_load_scan_records_missing_file(tmp_path):
     """A missing history file loads as an empty list."""
     assert load_scan_records(tmp_path / "missing.csv") == []
+
+
+def test_load_scan_records_refuses_a_lone_json_history(tmp_path):
+    """A history only stored as JSON is reported, never silently replaced."""
+    (tmp_path / "scans.json").write_text("[]", encoding="UTF-8")
+    with pytest.raises(ValueError, match=r"7\.13\.0"):
+        load_scan_records(tmp_path / "scans.csv")
+
+
+def test_load_scan_records_ignores_json_beside_the_csv(tmp_path, sample_records):
+    """Once the CSV exists, a stale JSON beside it is inert."""
+    path = tmp_path / "scans.csv"
+    upsert_scan_records(path, sample_records)
+    (tmp_path / "scans.json").write_text("[]", encoding="UTF-8")
+    assert len(load_scan_records(path)) == len(sample_records)
 
 
 def test_load_scan_records_malformed(tmp_path):
@@ -286,7 +301,36 @@ def test_upsert_scan_records_sorted_by_release_version(tmp_path):
     assert path.read_text(encoding="UTF-8") == expected
 
 
-# --- poll_detection_stats ---
+# --- RequestPacer / scan_files / poll_detection_stats ---
+
+
+def test_pacer_spaces_calls_over_the_budget(clock):
+    """Each call reserves its share of the minute, an upload two shares."""
+    pacer = RequestPacer(per_minute=4)
+    pacer.wait(UPLOAD_REQUESTS)
+    pacer.wait()
+    pacer.wait()
+    assert clock.sleeps == [30.0, 15.0]
+
+
+def test_uploads_and_polls_share_one_budget(tmp_path, clock):
+    """The first poll waits on the last upload, like any other call."""
+    files = []
+    for name in ("papaya-linux-x64.bin", "papaya-windows-x64.exe"):
+        path = tmp_path / name
+        path.write_bytes(name.encode())
+        files.append(path)
+    client = _vt_client(undetected=65, harmless=7)
+
+    with patch("repomatic.release.virustotal.vt.Client", return_value=client):
+        pacer = RequestPacer(per_minute=4)
+        results = scan_files("key", files, pacer)
+        enriched = poll_detection_stats("key", results, pacer, timeout=600)
+
+    assert client.scan_file.call_count == 2
+    # Two uploads of two calls each, then two polls of one call each.
+    assert clock.sleeps == [30.0, 30.0, 15.0]
+    assert all(result.detection_stats for result in enriched)
 
 
 def test_poll_detection_stats():
@@ -298,27 +342,10 @@ def test_poll_detection_stats():
             analysis_url="https://www.virustotal.com/gui/file/" + "a" * 64,
         ),
     ]
-
-    mock_file_obj = SimpleNamespace(
-        last_analysis_stats={
-            "malicious": 0,
-            "suspicious": 0,
-            "undetected": 65,
-            "harmless": 7,
-            "type-unsupported": 5,
-            "timeout": 0,
-            "confirmed-timeout": 0,
-            "failure": 0,
-        }
-    )
-
-    mock_client = MagicMock()
-    mock_client.get_object.return_value = mock_file_obj
-    mock_client.__enter__ = MagicMock(return_value=mock_client)
-    mock_client.__exit__ = MagicMock(return_value=False)
+    client = _vt_client(undetected=65, harmless=7, **{"type-unsupported": 5})
 
     with (
-        patch("repomatic.release.virustotal.vt.Client", return_value=mock_client),
+        patch("repomatic.release.virustotal.vt.Client", return_value=client),
         patch("repomatic.release.virustotal.time.sleep"),
     ):
         enriched = poll_detection_stats("key", results, timeout=60)
@@ -329,7 +356,7 @@ def test_poll_detection_stats():
     assert enriched[0].detection_stats.total == 72
 
 
-def test_poll_detection_stats_timeout():
+def test_poll_detection_stats_timeout(clock):
     """Polling timeout produces results with None detection_stats."""
     results = [
         ScanResult(
@@ -338,39 +365,15 @@ def test_poll_detection_stats_timeout():
             analysis_url="https://www.virustotal.com/gui/file/" + "a" * 64,
         ),
     ]
+    # Analysis not ready: all zeros, until the deadline passes.
+    client = _vt_client()
 
-    # Simulate analysis not ready (all zeros).
-    mock_file_obj = SimpleNamespace(
-        last_analysis_stats={
-            "malicious": 0,
-            "suspicious": 0,
-            "undetected": 0,
-            "harmless": 0,
-            "type-unsupported": 0,
-            "timeout": 0,
-            "confirmed-timeout": 0,
-            "failure": 0,
-        }
-    )
-
-    mock_client = MagicMock()
-    mock_client.get_object.return_value = mock_file_obj
-    mock_client.__enter__ = MagicMock(return_value=mock_client)
-    mock_client.__exit__ = MagicMock(return_value=False)
-
-    # Make time.monotonic() advance past the deadline after first attempt.
-    start = time.monotonic()
-    times = iter([start, start, start + 1000, start + 1000])
-
-    with (
-        patch("repomatic.release.virustotal.vt.Client", return_value=mock_client),
-        patch("repomatic.release.virustotal.time.sleep"),
-        patch("repomatic.release.virustotal.time.monotonic", side_effect=times),
-    ):
+    with patch("repomatic.release.virustotal.vt.Client", return_value=client):
         enriched = poll_detection_stats("key", results, timeout=60)
 
     assert len(enriched) == 1
     assert enriched[0].detection_stats is None
+    assert clock.now >= 1060
 
 
 def test_poll_detection_stats_empty():
@@ -382,19 +385,17 @@ def test_poll_detection_stats_empty():
 
 
 @patch("repomatic.release.virustotal.time.sleep")
-@patch("repomatic.release.virustotal.run_gh_command")
-def test_download_release_binaries_waits_for_the_asset_list(
-    mock_gh, mock_sleep, tmp_path
-):
+def test_download_release_binaries_waits_for_the_asset_list(mock_sleep, tmp_path):
     """The download starts once the release lists an asset, not before."""
     dest = tmp_path / "binaries"
-    mock_gh.side_effect = [
-        '{"assets": []}',
-        '{"assets": [{"name": "papaya-1.2.3-linux-arm64.bin"}]}',
-        "",
-    ]
-
-    download_release_binaries("orchard/papaya", "v1.2.3", "1.2.3", dest)
+    with patch_gh(
+        side_effect=[
+            '{"assets": []}',
+            '{"assets": [{"name": "papaya-1.2.3-linux-arm64.bin"}]}',
+            "",
+        ]
+    ) as mock_gh:
+        download_release_binaries("orchard/papaya", "v1.2.3", dest)
 
     assert mock_sleep.call_count == 1
     assert mock_gh.call_args_list[-1].args[0] == [
@@ -414,38 +415,40 @@ def test_download_release_binaries_waits_for_the_asset_list(
 
 
 @patch("repomatic.release.virustotal.time.sleep")
-@patch("repomatic.release.virustotal.run_gh_command")
-def test_download_release_binaries_retries_a_failed_read(mock_gh, mock_sleep, tmp_path):
+def test_download_release_binaries_retries_a_failed_read(mock_sleep, tmp_path):
     """A read that fails is retried like one that lists no asset."""
-    mock_gh.side_effect = [
-        RuntimeError("HTTP 502"),
-        '{"assets": [{"name": "papaya-1.2.3-windows-x64.exe"}]}',
-        "",
-    ]
-
-    download_release_binaries("orchard/papaya", "v1.2.3", "1.2.3", tmp_path)
+    with patch_gh(
+        side_effect=[
+            RuntimeError("HTTP 502"),
+            '{"assets": [{"name": "papaya-1.2.3-windows-x64.exe"}]}',
+            "",
+        ]
+    ) as mock_gh:
+        download_release_binaries("orchard/papaya", "v1.2.3", tmp_path)
 
     assert mock_gh.call_count == 3
     assert mock_sleep.call_count == 1
 
 
 @patch("repomatic.release.virustotal.time.sleep")
-@patch("repomatic.release.virustotal.run_gh_command")
 def test_download_release_binaries_downloads_after_the_last_empty_read(
-    mock_gh, mock_sleep, tmp_path
+    mock_sleep, tmp_path
 ):
     """An asset list that stays empty leaves the verdict to the download.
 
     No wait follows the last read: the download runs at once, and its own
     failure is what reports a release that ships no binary.
     """
-    mock_gh.side_effect = [
-        *(['{"assets": []}'] * RELEASE_ASSET_POLL_ATTEMPTS),
-        RuntimeError("no assets to download"),
-    ]
-
-    with pytest.raises(RuntimeError, match="no assets to download"):
-        download_release_binaries("orchard/papaya", "v1.2.3", "1.2.3", tmp_path)
+    with (
+        patch_gh(
+            side_effect=[
+                *(['{"assets": []}'] * RELEASE_ASSET_POLL_ATTEMPTS),
+                RuntimeError("no assets to download"),
+            ]
+        ),
+        pytest.raises(RuntimeError, match="no assets to download"),
+    ):
+        download_release_binaries("orchard/papaya", "v1.2.3", tmp_path)
 
     assert mock_sleep.call_count == RELEASE_ASSET_POLL_ATTEMPTS - 1
 

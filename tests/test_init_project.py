@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import re
 import subprocess
@@ -30,59 +31,63 @@ import yaml
 from click.testing import CliRunner
 from packaging.version import InvalidVersion, Version
 
-from repomatic import __version__, init_project as ip
-from repomatic.cli import repo as cli_repo
+from repomatic import __version__
+from repomatic.bundle import get_data_content
+from repomatic.changelog import CHANGELOG_HEADER, HEADING_PARTS_PATTERN, Changelog
 from repomatic.cli.main import repomatic
 from repomatic.cli.repo import init as init_command
 from repomatic.components import (
-    ALL_COMPONENTS,
     ALL_WORKFLOW_FILES,
+    BARE_INIT_COMPONENTS,
     COMPONENTS,
     COMPONENTS_BY_NAME,
+    EPHEMERAL_TARGETS,
     RELEASE_ENGINE_WORKFLOWS,
     REMOVED_ASSETS,
     REUSABLE_WORKFLOWS,
     SKILL_FILENAME,
-    SKILL_PHASE_ORDER,
-    SKILL_PHASES,
     BundledComponent,
     FileEntry,
     GeneratedComponent,
     InitDefault,
     RemovedAsset,
     RepoScope,
+    RepoTraits,
     SyncMode,
-    TemplateComponent,
     ToolConfigComponent,
-    WorkflowComponent,
     _skill_dir,
-    _skill_source,
     _skill_target,
     _subagent_target,
     parse_component_entries,
-    valid_file_ids,
 )
 from repomatic.config import Config, WorkflowConfig, load_repomatic_config
 from repomatic.deps.pins import Candidate, UpstreamRefPin
-from repomatic.init_project import (
-    EXPORTABLE_FILES,
-    RUNTIME_FRAGMENTS,
-    UpgradeTarget,
-    _detect_removed_assets,
-    _highest_upstream_pin,
-    _select_cooldown_pin,
-    _update_tool_config,
+from repomatic.init import tool_config, upgrade as init_upgrade
+from repomatic.init.removed_assets import detect_removed_assets
+from repomatic.init.run import (
+    AWESOME_TEMPLATE_URL_RE,
+    DeletionPolicy,
+    InitResult,
+    ReportSection,
+    _writer,
+    run_init,
+)
+from repomatic.init.tool_config import (
     adopted_ongoing_configs,
-    default_version_pin,
-    export_content,
-    get_data_content,
     init_config,
+)
+from repomatic.init.upgrade import (
+    UpgradeTarget,
+    _select_cooldown_pin,
+    default_version_pin,
+    github_yaml_texts,
+    highest_upstream_pin,
     resolve_default_pin,
     resolve_upgrade_target,
-    run_init,
     upgrade_command,
     upgrade_report,
 )
+from repomatic.skills import SKILL_PHASE_ORDER, SKILL_PHASES
 from repomatic.tooling.registry import TOOL_REGISTRY
 from repomatic.tooling.runner import get_data_file_path, run_tool
 from tests.conftest import (
@@ -155,13 +160,15 @@ def pin_build(monkeypatch: pytest.MonkeyPatch):
         candidates: list[Candidate] | None = None,
         tag_sha: str | None = None,
     ) -> None:
-        monkeypatch.setattr(ip, "__version__", version)
-        monkeypatch.setattr(ip, "__git_tag_sha__", sha)
+        monkeypatch.setattr(init_upgrade, "__version__", version)
+        monkeypatch.setattr(init_upgrade, "__git_tag_sha__", sha)
         if candidates is not None:
-            monkeypatch.setattr(ip, "github_candidates", lambda _url: candidates)
+            monkeypatch.setattr(
+                init_upgrade, "github_candidates", lambda _url: candidates
+            )
         if tag_sha is not None:
             monkeypatch.setattr(
-                ip,
+                init_upgrade,
                 "resolve_tag_to_sha",
                 lambda _url, tag: tag_sha if tag == "v7.4.1" else None,
             )
@@ -178,57 +185,30 @@ def _offline_cooldown_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     depend on the network and on the age of that release. A test that exercises
     the cooldown installs its own datasource over this one.
     """
-    monkeypatch.setattr(ip, "github_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(init_upgrade, "github_candidates", lambda *_args, **_kwargs: [])
 
 
 # --- Bundled data and export tests ---
 
 
 def _sync_tool_config(content: str, comp) -> str | None:
-    """Drive `_update_tool_config` from raw content, as `init_config` does."""
-    return _update_tool_config(tomlrt.loads(content), content, comp)
+    """Drive the ongoing sync of *comp* from raw content, whatever its mode."""
+    return tool_config._update_tool_config(tomlrt.loads(content), content, comp)
 
 
-def test_all_component_types_handled() -> None:
-    """Verify every component in the registry has a handled type.
+@pytest.mark.parametrize(
+    "comp",
+    [c for c in COMPONENTS if not isinstance(c, ToolConfigComponent)],
+    ids=lambda c: c.name,
+)
+def test_every_component_has_a_writer(comp) -> None:
+    """Every component `run_init` can select resolves to a writer.
 
-    The type-driven dispatch loop in ``run_init`` handles these types.
-    If a new component subclass is added without updating the dispatch,
-    this test will catch it.
+    Tool configs are merged in one pass of their own, so they are left out. A
+    component added to the registry without a writer would otherwise fail only
+    on its first selection.
     """
-    handled_types = (
-        BundledComponent,
-        GeneratedComponent,
-        TemplateComponent,
-        ToolConfigComponent,
-        WorkflowComponent,
-    )
-    for comp in COMPONENTS:
-        assert isinstance(comp, handled_types), (
-            f"Component {comp.name!r} has unhandled type {type(comp).__name__}"
-        )
-
-
-def test_composite_actions_keep_unmodified() -> None:
-    """Composite actions under ``.github/actions/`` must set ``keep_unmodified=True``.
-
-    GitHub Actions resolves ``uses: ./.github/actions/X`` and
-    ``uses: owner/repo/.github/actions/X@ref`` directly from the repo path.
-    The action file must remain on disk even when byte-identical to the
-    bundled default; otherwise the autofix workflow deletes it as
-    "redundant" and breaks every caller (upstream and downstream).
-    """
-    for comp in COMPONENTS:
-        if not isinstance(comp, BundledComponent):
-            continue
-        for entry in comp.files:
-            if not entry.target.startswith(".github/actions/"):
-                continue
-            assert comp.keep_unmodified, (
-                f"Component {comp.name!r} ships {entry.target!r} (a composite"
-                " action consumed in-place by GitHub Actions) but does not"
-                " set `keep_unmodified=True`."
-            )
+    assert _writer(comp) is not None
 
 
 @pytest.mark.parametrize(
@@ -260,14 +240,17 @@ def test_repo_scope_matches(
     scope: str, is_awesome: bool, is_python: bool, is_package: bool, expected: bool
 ) -> None:
     """Verify RepoScope.matches returns correct results for all combinations."""
-    assert RepoScope[scope].matches(is_awesome, is_python, is_package) is expected
+    traits = RepoTraits(
+        is_awesome=is_awesome, is_python=is_python, is_package=is_package
+    )
+    assert RepoScope[scope].matches(traits) is expected
 
 
 def test_init_help_lists_all_components() -> None:
     """Verify the init command help text lists every registered component."""
     help_text = init_command.help
     assert help_text is not None
-    for name in ALL_COMPONENTS:
+    for name in COMPONENTS_BY_NAME:
         assert name in help_text, f"Component {name!r} missing from init help text"
 
 
@@ -292,10 +275,10 @@ def test_config_type_has_required_fields() -> None:
     sorted(c.name for c in COMPONENTS if isinstance(c, ToolConfigComponent)),
 )
 def test_returns_non_empty_string(config_type: str) -> None:
-    """Verify that export_content returns a non-empty string."""
+    """Verify that the bundled template is a non-empty string."""
     comp = COMPONENTS_BY_NAME[config_type]
     assert isinstance(comp, ToolConfigComponent)
-    content = export_content(comp.source_file)
+    content = get_data_content(comp.source_file)
     assert isinstance(content, str)
     assert len(content) > 0
 
@@ -308,7 +291,7 @@ def test_returns_valid_toml(config_type: str) -> None:
     """Verify that the returned content is valid TOML."""
     comp = COMPONENTS_BY_NAME[config_type]
     assert isinstance(comp, ToolConfigComponent)
-    content = export_content(comp.source_file)
+    content = get_data_content(comp.source_file)
     parsed = tomlrt.loads(content)
     assert isinstance(parsed, dict)
 
@@ -321,22 +304,41 @@ def test_native_format_no_tool_prefix(config_type: str) -> None:
     """Verify that native format does not have [tool.X] prefix."""
     comp = COMPONENTS_BY_NAME[config_type]
     assert isinstance(comp, ToolConfigComponent)
-    content = export_content(comp.source_file)
+    content = get_data_content(comp.source_file)
     parsed = tomlrt.loads(content)
     # Native format should NOT have a "tool" key at the root.
     assert "tool" not in parsed
 
 
-def test_unknown_file_raises_error() -> None:
-    """Verify that an unknown file raises ValueError."""
-    with pytest.raises(ValueError, match="Unknown file"):
-        export_content("nonexistent.toml")
+_RUNTIME_FRAGMENTS = ("release.yaml", "vt-trend-chart.js")
+"""Bundled files the package loads at runtime, and `init` never copies as-is.
+
+`release.yaml` is the canonical caller `repomatic.github.workflow_sync` reads to
+assemble each downstream `release.yaml`. `vt-trend-chart.js` is the detections
+chart script `repomatic.release.binaries_page.render_chart_section` splices into
+`docs/binaries.md`. A new fragment is added here explicitly, so the data-file
+tests below stay authoritative.
+"""
 
 
-@pytest.mark.parametrize("filename", sorted(EXPORTABLE_FILES))
-def test_exportable_file_loadable(filename: str) -> None:
+def registered_data_files() -> list[str]:
+    """Every top-level data file the package claims, sorted.
+
+    The non-tree sources of the components, the tool config templates, the
+    tool-runner defaults, and the runtime fragments.
+    """
+    claimed = {f.source for c in COMPONENTS for f in c.files if not f.tree}
+    claimed |= {c.source_file for c in COMPONENTS if isinstance(c, ToolConfigComponent)}
+    claimed |= {
+        spec.default_config for spec in TOOL_REGISTRY.values() if spec.default_config
+    }
+    return sorted(claimed | set(_RUNTIME_FRAGMENTS))
+
+
+@pytest.mark.parametrize("filename", registered_data_files())
+def test_registered_data_file_loadable(filename: str) -> None:
     """Verify every registered data file can be loaded (no dangling symlinks)."""
-    content = export_content(filename)
+    content = get_data_content(filename)
     assert len(content) > 0
 
 
@@ -348,14 +350,14 @@ def test_exportable_file_loadable(filename: str) -> None:
 def test_native_templates_separate_header(comp: ToolConfigComponent) -> None:
     """Verify a template's file-level header ends with a blank line.
 
-    The separator is what `repomatic.init_project._strip_header_comments`
+    The separator is what `repomatic.init.tool_config._strip_header_comments`
     keys on to tell a header apart from a comment documenting the first key,
     the two being otherwise identical: a comment run at the top of the file.
     Running the header straight into a key hides the key's own documentation
     behind the same rule that drops the header, so it never reaches a
     downstream `pyproject.toml`.
     """
-    lines = export_content(comp.source_file).splitlines()
+    lines = get_data_content(comp.source_file).splitlines()
     header_end = 0
     while header_end < len(lines) and lines[header_end].lstrip().startswith("#"):
         header_end += 1
@@ -380,8 +382,8 @@ def test_strip_header_comments_keeps_key_comments(comp: ToolConfigComponent) -> 
     line also passes the "header is gone" check, while silently taking the
     first key's documentation with it.
     """
-    source = export_content(comp.source_file)
-    stripped = ip._strip_header_comments(source)
+    source = get_data_content(comp.source_file)
+    stripped = tool_config._strip_header_comments(source)
     # Stripping only ever removes a prefix.
     assert source.endswith(stripped)
     assert "Native format" not in stripped
@@ -452,7 +454,7 @@ def test_template_matches_own_pyproject(config_type: str) -> None:
     """
     comp = COMPONENTS_BY_NAME[config_type]
     assert isinstance(comp, ToolConfigComponent)
-    template = tomlrt.loads(export_content(comp.source_file))
+    template = tomlrt.loads(get_data_content(comp.source_file))
 
     project_root = Path(__file__).resolve().parent.parent
     tool_sections = tomlrt.loads(
@@ -498,7 +500,7 @@ def test_template_matches_own_pyproject(config_type: str) -> None:
 
 def _template(filename: str) -> dict:
     """Parse a bundled tool-config template into a plain mapping."""
-    return tomlrt.loads(export_content(filename))
+    return tomlrt.loads(get_data_content(filename))
 
 
 def _lookup(parsed: dict, key: str):
@@ -701,7 +703,7 @@ def test_init_config_uv_overlay_noop_when_pins_match(toml_file) -> None:
     path would reorder the owned keys ahead of the project's keys and return a
     diff, failing this fixpoint guard.
     """
-    pins = tomlrt.loads(export_content("uv.toml"))
+    pins = tomlrt.loads(get_data_content("uv.toml"))
     content = (
         '[project]\nname = "papaya"\nversion = "1.0.0"\n\n'
         "[tool.uv]\n"
@@ -718,7 +720,7 @@ def test_init_config_uv_overlay_noop_when_pins_match(toml_file) -> None:
 
 def test_init_config_uv_overlay_updates_stale_pins_in_place(toml_file) -> None:
     """Stale uv pins are updated in place, preserving order and local keys."""
-    pins = tomlrt.loads(export_content("uv.toml"))
+    pins = tomlrt.loads(get_data_content("uv.toml"))
     content = (
         '[project]\nname = "papaya"\nversion = "1.0.0"\n\n'
         "[tool.uv]\n"
@@ -753,7 +755,7 @@ def test_init_config_uv_overlay_updates_stale_pins_in_place(toml_file) -> None:
 
 def test_init_config_uv_overlay_appends_missing_pins(toml_file) -> None:
     """A [tool.uv] lacking the pins gets both appended, local keys intact."""
-    pins = tomlrt.loads(export_content("uv.toml"))
+    pins = tomlrt.loads(get_data_content("uv.toml"))
     content = (
         '[project]\nname = "papaya"\nversion = "1.0.0"\n\n'
         "[tool.uv]\n"
@@ -842,8 +844,8 @@ def test_preserves_existing_content(toml_file) -> None:
 
 
 def test_unknown_config_type_raises_error() -> None:
-    """Verify that an unknown config type raises TypeError."""
-    with pytest.raises(TypeError, match="Unknown config type"):
+    """Verify that an unknown config type raises ValueError."""
+    with pytest.raises(ValueError, match="Unknown config type"):
         init_config("nonexistent", Path("pyproject.toml"))
 
 
@@ -916,7 +918,7 @@ def test_resolve_default_pin_aged_version_is_noop(monkeypatch, pin_build):
     """
     pin_build(version="7.4.1", candidates=_COOLDOWN_CANDIDATES)
     monkeypatch.setattr(
-        ip,
+        init_upgrade,
         "resolve_tag_to_sha",
         lambda _url, _tag: pytest.fail("aged base must not resolve a new SHA"),
     )
@@ -949,7 +951,7 @@ def test_resolve_default_pin_dev_version_skips_datasource(monkeypatch, pin_build
     """An unreleased dev cut pins its base version without any network call."""
     pin_build(version="7.4.2.dev0", sha="")
     monkeypatch.setattr(
-        ip,
+        init_upgrade,
         "github_candidates",
         lambda _url: pytest.fail("dev version must not hit the datasource"),
     )
@@ -960,7 +962,7 @@ def test_resolve_default_pin_zero_window_skips_datasource(monkeypatch, pin_build
     """A disabled cooldown (0 days) pins the running version without a lookup."""
     pin_build(sha="")
     monkeypatch.setattr(
-        ip,
+        init_upgrade,
         "github_candidates",
         lambda _url: pytest.fail("disabled cooldown must not hit the datasource"),
     )
@@ -971,7 +973,7 @@ def test_resolve_default_pin_zero_window_skips_datasource(monkeypatch, pin_build
 def test_resolve_default_pin_fails_open_when_datasource_empty(monkeypatch, pin_build):
     """An unreachable datasource falls back to the running version."""
     pin_build()
-    monkeypatch.setattr(ip, "github_candidates", lambda _url: [])
+    monkeypatch.setattr(init_upgrade, "github_candidates", lambda _url: [])
     assert resolve_default_pin(Config(), today=date(2026, 8, 2)) == ("v7.4.2", "a" * 40)
 
 
@@ -989,7 +991,12 @@ def _write_caller(path: Path, version: str, sha: str | None = None) -> None:
 
 def test_highest_upstream_pin_none_without_refs(tmp_path):
     """A repository carrying no upstream ref has no floor."""
-    assert _highest_upstream_pin(tmp_path, "kdeldycke/repomatic") is None
+    assert (
+        highest_upstream_pin(
+            github_yaml_texts(tmp_path).values(), "kdeldycke/repomatic"
+        )
+        is None
+    )
 
 
 def test_highest_upstream_pin_converges_stragglers(tmp_path):
@@ -997,9 +1004,9 @@ def test_highest_upstream_pin_converges_stragglers(tmp_path):
     workflows = tmp_path / ".github" / "workflows"
     _write_caller(workflows / "lint.yaml", "7.4.2", "a" * 40)
     _write_caller(workflows / "docs.yaml", "7.0.0", "b" * 40)
-    assert _highest_upstream_pin(tmp_path, "kdeldycke/repomatic") == UpstreamRefPin(
-        "7.4.2", "a" * 40
-    )
+    assert highest_upstream_pin(
+        github_yaml_texts(tmp_path).values(), "kdeldycke/repomatic"
+    ) == UpstreamRefPin("7.4.2", "a" * 40)
 
 
 def test_highest_upstream_pin_prefers_a_hardened_ref(tmp_path):
@@ -1007,18 +1014,18 @@ def test_highest_upstream_pin_prefers_a_hardened_ref(tmp_path):
     workflows = tmp_path / ".github" / "workflows"
     _write_caller(workflows / "autolock.yaml", "7.4.2")
     _write_caller(workflows / "lint.yaml", "7.4.2", "a" * 40)
-    assert _highest_upstream_pin(tmp_path, "kdeldycke/repomatic") == UpstreamRefPin(
-        "7.4.2", "a" * 40
-    )
+    assert highest_upstream_pin(
+        github_yaml_texts(tmp_path).values(), "kdeldycke/repomatic"
+    ) == UpstreamRefPin("7.4.2", "a" * 40)
 
 
 def test_highest_upstream_pin_reads_composite_actions(tmp_path):
     """Composite-action refs count too: `release.yaml` pins one alongside the lanes."""
     action = tmp_path / ".github" / "actions" / "publish-pypi" / "action.yaml"
     _write_caller(action, "7.4.2", "a" * 40)
-    assert _highest_upstream_pin(tmp_path, "kdeldycke/repomatic") == UpstreamRefPin(
-        "7.4.2", "a" * 40
-    )
+    assert highest_upstream_pin(
+        github_yaml_texts(tmp_path).values(), "kdeldycke/repomatic"
+    ) == UpstreamRefPin("7.4.2", "a" * 40)
 
 
 # The pin `init` resolves across the whole downstream lifecycle. `7.4.2` is
@@ -1084,11 +1091,13 @@ def test_resolve_default_pin_lifecycle(label, base, floor, expected, monkeypatch
     `init` at the pinned version on every push, so a cooldown verdict recomputed
     there would downgrade the repository for a full window after each bump.
     """
-    monkeypatch.setattr(ip, "__version__", base)
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
-    monkeypatch.setattr(ip, "github_candidates", lambda _url: _COOLDOWN_CANDIDATES)
+    monkeypatch.setattr(init_upgrade, "__version__", base)
+    monkeypatch.setattr(init_upgrade, "__git_tag_sha__", "a" * 40)
     monkeypatch.setattr(
-        ip,
+        init_upgrade, "github_candidates", lambda _url: _COOLDOWN_CANDIDATES
+    )
+    monkeypatch.setattr(
+        init_upgrade,
         "resolve_tag_to_sha",
         lambda _url, tag: "b" * 40 if tag == "v7.4.1" else None,
     )
@@ -1104,7 +1113,7 @@ def test_resolve_default_pin_matching_floor_skips_datasource(monkeypatch, pin_bu
     """
     pin_build()
     monkeypatch.setattr(
-        ip,
+        init_upgrade,
         "github_candidates",
         lambda _url: pytest.fail("a pin equal to the running version needs no lookup"),
     )
@@ -1158,11 +1167,18 @@ def test_run_init_held_at_floor_leaves_workflows_untouched(tmp_path, pin_build):
     the caller half lands with nothing pinned to serve it.
     """
     pin_build(version="7.4.1", sha="c" * 40)
-    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
 
     # Running version moves inside the cooldown window; the repo stays at 7.4.1.
     pin_build(version="7.4.2", candidates=_CLOCK_ROBUST_CANDIDATES)
-    result = run_init(output_dir=tmp_path, components=("workflows",))
+    result = run_init(
+        output_dir=tmp_path, components=("workflows",), config=load_repomatic_config()
+    )
 
     touched = [path for path in result.created + result.updated if "workflows/" in path]
     assert not touched, f"held-back pin still rewrote {touched}"
@@ -1184,7 +1200,9 @@ def test_run_init_first_adoption_writes_workflows_despite_step_back(
     skew stands as the lesser outcome.
     """
     pin_build(candidates=_CLOCK_ROBUST_CANDIDATES, tag_sha="b" * 40)
-    result = run_init(output_dir=tmp_path, components=("workflows",))
+    result = run_init(
+        output_dir=tmp_path, components=("workflows",), config=load_repomatic_config()
+    )
 
     assert any("workflows/" in path for path in result.created)
     autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
@@ -1201,13 +1219,20 @@ def test_run_init_keeps_a_fresh_pin_already_on_disk(tmp_path, monkeypatch, pin_b
     on every push. The pin must survive untouched.
     """
     pin_build()
-    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
     monkeypatch.setattr(
-        ip,
+        init_upgrade,
         "github_candidates",
         lambda _url: pytest.fail("a pin equal to the running version needs no lookup"),
     )
-    run_init(output_dir=tmp_path, components=("workflows",))
+    run_init(
+        output_dir=tmp_path, components=("workflows",), config=load_repomatic_config()
+    )
     autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
         encoding="UTF-8"
     )
@@ -1222,21 +1247,39 @@ def test_run_init_records_the_pin_move(tmp_path, pin_build):
     an upgrade to review, which is what the closing hint keys on.
     """
     pin_build(version="7.4.1", sha="c" * 40)
-    first = run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    first = run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
     assert first.previous_pin is None
     assert first.adopted_pin == "7.4.1"
     assert first.upgraded_pin() is None
 
     pin_build(version="7.4.2", sha="a" * 40)
-    upgrade = run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    upgrade = run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
     assert upgrade.upgraded_pin() == ("7.4.1", "7.4.2")
 
-    rerun = run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    rerun = run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
     assert rerun.previous_pin == "7.4.2"
     assert rerun.upgraded_pin() is None
 
     rollback = run_init(
-        output_dir=tmp_path, components=("workflows",), version="v7.4.1"
+        output_dir=tmp_path,
+        components=("workflows",),
+        version="v7.4.1",
+        config=load_repomatic_config(),
     )
     assert rollback.adopted_pin == "7.4.1"
     assert rollback.upgraded_pin() is None
@@ -1245,7 +1288,9 @@ def test_run_init_records_the_pin_move(tmp_path, pin_build):
 def test_run_init_reads_no_pin_without_a_workflow(tmp_path, pin_build):
     """A config-only run neither reads nor writes an upstream pin."""
     pin_build()
-    result = run_init(output_dir=tmp_path, components=("skills",))
+    result = run_init(
+        output_dir=tmp_path, components=("skills",), config=load_repomatic_config()
+    )
     assert result.previous_pin is None
     assert result.adopted_pin is None
     assert result.upgraded_pin() is None
@@ -1259,7 +1304,12 @@ def test_init_cli_prints_the_upgrade_launcher(tmp_path, pin_build):
     release offers, then what the repository drifted from.
     """
     pin_build(version="7.4.1", sha="c" * 40)
-    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
 
     pin_build(version="7.4.2", sha="a" * 40)
     cli_result = CliRunner().invoke(
@@ -1282,6 +1332,7 @@ def test_init_cli_skips_the_install_hint_once_the_skill_is_on_disk(tmp_path, pin
         output_dir=tmp_path,
         components=("workflows", "skills/repomatic-upgrade"),
         cooldown=False,
+        config=load_repomatic_config(),
     )
 
     pin_build(version="7.4.2", sha="a" * 40)
@@ -1306,15 +1357,37 @@ def test_init_cli_prints_no_launcher_without_a_pin_move(tmp_path, pin_build):
     assert "/repomatic-upgrade" not in cli_result.output
 
 
+def test_next_steps_skip_a_run_that_staged_only_ephemeral_files():
+    """Labels staged for `labelmaker` leave nothing to commit."""
+    result = InitResult(created=sorted(EPHEMERAL_TARGETS))
+    assert result.next_steps(Path("papaya"), Config()) == []
+
+
+def test_next_steps_mention_the_setup_issues_after_a_workflow_write():
+    """A written workflow adds the step about the setup issues."""
+    result = InitResult(created=[".github/workflows/lint.yaml"])
+
+    steps = result.next_steps(Path("papaya"), Config())
+
+    assert steps[0] == "Commit the generated files and push."
+    assert "open issues" in steps[1]
+    assert len(steps) == 2
+
+
 def test_run_init_no_cooldown_skips_datasource(tmp_path, monkeypatch, pin_build):
     """--no-cooldown pins the running version and never consults the datasource."""
     pin_build(sha="")
     monkeypatch.setattr(
-        ip,
+        init_upgrade,
         "github_candidates",
         lambda _url: pytest.fail("cooldown=False must not hit the datasource"),
     )
-    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
     autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
         encoding="UTF-8"
     )
@@ -1387,7 +1460,9 @@ def test_resolve_upgrade_target(
     tmp_path, monkeypatch, pin_build, floor, version, released, previous, held_back
 ):
     pin_build(version="7.11.0")
-    monkeypatch.setattr(ip, "pypi_candidates", lambda _package: _UPGRADE_CANDIDATES)
+    monkeypatch.setattr(
+        init_upgrade, "pypi_candidates", lambda _package: _UPGRADE_CANDIDATES
+    )
     if floor:
         _write_caller(tmp_path / ".github" / "workflows" / "lint.yaml", floor, "c" * 40)
 
@@ -1413,7 +1488,7 @@ def test_resolve_upgrade_target_opt_outs(tmp_path, monkeypatch, pin_build, confi
     """Both opt-outs skip the upgrade before any datasource lookup."""
     pin_build(version="7.11.0")
     monkeypatch.setattr(
-        ip, "pypi_candidates", lambda _package: pytest.fail("opted out")
+        init_upgrade, "pypi_candidates", lambda _package: pytest.fail("opted out")
     )
     assert resolve_upgrade_target(config, tmp_path, today=_UPGRADE_TODAY) is None
 
@@ -1424,7 +1499,9 @@ def test_resolve_upgrade_target_skips_development_builds(
     """A development build has no published release to compare against."""
     pin_build(version="7.16.0.dev0")
     monkeypatch.setattr(
-        ip, "pypi_candidates", lambda _package: pytest.fail("development build")
+        init_upgrade,
+        "pypi_candidates",
+        lambda _package: pytest.fail("development build"),
     )
     assert resolve_upgrade_target(Config(), tmp_path, today=_UPGRADE_TODAY) is None
 
@@ -1441,7 +1518,7 @@ def test_resolve_upgrade_target_without_a_cleared_release(
 ):
     """No release past the window, or no release data, leaves the pin alone."""
     pin_build(version="7.11.0")
-    monkeypatch.setattr(ip, "pypi_candidates", lambda _package: candidates)
+    monkeypatch.setattr(init_upgrade, "pypi_candidates", lambda _package: candidates)
     _write_caller(tmp_path / ".github" / "workflows" / "lint.yaml", "7.11.0")
     assert resolve_upgrade_target(Config(), tmp_path, today=_UPGRADE_TODAY) is None
 
@@ -1498,7 +1575,9 @@ def _upgraded_tree(tmp_path: Path, previous: str | None, adopted: str) -> Upgrad
 def test_upgrade_report(tmp_path, monkeypatch):
     """The report reads top-down: the move, what breaks, the run, the notes."""
     target = _upgraded_tree(tmp_path, "7.11.0", "7.15.0")
-    monkeypatch.setattr(ip, "fetch_github_release_notes", lambda _items: _UPGRADE_NOTES)
+    monkeypatch.setattr(
+        init_upgrade, "fetch_github_release_notes", lambda _items: _UPGRADE_NOTES
+    )
     init_output = (
         "warning: Unknown configuration option(s): mango. Valid options: kiwi, lime\n"
         "warning: Unknown configuration option(s): mango. Valid options: kiwi, lime\n"
@@ -1553,7 +1632,9 @@ def test_upgrade_report_without_a_move(tmp_path, monkeypatch, previous, adopted)
     """A run that moved no pin forward reports nothing, and fetches nothing."""
     target = _upgraded_tree(tmp_path, previous, adopted)
     monkeypatch.setattr(
-        ip, "fetch_github_release_notes", lambda _items: pytest.fail("no move")
+        init_upgrade,
+        "fetch_github_release_notes",
+        lambda _items: pytest.fail("no move"),
     )
     assert upgrade_report(target, tmp_path, Config(), today=_UPGRADE_TODAY) is None
 
@@ -1579,7 +1660,9 @@ def test_upgrade_report_without_breaking_entries(
     tmp_path, monkeypatch, notes, expected
 ):
     target = _upgraded_tree(tmp_path, "7.11.0", "7.15.0")
-    monkeypatch.setattr(ip, "fetch_github_release_notes", lambda _items: notes)
+    monkeypatch.setattr(
+        init_upgrade, "fetch_github_release_notes", lambda _items: notes
+    )
 
     report = upgrade_report(target, tmp_path, Config(), today=_UPGRADE_TODAY)
 
@@ -1597,9 +1680,13 @@ def _upgrade_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
     monkeypatch.setattr(
-        ip, "pypi_candidates", lambda _package: _CLOCK_ROBUST_UPGRADE_CANDIDATES
+        init_upgrade,
+        "pypi_candidates",
+        lambda _package: _CLOCK_ROBUST_UPGRADE_CANDIDATES,
     )
-    monkeypatch.setattr(ip, "fetch_github_release_notes", lambda _items: _UPGRADE_NOTES)
+    monkeypatch.setattr(
+        init_upgrade, "fetch_github_release_notes", lambda _items: _UPGRADE_NOTES
+    )
 
 
 @pytest.mark.parametrize(
@@ -1621,14 +1708,24 @@ def test_init_upgrade_hands_off_to_the_newest_cleared_release(
     """A newer release runs as a child, and the report names both ends."""
     _upgrade_project(tmp_path, monkeypatch)
     pin_build(version="7.11.0", sha="c" * 40)
-    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
     commands: list[list[str]] = []
 
     def child(command, output_dir):
         # Stand in for the target release: regenerate the callers at it.
         commands.append(list(command))
         pin_build(version="7.15.0", sha="d" * 40)
-        run_init(output_dir=output_dir, components=("workflows",), cooldown=False)
+        run_init(
+            output_dir=output_dir,
+            components=("workflows",),
+            cooldown=False,
+            config=load_repomatic_config(),
+        )
         return subprocess.CompletedProcess(
             command,
             0,
@@ -1636,7 +1733,7 @@ def test_init_upgrade_hands_off_to_the_newest_cleared_release(
             " kiwi\nUpdated 6 existing file(s):\n",
         )
 
-    monkeypatch.setattr(cli_repo, "run_upgrade", child)
+    monkeypatch.setattr(init_upgrade, "run_upgrade", child)
     github_output = tmp_path / "github-output"
 
     result = CliRunner().invoke(
@@ -1685,9 +1782,14 @@ def test_init_upgrade_fails_with_the_child(tmp_path, monkeypatch, pin_build):
     """A failed child fails the command, and no report claims an upgrade."""
     _upgrade_project(tmp_path, monkeypatch)
     pin_build(version="7.11.0", sha="c" * 40)
-    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
     monkeypatch.setattr(
-        cli_repo,
+        init_upgrade,
         "run_upgrade",
         lambda command, _output_dir: subprocess.CompletedProcess(
             command, 1, stdout="No solution found.\n"
@@ -1716,11 +1818,18 @@ def test_init_upgrade_runs_in_process_on_the_target(tmp_path, monkeypatch, pin_b
     """On the target already: no child, and no second cooldown verdict."""
     _upgrade_project(tmp_path, monkeypatch)
     pin_build(version="7.11.0", sha="c" * 40)
-    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
     pin_build(version="7.15.0", sha="d" * 40)
-    monkeypatch.setattr(cli_repo, "run_upgrade", lambda *_args: pytest.fail("child"))
     monkeypatch.setattr(
-        ip, "github_candidates", lambda _url: pytest.fail("second verdict")
+        init_upgrade, "run_upgrade", lambda *_args: pytest.fail("child")
+    )
+    monkeypatch.setattr(
+        init_upgrade, "github_candidates", lambda _url: pytest.fail("second verdict")
     )
     report_path = tmp_path / "report.md"
 
@@ -1796,11 +1905,21 @@ def test_run_init_preserves_downstream_release_needs(tmp_path, pin_build):
     called.
     """
     pin_build()
-    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
 
     release = tmp_path / ".github" / "workflows" / "release.yaml"
     _add_downstream_release_job(release)
-    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
 
     jobs = yaml.safe_load(release.read_text(encoding="UTF-8"))["jobs"]
     assert jobs["release"]["needs"] == ["build", "build-packer"]
@@ -1816,14 +1935,29 @@ def test_run_init_is_idempotent(tmp_path, pin_build):
     between the managed lanes and those extras is re-derived.
     """
     pin_build()
-    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
     _add_downstream_release_job(tmp_path / ".github" / "workflows" / "release.yaml")
 
     # First re-run absorbs the hand edit; every run after it must be a no-op.
-    run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
     settled = _workflow_tree(tmp_path)
 
-    result = run_init(output_dir=tmp_path, components=("workflows",), cooldown=False)
+    result = run_init(
+        output_dir=tmp_path,
+        components=("workflows",),
+        cooldown=False,
+        config=load_repomatic_config(),
+    )
     drifted = sorted(
         name
         for name, content in _workflow_tree(tmp_path).items()
@@ -1846,14 +1980,17 @@ _DOWNSTREAM_TESTS_YAML = (
 
 
 def _init_workflow(tmp_path, monkeypatch, filename: str, config=None):
-    """Run `init` for a single workflow file and return its content, if written."""
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    """Run `init` for a single workflow file and return its content, if written.
+
+    *config* defaults to the configuration of the working directory.
+    """
+    monkeypatch.setattr(init_upgrade, "__version__", "7.4.2")
+    monkeypatch.setattr(init_upgrade, "__git_tag_sha__", "a" * 40)
     run_init(
         output_dir=tmp_path,
         components=(f"workflows/{filename}",),
         cooldown=False,
-        config=config,
+        config=config or load_repomatic_config(),
     )
     target = tmp_path / ".github" / "workflows" / filename
     return target.read_text(encoding="UTF-8") if target.exists() else None
@@ -1973,11 +2110,14 @@ def test_init_warns_about_a_metadata_key_this_version_dropped(tmp_path, monkeypa
         ),
         encoding="UTF-8",
     )
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    monkeypatch.setattr(init_upgrade, "__version__", "7.4.2")
+    monkeypatch.setattr(init_upgrade, "__git_tag_sha__", "a" * 40)
 
     result = run_init(
-        output_dir=tmp_path, components=("workflows/tests.yaml",), cooldown=False
+        output_dir=tmp_path,
+        components=("workflows/tests.yaml",),
+        cooldown=False,
+        config=load_repomatic_config(),
     )
 
     assert len(result.warnings) == 1
@@ -2000,11 +2140,14 @@ def test_init_warns_about_the_removed_metadata_alias(tmp_path, monkeypatch):
         ),
         encoding="UTF-8",
     )
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    monkeypatch.setattr(init_upgrade, "__version__", "7.4.2")
+    monkeypatch.setattr(init_upgrade, "__git_tag_sha__", "a" * 40)
 
     result = run_init(
-        output_dir=tmp_path, components=("workflows/tests.yaml",), cooldown=False
+        output_dir=tmp_path,
+        components=("workflows/tests.yaml",),
+        cooldown=False,
+        config=load_repomatic_config(),
     )
 
     assert len(result.warnings) == 1
@@ -2026,14 +2169,15 @@ def test_init_skips_the_metadata_key_check_behind_a_cooldown(tmp_path, monkeypat
         ),
         encoding="UTF-8",
     )
-    monkeypatch.setattr(ip, "__version__", "7.4.2")
-    monkeypatch.setattr(ip, "__git_tag_sha__", "a" * 40)
+    monkeypatch.setattr(init_upgrade, "__version__", "7.4.2")
+    monkeypatch.setattr(init_upgrade, "__git_tag_sha__", "a" * 40)
 
     result = run_init(
         output_dir=tmp_path,
         components=("workflows/tests.yaml",),
         cooldown=False,
         version="v7.4.1",
+        config=load_repomatic_config(),
     )
 
     assert result.warnings == []
@@ -2081,6 +2225,33 @@ def test_init_header_sync_honors_paths_spec(tmp_path, monkeypatch):
     assert "placeholder" not in content
 
 
+def test_init_header_sync_reads_source_paths_off_the_output_dir(tmp_path, monkeypatch):
+    """The `paths:` filters name the package of the target, not of the caller.
+
+    `init --output-dir` runs from another directory, whose `pyproject.toml`
+    names another project.
+    """
+    caller = tmp_path / "caller"
+    caller.mkdir()
+    (caller / "pyproject.toml").write_text(
+        '[project]\nname = "kiwi"\nversion = "1.0.0"\n', encoding="UTF-8"
+    )
+    target_root = tmp_path / "target"
+    workflow = target_root / ".github" / "workflows" / "tests.yaml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(_DOWNSTREAM_TESTS_YAML, encoding="UTF-8")
+    (target_root / "pyproject.toml").write_text(
+        '[project]\nname = "papaya"\nversion = "1.0.0"\n', encoding="UTF-8"
+    )
+    monkeypatch.chdir(caller)
+
+    content = _init_workflow(target_root, monkeypatch, "tests.yaml", config=Config())
+
+    assert content is not None
+    assert "papaya/**" in content
+    assert "kiwi/**" not in content
+
+
 def test_run_init_cooldown_steps_back_in_generated_pin(
     tmp_path, monkeypatch, pin_build
 ):
@@ -2089,15 +2260,17 @@ def test_run_init_cooldown_steps_back_in_generated_pin(
     # Dates chosen to be robust against the real clock resolve_default_pin
     # reads: 7.4.1 is always aged, 7.4.2 always fresh.
     monkeypatch.setattr(
-        ip,
+        init_upgrade,
         "github_candidates",
         lambda _url: [
             Candidate("7.4.1", "2020-01-01", "v7.4.1"),
             Candidate("7.4.2", "2999-01-01", "v7.4.2"),
         ],
     )
-    monkeypatch.setattr(ip, "resolve_tag_to_sha", lambda _url, _tag: "")
-    result = run_init(output_dir=tmp_path, components=("workflows",))
+    monkeypatch.setattr(init_upgrade, "resolve_tag_to_sha", lambda _url, _tag: "")
+    result = run_init(
+        output_dir=tmp_path, components=("workflows",), config=load_repomatic_config()
+    )
     autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
         encoding="UTF-8"
     )
@@ -2108,11 +2281,7 @@ def test_run_init_cooldown_steps_back_in_generated_pin(
 
 def test_init_default_components():
     """Verify default selection includes expected components."""
-    defaults = {
-        c.name
-        for c in COMPONENTS
-        if c.init_default in (InitDefault.INCLUDE, InitDefault.EXCLUDE)
-    }
+    defaults = BARE_INIT_COMPONENTS
     assert "changelog" in defaults
     assert "labels" in defaults
     assert "skills" in defaults
@@ -2135,7 +2304,7 @@ def test_init_creates_all_default_files(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     # All components: agents, changelog, skills, workflows. Opt-in workflows
     # are excluded by default, and ephemeral components never materialize on a
@@ -2171,21 +2340,47 @@ def test_init_creates_all_default_files(
 
 
 def test_init_creates_changelog(tmp_path: Path):
-    """Verify changelog is created with expected content."""
-    result = run_init(output_dir=tmp_path, components=("changelog",))
+    """A new changelog opens on an unreleased section the changelog code reads."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "papaya"\nversion = "1.2.3.dev0"\n', encoding="UTF-8"
+    )
+    result = run_init(
+        output_dir=tmp_path,
+        components=("changelog",),
+        repo_slug="fruit/papaya",
+        config=Config(),
+    )
 
-    changelog = tmp_path / "changelog.md"
-    assert changelog.exists()
-    content = changelog.read_text(encoding="UTF-8")
-    assert content.startswith("# Changelog")
-    assert "## [Unreleased]" in content
+    content = (tmp_path / "changelog.md").read_text(encoding="UTF-8")
+    assert content.startswith(CHANGELOG_HEADER)
+    heading = HEADING_PARTS_PATTERN.search(content)
+    assert heading is not None
+    assert heading["version"] == "1.2.3.dev0"
+    assert heading["date"] == "unreleased"
+    assert heading["url"] == "https://github.com/fruit/papaya/compare/main...main"
+    assert Changelog(content).decompose_version("1.2.3.dev0").date == "unreleased"
     assert "changelog.md" in result.created
+
+
+def test_init_changelog_stub_without_a_version(tmp_path: Path):
+    """With no version to name in a heading, the stub is the header alone."""
+    run_init(
+        output_dir=tmp_path,
+        components=("changelog",),
+        repo_slug="fruit/papaya",
+        config=Config(),
+    )
+
+    content = (tmp_path / "changelog.md").read_text(encoding="UTF-8")
+    assert content == CHANGELOG_HEADER
 
 
 def test_init_creates_parent_dirs(tmp_path: Path):
     """Verify .github/workflows/ is created automatically."""
     assert not (tmp_path / ".github").exists()
-    run_init(output_dir=tmp_path, components=("workflows",))
+    run_init(
+        output_dir=tmp_path, components=("workflows",), config=load_repomatic_config()
+    )
     assert (tmp_path / ".github" / "workflows").is_dir()
 
 
@@ -2193,7 +2388,7 @@ def test_init_workflow_paths_config_flows_to_generated_files(tmp_path: Path):
     """`[tool.repomatic.workflow]` paths knobs reach the generated workflows.
 
     End-to-end check that a `Config` carrying `extra_paths`, `ignore_paths`,
-    and per-workflow `paths` overrides is honored by `_init_workflows` when
+    and per-workflow `paths` overrides is honored by `_write_workflows` when
     rendering thin callers.
     """
     config = Config(
@@ -2261,7 +2456,9 @@ def test_init_existing_changelog_skipped(tmp_path: Path):
     changelog = tmp_path / "changelog.md"
     changelog.write_text("# My existing changelog\n", encoding="UTF-8")
 
-    result = run_init(output_dir=tmp_path, components=("changelog",))
+    result = run_init(
+        output_dir=tmp_path, components=("changelog",), config=load_repomatic_config()
+    )
 
     assert "changelog.md" in result.skipped
     # Content should not be overwritten.
@@ -2280,12 +2477,12 @@ def test_init_idempotent(tmp_path: Path):
         encoding="UTF-8",
     )
 
-    result1 = run_init(output_dir=tmp_path)
+    result1 = run_init(output_dir=tmp_path, config=load_repomatic_config())
     assert len(result1.created) > 0
     assert len(result1.updated) == 0
     assert len(result1.skipped) == 0
 
-    result2 = run_init(output_dir=tmp_path)
+    result2 = run_init(output_dir=tmp_path, config=load_repomatic_config())
     assert len(result2.created) == 0
     assert len(result2.updated) == 0
     # Only changelog is skipped (never overwritten).
@@ -2308,18 +2505,24 @@ def test_init_per_component_idempotent(tmp_path: Path, component: str):
     `updated`. Regression guard for skills/workflows wrongly flagged as
     updated when their content was unchanged.
     """
-    first = run_init(output_dir=tmp_path, components=(component,))
+    first = run_init(
+        output_dir=tmp_path, components=(component,), config=load_repomatic_config()
+    )
     assert len(first.created) > 0
     assert len(first.updated) == 0
 
-    second = run_init(output_dir=tmp_path, components=(component,))
+    second = run_init(
+        output_dir=tmp_path, components=(component,), config=load_repomatic_config()
+    )
     assert second.created == []
     assert second.updated == []
 
 
 def test_init_only_labels(tmp_path: Path):
     """Verify only label files are created."""
-    result = run_init(output_dir=tmp_path, components=("labels",))
+    result = run_init(
+        output_dir=tmp_path, components=("labels",), config=load_repomatic_config()
+    )
 
     created_set = set(result.created)
     assert created_set == {"labels.toml"}
@@ -2338,7 +2541,9 @@ def test_init_only_skills(tmp_path: Path):
     the registry rather than written here: a literal makes adding a skill fail
     a test that has nothing to say about it.
     """
-    result = run_init(output_dir=tmp_path, components=("skills",))
+    result = run_init(
+        output_dir=tmp_path, components=("skills",), config=load_repomatic_config()
+    )
 
     created_set = set(result.created)
     assert len(created_set) == sum(
@@ -2456,6 +2661,7 @@ def test_init_always_overwrites_managed_files(tmp_path: Path):
     result = run_init(
         output_dir=tmp_path,
         components=("workflows",),
+        config=load_repomatic_config(),
     )
 
     assert ".github/workflows/lint.yaml" in result.updated
@@ -2473,6 +2679,7 @@ def test_init_changelog_never_overwritten(tmp_path: Path):
     result = run_init(
         output_dir=tmp_path,
         components=("changelog",),
+        config=load_repomatic_config(),
     )
 
     assert "changelog.md" in result.skipped
@@ -2488,6 +2695,7 @@ def test_init_tool_configs_no_pyproject(tmp_path: Path):
     result = run_init(
         output_dir=tmp_path,
         components=("ruff",),
+        config=load_repomatic_config(),
     )
 
     assert len(result.warnings) == 1
@@ -2500,6 +2708,7 @@ def test_init_version_pinned(tmp_path: Path):
         output_dir=tmp_path,
         components=("workflows",),
         version="v5.9.1",
+        config=load_repomatic_config(),
     )
 
     # Check that generated workflow files contain the version pin.
@@ -2524,6 +2733,7 @@ def test_init_with_specific_tool_configs(tmp_path: Path):
     result = run_init(
         output_dir=tmp_path,
         components=("ruff", "bumpversion"),
+        config=load_repomatic_config(),
     )
 
     assert len(result.warnings) == 0
@@ -2532,6 +2742,48 @@ def test_init_with_specific_tool_configs(tmp_path: Path):
     content = pyproject.read_text(encoding="UTF-8")
     assert "[tool.ruff]" in content
     assert "[tool.bumpversion]" in content
+
+
+def test_init_tool_configs_report_pyproject_once_as_updated(tmp_path: Path):
+    """Merging several sections writes `pyproject.toml` once, as an update.
+
+    The file exists before the merge, so it is never reported as created,
+    whichever sections are new, and never listed twice.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "test-project"\nversion = "0.1.0"\n\n'
+        '[tool.typos.default]\nextend-ignore-re = ["papaya"]\n',
+        encoding="UTF-8",
+    )
+
+    result = run_init(
+        output_dir=tmp_path,
+        components=("ruff", "mypy", "typos"),
+        config=load_repomatic_config(),
+    )
+
+    assert result.updated == ["pyproject.toml"]
+    assert "pyproject.toml" not in result.created
+    content = pyproject.read_text(encoding="UTF-8")
+    assert "[tool.ruff]" in content
+    assert "[tool.mypy]" in content
+    assert "papaya" in content
+
+
+def test_init_tool_configs_leave_an_up_to_date_pyproject_alone(tmp_path: Path):
+    """A second merge of the same sections reports nothing."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "test-project"\nversion = "0.1.0"\n',
+        encoding="UTF-8",
+    )
+    run_init(output_dir=tmp_path, components=("ruff",), config=Config())
+
+    result = run_init(output_dir=tmp_path, components=("ruff",), config=Config())
+
+    assert result.created == []
+    assert result.updated == []
 
 
 def test_init_with_single_tool_config(tmp_path: Path):
@@ -2546,6 +2798,7 @@ def test_init_with_single_tool_config(tmp_path: Path):
     run_init(
         output_dir=tmp_path,
         components=("ruff",),
+        config=load_repomatic_config(),
     )
 
     # Only ruff should be merged, not bumpversion.
@@ -2948,6 +3201,38 @@ def test_bumpversion_update_valid_toml(tmp_path: Path) -> None:
     assert "serialize" in bv
     assert "parts" in bv
     assert "dev" in bv["parts"]
+
+
+def test_sync_bumpversion_rewrites_only_the_section(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`sync-bumpversion` syncs the one section and writes nothing else.
+
+    It merges the template straight into `pyproject.toml`: no other component
+    runs, so no other file appears, and a second run reports no change.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "papaya"\nversion = "1.0.0"\n\n'
+        '[tool.bumpversion]\ncurrent_version = "1.0.0"\n',
+        encoding="UTF-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    before = {path.name for path in tmp_path.iterdir()}
+
+    first = CliRunner().invoke(repomatic, ["sync-bumpversion"])
+
+    assert first.exit_code == 0, first.output
+    assert "Updated: pyproject.toml" in first.output
+    assert {path.name for path in tmp_path.iterdir()} == before
+    synced = tomlrt.loads(pyproject.read_text(encoding="UTF-8"))
+    assert synced["tool"]["bumpversion"]["current_version"] == "1.0.0"
+    assert synced["tool"]["bumpversion"]["files"]
+
+    second = CliRunner().invoke(repomatic, ["sync-bumpversion"])
+
+    assert second.exit_code == 0, second.output
+    assert "bumpversion config is up to date." in second.output
 
 
 def test_preserves_local_array_entries(tmp_path: Path) -> None:
@@ -3388,7 +3673,7 @@ def test_init_default_excludes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     created_set = set(result.created)
     # Agents, labels, plugin, and skills are excluded by default.
@@ -3421,7 +3706,7 @@ def test_init_respects_exclude_components(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     created_set = set(result.created)
     # Labels and skill files should not be created.
@@ -3450,7 +3735,7 @@ def test_init_respects_exclude_workflow_files(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     created_set = set(result.created)
     # Excluded workflows should not be created.
@@ -3476,7 +3761,7 @@ def test_init_respects_exclude_skill_files(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     created_set = set(result.created)
     # Excluded skills should not be created.
@@ -3493,7 +3778,11 @@ def test_init_changelog_excluded_for_awesome_repo(
     """Verify changelog.md is not created for awesome-* repos."""
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/awesome-python")
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-python",
+        config=load_repomatic_config(),
+    )
 
     assert not (tmp_path / "changelog.md").exists()
     assert "changelog.md" not in result.created
@@ -3507,9 +3796,36 @@ def test_init_changelog_excluded_existing_for_awesome_repo(
     changelog.write_text("# Changelog\n", encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/awesome-python")
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-python",
+        config=load_repomatic_config(),
+    )
 
     assert "changelog.md" in result.excluded_existing
+
+
+def test_init_flags_a_scope_excluded_changelog_at_its_configured_location(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """An out-of-scope changelog is looked for where the config puts it."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.repomatic]\nchangelog.location = "./docs/history.md"\n',
+        encoding="UTF-8",
+    )
+    history = tmp_path / "docs" / "history.md"
+    history.parent.mkdir()
+    history.write_text("# Changelog\n", encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-python",
+        config=load_repomatic_config(),
+    )
+
+    assert "docs/history.md" in result.excluded_existing
+    assert "changelog.md" not in result.excluded_existing
 
 
 def test_init_scoped_component_excluded_existing_for_awesome_repo(
@@ -3521,7 +3837,11 @@ def test_init_scoped_component_excluded_existing_for_awesome_repo(
     action.write_text("name: Publish\nruns:\n  using: composite\n", encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/awesome-billing")
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-billing",
+        config=load_repomatic_config(),
+    )
 
     assert ".github/actions/publish-pypi/action.yaml" in result.excluded_existing
 
@@ -3544,7 +3864,9 @@ def test_include_config_includes_all_skill_files(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, repo_slug=repo_slug)
+    result = run_init(
+        output_dir=tmp_path, repo_slug=repo_slug, config=load_repomatic_config()
+    )
 
     created_set = set(result.created)
     assert ".claude/skills/awesome-triage/SKILL.md" in created_set
@@ -3569,6 +3891,7 @@ def test_explicit_component_bypasses_scope_exclusion(
         components=["publish-pypi-action"],
         output_dir=tmp_path,
         repo_slug="user/awesome-billing",
+        config=load_repomatic_config(),
     )
 
     created_set = set(result.created)
@@ -3596,6 +3919,7 @@ def test_include_config_bypasses_scope_exclusion(
     result = run_init(
         output_dir=tmp_path,
         repo_slug="user/awesome-billing",
+        config=load_repomatic_config(),
     )
 
     assert ".github/actions/publish-pypi/action.yaml" in set(result.created)
@@ -3618,9 +3942,13 @@ def test_include_bypasses_scope_for_tool_config(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/some-project")
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/some-project",
+        config=load_repomatic_config(),
+    )
 
-    assert "pyproject.toml" in result.created
+    assert "pyproject.toml" in result.updated
     content = pyproject.read_text(encoding="UTF-8")
     assert "[tool.lychee]" in content
 
@@ -3631,7 +3959,11 @@ def test_bare_init_applies_scope_exclusion(
     """Bare init without ``include`` or CLI components applies scope exclusions."""
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/awesome-billing")
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-billing",
+        config=load_repomatic_config(),
+    )
 
     created_set = set(result.created)
     # Scoped component and workflow files are scope-excluded in awesome repos.
@@ -3686,7 +4018,11 @@ def test_virtual_project_init_drops_exactly_the_release_lane(
         target_dir.mkdir()
         (target_dir / "pyproject.toml").write_text(pep621 + extra, encoding="UTF-8")
         monkeypatch.chdir(target_dir)
-        result = run_init(output_dir=target_dir, repo_slug="user/melon-stand")
+        result = run_init(
+            output_dir=target_dir,
+            repo_slug="user/melon-stand",
+            config=load_repomatic_config(),
+        )
         created[label] = set(result.created)
 
     package_only = _scoped_targets(RepoScope.PACKAGE_ONLY)
@@ -3708,7 +4044,11 @@ def test_file_level_include_bypasses_scope(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/awesome-billing")
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-billing",
+        config=load_repomatic_config(),
+    )
 
     created_set = set(result.created)
     # changelog.yaml (PYTHON_ONLY) included via file-level include.
@@ -3736,7 +4076,11 @@ def test_file_level_include_implies_parent_component(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/some-project")
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/some-project",
+        config=load_repomatic_config(),
+    )
 
     created_set = set(result.created)
     # awesome-triage created: parent component implicitly selected, scope bypassed.
@@ -3761,7 +4105,11 @@ def test_exclude_overrides_include_scope_bypass(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/some-project")
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/some-project",
+        config=load_repomatic_config(),
+    )
 
     created_set = set(result.created)
     # awesome-triage excluded by explicit exclude despite include scope bypass.
@@ -3784,7 +4132,9 @@ def test_publish_pypi_action_excluded_in_non_python_repo(
     pyproject.write_text("[tool.repomatic]\n", encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/dotfiles")
+    result = run_init(
+        output_dir=tmp_path, repo_slug="user/dotfiles", config=load_repomatic_config()
+    )
 
     created_set = set(result.created)
     assert ".github/actions/publish-pypi/action.yaml" not in created_set
@@ -3801,7 +4151,11 @@ def test_publish_pypi_action_included_in_python_repo(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/fruitbasket")
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/fruitbasket",
+        config=load_repomatic_config(),
+    )
 
     created_set = set(result.created)
     assert ".github/actions/publish-pypi/action.yaml" in created_set
@@ -3824,6 +4178,7 @@ def test_explicit_component_bypasses_python_only_scope(
         components=["publish-pypi-action"],
         output_dir=tmp_path,
         repo_slug="user/dotfiles",
+        config=load_repomatic_config(),
     )
 
     created_set = set(result.created)
@@ -3841,7 +4196,9 @@ def test_include_config_bypasses_python_only_scope(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/dotfiles")
+    result = run_init(
+        output_dir=tmp_path, repo_slug="user/dotfiles", config=load_repomatic_config()
+    )
 
     created_set = set(result.created)
     assert ".github/actions/publish-pypi/action.yaml" in created_set
@@ -3862,7 +4219,9 @@ def test_init_respects_exclude_label_files(
 
     # `labels` is ephemeral, so only naming it explicitly writes it out. This
     # is the path `sync-labels` takes to stage definitions for labelmaker.
-    result = run_init(output_dir=tmp_path, components=("labels",))
+    result = run_init(
+        output_dir=tmp_path, components=("labels",), config=load_repomatic_config()
+    )
 
     assert "labels.toml" not in set(result.created)
 
@@ -3879,7 +4238,7 @@ def test_init_mixed_exclude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     created_set = set(result.created)
     assert "labels.toml" not in created_set
@@ -3903,13 +4262,15 @@ def test_init_detects_excluded_component_files(
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
-    run_init(output_dir=tmp_path, components=("labels",))
+    run_init(
+        output_dir=tmp_path, components=("labels",), config=load_repomatic_config()
+    )
 
     labels_toml = tmp_path / "labels.toml"
     assert labels_toml.exists()
 
     # A bare init leaves them out, so the staged copies read as excluded.
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     # File is detected but not deleted (deletion requires --delete-excluded).
     assert labels_toml.exists()
@@ -3927,7 +4288,11 @@ def test_init_detects_excluded_skill_file(
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
-    run_init(output_dir=tmp_path, repo_slug="user/awesome-list")
+    run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-list",
+        config=load_repomatic_config(),
+    )
 
     skill_file = tmp_path / ".claude" / "skills" / "awesome-triage" / "SKILL.md"
     assert skill_file.exists()
@@ -3941,7 +4306,11 @@ def test_init_detects_excluded_skill_file(
         encoding="UTF-8",
     )
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/awesome-list")
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-list",
+        config=load_repomatic_config(),
+    )
 
     # File is detected but not deleted.
     assert skill_file.exists()
@@ -3965,7 +4334,11 @@ def test_init_detects_auto_excluded_awesome_triage(
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
-    run_init(output_dir=tmp_path, repo_slug="user/awesome-list")
+    run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-list",
+        config=load_repomatic_config(),
+    )
 
     skill_file = tmp_path / ".claude" / "skills" / "awesome-triage" / "SKILL.md"
     assert skill_file.exists()
@@ -3975,7 +4348,11 @@ def test_init_detects_auto_excluded_awesome_triage(
         '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\n',
         encoding="UTF-8",
     )
-    result = run_init(output_dir=tmp_path, repo_slug="user/regular-project")
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/regular-project",
+        config=load_repomatic_config(),
+    )
 
     # File is detected but not deleted.
     assert skill_file.exists()
@@ -4059,7 +4436,7 @@ def test_init_skills_custom_location(tmp_path: Path, monkeypatch: pytest.MonkeyP
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     # Skills should be in the custom location.
     custom_skill = tmp_path / "custom" / "skills" / "repomatic-init" / "SKILL.md"
@@ -4082,7 +4459,7 @@ def test_init_agents_custom_location(tmp_path: Path, monkeypatch: pytest.MonkeyP
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     # Agents should be in the custom location.
     custom_agent = tmp_path / "custom" / "agents" / "grunt-qa.md"
@@ -4106,7 +4483,7 @@ def test_init_detects_excluded_agent_custom_location(
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
-    run_init(output_dir=tmp_path)
+    run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     agent_file = tmp_path / "custom" / "agents" / "grunt-qa.md"
     assert agent_file.exists()
@@ -4121,7 +4498,7 @@ def test_init_detects_excluded_agent_custom_location(
         encoding="UTF-8",
     )
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     assert agent_file.exists()
     assert "custom/agents/grunt-qa.md" in result.excluded_existing
@@ -4140,7 +4517,11 @@ def test_init_detects_excluded_skill_custom_location(
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
-    run_init(output_dir=tmp_path, repo_slug="user/awesome-list")
+    run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-list",
+        config=load_repomatic_config(),
+    )
 
     skill_file = tmp_path / "custom" / "skills" / "awesome-triage" / "SKILL.md"
     assert skill_file.exists()
@@ -4155,7 +4536,11 @@ def test_init_detects_excluded_skill_custom_location(
         encoding="UTF-8",
     )
 
-    result = run_init(output_dir=tmp_path, repo_slug="user/awesome-list")
+    result = run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-list",
+        config=load_repomatic_config(),
+    )
 
     assert skill_file.exists()
     assert "custom/skills/awesome-triage" in result.excluded_existing
@@ -4175,7 +4560,7 @@ def test_init_detects_disabled_opt_in_workflow(
     monkeypatch.chdir(tmp_path)
 
     # Create the opt-in workflow while it's enabled.
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
     wf = tmp_path / ".github" / "workflows" / "unsubscribe.yaml"
     assert wf.exists()
     assert ".github/workflows/unsubscribe.yaml" not in result.excluded_existing
@@ -4188,7 +4573,7 @@ def test_init_detects_disabled_opt_in_workflow(
         encoding="UTF-8",
     )
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     # File is detected as stale but not deleted.
     assert wf.exists()
@@ -4205,7 +4590,11 @@ def test_init_cli_delete_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
-    run_init(output_dir=tmp_path, repo_slug="user/awesome-list")
+    run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-list",
+        config=load_repomatic_config(),
+    )
 
     skill_file = tmp_path / ".claude" / "skills" / "awesome-triage" / "SKILL.md"
     assert skill_file.exists()
@@ -4243,7 +4632,11 @@ def test_init_cli_no_delete_excluded_warns(
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
-    run_init(output_dir=tmp_path, repo_slug="user/awesome-list")
+    run_init(
+        output_dir=tmp_path,
+        repo_slug="user/awesome-list",
+        config=load_repomatic_config(),
+    )
 
     skill_file = tmp_path / ".claude" / "skills" / "awesome-triage" / "SKILL.md"
     assert skill_file.exists()
@@ -4304,13 +4697,13 @@ def test_removed_asset_metadata_valid(asset: RemovedAsset) -> None:
             assert re.fullmatch(r"[0-9a-f]{64}", digest), digest
     assert not asset.removed_in.startswith("v"), asset.removed_in
     assert Version(asset.removed_in) <= Version(__version__), asset.removed_in
-    # The component name drives the `_resolve_target` location override, so a
+    # The component name drives the `RemovedAsset.locate` override, so a
     # typo would silently skip it. A dropped *whole* component (`codecov`) has
     # no live entry to name, and needs none: its target is a `.github/` path
     # GitHub fixes and no `[tool.repomatic] *.location` can relocate.
-    assert asset.component in ALL_COMPONENTS or asset.target.startswith(".github/"), (
-        f"{asset.component!r} is neither a live component nor a fixed .github/ path"
-    )
+    assert asset.component in COMPONENTS_BY_NAME or asset.target.startswith(
+        ".github/"
+    ), f"{asset.component!r} is neither a live component nor a fixed .github/ path"
     # A skill ships as a folder, so its tombstone names that folder: without it
     # the folder outlives its SKILL.md and no later init can see it again. Every
     # other asset is a lone file in a directory it shares, which must never be
@@ -4326,30 +4719,30 @@ def test_removed_asset_metadata_valid(asset: RemovedAsset) -> None:
 def test_detect_removed_assets_classifies_by_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``_detect_removed_assets`` sorts orphans into prunable vs review by hash."""
+    """``detect_removed_assets`` sorts orphans into prunable vs review by hash."""
     rel = ".claude/skills/gone/SKILL.md"
     content = "Old skill body.\n"
     digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
     asset = RemovedAsset("skills", rel, "1.0.0", (digest,), successor="moved on")
-    monkeypatch.setattr("repomatic.init_project.REMOVED_ASSETS", (asset,))
+    monkeypatch.setattr("repomatic.init.removed_assets.REMOVED_ASSETS", (asset,))
 
     target = tmp_path / rel
     target.parent.mkdir(parents=True)
 
     # Absent on disk: neither list.
-    assert _detect_removed_assets(tmp_path, None) == ([], [])
+    assert detect_removed_assets(tmp_path, None) == ([], [])
 
     # Byte-identical to last-shipped: prunable.
     target.write_text(content, encoding="UTF-8")
-    assert _detect_removed_assets(tmp_path, None) == ([(rel, "moved on")], [])
+    assert detect_removed_assets(tmp_path, None) == ([(rel, "moved on")], [])
 
     # Trailing-whitespace churn is normalized away: still prunable.
     target.write_text(content.rstrip() + "\n\n\n", encoding="UTF-8")
-    assert _detect_removed_assets(tmp_path, None) == ([(rel, "moved on")], [])
+    assert detect_removed_assets(tmp_path, None) == ([(rel, "moved on")], [])
 
     # Real content change: review, never prunable.
     target.write_text(content + "local edit\n", encoding="UTF-8")
-    assert _detect_removed_assets(tmp_path, None) == ([], [(rel, "moved on")])
+    assert detect_removed_assets(tmp_path, None) == ([], [(rel, "moved on")])
 
 
 def test_detect_removed_assets_prunes_an_empty_owned_folder(
@@ -4365,18 +4758,18 @@ def test_detect_removed_assets_prunes_an_empty_owned_folder(
         owned_dir=skill_dir,
         successor="moved on",
     )
-    monkeypatch.setattr("repomatic.init_project.REMOVED_ASSETS", (asset,))
+    monkeypatch.setattr("repomatic.init.removed_assets.REMOVED_ASSETS", (asset,))
 
     # Neither the file nor its folder: nothing to report.
-    assert _detect_removed_assets(tmp_path, None) == ([], [])
+    assert detect_removed_assets(tmp_path, None) == ([], [])
 
     # The folder alone, empty: prunable, and reported as the folder.
     (tmp_path / skill_dir).mkdir(parents=True)
-    assert _detect_removed_assets(tmp_path, None) == ([(skill_dir, "moved on")], [])
+    assert detect_removed_assets(tmp_path, None) == ([(skill_dir, "moved on")], [])
 
     # Still carrying files: whatever they are, repomatic did not write them.
     (tmp_path / skill_dir / "scripts").mkdir()
-    assert _detect_removed_assets(tmp_path, None) == ([], [])
+    assert detect_removed_assets(tmp_path, None) == ([], [])
 
 
 def _seed_orphan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str) -> Path:
@@ -4398,7 +4791,7 @@ def test_init_cli_prunes_unmodified_removed_asset(
     content = "Old skill body.\n"
     digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
     monkeypatch.setattr(
-        "repomatic.init_project.REMOVED_ASSETS",
+        "repomatic.init.removed_assets.REMOVED_ASSETS",
         (RemovedAsset("skills", ".claude/skills/gone/SKILL.md", "1.0.0", (digest,)),),
     )
     orphan = _seed_orphan(tmp_path, monkeypatch, content)
@@ -4418,7 +4811,7 @@ def test_init_cli_keeps_modified_removed_asset(
     content = "Old skill body.\n"
     digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
     monkeypatch.setattr(
-        "repomatic.init_project.REMOVED_ASSETS",
+        "repomatic.init.removed_assets.REMOVED_ASSETS",
         (RemovedAsset("skills", ".claude/skills/gone/SKILL.md", "1.0.0", (digest,)),),
     )
     orphan = _seed_orphan(tmp_path, monkeypatch, content + "local edit\n")
@@ -4437,7 +4830,7 @@ def test_init_cli_keep_removed_preserves_unmodified_orphan(
     content = "Old skill body.\n"
     digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
     monkeypatch.setattr(
-        "repomatic.init_project.REMOVED_ASSETS",
+        "repomatic.init.removed_assets.REMOVED_ASSETS",
         (RemovedAsset("skills", ".claude/skills/gone/SKILL.md", "1.0.0", (digest,)),),
     )
     orphan = _seed_orphan(tmp_path, monkeypatch, content)
@@ -4463,7 +4856,7 @@ def test_detect_removed_assets_matches_any_shipped_hash(
         for c in (old_content, new_content)
     )
     monkeypatch.setattr(
-        "repomatic.init_project.REMOVED_ASSETS",
+        "repomatic.init.removed_assets.REMOVED_ASSETS",
         (RemovedAsset("skills", rel, "1.0.0", hashes),),
     )
     target = tmp_path / rel
@@ -4471,11 +4864,30 @@ def test_detect_removed_assets_matches_any_shipped_hash(
 
     # A downstream repo still on the older shipped revision is recognized.
     target.write_text(old_content, encoding="UTF-8")
-    assert _detect_removed_assets(tmp_path, None) == ([(rel, "")], [])
+    assert detect_removed_assets(tmp_path, None) == ([(rel, "")], [])
 
     # Content that never shipped is treated as a local modification.
     target.write_text("never shipped\n", encoding="UTF-8")
-    assert _detect_removed_assets(tmp_path, None) == ([], [(rel, "")])
+    assert detect_removed_assets(tmp_path, None) == ([], [(rel, "")])
+
+
+@pytest.mark.parametrize(
+    "variant",
+    ["Melon rind.\n", "Melon rind.", "Melon rind.\n\n\n", "Melon rind.  \n"],
+)
+def test_removed_asset_digest_ignores_trailing_whitespace(variant: str):
+    """The digest is the one of the normalized form `init` writes."""
+    asset = RemovedAsset(
+        "skills", "papaya", "1.0.0", (RemovedAsset.digest("Melon rind.\n"),)
+    )
+    assert asset.is_untouched(variant)
+    assert not asset.is_untouched("Melon rind, edited.\n")
+
+
+@pytest.mark.parametrize("asset", REMOVED_ASSETS, ids=lambda a: a.target)
+def test_removed_assets_are_from_this_major_line_or_the_last(asset: RemovedAsset):
+    """A tombstone older than the previous major release is pruned."""
+    assert Version(asset.removed_in) >= Version("7.0.0"), asset.removed_in
 
 
 def test_init_cli_delete_removed_modified_forces_deletion(
@@ -4485,7 +4897,7 @@ def test_init_cli_delete_removed_modified_forces_deletion(
     content = "Old skill body.\n"
     digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
     monkeypatch.setattr(
-        "repomatic.init_project.REMOVED_ASSETS",
+        "repomatic.init.removed_assets.REMOVED_ASSETS",
         (RemovedAsset("skills", ".claude/skills/gone/SKILL.md", "1.0.0", (digest,)),),
     )
     orphan = _seed_orphan(tmp_path, monkeypatch, content + "local edit\n")
@@ -4519,21 +4931,73 @@ def test_init_cli_keep_removed_and_force_are_exclusive(
     assert "mutually exclusive" in cli_result.output
 
 
-# A removed reusable workflow seeded in REMOVED_ASSETS, used by the
-# fingerprint-gated workflow tests below.
-_REMOVED_WORKFLOW = ".github/workflows/label-sponsors.yaml"
+def test_deletion_policy_rejects_keeping_and_force_deleting():
+    """The two orphan flags contradict each other."""
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        DeletionPolicy(keep_removed=True, delete_removed_modified=True)
+
+
+@pytest.mark.parametrize(
+    "policy_field", [f.name for f in dataclasses.fields(DeletionPolicy)]
+)
+def test_deletion_policy_flags_are_init_options(policy_field: str):
+    """Each policy field hands a child `init` an option `init` declares."""
+    (flag,) = DeletionPolicy(**{policy_field: True}).flags()
+    options = {opt for param in init_command.params for opt in param.opts}
+    assert flag in options
+
+
+@pytest.mark.parametrize(
+    ("policy", "deleted"),
+    [
+        pytest.param(DeletionPolicy(), {ReportSection.REMOVED}, id="default"),
+        pytest.param(
+            DeletionPolicy(
+                delete_excluded=True,
+                delete_unmodified=True,
+                delete_removed_modified=True,
+            ),
+            set(ReportSection),
+            id="all",
+        ),
+        pytest.param(DeletionPolicy(keep_removed=True), set(), id="none"),
+    ],
+)
+def test_deletion_policy_deletes(policy: DeletionPolicy, deleted: set):
+    """The policy deletes the untouched orphans unless told to keep them."""
+    assert {s for s in ReportSection if policy.deletes(s)} == deleted
+
+
+_REMOVED_WORKFLOW = ".github/workflows/papaya-harvest.yaml"
+"""The target of the synthetic workflow tombstone the tests below seed."""
+
+
+@pytest.fixture
+def removed_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Seed `REMOVED_ASSETS` with one fingerprint-gated workflow tombstone."""
+    monkeypatch.setattr(
+        "repomatic.init.removed_assets.REMOVED_ASSETS",
+        (
+            RemovedAsset(
+                "workflows",
+                _REMOVED_WORKFLOW,
+                "1.0.0",
+                successor="merged into fruit-basket.yaml",
+            ),
+        ),
+    )
 
 
 def _thin_caller(slug: str = "kdeldycke/repomatic", extra: str = "") -> str:
-    """A downstream thin-caller for the removed `label-sponsors` workflow."""
+    """A downstream thin-caller for the removed `papaya-harvest` workflow."""
     return (
         "---\n"
-        "name: 🏷️ Label sponsors\n"
+        "name: Papaya harvest\n"
         '"on":\n'
         "  pull_request:\n\n"
         "jobs:\n\n"
-        "  label-sponsors:\n"
-        f"    uses: {slug}/.github/workflows/label-sponsors.yaml@v4.24.6\n"
+        "  papaya-harvest:\n"
+        f"    uses: {slug}/.github/workflows/papaya-harvest.yaml@v4.24.6\n"
         "    secrets:\n"
         "      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}\n"
         f"{extra}"
@@ -4550,37 +5014,43 @@ def _write_removed_workflow(tmp_path: Path, content: str) -> Path:
 @pytest.mark.parametrize(
     "slug", ["kdeldycke/repomatic", "kdeldycke/repokit", "kdeldycke/workflows"]
 )
-def test_detect_prunes_thin_caller_any_slug(tmp_path: Path, slug: str) -> None:
+def test_detect_prunes_thin_caller_any_slug(
+    tmp_path: Path, slug: str, removed_workflow: None
+) -> None:
     """A pure thin-caller for a removed workflow is prunable, whatever the era slug."""
     _write_removed_workflow(tmp_path, _thin_caller(slug))
-    prunable, review = _detect_removed_assets(tmp_path, None)
-    assert (_REMOVED_WORKFLOW, "merged into labels.yaml") in prunable
+    prunable, review = detect_removed_assets(tmp_path, None)
+    assert (_REMOVED_WORKFLOW, "merged into fruit-basket.yaml") in prunable
     assert review == []
 
 
-def test_detect_reviews_customized_thin_caller(tmp_path: Path) -> None:
+def test_detect_reviews_customized_thin_caller(
+    tmp_path: Path, removed_workflow: None
+) -> None:
     """A thin-caller the user extended with extra jobs is reported, never pruned."""
     extra = "  my-job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n"
     _write_removed_workflow(tmp_path, _thin_caller(extra=extra))
-    prunable, review = _detect_removed_assets(tmp_path, None)
-    assert (_REMOVED_WORKFLOW, "merged into labels.yaml") in review
+    prunable, review = detect_removed_assets(tmp_path, None)
+    assert (_REMOVED_WORKFLOW, "merged into fruit-basket.yaml") in review
     assert prunable == []
 
 
-def test_detect_skips_unrelated_workflow(tmp_path: Path) -> None:
+def test_detect_skips_unrelated_workflow(
+    tmp_path: Path, removed_workflow: None
+) -> None:
     """A user's own workflow that merely shares the name is left untouched."""
     _write_removed_workflow(
         tmp_path,
         '---\nname: Mine\n"on": pull_request\njobs:\n'
         "  labeller:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo mine\n",
     )
-    prunable, review = _detect_removed_assets(tmp_path, None)
+    prunable, review = detect_removed_assets(tmp_path, None)
     assert prunable == []
     assert review == []
 
 
 def test_init_cli_prunes_orphaned_workflow(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, removed_workflow: None
 ) -> None:
     """Bare init deletes a pure thin-caller for a removed reusable workflow."""
     (tmp_path / "pyproject.toml").write_text(
@@ -4748,7 +5218,7 @@ def test_shrinking_component_file_lists_are_tombstoned() -> None:
     goes, independently). `labels` did exactly that, shedding the two
     `.github/labeller-*.yaml` entries while `labels.toml` stayed.
 
-    Nothing catches that on its own, because `_detect_removed_assets` walks
+    Nothing catches that on its own, because `detect_removed_assets` walks
     `REMOVED_ASSETS` alone: it never diffs a component's current tuple against
     what earlier versions wrote, so a shrunk tuple leaves a downstream orphan
     no later `init` will ever look at.
@@ -4827,7 +5297,11 @@ def test_init_explicit_components_bypass_exclude(
     monkeypatch.chdir(tmp_path)
 
     # Explicitly request excluded components.
-    result = run_init(output_dir=tmp_path, components=("labels", "changelog"))
+    result = run_init(
+        output_dir=tmp_path,
+        components=("labels", "changelog"),
+        config=load_repomatic_config(),
+    )
 
     created_set = set(result.created)
     # Explicitly requested components should be created despite exclusion.
@@ -4852,7 +5326,7 @@ def test_init_exclude_unknown_component_raises(
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(ValueError, match="Unknown exclude"):
-        run_init(output_dir=tmp_path)
+        run_init(output_dir=tmp_path, config=load_repomatic_config())
 
 
 def test_init_exclude_unknown_file_raises(
@@ -4869,7 +5343,7 @@ def test_init_exclude_unknown_file_raises(
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(ValueError, match="Unknown file"):
-        run_init(output_dir=tmp_path)
+        run_init(output_dir=tmp_path, config=load_repomatic_config())
 
 
 def test_init_include_unknown_component_raises(
@@ -4886,7 +5360,7 @@ def test_init_include_unknown_component_raises(
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(ValueError, match="Unknown include"):
-        run_init(output_dir=tmp_path)
+        run_init(output_dir=tmp_path, config=load_repomatic_config())
 
 
 def test_init_include_overrides_default_exclusions(
@@ -4900,7 +5374,7 @@ def test_init_include_overrides_default_exclusions(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     created_set = set(result.created)
     # Agents included via include; labels, skills still excluded by default.
@@ -4927,7 +5401,7 @@ def test_init_include_cannot_materialize_ephemeral(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     assert "labels.toml" not in set(result.created)
     assert not (tmp_path / "labels.toml").exists()
@@ -4939,7 +5413,9 @@ def test_init_include_cannot_materialize_ephemeral(
 
 def test_init_explicit_selection_materializes_ephemeral(tmp_path: Path):
     """Verify naming an ephemeral component explicitly still writes its files."""
-    result = run_init(output_dir=tmp_path, components=("labels",))
+    result = run_init(
+        output_dir=tmp_path, components=("labels",), config=load_repomatic_config()
+    )
 
     assert set(result.created) == {"labels.toml"}
 
@@ -4957,7 +5433,7 @@ def test_init_exclude_additive_to_defaults(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
 
     created_set = set(result.created)
     # Default exclusions (labels, skills) still apply.
@@ -4976,47 +5452,23 @@ def test_init_exclude_additive_to_defaults(
 # --- Data file registry and exclude validation tests ---
 
 
-def test_all_data_files_registered_in_exportable_files() -> None:
-    """Every non-infrastructure file in data/ must appear in EXPORTABLE_FILES."""
+def test_every_data_file_is_registered() -> None:
+    """Every top-level file of `repomatic/data/` belongs to something.
+
+    A component source, a tool config template, a tool-runner default, or a
+    runtime fragment: see {func}`registered_data_files`. A bundled file nothing
+    claims ships in every wheel for no reader.
+    """
     data_dir = files("repomatic.data")
     with as_file(data_dir) as data_path:
         on_disk = {
             p.name
             for p in Path(data_path).iterdir()
-            if p.name != "__init__.py"
-            and not p.name.startswith(".")
-            and not p.name.startswith("__")
-            and not p.is_dir()
+            if not p.name.startswith((".", "__")) and not p.is_dir()
         }
 
-    registered = set(EXPORTABLE_FILES.keys())
-    unregistered = on_disk - registered
-    assert not unregistered, (
-        f"Data files not in EXPORTABLE_FILES: {sorted(unregistered)}"
-    )
-
-
-def test_every_data_file_maps_to_a_component() -> None:
-    """Every file in EXPORTABLE_FILES belongs to a registry component, tool
-    runner default, or registered runtime fragment.
-    """
-    # Collect all source filenames from the registry.
-    registry_filenames: set[str] = set()
-    for comp in COMPONENTS:
-        registry_filenames.update(entry.source for entry in comp.files)
-        if isinstance(comp, ToolConfigComponent):
-            registry_filenames.add(comp.source_file)
-
-    # Collect bundled default configs used by the tool runner at runtime.
-    bundled_defaults = {
-        spec.default_config for spec in TOOL_REGISTRY.values() if spec.default_config
-    }
-
-    covered = registry_filenames | bundled_defaults | set(RUNTIME_FRAGMENTS)
-    uncovered = set(EXPORTABLE_FILES.keys()) - covered
-    assert not uncovered, (
-        f"EXPORTABLE_FILES entries not mapped to any component: {sorted(uncovered)}"
-    )
+    unregistered = on_disk - set(registered_data_files())
+    assert not unregistered, f"Data files nothing claims: {sorted(unregistered)}"
 
 
 def bundled_configurations() -> list[str]:
@@ -5062,25 +5514,31 @@ def test_no_data_file_claimed_by_multiple_components() -> None:
     assert not duplicates, f"Duplicate file mappings: {duplicates}"
 
 
-def test_valid_file_ids_cover_all_multi_file_components() -> None:
+def test_file_ids_cover_all_multi_file_components() -> None:
     """Components with multiple files must report valid file identifiers."""
     for component in ("workflows", "labels", "skills"):
-        ids = valid_file_ids(component)
-        assert ids, f"valid_file_ids({component!r}) returned empty set"
+        assert COMPONENTS_BY_NAME[component].file_ids, f"{component} has none"
 
 
 def test_workflow_file_ids_match_all_workflow_files() -> None:
-    """valid_file_ids('workflows') must match ALL_WORKFLOW_FILES."""
-    assert valid_file_ids("workflows") == frozenset(ALL_WORKFLOW_FILES)
+    """The file identifiers of `workflows` match ALL_WORKFLOW_FILES."""
+    assert COMPONENTS_BY_NAME["workflows"].file_ids == frozenset(ALL_WORKFLOW_FILES)
 
 
 def test_component_file_ids_match_registry() -> None:
-    """valid_file_ids must return identifiers matching registry entries."""
+    """`Component.file_ids` returns the identifiers of its file entries."""
     for comp in COMPONENTS:
-        if not comp.files:
-            continue
         expected = frozenset(entry.file_id for entry in comp.files)
-        assert valid_file_ids(comp.name) == expected
+        assert comp.file_ids == expected
+
+
+def test_component_target_of_maps_every_file_id():
+    """`Component.target_of` answers the declared target of each file entry."""
+    for comp in COMPONENTS:
+        for entry in comp.files:
+            assert comp.target_of(entry.file_id) == entry.target
+            assert comp.entry(entry.file_id) is entry
+        assert comp.target_of("papaya.yaml") is None
 
 
 def test_tool_components_have_no_file_ids() -> None:
@@ -5089,7 +5547,7 @@ def test_tool_components_have_no_file_ids() -> None:
         if not isinstance(c, ToolConfigComponent):
             continue
         name = c.name
-        assert valid_file_ids(name) == frozenset()
+        assert COMPONENTS_BY_NAME[name].file_ids == frozenset()
 
 
 def test_workflow_files_target_workflow_dir() -> None:
@@ -5123,7 +5581,7 @@ def test_skill_files_target_skill_dir() -> None:
 def test_skill_sources_follow_naming_convention() -> None:
     """Skill sources must be the bundled skills/{id} folder."""
     for entry in COMPONENTS_BY_NAME["skills"].files:
-        expected_source = _skill_source(entry.file_id)
+        expected_source = f"skills/{entry.file_id}"
         assert entry.source == expected_source, (
             f"Skill {entry.file_id!r}: source is {entry.source!r},"
             f" expected {expected_source!r}"
@@ -5288,7 +5746,7 @@ def test_init_reports_unmodified_configs(
         content = bundled.read_text(encoding="UTF-8")
     (tmp_path / ".yamllint.yaml").write_text(content, encoding="UTF-8")
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
     assert ".yamllint.yaml" in result.unmodified_configs
 
 
@@ -5306,7 +5764,7 @@ def test_init_no_unmodified_when_different(
         "rules:\n  line-length:\n    max: 80\n", encoding="UTF-8"
     )
 
-    result = run_init(output_dir=tmp_path)
+    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
     assert result.unmodified_configs == []
 
 
@@ -5329,7 +5787,7 @@ def test_parse_component_entries_accepts_valid_qualified_entries(entry: str) -> 
     assert file_id in files[component]
 
 
-@pytest.mark.parametrize("component", sorted(ALL_COMPONENTS.keys()))
+@pytest.mark.parametrize("component", sorted(COMPONENTS_BY_NAME.keys()))
 def test_parse_component_entries_accepts_all_bare_components(component: str) -> None:
     """Every component name is accepted as a bare exclude entry."""
     components, files = parse_component_entries([component])
@@ -5373,7 +5831,11 @@ def test_parse_component_entries_rejects_invalid_entries(
 
 def test_init_single_skill(tmp_path: Path):
     """Qualified entry creates only the specified skill."""
-    result = run_init(output_dir=tmp_path, components=("skills/repomatic-topics",))
+    result = run_init(
+        output_dir=tmp_path,
+        components=("skills/repomatic-topics",),
+        config=load_repomatic_config(),
+    )
     assert result.created == [".claude/skills/repomatic-topics/SKILL.md"]
 
 
@@ -5382,6 +5844,7 @@ def test_init_multiple_qualified_same_component(tmp_path: Path):
     result = run_init(
         output_dir=tmp_path,
         components=("skills/repomatic-topics", "skills/repomatic-audit"),
+        config=load_repomatic_config(),
     )
     created_set = set(result.created)
     assert created_set == {
@@ -5395,6 +5858,7 @@ def test_init_bare_overrides_qualified(tmp_path: Path):
     result = run_init(
         output_dir=tmp_path,
         components=("skills", "skills/repomatic-topics"),
+        config=load_repomatic_config(),
     )
     # All skills created: explicit component request bypasses scope.
     total_skills = sum(
@@ -5408,6 +5872,7 @@ def test_init_mixed_bare_and_qualified(tmp_path: Path):
     result = run_init(
         output_dir=tmp_path,
         components=("labels", "skills/repomatic-topics"),
+        config=load_repomatic_config(),
     )
     created_set = set(result.created)
     assert created_set == {
@@ -5421,6 +5886,7 @@ def test_init_qualified_workflow(tmp_path: Path):
     result = run_init(
         output_dir=tmp_path,
         components=("workflows/autofix.yaml",),
+        config=load_repomatic_config(),
     )
     assert len(result.created) == 1
     assert result.created[0] == ".github/workflows/autofix.yaml"
@@ -5432,6 +5898,7 @@ def test_init_qualified_scope_bypassed_when_explicit(tmp_path: Path):
         output_dir=tmp_path,
         components=("skills/awesome-triage",),
         repo_slug="user/some-project",
+        config=load_repomatic_config(),
     )
     assert result.created == [".claude/skills/awesome-triage/SKILL.md"]
 
@@ -5439,7 +5906,11 @@ def test_init_qualified_scope_bypassed_when_explicit(tmp_path: Path):
 def test_init_qualified_selection_context_in_error():
     """Qualified selection uses 'selection' context in error messages."""
     with pytest.raises(ValueError, match="Unknown selection"):
-        run_init(output_dir=Path("/tmp"), components=("nonexistent",))
+        run_init(
+            output_dir=Path("/tmp"),
+            components=("nonexistent",),
+            config=load_repomatic_config(),
+        )
 
 
 def test_init_awesome_template_not_auto_included_with_explicit_components(
@@ -5450,9 +5921,84 @@ def test_init_awesome_template_not_auto_included_with_explicit_components(
         output_dir=tmp_path,
         components=("skills/repomatic-topics",),
         repo_slug="user/awesome-list",
+        config=load_repomatic_config(),
     )
     created_set = set(result.created)
     assert created_set == {".claude/skills/repomatic-topics/SKILL.md"}
+
+
+def test_awesome_template_rerun_writes_nothing(tmp_path: Path):
+    """The URLs are rewritten before the comparison, so a re-run is a no-op."""
+    first = run_init(
+        output_dir=tmp_path,
+        components=("awesome-template",),
+        repo_slug="fruit/awesome-papaya",
+        config=Config(),
+    )
+    assert ".github/contributing.md" in first.created
+
+    second = run_init(
+        output_dir=tmp_path,
+        components=("awesome-template",),
+        repo_slug="fruit/awesome-papaya",
+        config=Config(),
+    )
+
+    assert second.created == []
+    assert second.updated == []
+
+
+def test_awesome_template_rewrites_every_link_to_the_template(tmp_path: Path):
+    """A link to the template repository names the repository instead.
+
+    A path (`/blob/main/...`) and a fragment (`#readme`) both follow the slug.
+    """
+    run_init(
+        output_dir=tmp_path,
+        components=("awesome-template",),
+        repo_slug="fruit/awesome-papaya",
+        config=Config(),
+    )
+
+    contributing = (tmp_path / ".github" / "contributing.md").read_text(
+        encoding="UTF-8"
+    )
+    assert "kdeldycke/awesome-template" not in contributing
+    assert "https://github.com/fruit/awesome-papaya#readme" in contributing
+    new_link = (tmp_path / ".github" / "ISSUE_TEMPLATE" / "new-link.yaml").read_text(
+        encoding="UTF-8"
+    )
+    assert "https://github.com/fruit/awesome-papaya/blob/main/" in new_link
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param(
+            "/kdeldycke/awesome-template/issues",
+            "/fruit/awesome-papaya/issues",
+            id="path",
+        ),
+        pytest.param(
+            "/kdeldycke/awesome-template#readme",
+            "/fruit/awesome-papaya#readme",
+            id="fragment",
+        ),
+        pytest.param(
+            "/kdeldycke/awesome-template)",
+            "/fruit/awesome-papaya)",
+            id="end-of-link",
+        ),
+        pytest.param(
+            "/kdeldycke/awesome-template-v2/issues",
+            "/kdeldycke/awesome-template-v2/issues",
+            id="longer-name",
+        ),
+    ],
+)
+def test_awesome_template_url_pattern(text: str, expected: str):
+    """Only a link to the template repository itself is rewritten."""
+    assert AWESOME_TEMPLATE_URL_RE.sub("/fruit/awesome-papaya", text) == expected
 
 
 # --- tomlrt contract tests ---

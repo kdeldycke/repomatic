@@ -177,17 +177,13 @@ def test_pin_inside_cooldown_stays_quiet_on_unknowns():
     assert vs.pin_inside_cooldown(undated, "2.0.0", timedelta(days=8), TODAY) is None
 
 
-def test_select_latest_skips_prereleases_by_default():
+def test_select_latest_skips_prereleases():
     candidates = [
         vs.Candidate("1.1.0", "2026-01-01", "v1.1.0"),
         vs.Candidate("2.0.0rc1", "2026-01-01", "v2.0.0rc1"),
     ]
     picked = vs.select_latest(candidates, timedelta(days=8), TODAY)
     assert picked is not None and picked.version == "1.1.0"
-    allowed = vs.select_latest(
-        candidates, timedelta(days=8), TODAY, allow_prerelease=True
-    )
-    assert allowed is not None and allowed.version == "2.0.0rc1"
 
 
 def test_select_latest_none_when_all_too_new():
@@ -238,17 +234,30 @@ def test_select_held_back_ignores_versions_at_or_below_pinned():
     assert vs.select_held_back(candidates, "1.1.0", timedelta(days=8), TODAY) is None
 
 
-def test_select_held_back_skips_prereleases_by_default():
+def test_select_held_back_skips_prereleases():
     candidates = [
         vs.Candidate("2.0.0rc1", "2026-06-26", "v2.0.0rc1"),
         vs.Candidate("1.2.0", "2026-06-26", "v1.2.0"),
     ]
     picked = vs.select_held_back(candidates, "1.1.0", timedelta(days=8), TODAY)
     assert picked is not None and picked.version == "1.2.0"
-    allowed = vs.select_held_back(
-        candidates, "1.1.0", timedelta(days=8), TODAY, allow_prerelease=True
-    )
-    assert allowed is not None and allowed.version == "2.0.0rc1"
+
+
+@pytest.mark.parametrize(
+    ("version", "day", "parsed", "released"),
+    (
+        ("1.2.0", "2026-06-26", "1.2.0", date(2026, 6, 26)),
+        ("not-a-version", "not-a-date", None, None),
+        ("2.0.0", "", "2.0.0", None),
+    ),
+)
+def test_candidate_parses_once(version, day, parsed, released):
+    """A candidate carries its parsed version and date, `None` when unparsable."""
+    candidate = vs.Candidate(version, day, version)
+    assert (str(candidate.parsed) if candidate.parsed else None) == parsed
+    assert candidate.released == released
+    # The parsed fields are views: they never make two candidates differ.
+    assert candidate == vs.Candidate(version, day, version)
 
 
 def test_select_held_back_skips_unparsable():
@@ -564,7 +573,7 @@ def test_sync_action_pins_pr_body_has_cutoff_held_back_and_notes(tmp_path, monke
         encoding="UTF-8",
     )
     with (
-        # github_candidates resolves get_release_tags in version_sync's
+        # github_candidates resolves get_release_tags in the pins module's
         # namespace; fetch_github_release_notes resolves it in releases'.
         patch("repomatic.deps.pins.get_release_tags", return_value=tags),
         patch("repomatic.github.releases.get_release_tags", return_value=tags),
@@ -767,11 +776,11 @@ def test_sync_workflow_pins_release_notes_cover_pypi_literals_only(
     )
     with (
         patch(
-            "repomatic.deps.sync.npm_candidates",
+            "repomatic.deps.pins.npm_candidates",
             return_value=[vs.Candidate(version="9.0.0", date=eligible, ref="9.0.0")],
         ),
         patch(
-            "repomatic.deps.sync.pypi_candidates",
+            "repomatic.deps.pins.pypi_candidates",
             return_value=[vs.Candidate(version="2.0.0", date=eligible, ref="2.0.0")],
         ),
         patch("repomatic.deps.sync.fetch_release_notes", side_effect=fake_fetch),
@@ -834,7 +843,7 @@ def test_sync_workflow_pins_upstream_pin_aligns_to_refs_in_cooldown(
         "      - run: uvx 'mango==1.0.0'\n",
     )
     with patch(
-        "repomatic.deps.sync.pypi_candidates",
+        "repomatic.deps.pins.pypi_candidates",
         return_value=[vs.Candidate(version="9.0.0", date=fresh, ref="9.0.0")],
     ):
         result = runner.invoke(
@@ -880,7 +889,7 @@ def test_sync_workflow_pins_upstream_pin_cooldown_without_refs(tmp_path, monkeyp
         "jobs:\n  build:\n    steps:\n      - run: uvx 'repomatic==6.31.0' metadata\n",
     )
     with patch(
-        "repomatic.deps.sync.pypi_candidates",
+        "repomatic.deps.pins.pypi_candidates",
         return_value=[vs.Candidate(version="7.0.0", date=fresh, ref="7.0.0")],
     ):
         result = runner.invoke(
@@ -911,7 +920,7 @@ def test_sync_workflow_pins_upstream_pin_already_aligned(tmp_path, monkeypatch):
         "      - run: uvx 'repomatic==7.0.0' metadata\n",
     )
     with patch(
-        "repomatic.deps.sync.pypi_candidates",
+        "repomatic.deps.pins.pypi_candidates",
         return_value=[vs.Candidate(version="9.0.0", date=eligible, ref="9.0.0")],
     ):
         result = runner.invoke(
@@ -949,7 +958,7 @@ def test_sync_workflow_pins_upstream_pin_realigns_stragglers_both_ways(
         "jobs:\n  build:\n    steps:\n      - run: uvx 'repomatic==7.1.0' changelog\n",
     )
     with patch(
-        "repomatic.deps.sync.pypi_candidates",
+        "repomatic.deps.pins.pypi_candidates",
         return_value=[vs.Candidate(version="9.0.0", date=fresh, ref="9.0.0")],
     ):
         result = runner.invoke(
@@ -1041,35 +1050,18 @@ def test_every_simple_action_pin_is_discoverable():
 # setup-uv checksum table
 # ---------------------------------------------------------------------------
 
-CHECKSUM_TABLE = """// AUTOGENERATED_DO_NOT_EDIT
-export const KNOWN_CHECKSUMS: { [key: string]: string } = {
-  "aarch64-apple-darwin-0.12.3":
-    "1c99f3af80fdcd2e4b0e2c2c4ba5c3ff2ec0f27a24a2f6b0b8f38ba24bd1c0a1",
-  "arm-unknown-linux-musleabihf-0.12.3":
-    "2b88e2ae7fecbc1d3a0d1b1b3a94b2ee1db9e16913b1e5a0a7e27a913ac2b0b2",
-  "x86_64-unknown-linux-gnu-0.11.30":
-    "3a77d19d6edbab0c2909a0a0294a1dd00ca8d05802a0d4909d16909802b3a0c3",
-};
+CHECKSUM_TABLE = """{
+  "aarch64-apple-darwin-0.12.3": "1c99f3af80fdcd2e4b0e2c2c4ba5c3ff",
+  "arm-unknown-linux-musleabihf-0.12.3": "2b88e2ae7fecbc1d3a0d1b1b3a94b2ee",
+  "x86_64-unknown-linux-gnu-0.11.30": "3a77d19d6edbab0c2909a0a0294a1dd0"
+}
 """
-"""A checksum table in the upstream shape, holding two uv versions.
+"""A checksum table in the upstream JSON shape, holding two uv versions.
 
 Both target triples and both segment counts are represented, since the version
 is the only fixed part of a key: `arm-unknown-linux-musleabihf` carries one
-more segment than `aarch64-apple-darwin`.
+more segment than `aarch64-apple-darwin`. Digests shortened.
 """
-
-CHECKSUM_TABLE_JSON = """{
-  "aarch64-apple-darwin-0.12.12": "4d66e2bf09b1f5d7a3e6c1e0b2a8f3c7",
-  "x86_64-unknown-linux-gnu-0.12.12": "5e77f3c01ac2a6e8b4f7d2f1c3b9a4d8"
-}
-"""
-"""A table in the JSON layout `setup-uv` adopted in `v10.1.0`, digests shortened."""
-
-CHECKSUM_TABLE_IMPORT = """import knownChecksums from "./known-checksums.json" with { type: "json" };
-
-export const KNOWN_CHECKSUMS: Record<string, string> = knownChecksums;
-"""
-"""What the TypeScript file holds from `v10.1.0` on: an import, and no key."""
 
 
 @pytest.fixture
@@ -1086,28 +1078,16 @@ def test_checksum_table_parses_every_version(uncached_table):
         assert vs._checksum_table("deadbeef") == frozenset({"0.12.3", "0.11.30"})
 
 
-def test_checksum_table_reads_the_json_layout(uncached_table):
-    """From `v10.1.0` on, the table sits in the JSON file the TypeScript one
-    imports."""
-
-    def fake_get_text(url, **kwargs):
-        return CHECKSUM_TABLE_JSON if ".json?" in url else CHECKSUM_TABLE_IMPORT
-
-    with patch("repomatic.deps.pins.get_text", side_effect=fake_get_text) as fetch:
-        assert vs._checksum_table("deadbeef") == frozenset({"0.12.12"})
-    assert fetch.call_count == 1
-
-
-def test_checksum_table_falls_back_to_the_typescript_layout(uncached_table):
-    """A pin older than `v10.1.0` has no JSON file, and holds the table inline."""
-
-    def fake_get_text(url, **kwargs):
-        if ".json?" in url:
-            raise vs.FetchError("HTTP Error 404: Not Found")
-        return CHECKSUM_TABLE
-
-    with patch("repomatic.deps.pins.get_text", side_effect=fake_get_text):
-        assert vs._checksum_table("deadbeef") == frozenset({"0.12.3", "0.11.30"})
+def test_checksum_table_reads_the_json_file_at_the_pinned_commit(uncached_table):
+    """The table sits in the JSON file `setup-uv` ships from `v10.1.0` on."""
+    with patch("repomatic.deps.pins.get_text", return_value=CHECKSUM_TABLE) as fetch:
+        vs._checksum_table("deadbeef")
+    url = fetch.call_args.args[0]
+    assert url.startswith(
+        "https://api.github.com/repos/astral-sh/setup-uv/contents/"
+        "src/download/checksum/known-checksums.json"
+    )
+    assert url.endswith("?ref=deadbeef")
 
 
 def test_checksum_table_unreadable_is_unknown(uncached_table):

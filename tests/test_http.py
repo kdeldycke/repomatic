@@ -18,12 +18,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+from contextlib import contextmanager
 from email.message import Message
 from http.client import IncompleteRead, RemoteDisconnected
 from io import BytesIO
 from unittest.mock import call, patch
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -31,6 +33,7 @@ from repomatic.http import (
     ERROR_BODY_EXCERPT,
     USER_AGENT,
     FetchError,
+    download,
     get_cached_json,
     get_json,
     get_json_soft,
@@ -287,6 +290,85 @@ def test_request_retries_a_truncated_body_only_when_safe(method, attempts):
     ):
         request("https://example.test/basket", method=method)
     assert mock_open.call_count == attempts
+
+
+class _StreamedBody(FakeResponse):
+    """A response whose body comes in fixed chunks, with a `Content-Length`."""
+
+    def __init__(self, data: bytes, *, advertised: int | None = None) -> None:
+        length = len(data) if advertised is None else advertised
+        super().__init__(data, headers={"Content-Length": str(length)})
+
+    def read(self, size: int = -1) -> bytes:
+        return self._data.read(size)
+
+
+def test_download_streams_the_body_and_returns_its_digest(tmp_path):
+    """The body lands in the file, and its SHA-256 comes back."""
+    body = b"pomelo " * 20_000
+    dest = tmp_path / "pomelo.bin"
+    seen: list[int] = []
+
+    @contextmanager
+    def progress(total):
+        seen.append(total)
+        yield seen.append
+
+    with patch("repomatic.http.urlopen", return_value=_StreamedBody(body)):
+        digest = download("https://example.test/pomelo", dest, progress=progress)
+
+    assert dest.read_bytes() == body
+    assert digest == hashlib.sha256(body).hexdigest()
+    # The advertised length comes first, then the size of each chunk.
+    assert seen[0] == len(body)
+    assert sum(seen[1:]) == len(body)
+    assert len(seen) > 2
+
+
+@pytest.mark.parametrize(
+    ("failures", "attempts", "succeeds"),
+    (
+        pytest.param([URLError("reset")], 2, True, id="network-retried"),
+        pytest.param([_http_error(503, b"")], 2, True, id="server-error-retried"),
+        pytest.param([_http_error(404, b"")], 1, False, id="client-error-final"),
+        pytest.param([URLError("reset")] * 3, 3, False, id="gives-up"),
+    ),
+)
+def test_download_retries_only_what_can_change(tmp_path, failures, attempts, succeeds):
+    """A network fault or a server error is tried again; a client error is not."""
+    body = b"quince"
+    dest = tmp_path / "quince.bin"
+    responses = [*failures, _StreamedBody(body)]
+
+    with (
+        patch("repomatic.http.urlopen", side_effect=responses) as mock_open,
+        patch("repomatic.http.time.sleep"),
+    ):
+        if succeeds:
+            download("https://example.test/quince", dest)
+        else:
+            with pytest.raises(FetchError):
+                download("https://example.test/quince", dest)
+
+    assert mock_open.call_count == attempts
+    assert dest.exists() is succeeds
+
+
+def test_download_refuses_a_truncated_body(tmp_path):
+    """A body shorter than its `Content-Length` fails, and leaves no file."""
+    dest = tmp_path / "fig.bin"
+    with (
+        patch(
+            "repomatic.http.urlopen",
+            side_effect=[_StreamedBody(b"fig", advertised=10) for _ in range(3)],
+        ),
+        patch("repomatic.http.time.sleep"),
+        pytest.raises(FetchError, match="got 3 of 10 bytes") as caught,
+    ):
+        download("https://example.test/fig", dest)
+
+    assert caught.value.status is None
+    assert not dest.exists()
 
 
 def test_suite_refuses_an_unmocked_fetch():

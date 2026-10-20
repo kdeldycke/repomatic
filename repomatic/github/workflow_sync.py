@@ -14,12 +14,13 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Generation, sync, and lint for downstream workflows.
+"""Generation and sync for downstream workflows.
 
 Downstream repositories consuming reusable workflows from `kdeldycke/repomatic`
 manually write caller workflows that often miss triggers like
-`workflow_dispatch`. This module provides tools to generate, synchronize, and
-lint those callers by parsing the canonical workflow definitions.
+`workflow_dispatch`. This module generates and synchronizes those callers by
+parsing the canonical workflow definitions. The checks of a caller live in
+{mod}`repomatic.lint_repo.workflows`, which `lint-repo` runs.
 
 {func}`render_thin_caller_for_target` is the single entry point that turns a
 canonical workflow into a downstream file on disk; `repomatic init` drives it.
@@ -51,7 +52,6 @@ workflow's own commit rather than the release commit it checks out.
 
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass, field
 from functools import cache
@@ -61,7 +61,6 @@ import yaml
 
 from .. import __version__
 from ..bundle import get_data_content
-from ..checks import CheckResult, report_result
 from ..components import (
     DEFAULT_REPO,
     UPSTREAM_ASSET_GLOB,
@@ -71,8 +70,7 @@ from ..components import (
 )
 from ..config import Config
 from ..deps.pins import min_release_age_days
-from .actions import AnnotationLevel
-from .workflow_files import load_workflow, workflow_paths, workflow_triggers
+from .workflow_files import load_workflow, workflow_triggers
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -1507,140 +1505,6 @@ def extras_define_jobs(extra: str) -> bool:
     )
 
 
-# ---------------------------------------------------------------------------
-# Lint checks
-# ---------------------------------------------------------------------------
-
-
-def check_has_workflow_dispatch(
-    workflow_path: Path, data: Mapping[str, Any]
-) -> CheckResult:
-    """Check that a workflow has a `workflow_dispatch` trigger.
-
-    :param workflow_path: Path to the workflow file, for the message.
-    :param data: The parsed workflow.
-    :return: The check result.
-    """
-    if "workflow_dispatch" not in workflow_triggers(data):
-        return CheckResult(
-            False, f"{workflow_path.name}: missing workflow_dispatch trigger."
-        )
-    return CheckResult(True, f"{workflow_path.name}: has workflow_dispatch trigger.")
-
-
-def check_version_pinned(
-    workflow_path: Path,
-    content: str,
-    repo: str = DEFAULT_REPO,
-) -> CheckResult:
-    """Check that a thin caller pins to a version tag, not `@main`.
-
-    :param workflow_path: Path to the workflow file, for the message.
-    :param content: The workflow file content.
-    :param repo: Upstream repository to match against.
-    :return: The check result.
-    """
-    pattern = re.compile(rf"{re.escape(repo)}/\.github/workflows/[^@]+@main")
-    if pattern.search(content):
-        return CheckResult(
-            False, f"{workflow_path.name}: uses @main instead of a version tag."
-        )
-    return CheckResult(True, f"{workflow_path.name}: version is pinned.")
-
-
-def check_triggers_match(
-    workflow_path: Path,
-    data: Mapping[str, Any],
-    canonical_filename: str,
-) -> CheckResult:
-    """Check that a thin caller's triggers match the canonical workflow.
-
-    Verifies that the caller includes all non-`workflow_call` triggers
-    defined in the canonical workflow.
-
-    :param workflow_path: Path to the caller workflow file, for the message.
-    :param data: The parsed caller workflow.
-    :param canonical_filename: Filename of the canonical upstream workflow.
-    :return: The check result.
-    """
-    caller_triggers = set(workflow_triggers(data))
-    info = extract_trigger_info(canonical_filename)
-    expected = set(info.non_call_triggers.keys())
-
-    missing = expected - caller_triggers
-    # When the canonical defines no non-call triggers, the caller must define
-    # its own (e.g. release.yaml callers synthesize push + workflow_dispatch
-    # because _release-engine.yaml is call-only in the canonical repo).
-    # Only check for extras when the canonical actually declares triggers.
-    extra = (caller_triggers - expected - {"workflow_call"}) if expected else set()
-    problems: list[str] = []
-    if missing:
-        problems.append(f"missing: {', '.join(sorted(missing))}")
-    if extra:
-        problems.append(f"extra: {', '.join(sorted(extra))}")
-    if problems:
-        return CheckResult(
-            False,
-            f"{workflow_path.name}: triggers diverge from canonical"
-            f" {canonical_filename} ({'; '.join(problems)}).",
-        )
-    return CheckResult(True, f"{workflow_path.name}: triggers match canonical.")
-
-
-def check_secrets_passed(
-    workflow_path: Path,
-    data: Mapping[str, Any],
-    canonical_filename: str,
-) -> CheckResult:
-    """Check that a thin caller passes all required secrets explicitly.
-
-    Verifies that every secret declared by the canonical workflow is forwarded
-    by the caller, either via explicit `secrets:` mapping or via
-    `secrets: inherit`.
-
-    :param workflow_path: Path to the caller workflow file, for the message.
-    :param data: The parsed caller workflow.
-    :param canonical_filename: Filename of the canonical upstream workflow.
-    :return: The check result.
-    """
-    info = extract_trigger_info(canonical_filename)
-
-    if not info.call_secrets:
-        return CheckResult(
-            True,
-            f"{workflow_path.name}: no secrets required by {canonical_filename}.",
-        )
-
-    expected = set(info.call_secrets)
-    jobs = data.get("jobs") or {}
-    for job_config in jobs.values():
-        if not isinstance(job_config, dict):
-            continue
-        job_secrets = job_config.get("secrets")
-        # `secrets: inherit` forwards everything.
-        if job_secrets == "inherit":
-            return CheckResult(True, f"{workflow_path.name}: secrets: inherit is set.")
-        if isinstance(job_secrets, dict):
-            missing = expected - set(job_secrets)
-            if not missing:
-                return CheckResult(
-                    True,
-                    f"{workflow_path.name}: all secrets passed to"
-                    f" {canonical_filename}.",
-                )
-            return CheckResult(
-                False,
-                f"{workflow_path.name}: missing secrets for {canonical_filename}:"
-                f" {', '.join(sorted(missing))}.",
-            )
-
-    return CheckResult(
-        False,
-        f"{workflow_path.name}: no secrets passed but {canonical_filename}"
-        " defines secrets.",
-    )
-
-
 _PATHS_BLOCK_RE = re.compile(
     r"^([ \t]*)paths:[ \t]*\n((?:\1[ \t]+- [^\n]*\n)+)",
     re.MULTILINE,
@@ -1754,86 +1618,3 @@ def _needs_yaml_quote(value: str) -> bool:
         # Unparsable as a plain scalar is the strongest possible case for
         # quoting: `*` opens an alias, `&` an anchor, `!` a tag.
         return True
-
-
-def lint_workflow(
-    workflow_path: Path, content: str, data: Mapping[str, Any], repo: str
-) -> list[CheckResult]:
-    """Run the workflow checks that apply to one parsed workflow file.
-
-    For thin callers (workflows that delegate to a canonical upstream workflow
-    via `uses:`), runs caller-specific checks: version pinning, trigger match,
-    and secrets passed. For standalone workflows, runs
-    {func}`check_has_workflow_dispatch` to flag missing manual triggers.
-
-    Thin callers are exempt from {func}`check_has_workflow_dispatch` because
-    {func}`check_triggers_match` is authoritative: a thin caller mirrors its
-    canonical workflow exactly, and some canonical workflows (e.g.,
-    `cancel-runs.yaml`) intentionally lack `workflow_dispatch`.
-
-    :param workflow_path: Path to the workflow file, for the messages.
-    :param content: The workflow file content.
-    :param data: The parse of *content*.
-    :param repo: Upstream repository to match against.
-    :return: One result per check run.
-    """
-    canonical = canonical_workflow(data, repo)
-    if canonical is None:
-        return [check_has_workflow_dispatch(workflow_path, data)]
-    return [
-        check_version_pinned(workflow_path, content, repo),
-        check_triggers_match(workflow_path, data, canonical),
-        check_secrets_passed(workflow_path, data, canonical),
-    ]
-
-
-def run_workflow_lint(
-    workflow_dir: Path,
-    repo: str = DEFAULT_REPO,
-    fatal: bool = False,
-) -> int:
-    """Lint all workflow files in a directory.
-
-    Reads and parses each file once, then runs {func}`lint_workflow` on it. A
-    file that cannot be read, or that does not parse into a mapping, is an
-    error: nothing downstream can read it either.
-
-    :param workflow_dir: Directory containing workflow YAML files.
-    :param repo: Upstream repository to match against.
-    :param fatal: If `True`, return exit code 1 when issues are found.
-    :return: Exit code (0 for clean, 1 if fatal and issues found).
-    """
-    if not workflow_dir.is_dir():
-        logging.error(f"Workflow directory not found: {workflow_dir}")
-        return 1
-
-    paths = workflow_paths(workflow_dir)
-    if not paths:
-        logging.warning(f"No YAML files found in {workflow_dir}")
-        return 0
-
-    issues_found = False
-    for wf_path in paths:
-        try:
-            content = wf_path.read_text(encoding="UTF-8")
-        except OSError as error:
-            issues_found |= report_result(
-                CheckResult(False, f"{wf_path.name}: failed to read: {error}"),
-                AnnotationLevel.ERROR,
-            )
-            continue
-        data = load_workflow(content)
-        if data is None:
-            issues_found |= report_result(
-                CheckResult(
-                    False, f"{wf_path.name}: not a workflow, the YAML holds no mapping."
-                ),
-                AnnotationLevel.ERROR,
-            )
-            continue
-        for result in lint_workflow(wf_path, content, data, repo):
-            issues_found |= report_result(result)
-
-    if issues_found and fatal:
-        return 1
-    return 0

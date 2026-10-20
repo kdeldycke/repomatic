@@ -25,6 +25,7 @@ from unittest.mock import call, patch
 import pytest
 
 from repomatic.github.dev_release import (
+    RELEASE_LIST_LIMIT,
     _delete_release_assets,
     cleanup_dev_releases,
     delete_release_by_tag,
@@ -95,21 +96,30 @@ def test_sync_dev_release_dry_run(unreleased_changelog):
     mock_gh.assert_not_called()
 
 
+def _list_call(repo: str = "user/repo") -> list[str]:
+    """The `gh release list` argv the dev release paths are expected to issue."""
+    return [
+        "release",
+        "list",
+        "--limit",
+        str(RELEASE_LIST_LIMIT),
+        "--json",
+        "tagName",
+        "--repo",
+        repo,
+    ]
+
+
 def test_sync_dev_release_live(unreleased_changelog):
-    """Live mode creates new draft pre-release when none exists."""
-    # gh release list returns no existing dev releases.
-    # Edit fails (no existing release), then create succeeds.
+    """Live mode creates a new draft pre-release when none is listed."""
     with (
         patch_gh(
             side_effect=[
-                json.dumps([]),  # list releases for cleanup
+                json.dumps([]),  # list releases
                 None,  # create new release
             ],
         ) as mock_gh,
-        patch(
-            "repomatic.github.dev_release.edit_release_notes",
-            return_value=False,  # edit fails (no existing release)
-        ) as mock_edit,
+        patch("repomatic.github.dev_release.edit_release_notes") as mock_edit,
     ):
         result = sync_dev_release(
             unreleased_changelog,
@@ -119,23 +129,58 @@ def test_sync_dev_release_live(unreleased_changelog):
         )
 
     assert result is True
-    # First call: list releases for cleanup.
-    assert mock_gh.call_args_list[0] == call([
-        "release",
-        "list",
-        "--json",
-        "tagName",
-        "--repo",
-        "user/repo",
-    ])
-    # Edit attempted (fails), against the right release.
-    assert mock_edit.call_args.args[:2] == ("v6.1.1.dev0", "user/repo")
-    # Second gh call: create new draft pre-release.
+    assert mock_gh.call_args_list[0] == call(_list_call())
+    # A release the list does not show is created, never edited first.
+    mock_edit.assert_not_called()
     create_call = mock_gh.call_args_list[1]
     assert create_call[0][0][:3] == ["release", "create", "v6.1.1.dev0"]
     assert "--draft" in create_call[0][0]
     assert "--prerelease" in create_call[0][0]
     assert "--target" in create_call[0][0]
+
+
+def test_sync_dev_release_never_duplicates_on_a_failed_edit(unreleased_changelog):
+    """A listed release whose edit fails is reported, never created again.
+
+    A draft carries no tag, so GitHub accepts a second draft of the same name:
+    falling back to a creation would publish two dev pre-releases.
+    """
+    with (
+        patch_gh(
+            side_effect=[json.dumps([{"tagName": "v6.1.1.dev0"}])],
+        ) as mock_gh,
+        patch(
+            "repomatic.github.dev_release.edit_release_notes",
+            return_value=False,
+        ),
+        pytest.raises(RuntimeError, match="Could not edit"),
+    ):
+        sync_dev_release(
+            unreleased_changelog,
+            "6.1.1.dev0",
+            "user/repo",
+            dry_run=False,
+        )
+
+    assert mock_gh.call_count == 1
+
+
+def test_sync_dev_release_refuses_to_create_blind(unreleased_changelog):
+    """When the releases cannot be listed, nothing is created."""
+    with (
+        patch_gh(side_effect=RuntimeError("HTTP 502")) as mock_gh,
+        patch("repomatic.github.dev_release.edit_release_notes") as mock_edit,
+        pytest.raises(RuntimeError, match="refusing to create"),
+    ):
+        sync_dev_release(
+            unreleased_changelog,
+            "6.1.1.dev0",
+            "user/repo",
+            dry_run=False,
+        )
+
+    assert mock_gh.call_count == 1
+    mock_edit.assert_not_called()
 
 
 def test_sync_dev_release_edits_existing(unreleased_changelog):
@@ -192,10 +237,7 @@ def test_sync_dev_release_cleans_stale_releases(unreleased_changelog):
                 None,  # create new release
             ],
         ) as mock_gh,
-        patch(
-            "repomatic.github.dev_release.edit_release_notes",
-            return_value=False,  # edit fails (no existing release)
-        ),
+        patch("repomatic.github.dev_release.edit_release_notes") as mock_edit,
     ):
         result = sync_dev_release(
             unreleased_changelog,
@@ -205,6 +247,7 @@ def test_sync_dev_release_cleans_stale_releases(unreleased_changelog):
         )
 
     assert result is True
+    mock_edit.assert_not_called()
     # Should delete the stale dev release.
     assert mock_gh.call_args_list[1] == call(_delete_call("v6.0.1.dev0"))
     # Should not delete the non-dev release.
@@ -243,10 +286,7 @@ def test_sync_dev_release_body_content(unreleased_changelog):
                 None,  # create new release
             ],
         ) as mock_gh,
-        patch(
-            "repomatic.github.dev_release.edit_release_notes",
-            return_value=False,  # edit fails (no existing release)
-        ),
+        patch("repomatic.github.dev_release.edit_release_notes") as mock_edit,
     ):
         sync_dev_release(
             unreleased_changelog,
@@ -255,6 +295,7 @@ def test_sync_dev_release_body_content(unreleased_changelog):
             dry_run=False,
         )
 
+    mock_edit.assert_not_called()
     # The create call's --notes argument should contain changes.
     create_args = mock_gh.call_args_list[1][0][0]
     notes_idx = create_args.index("--notes")
@@ -266,10 +307,10 @@ def test_sync_dev_release_body_content(unreleased_changelog):
 
 
 def test_cleanup_dev_releases_deletes_all_dev_tags():
-    """Deletes all releases whose tag ends with .dev0."""
+    """Deletes all releases whose tag ends with a `.devN` segment."""
     release_list = json.dumps([
         {"tagName": "v6.2.0.dev0"},
-        {"tagName": "v6.1.1.dev0"},
+        {"tagName": "v6.1.1.dev1"},
         {"tagName": "v6.1.0"},
         {"tagName": "v6.0.1"},
     ])
@@ -280,8 +321,9 @@ def test_cleanup_dev_releases_deletes_all_dev_tags():
 
     # Should delete both dev releases, not the regular ones.
     assert mock_gh.call_count == 3
+    assert mock_gh.call_args_list[0] == call(_list_call())
     assert mock_gh.call_args_list[1] == call(_delete_call("v6.2.0.dev0"))
-    assert mock_gh.call_args_list[2] == call(_delete_call("v6.1.1.dev0"))
+    assert mock_gh.call_args_list[2] == call(_delete_call("v6.1.1.dev1"))
 
 
 def test_cleanup_dev_releases_no_dev_releases():
@@ -529,10 +571,7 @@ def test_sync_dev_release_with_assets(unreleased_changelog, tmp_path):
                 None,  # upload
             ],
         ) as mock_gh,
-        patch(
-            "repomatic.github.dev_release.edit_release_notes",
-            return_value=False,  # edit fails
-        ),
+        patch("repomatic.github.dev_release.edit_release_notes") as mock_edit,
     ):
         result = sync_dev_release(
             unreleased_changelog,
@@ -543,6 +582,7 @@ def test_sync_dev_release_with_assets(unreleased_changelog, tmp_path):
         )
 
     assert result is True
+    mock_edit.assert_not_called()
     # Last call should be the upload.
     upload_call = mock_gh.call_args_list[-1]
     assert upload_call[0][0][:3] == ["release", "upload", "v6.1.1.dev0"]

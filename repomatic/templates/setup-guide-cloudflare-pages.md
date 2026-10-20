@@ -1,6 +1,6 @@
 ---
 args: [repo_name, repo_slug, token_name]
-footer: 'false'
+footer: false
 ---
 
 `[tool.repomatic] site.deploy` is `cloudflare-pages`, so the site ships with `wrangler pages deploy`. The project and the token are both required: without either, the deploy fails.

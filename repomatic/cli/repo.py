@@ -29,6 +29,7 @@ from click.shell_completion import CompletionItem
 from click_extra import (
     STDOUT_SENTINEL,
     ClickException,
+    ColumnSpec,
     EnumChoice,
     FloatRange,
     IntRange,
@@ -50,28 +51,17 @@ from click_extra import (
 from extra_platforms import is_github_ci
 
 from ..awesome_toc import fix_awesome_toc
+from ..checks import report_result
 from ..components import (
-    ALL_COMPONENTS,
-    AUDIT_SKILL,
-    COMPONENT_HELP_TABLE,
-    DEFAULT_REPO,
-    EPHEMERAL_TARGETS,
+    COMPONENTS,
+    COMPONENTS_BY_NAME,
     FILE_SELECTOR_COMPONENTS,
-    SKILL_FILENAME,
-    SKILL_LIST_HEADER_DEFS,
-    SKILL_PHASE_ORDER,
-    UPGRADE_SKILL,
     parse_component_entries,
-    skill_catalog,
-    skill_launcher,
-    valid_file_ids,
 )
 from ..config import (
-    CONFIG_REFERENCE_HEADER_DEFS,
     config_reference,
-    escape_type_for_gfm_table,
-    location_path,
 )
+from ..file_ops import generated_header, strip_generated_header
 from ..github.actions import (
     AnnotationLevel,
     emit_annotation,
@@ -85,38 +75,29 @@ from ..images import (
     generate_markdown_summary,
     optimize_images,
 )
-from ..init_project import (
-    prune_paths,
-    resolve_upgrade_target,
-    run_init,
-    run_upgrade,
-    upgrade_command,
-    upgrade_report,
-)
-from ..lint_repo import (
-    REPO_CHECK_HELP_LIST,
-    LintContext,
-    run_repo_lint,
-)
-from ..mailmap import Mailmap, remove_header
+from ..init.run import DeletionPolicy, ReportSection, run_init
+from ..init.upgrade import hand_off_upgrade, resolve_upgrade_target, upgrade_report
+from ..lint_repo.context import LintContext
+from ..lint_repo.roster import REPO_CHECK_HELP_LIST, run_repo_lint
+from ..mailmap import MAILMAP_PATH, Mailmap
 from ..metadata.core import (
     METADATA_KEYS_HEADER_DEFS,
-    Dialect,
     Metadata,
     all_metadata_keys,
     metadata_keys_reference,
 )
-from ..metrics.chart import ChartSpec, write_chart
+from ..metadata.output import Dialect
+from ..metrics.chart import render_charts
 from ..metrics.store import (
     SAMPLE_HEADER_DEFS,
+    MetricStore,
     collected_subjects,
-    load_metrics,
     reconstruct_from_github,
     sample_subject,
-    save_metrics,
-    series as metric_series,
 )
-from ..tooling.registry import generated_header
+from ..skills import SKILL_LIST_HEADER_DEFS, skill_catalog
+from ..tooling.registry import BinaryInstallError
+from ..upstream import DEFAULT_REPO
 from .main import (
     exit_if_disabled,
     has_cloudflare_api_token_option,
@@ -145,7 +126,8 @@ if TYPE_CHECKING:
     from click_extra import Context
 
     from ..config import Config
-    from ..init_project import UpgradeTarget
+    from ..init.run import InitResult
+    from ..init.upgrade import UpgradeTarget
 
 
 class ComponentSelector(ParamType):
@@ -183,14 +165,14 @@ class ComponentSelector(ParamType):
     ) -> list[CompletionItem]:
         completions: list[CompletionItem] = [
             CompletionItem(name)
-            for name in sorted(ALL_COMPONENTS)
+            for name in sorted(COMPONENTS_BY_NAME)
             if name.startswith(incomplete)
         ]
         if "/" in incomplete:
             comp_part = incomplete.split("/", 1)[0]
-            for key in ALL_COMPONENTS:
+            for key, comp in COMPONENTS_BY_NAME.items():
                 if key.lower() == comp_part.lower():
-                    for fid in sorted(valid_file_ids(key)):
+                    for fid in sorted(comp.file_ids):
                         qualified = f"{key}/{fid}"
                         if qualified.startswith(incomplete):
                             completions.append(CompletionItem(qualified))
@@ -232,33 +214,117 @@ def _report_paths(
         echo(f"  {styled}{note}")
 
 
-def _hand_off_init(
-    target: UpgradeTarget,
-    config: Config,
-    *,
-    repo: str,
-    output_dir: Path,
-    flags: list[str],
-) -> str:
-    """Run `init` as the upgrade *target*, and return its output without styling.
+_SECTION_HEADINGS: dict[tuple[ReportSection, bool], tuple[str, str, str]] = {
+    (ReportSection.EXCLUDED, True): (
+        "Deleted {count} excluded file(s) still on disk:",
+        "red",
+        "",
+    ),
+    (ReportSection.EXCLUDED, False): (
+        "Excluded: {count} file(s) still on disk",
+        "red",
+        " (use --delete-excluded to remove):",
+    ),
+    (ReportSection.UNMODIFIED, True): (
+        "Deleted {count} unmodified file(s) identical to bundled defaults:",
+        "red",
+        "",
+    ),
+    (ReportSection.UNMODIFIED, False): (
+        "Unmodified: {count} file(s) identical to bundled defaults",
+        "cyan",
+        " (use --delete-unmodified to remove):",
+    ),
+    (ReportSection.REMOVED, True): (
+        "Pruned {count} removed-upstream file(s) (unmodified orphans):",
+        "red",
+        "",
+    ),
+    (ReportSection.REMOVED, False): (
+        "Removed upstream: {count} unmodified orphan(s) on disk",
+        "red",
+        " (--keep-removed set; delete manually):",
+    ),
+    (ReportSection.REMOVED_MODIFIED, True): (
+        "Force-deleted {count} removed-upstream file(s) (locally modified):",
+        "red",
+        "",
+    ),
+    (ReportSection.REMOVED_MODIFIED, False): (
+        (
+            "Review manually: {count} removed-upstream file(s) modified since"
+            " repomatic shipped them:"
+        ),
+        "yellow",
+        "",
+    ),
+}
+"""Heading, colour and hint of each deletable report section.
 
-    The child's output is echoed as it came, so the log reads like a direct run,
-    and a failed child fails this command, naming the child's exit code.
-    """
-    command = upgrade_command(
-        target.version,
-        ["--upstream-repo", repo, "--output-dir", str(output_dir), *flags],
-        config=config,
-        repo=repo,
-    )
-    completed = run_upgrade(command, output_dir)
-    echo(completed.stdout, nl=False)
-    if completed.returncode:
-        msg = (
-            f"repomatic {target.version} init exited with code {completed.returncode}."
+Keyed by the section and whether the deletion policy deleted it. A deleted
+section renders its heading in bold.
+"""
+
+
+def _print_init_report(result: InitResult, policy: DeletionPolicy) -> None:
+    """Echo the summary of an `init` run, section after section."""
+    # The exclude list is the one section that reads as a single inline
+    # sentence rather than a heading over a path list.
+    if result.excluded:
+        echo(
+            style("Excluded by config: ", dim=True)
+            + ", ".join(style(e, fg="yellow") for e in result.excluded)
         )
-        raise ClickException(msg)
-    return unstyle(completed.stdout)
+    _report_paths(
+        result.created,
+        f"Created {len(result.created)} file(s):",
+        color="green",
+        bold=True,
+    )
+    _report_paths(
+        result.updated,
+        f"Updated {len(result.updated)} existing file(s):",
+        color="yellow",
+        bold=True,
+    )
+    _report_paths(
+        result.skipped,
+        f"Skipped {len(result.skipped)} existing file(s) (never overwritten):",
+    )
+    for section in ReportSection:
+        deleted = policy.deletes(section)
+        heading, color, hint = _SECTION_HEADINGS[section, deleted]
+        entries = result.entries(section)
+        _report_paths(
+            entries,
+            heading.format(count=len(entries)),
+            color=color,
+            bold=deleted,
+            hint=hint,
+        )
+    for warning in result.warnings:
+        echo(style("Warning: ", fg="yellow", bold=True) + warning)
+
+
+def _print_next_steps(steps: Sequence[str]) -> None:
+    """Echo the numbered next steps of an `init` run, if any."""
+    if not steps:
+        return
+    echo("")
+    echo(style("Next steps:", bold=True))
+    for number, step in enumerate(steps, start=1):
+        first, *rest = step.splitlines()
+        echo(f"  {number}. {first}")
+        for line in rest:
+            echo(f"     {line}")
+
+
+def _component_help_table() -> str:
+    """Render the component table of the `init` help text."""
+    width = max(len(comp.name) for comp in COMPONENTS) + 4
+    return "\n".join(
+        f"    {comp.name:<{width}s}{comp.description}" for comp in COMPONENTS
+    )
 
 
 def _emit_upgrade_report(
@@ -439,10 +505,15 @@ def init(
         skills/repomatic-topics   A single skill
         labels/labels.toml        A single label config file
     """
-    if keep_removed and delete_removed_modified:
-        raise UsageError(
-            "--keep-removed and --delete-removed-modified are mutually exclusive."
+    try:
+        policy = DeletionPolicy(
+            delete_excluded=delete_excluded,
+            delete_unmodified=delete_unmodified,
+            keep_removed=keep_removed,
+            delete_removed_modified=delete_removed_modified,
         )
+    except ValueError as error:
+        raise UsageError(str(error)) from error
     if upgrade and (components or version_pin):
         raise UsageError(
             "--upgrade moves every managed file to one release: it takes no"
@@ -452,188 +523,41 @@ def init(
     config = get_tool_config(ctx)
     target = resolve_upgrade_target(config, output_dir, repo=repo) if upgrade else None
     if target is not None and not target.in_process:
-        flags = [
-            flag
-            for flag, enabled in (
-                ("--delete-excluded", delete_excluded),
-                ("--delete-unmodified", delete_unmodified),
-                ("--keep-removed", keep_removed),
-                ("--delete-removed-modified", delete_removed_modified),
-            )
-            if enabled
-        ]
-        init_output = _hand_off_init(
-            target, config, repo=repo, output_dir=output_dir, flags=flags
+        completed = hand_off_upgrade(
+            target, config, repo=repo, output_dir=output_dir, flags=policy.flags()
         )
+        # Echoed as it came, so the log reads like a direct run.
+        echo(completed.stdout, nl=False)
+        if completed.returncode:
+            msg = (
+                f"repomatic {target.version} init exited with code"
+                f" {completed.returncode}."
+            )
+            raise ClickException(msg)
         _emit_upgrade_report(
             target,
             config,
             repo=repo,
             output_dir=output_dir,
-            init_output=init_output,
+            init_output=unstyle(completed.stdout),
             output=output,
             output_format=output_format,
         )
         return
 
     result = run_init(
-        output_dir=output_dir,
-        components=components,
+        output_dir,
+        components,
+        config=config,
         version=version_pin,
         # An upgrade target already cleared the window. Judging it again could
         # hold the pin back while the content moves.
         cooldown=cooldown and target is None,
         repo=repo,
-        config=config,
     )
-
-    # Print summary. The exclude list is the one section that reads as a single
-    # inline sentence rather than a heading over a path list.
-    if result.excluded:
-        echo(
-            style("Excluded by config: ", dim=True)
-            + ", ".join(style(e, fg="yellow") for e in result.excluded)
-        )
-
-    _report_paths(
-        result.created,
-        f"Created {len(result.created)} file(s):",
-        color="green",
-        bold=True,
-    )
-    _report_paths(
-        result.updated,
-        f"Updated {len(result.updated)} existing file(s):",
-        color="yellow",
-        bold=True,
-    )
-    _report_paths(
-        result.skipped,
-        f"Skipped {len(result.skipped)} existing file(s) (never overwritten):",
-    )
-
-    # Each remaining section pairs a delete flag with the two reports it picks
-    # between: acted-on when the flag says so, left-on-disk otherwise.
-    if delete_excluded:
-        prune_paths(result.excluded_existing, output_dir)
-        _report_paths(
-            result.excluded_existing,
-            f"Deleted {len(result.excluded_existing)} excluded file(s) still on disk:",
-            color="red",
-            bold=True,
-        )
-    else:
-        _report_paths(
-            result.excluded_existing,
-            f"Excluded: {len(result.excluded_existing)} file(s) still on disk",
-            color="red",
-            hint=" (use --delete-excluded to remove):",
-        )
-
-    if delete_unmodified:
-        prune_paths(result.unmodified_configs, output_dir, prune_parents=False)
-        _report_paths(
-            result.unmodified_configs,
-            f"Deleted {len(result.unmodified_configs)} unmodified file(s) identical"
-            " to bundled defaults:",
-            color="red",
-            bold=True,
-        )
-    else:
-        _report_paths(
-            result.unmodified_configs,
-            f"Unmodified: {len(result.unmodified_configs)} file(s) identical to"
-            " bundled defaults",
-            color="cyan",
-            hint=" (use --delete-unmodified to remove):",
-        )
-
-    if keep_removed:
-        _report_paths(
-            result.removed_prunable,
-            f"Removed upstream: {len(result.removed_prunable)} unmodified orphan(s)"
-            " on disk",
-            color="red",
-            hint=" (--keep-removed set; delete manually):",
-        )
-    else:
-        prune_paths(result.removed_prunable, output_dir)
-        _report_paths(
-            result.removed_prunable,
-            f"Pruned {len(result.removed_prunable)} removed-upstream file(s)"
-            " (unmodified orphans):",
-            color="red",
-            bold=True,
-        )
-
-    if delete_removed_modified:
-        prune_paths(result.removed_review, output_dir)
-        _report_paths(
-            result.removed_review,
-            f"Force-deleted {len(result.removed_review)} removed-upstream file(s)"
-            " (locally modified):",
-            color="red",
-            bold=True,
-        )
-    else:
-        _report_paths(
-            result.removed_review,
-            f"Review manually: {len(result.removed_review)} removed-upstream file(s)"
-            " modified since repomatic shipped them:",
-            color="yellow",
-        )
-
-    if result.warnings:
-        for warning in result.warnings:
-            echo(style("Warning: ", fg="yellow", bold=True) + warning)
-
-    touched = [*result.created, *result.updated]
-    # A run that only staged ephemeral files (`init labels`) produced scratch
-    # input for the command about to read it, so there is nothing to commit.
-    has_changes = bool(set(touched) - EPHEMERAL_TARGETS)
-    if has_changes:
-        echo("")
-        echo(style("Next steps:", bold=True))
-        step = 1
-        echo(f"  {step}. Commit the generated files and push.")
-        step += 1
-        workflows_touched = any(
-            p.startswith(".github/workflows/")
-            for p in (*result.created, *result.updated)
-        )
-        if workflows_touched:
-            echo(
-                f"  {step}. On first push, workflows will detect missing"
-                " configuration and open issues"
-            )
-            echo("     with setup instructions.")
-            step += 1
-        # A moved pin is the moment to read what the new release offers, and
-        # the one this command knows both versions of. The launcher is spelled
-        # by the registry, so the PR bodies inviting the same review agree.
-        moved = result.upgraded_pin()
-        if moved:
-            previous, adopted = moved
-            echo(
-                f"  {step}. Apply what repomatic v{previous} to v{adopted} lets"
-                " this repository adopt or drop:"
-            )
-            echo(
-                f"       {skill_launcher(UPGRADE_SKILL, f'v{previous}', f'v{adopted}')}"
-            )
-            skill_file = (
-                output_dir
-                / location_path(config.skills_location)
-                / UPGRADE_SKILL
-                / SKILL_FILENAME
-            )
-            if not skill_file.is_file():
-                echo(
-                    f'     The skill is not installed here: run "repomatic init'
-                    f' skills/{UPGRADE_SKILL}" first, or use the Claude Code plugin.'
-                )
-            echo(f"     Then audit the drift against v{adopted}, in a fresh session:")
-            echo(f"       {skill_launcher(AUDIT_SKILL)}")
+    result.prune(output_dir, policy)
+    _print_init_report(result, policy)
+    _print_next_steps(result.next_steps(output_dir, config))
 
     if target is not None:
         _emit_upgrade_report(
@@ -649,7 +573,7 @@ def init(
 
 assert init.help is not None
 init.help = init.help.format(
-    component_table=COMPONENT_HELP_TABLE,
+    component_table=_component_help_table(),
     file_selector_names=", ".join(FILE_SELECTOR_COMPONENTS),
 )
 
@@ -695,22 +619,23 @@ def lint_repo(
     Checks, in report order. An error fails the command, a warning never does:
     {checks}
     """
-
     # Everything the checkout can answer is derived inside the context
     # constructor; the command hands over only what it alone knows.
-    exit_code = run_repo_lint(
-        LintContext.from_project(
-            get_tool_config(ctx),
-            repo=repo,
-            repo_name=repo_name,
-            has_pat=has_pat,
-            has_virustotal_key=has_virustotal_key,
-            has_cloudflare_api_token=has_cloudflare_api_token,
-            has_cloudflare_r2_keys=has_cloudflare_r2_keys,
-            has_notifications_pat=has_notifications_pat,
-        )
+    lint_ctx = LintContext.from_project(
+        get_tool_config(ctx),
+        repo=repo,
+        repo_name=repo_name,
+        has_pat=has_pat,
+        has_virustotal_key=has_virustotal_key,
+        has_cloudflare_api_token=has_cloudflare_api_token,
+        has_cloudflare_r2_keys=has_cloudflare_r2_keys,
+        has_notifications_pat=has_notifications_pat,
     )
-    ctx.exit(exit_code)
+    failed = False
+    for check, result in run_repo_lint(lint_ctx):
+        report_result(result, check.level)
+        failed = failed or check.fails(result)
+    ctx.exit(1 if failed else 0)
 
 
 assert lint_repo.help is not None
@@ -730,10 +655,7 @@ def list_skills(ctx: Context) -> None:
     alphabetically would spell that lifecycle Development first.
     """
     rows = [
-        (phase, f"/{name}", description)
-        for phase, name, description in sorted(
-            skill_catalog(), key=lambda skill: SKILL_PHASE_ORDER.index(skill[0])
-        )
+        (phase, f"/{name}", description) for phase, name, description in skill_catalog()
     ]
 
     # A skill description is written for a model deciding whether to invoke it,
@@ -844,6 +766,80 @@ def show_metadata(
     write_output("metadata", content, output)
 
 
+CONFIG_REFERENCE_HEADER_DEFS: tuple[ColumnSpec, ...] = (
+    ColumnSpec("option", "Option"),
+    ColumnSpec("type", "Type", max_width=24),
+    ColumnSpec("default", "Default", max_width=24),
+    ColumnSpec("description", "Description", max_width=60),
+)
+"""Column definitions for the `[tool.repomatic]` configuration reference table.
+
+The three columns whose outliers set the whole table's width are capped: a
+`list[dict[str, str | bool | list[str]]]` type, a list default, and a
+description running past a hundred characters. `Option` stays uncapped, because
+wrapping a dotted key splits an identifier mid-token. A format unable to render
+a wrapped cell drops the caps on its own.
+"""
+
+
+def format_config_default(value: object) -> str:
+    """Format a `Config` field default for the reference table."""
+    if value is None:
+        return "*(none)*"
+    if isinstance(value, bool):
+        return f"`{str(value).lower()}`"
+    if isinstance(value, int):
+        return f"`{value}`"
+    if isinstance(value, str):
+        if "\n" in value:
+            return "*(see example)*"
+        return f'`"{value}"`'
+    if isinstance(value, list):
+        if not value:
+            return "`[]`"
+        return f"`{value!r}`"
+    return str(value)
+
+
+def format_config_type(annotation: str) -> str:
+    """Format a type annotation for a raw GFM cell of the reference table.
+
+    Strips `| None` suffixes, since the default column already shows whether
+    `None` is the default.
+
+    Then escapes the outer brackets of a nested generic: mdformat reads
+    `list[dict[str, str]]` as a Markdown link reference, and would escape it
+    again on every run. A simple generic like `list[str]` has no nested
+    bracket and stays as is. The cell is never wrapped in backticks, where a
+    backslash would render as itself.
+    """
+    ftype = annotation.replace(" | None", "")
+    if "[" in ftype:
+        first = ftype.index("[")
+        last = ftype.rindex("]")
+        inner = ftype[first + 1 : last]
+        if "[" in inner:
+            return ftype[:first] + "\\[" + inner + "\\]" + ftype[last + 1 :]
+    return ftype
+
+
+def config_reference_rows() -> list[tuple[str, str, str, str]]:
+    """The `show-config` table: one formatted row per `[tool.repomatic]` key.
+
+    :return: `(option, type, default, description)` rows, the cells of
+        {data}`CONFIG_REFERENCE_HEADER_DEFS`.
+    """
+    return [
+        (
+            f"`{key}`",
+            format_config_type(type_hint),
+            format_config_default(default),
+            summary,
+        )
+        for key, type_hint, default, summary in config_reference()
+    ]
+
+
 @subcommand(
     short_help="Print [tool.repomatic] configuration reference",
     params=[SortByOption(*CONFIG_REFERENCE_HEADER_DEFS, default="option")],
@@ -856,16 +852,7 @@ def show_config(ctx: Context) -> None:
     descriptions, generated from the Config dataclass docstrings.
     Respects the global --table-format and --sort-by options.
     """
-    rows = [
-        (option, escape_type_for_gfm_table(ftype), default, desc)
-        for option, ftype, default, desc in config_reference()
-    ]
-    # Cap the three columns whose outliers set the whole table's width: a
-    # `list[dict[str, str | bool | list[str]]]` type, a list default, and a
-    # description running past a hundred characters. `Option` stays uncapped,
-    # because wrapping a dotted key splits an identifier mid-token. A format
-    # unable to render a wrapped cell drops the caps on its own.
-    ctx.print_table(rows, CONFIG_REFERENCE_HEADER_DEFS)
+    ctx.print_table(config_reference_rows(), CONFIG_REFERENCE_HEADER_DEFS)
 
 
 @subcommand(
@@ -924,11 +911,14 @@ def format_images(
         return
 
     logging.info(f"Found {len(image_files)} image file(s) to optimize.")
-    results = optimize_images(
-        image_files,
-        min_savings_pct=min_savings,
-        min_savings_bytes=min_savings_bytes,
-    )
+    try:
+        results = optimize_images(
+            image_files,
+            min_savings_pct=min_savings,
+            min_savings_bytes=min_savings_bytes,
+        )
+    except BinaryInstallError as exc:
+        raise ClickException(str(exc)) from exc
     markdown = generate_markdown_summary(results)
 
     log_output_target("image optimization summary", output)
@@ -1049,7 +1039,7 @@ def sync_gitignore(ctx: Context, output: Path | None, drop_orphans: bool) -> Non
 @option(
     "--source",
     type=file_path(readable=True, resolve_path=True),
-    default=".mailmap",
+    default=MAILMAP_PATH,
     help="Mailmap source file to use as reference for contributors identities that "
     "are already grouped.",
 )
@@ -1097,12 +1087,15 @@ def sync_mailmap(
     content = ""
     if source.exists():
         logging.info(f"Read initial mapping from {source}")
-        content = remove_header(source.read_text(encoding="UTF-8"))
+        content = strip_generated_header(source.read_text(encoding="UTF-8"))
         mailmap.parse(content)
     else:
         logging.debug(f"Mailmap source file {source} does not exist.")
 
-    mailmap.update_from_git()
+    try:
+        mailmap.update_from_git()
+    except RuntimeError as error:
+        raise ClickException(str(error)) from error
     new_content = mailmap.render()
 
     if is_stdout(destination_mailmap):
@@ -1208,7 +1201,7 @@ def sample_metrics(
     if carry_from:
         carry_pr_branch_paths(carry_from, (store_path,))
     try:
-        records = load_metrics(store_path)
+        readings = MetricStore.load(store_path)
         tracked = collected_subjects(
             config.metrics.subjects, config.metrics.predecessors
         )
@@ -1218,59 +1211,25 @@ def sample_metrics(
     outcomes = []
     if forward:
         for name, repo in tracked.items():
-            outcomes.append(sample_subject(records, name, repo, config.metrics.forges))
+            outcomes.append(sample_subject(readings, name, repo, config.metrics.forges))
     if reconstruct:
         for name, repo in tracked.items():
-            outcomes.append(reconstruct_from_github(records, name, repo))
+            outcomes.append(reconstruct_from_github(readings, name, repo))
 
-    ctx.print_table(
-        [
-            (
-                outcome.subject,
-                outcome.phase,
-                outcome.repo,
-                str(outcome.stars) if outcome.stars is not None else "—",
-                str(outcome.rows),
-                outcome.note or "—",
-            )
-            for outcome in outcomes
-        ],
-        SAMPLE_HEADER_DEFS,
-    )
+    ctx.print_table([outcome.row() for outcome in outcomes], SAMPLE_HEADER_DEFS)
 
-    if save_metrics(store_path, records):
-        echo(f"Recorded {len(records)} reading(s) in {store_path}.")
+    if readings.save(store_path):
+        echo(f"Recorded {len(readings)} reading(s) in {store_path}.")
     else:
         echo(f"{store_path} already up to date.")
 
     if not render:
         return
-    if not records:
+    if not readings:
         echo("No reading recorded yet, so no chart to draw.")
         return
-    for entry in config.metrics.charts:
-        try:
-            spec = ChartSpec.from_mapping(entry)
-            grouped = metric_series(
-                records,
-                config.metrics.subjects,
-                spec.metric,
-                config.metrics.predecessors,
-            )
-            # Stamped with the newest reading of the plotted metric rather than
-            # with today, so re-rendering an unmoved history rewrites nothing. A
-            # caption naming the run date would churn the committed SVGs on
-            # every scheduled pass that found nothing new.
-            stamp = max(
-                (day for points in grouped.values() for day, _value in points),
-                default=None,
-            )
-            changed = write_chart(
-                grouped,
-                spec,
-                config.metrics.colors,
-                stamp.isoformat() if stamp else None,
-            )
-        except ValueError as error:
-            raise ClickException(str(error))
-        echo(f"{'Redrew' if changed else 'Unchanged'} {spec.output}.")
+    try:
+        for output, changed in render_charts(readings, config.metrics):
+            echo(f"{'Redrew' if changed else 'Unchanged'} {output}.")
+    except ValueError as error:
+        raise ClickException(str(error))

@@ -59,13 +59,14 @@ from urllib.parse import quote
 
 from click_extra import ColumnSpec
 
-from .actions import workflow_runs
-from .gh import gh_api_json
+from .gh import GhOutputError, gh_json
+from .outputs import AnnotationLevel
+from .runs import commit_runs, read_run, workflow_runs
 from .workflow_files import load_workflows, workflow_triggers
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator
     from pathlib import Path
 
 TIP_HISTORY_DEPTH = 10
@@ -97,7 +98,10 @@ CI_STATUS_HEADER_DEFS: tuple[ColumnSpec, ...] = (
     ColumnSpec("run-status", "Run status"),
     ColumnSpec("verdict", "Verdict"),
 )
-"""Column definitions for the `ci-status` table."""
+"""Column definitions for the `ci-status` table, filled by {meth}`RunStatus.cells`."""
+
+RUN_FIELDS = ("conclusion", "headSha", "jobs", "status", "workflowName")
+"""The `gh run view --json` fields a {class}`RunStatus` is built from."""
 
 
 @dataclass(frozen=True)
@@ -265,6 +269,49 @@ class RunStatus:
             return f"green ({len(self.failed_probes)} probe(s) failed)"
         return "green"
 
+    def cells(self) -> tuple[str, str, str, str]:
+        """The row of the `ci-status` table, in {data}`CI_STATUS_HEADER_DEFS` order."""
+        return (self.workflow, self.head_sha[:8], self.status, self.verdict)
+
+    def findings(self) -> Iterator[tuple[AnnotationLevel, str]]:
+        """What the reader must know about this run, one line each.
+
+        An error gates a merge: a workflow-level failure or a failed required
+        job. A warning does not: a failed probe, or a run with no result for
+        its commit.
+
+        :yields: `(level, message)` pairs, errors first.
+        """
+        if self.workflow_level_failure:
+            message = (
+                f"{self.workflow}: run {self.run_id} failed with no failed job. "
+                "This is a workflow-level error (an invalid matrix expression, "
+                "malformed YAML, a missing secret): read the run's error "
+                "annotations, there is no job log."
+            )
+            yield AnnotationLevel.ERROR, message
+        for job in self.failed_required:
+            yield (
+                AnnotationLevel.ERROR,
+                f"{self.workflow}: required job failed: {job.name}",
+            )
+        for job in self.failed_probes:
+            yield (
+                AnnotationLevel.WARNING,
+                f"{self.workflow}: allowed-failure probe failed: {job.name}",
+            )
+        if self.inconclusive:
+            reason = (
+                "was cancelled before its required jobs finished"
+                if self.cancelled
+                else "ran no job"
+            )
+            message = (
+                f"{self.workflow}: run {self.run_id} {reason}, so"
+                f" {self.head_sha[:8]} has no result from it."
+            )
+            yield AnnotationLevel.WARNING, message
+
 
 @dataclass
 class CIStatus:
@@ -373,22 +420,14 @@ def _run_status(run_id: int, workflow: str) -> RunStatus:
     :param run_id: The run's numeric ID.
     :param workflow: Workflow filename, the fallback display name.
     :return: The run with its jobs attached.
-    :raises TypeError: When `gh` answers with something other than a run. A
+    :raises GhCommandError: When `gh` cannot read the run.
+    :raises GhOutputError: When `gh` answers with something other than a run. A
         run with no status and no jobs would otherwise read as green.
     """
-    detail = gh_api_json(
-        [
-            "run",
-            "view",
-            str(run_id),
-            "--json",
-            "conclusion,headSha,jobs,status,workflowName",
-        ],
-        strict=True,
-    )
-    if not isinstance(detail, dict):
+    detail = read_run(run_id, RUN_FIELDS)
+    if detail is None:
         msg = f"Could not read run {run_id} of {workflow}."
-        raise TypeError(msg)
+        raise GhOutputError(msg)
     return RunStatus(
         workflow=detail.get("workflowName") or workflow,
         run_id=run_id,
@@ -409,7 +448,7 @@ def _run_status(run_id: int, workflow: str) -> RunStatus:
 def latest_run(workflow: str, branch: str) -> RunStatus | None:
     """Read a workflow's most recent run on *branch*, jobs included.
 
-    Lists the workflow's runs through {func}`~repomatic.github.actions.workflow_runs`,
+    Lists the workflow's runs through {func}`~repomatic.github.runs.workflow_runs`,
     which sends a `created` filter to keep a stale snapshot out.
     {func}`read_ci_status` asks it only about a workflow with no run on the
     newest commits.
@@ -439,7 +478,7 @@ def _branch_history(branch: str) -> list[str]:
         f"repos/{{owner}}/{{repo}}/commits?sha={quote(branch, safe='')}"
         f"&per_page={TIP_HISTORY_DEPTH}"
     )
-    commits = gh_api_json(["api", endpoint], strict=True)
+    commits = gh_json(["api", endpoint])
     if not isinstance(commits, list):
         return []
     return [commit["sha"] for commit in commits if commit.get("sha")]
@@ -458,17 +497,11 @@ def _runs_on_commit(sha: str, branch: str) -> tuple[dict[str, int], dict[str, in
     :return: Two maps of run ID by workflow filename: the runs that ran a job,
         then the skipped ones.
     """
-    payload = gh_api_json(
-        ["api", f"repos/{{owner}}/{{repo}}/actions/runs?head_sha={sha}&per_page=100"],
-        strict=True,
-    )
     ran: dict[str, int] = {}
     skipped: dict[str, int] = {}
-    if not isinstance(payload, dict):
-        return ran, skipped
     # Newest first, per the API's ordering: the first entry seen for a
     # workflow is its latest run of that kind on this commit.
-    for entry in payload.get("workflow_runs") or []:
+    for entry in commit_runs(sha):
         if entry.get("head_branch") != branch:
             continue
         filename = str(entry.get("path") or "").rpartition("/")[2]

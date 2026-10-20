@@ -17,7 +17,7 @@
 """Global cache for downloaded tool executables, HTTP API responses, and
 generated tool configurations.
 
-Three cache subtrees under the user-level cache directory:
+Four subtrees under the user-level cache directory:
 
 **Binary cache** (`bin/`): platform-specific tool executables, keyed by
 ``{tool}/{version}/{platform}/{executable}``. Each cached binary has a
@@ -29,10 +29,16 @@ keyed by ``{namespace}/{key}.json``. Freshness is controlled by a per-caller
 TTL (seconds); stale entries remain on disk until auto-purge removes them.
 
 **Config cache** (`config/`): generated tool configuration files, keyed by
-``{tool}/{filename}``. Overwritten on every invocation from the current
-`[tool.X]` section in `pyproject.toml` or bundled defaults. Passed to
-tools via explicit `--config` flags so repomatic never writes to the
-user's repository.
+``{tool}/{digest}/{filename}``, where the digest names the content. Two runs
+that generate different configs for one tool (two checkouts, two branches)
+write two files, so neither run reads the config of the other. Passed to tools
+via explicit `--config` flags so repomatic never writes to the user's
+repository.
+
+**Locks** (`locks/`): the lock files {func}`lock_path` names, which the tool
+runner holds while a config file sits in the working directory. Neither listed
+nor cleaned: a lock file deleted while a run holds it lets the next run start
+without waiting.
 
 ```{note}
 The cache module is intentionally a pure storage layer. It does not know
@@ -43,6 +49,7 @@ trust and freshness decisions belong to the caller.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import shutil
@@ -60,7 +67,7 @@ from .humanize import SECONDS_PER_DAY, format_age, format_file_size
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from typing import Self
 
 CACHE_LIST_HEADER_DEFS: tuple[ColumnSpec, ...] = (
     ColumnSpec("type", "Type"),
@@ -75,136 +82,20 @@ Lives beside the entry dataclasses it renders; the CLI derives its
 `--sort-by` choices from it.
 """
 
+CONFIG_DIGEST_LENGTH = 16
+"""Hex digits of the content digest that names a cached config directory.
 
-@dataclass(frozen=True)
-class CachedFile:
-    """The filesystem facts every cached entry carries, whatever it holds.
+Sixty-four bits: enough to keep apart every config one cache ever holds.
+"""
 
-    The three caches (binaries, HTTP responses, tool configs) differ only in
-    how they *name* an entry; everything the listing, the age filter and the
-    purge loop need is here, so those all take a `CachedFile` and never care
-    which subtree it came from.
+SIDECAR_SUFFIX = ".sha256"
+"""Suffix of the digest sidecar stored beside each cached binary.
 
-    Subclasses supply their own identity fields plus {attr}`kind` and
-    {attr}`scope`.
-    """
-
-    size: int
-    """File size in bytes."""
-
-    path: Path
-    """Absolute path to the cached file."""
-
-    mtime: float
-    """File modification time (seconds since epoch)."""
-
-    kind: ClassVar[str] = ""
-    """The cache this entry belongs to, as the `repomatic cache show` table
-    spells it."""
-
-    @property
-    def scope(self) -> str:
-        """The name a `cache clean` filter matches this entry on.
-
-        Doubles as the table's subject column: the thing a reader identifies
-        the entry by (`--tool ruff`, `--namespace pypi`) is the same thing the
-        listing shows them, so one property serves both.
-        """
-        raise NotImplementedError
-
-    @property
-    def detail(self) -> str:
-        """What distinguishes this entry from its siblings in the same scope."""
-        raise NotImplementedError
-
-    def is_fresh(self, max_age_days: int | None) -> bool:
-        """Whether this entry is younger than the age cutoff.
-
-        A `None` cutoff keeps nothing: age-unfiltered clears delete every
-        entry the caller's other filters matched.
-        """
-        if max_age_days is None:
-            return False
-        return self.mtime >= time.time() - max_age_days * SECONDS_PER_DAY
-
-    def as_row(self) -> tuple[str, str, str, str, str]:
-        """Render this entry as one `repomatic cache show` table row."""
-        return (
-            self.kind,
-            self.scope,
-            self.detail,
-            format_file_size(self.size),
-            format_age(self.mtime),
-        )
-
-
-@dataclass(frozen=True)
-class CacheEntry(CachedFile):
-    """A single cached binary with its metadata."""
-
-    tool: str = ""
-    """Tool name (registry key)."""
-
-    version: str = ""
-    """Pinned version string."""
-
-    platform: str = ""
-    """Platform key (e.g., `linux-x64`, `macos-arm64`)."""
-
-    executable: str = ""
-    """Executable filename."""
-
-    kind: ClassVar[str] = "binary"
-
-    @property
-    def scope(self) -> str:
-        return self.tool
-
-    @property
-    def detail(self) -> str:
-        return f"{self.version} ({self.platform})"
-
-
-@dataclass(frozen=True)
-class HttpCacheEntry(CachedFile):
-    """A single cached HTTP response with its metadata."""
-
-    namespace: str = ""
-    """Cache namespace (e.g., `pypi`, `github-releases`)."""
-
-    key: str = ""
-    """Cache key within the namespace (e.g., `requests`, `astral-sh/ruff`)."""
-
-    kind: ClassVar[str] = "http"
-
-    @property
-    def scope(self) -> str:
-        return self.namespace
-
-    @property
-    def detail(self) -> str:
-        return self.key
-
-
-@dataclass(frozen=True)
-class ConfigCacheEntry(CachedFile):
-    """A single cached tool configuration file with its metadata."""
-
-    tool: str = ""
-    """Tool name (registry key)."""
-
-    filename: str = ""
-    """Config filename (e.g., `yamllint.yaml`, `biome.json`)."""
-
-    kind: ClassVar[str] = "config"
-
-    @property
-    def scope(self) -> str:
-        return self.tool
-
-    @property
-    def detail(self) -> str:
-        return self.filename
+Part of the binary cache's on-disk layout: the listing skips sidecars and the
+clean removes them along with their entry. Computing, writing, and verifying
+the digest itself stays with the caller (`tooling/binaries.py`), per the module
+note above.
+"""
 
 
 def _platform_cache_dir() -> Path:
@@ -254,9 +145,289 @@ def cache_dir() -> Path:
     return _platform_cache_dir()
 
 
-def _bin_dir() -> Path:
-    """Return the `bin/` subdirectory under the cache root."""
-    return cache_dir() / "bin"
+def lock_path(name: str) -> Path:
+    """Return the path of the lock file called *name*.
+
+    The file lives in the `locks/` subtree, which no listing or clean touches.
+
+    :param name: Lock name, unique to what the lock guards.
+    """
+    return cache_dir() / "locks" / f"{name}.lock"
+
+
+@dataclass(frozen=True, kw_only=True)
+class CachedFile:
+    """One file of a cache subtree, with the facts every entry carries.
+
+    The three caches (binaries, HTTP responses, tool configs) differ only in
+    how they *name* an entry. Each subclass reads its identity fields off the
+    path of the entry, in {meth}`from_path`. The listing, the age filter and
+    the clean are the same for all three, so they live here.
+    """
+
+    path: Path
+    """Absolute path to the cached file."""
+
+    size: int
+    """File size in bytes."""
+
+    mtime: float
+    """File modification time (seconds since epoch)."""
+
+    kind: ClassVar[str]
+    """The cache this entry belongs to, as the `repomatic cache show` table
+    spells it."""
+
+    subdir: ClassVar[str]
+    """Name of the subtree under the cache root."""
+
+    scope_option: ClassVar[str]
+    """The `repomatic cache clean` option that narrows a clean to one scope of
+    this cache."""
+
+    @classmethod
+    def root(cls) -> Path:
+        """Return the subtree of this cache under the cache root."""
+        return cache_dir() / cls.subdir
+
+    @classmethod
+    def from_path(cls, path: Path, root: Path) -> Self | None:
+        """Read an entry off the path of a file below *root*.
+
+        :return: The entry, or `None` when the file is not an entry of this
+            cache (a digest sidecar, a temporary file).
+        """
+        raise NotImplementedError
+
+    @classmethod
+    def entries(cls) -> list[Self]:
+        """List the entries of this cache, sorted by path."""
+        root = cls.root()
+        if not root.is_dir():
+            return []
+        found: list[Self] = []
+        for path in sorted(root.rglob("*")):
+            if path.is_file() and (entry := cls.from_path(path, root)) is not None:
+                found.append(entry)
+        return found
+
+    @classmethod
+    def clear(
+        cls, scope: str | None = None, max_age_days: int | None = None
+    ) -> tuple[int, int]:
+        """Remove the entries of this cache that both filters select.
+
+        Empty directories left behind are pruned afterwards.
+
+        :param scope: Keep entries whose {attr}`scope` differs. `None` selects
+            every entry.
+        :param max_age_days: Keep entries younger than this. `None` selects
+            every entry.
+        :return: Tuple of (files_deleted, bytes_freed).
+        """
+        files_deleted = 0
+        bytes_freed = 0
+        for entry in cls.entries():
+            if (scope is not None and entry.scope != scope) or entry.is_fresh(
+                max_age_days
+            ):
+                continue
+            logging.debug(f"Purging cache entry: {entry.path}")
+            try:
+                entry.remove()
+            except OSError:
+                logging.debug(f"Failed to remove {entry.path}.")
+                continue
+            files_deleted += 1
+            bytes_freed += entry.size
+        _prune_empty_dirs(cls.root())
+        return files_deleted, bytes_freed
+
+    @property
+    def scope(self) -> str:
+        """The name a `cache clean` filter matches this entry on.
+
+        Doubles as the table's subject column: the thing a reader identifies
+        the entry by (`--tool ruff`, `--namespace pypi`) is the same thing the
+        listing shows them, so one property serves both.
+        """
+        raise NotImplementedError
+
+    @property
+    def detail(self) -> str:
+        """What distinguishes this entry from its siblings in the same scope."""
+        raise NotImplementedError
+
+    def remove(self) -> None:
+        """Delete the files of this entry."""
+        self.path.unlink()
+
+    def is_fresh(self, max_age_days: int | None) -> bool:
+        """Whether this entry is younger than the age cutoff.
+
+        A `None` cutoff keeps nothing: age-unfiltered clears delete every
+        entry the caller's other filters matched.
+        """
+        if max_age_days is None:
+            return False
+        return self.mtime >= time.time() - max_age_days * SECONDS_PER_DAY
+
+    def as_row(self) -> tuple[str, str, str, str, str]:
+        """Render this entry as one `repomatic cache show` table row."""
+        return (
+            self.kind,
+            self.scope,
+            self.detail,
+            format_file_size(self.size),
+            format_age(self.mtime),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class BinaryCacheEntry(CachedFile):
+    """A single cached binary with its metadata."""
+
+    tool: str
+    """Tool name (registry key)."""
+
+    version: str
+    """Pinned version string."""
+
+    platform: str
+    """Platform key (e.g., `linux-x64`, `macos-arm64`)."""
+
+    executable: str
+    """Executable filename."""
+
+    kind: ClassVar[str] = "binary"
+    subdir: ClassVar[str] = "bin"
+    scope_option: ClassVar[str] = "tool"
+
+    @classmethod
+    def from_path(cls, path: Path, root: Path) -> Self | None:
+        """Read the four levels of ``{tool}/{version}/{platform}/{executable}``.
+
+        A digest sidecar is part of its binary's entry, not an entry itself.
+        """
+        parts = path.relative_to(root).parts
+        if len(parts) != 4 or path.name.endswith(SIDECAR_SUFFIX):
+            return None
+        tool, version, platform, executable = parts
+        stat = path.stat()
+        return cls(
+            path=path,
+            size=stat.st_size,
+            mtime=stat.st_mtime,
+            tool=tool,
+            version=version,
+            platform=platform,
+            executable=executable,
+        )
+
+    @property
+    def scope(self) -> str:
+        return self.tool
+
+    @property
+    def detail(self) -> str:
+        return f"{self.version} ({self.platform})"
+
+    def remove(self) -> None:
+        """Delete the binary and its digest sidecar."""
+        self.path.unlink()
+        binary_sidecar_path(self.path).unlink(missing_ok=True)
+
+
+@dataclass(frozen=True, kw_only=True)
+class HttpCacheEntry(CachedFile):
+    """A single cached HTTP response with its metadata."""
+
+    namespace: str
+    """Cache namespace (e.g., `pypi`, `github-releases`)."""
+
+    key: str
+    """Cache key within the namespace (e.g., `requests`, `astral-sh/ruff`)."""
+
+    kind: ClassVar[str] = "http"
+    subdir: ClassVar[str] = "http"
+    scope_option: ClassVar[str] = "namespace"
+
+    @classmethod
+    def from_path(cls, path: Path, root: Path) -> Self | None:
+        """Read ``{namespace}/{key}.json``, where the key can hold slashes."""
+        parts = path.relative_to(root).parts
+        if len(parts) < 2 or path.suffix != ".json":
+            return None
+        stat = path.stat()
+        return cls(
+            path=path,
+            size=stat.st_size,
+            mtime=stat.st_mtime,
+            namespace=parts[0],
+            key="/".join(parts[1:]).removesuffix(".json"),
+        )
+
+    @property
+    def scope(self) -> str:
+        return self.namespace
+
+    @property
+    def detail(self) -> str:
+        return self.key
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConfigCacheEntry(CachedFile):
+    """A single cached tool configuration file with its metadata."""
+
+    tool: str
+    """Tool name (registry key)."""
+
+    digest: str
+    """Start of the SHA-256 of the content, which names the entry."""
+
+    filename: str
+    """Config filename (e.g., `yamllint.yaml`, `biome.json`)."""
+
+    kind: ClassVar[str] = "config"
+    subdir: ClassVar[str] = "config"
+    scope_option: ClassVar[str] = "tool"
+
+    @classmethod
+    def from_path(cls, path: Path, root: Path) -> Self | None:
+        """Read ``{tool}/{digest}/{filename}``.
+
+        A file directly in the tool directory, with no digest level, is still
+        an entry: the clean has to reach it.
+        """
+        parts = path.relative_to(root).parts
+        if len(parts) not in (2, 3):
+            return None
+        stat = path.stat()
+        return cls(
+            path=path,
+            size=stat.st_size,
+            mtime=stat.st_mtime,
+            tool=parts[0],
+            digest=parts[1] if len(parts) == 3 else "",
+            filename=parts[-1],
+        )
+
+    @property
+    def scope(self) -> str:
+        return self.tool
+
+    @property
+    def detail(self) -> str:
+        return f"{self.filename} ({self.digest})" if self.digest else self.filename
+
+
+CACHE_KINDS: tuple[type[CachedFile], ...] = (
+    BinaryCacheEntry,
+    HttpCacheEntry,
+    ConfigCacheEntry,
+)
+"""Every cache, in the order `repomatic cache show` lists them."""
 
 
 def cached_binary_path(
@@ -273,17 +444,7 @@ def cached_binary_path(
     :param executable: Executable filename.
     :return: Absolute path where the binary would be cached.
     """
-    return _bin_dir() / name / version / platform_key / executable
-
-
-SIDECAR_SUFFIX = ".sha256"
-"""Suffix of the digest sidecar stored beside each cached binary.
-
-Part of the binary cache's on-disk layout: the listers skip sidecars and the
-purger removes them along with their entry. Computing, writing, and verifying
-the digest itself stays with the caller (`tool_runner`), per the module note
-above.
-"""
+    return BinaryCacheEntry.root() / name / version / platform_key / executable
 
 
 def binary_sidecar_path(binary_path: Path) -> Path:
@@ -363,71 +524,6 @@ def store_binary(
     return dest
 
 
-def cache_info() -> list[CacheEntry]:
-    """List all cached binaries.
-
-    The `bin/` layout is fixed at four levels
-    (``{tool}/{version}/{platform}/{executable}``), so one glob walks it and
-    the identity fields read straight off each path's ancestry.
-
-    :return: List of {class}`CacheEntry` instances, sorted by tool name then
-        version.
-    """
-    bin_root = _bin_dir()
-    if not bin_root.is_dir():
-        return []
-
-    entries: list[CacheEntry] = []
-    for binary in sorted(bin_root.glob("*/*/*/*")):
-        # Skip stray directories and digest sidecar files.
-        if not binary.is_file() or binary.name.endswith(SIDECAR_SUFFIX):
-            continue
-        stat = binary.stat()
-        entries.append(
-            CacheEntry(
-                tool=binary.parents[2].name,
-                version=binary.parents[1].name,
-                platform=binary.parent.name,
-                executable=binary.name,
-                size=stat.st_size,
-                path=binary,
-                mtime=stat.st_mtime,
-            )
-        )
-    return entries
-
-
-def clear_cache(
-    tool: str | None = None,
-    max_age_days: int | None = None,
-) -> tuple[int, int]:
-    """Remove cached binaries.
-
-    :param tool: If set, only remove entries for this tool. Otherwise remove
-        all cached binaries.
-    :param max_age_days: If set, only remove entries with mtime older than
-        this many days. Otherwise remove all matching entries.
-    :return: Tuple of (files_deleted, bytes_freed).
-    """
-    return _clear_subtree(
-        cache_info(),
-        _bin_dir(),
-        scope=tool,
-        max_age_days=max_age_days,
-        sidecars=True,
-    )
-
-
-# ---------------------------------------------------------------------------
-# HTTP response cache
-# ---------------------------------------------------------------------------
-
-
-def _http_dir() -> Path:
-    """Return the `http/` subdirectory under the cache root."""
-    return cache_dir() / "http"
-
-
 def get_cached_response(
     namespace: str,
     key: str,
@@ -444,7 +540,7 @@ def get_cached_response(
     """
     if max_age_seconds <= 0:
         return None
-    path = _http_dir() / namespace / f"{key}.json"
+    path = HttpCacheEntry.root() / namespace / f"{key}.json"
     if not path.is_file():
         return None
     age = time.time() - path.stat().st_mtime
@@ -473,7 +569,7 @@ def store_response(
     :return: Path to the cached response file, or `None` if the write
         failed (permissions, read-only filesystem, sandbox restrictions).
     """
-    dest = _http_dir() / namespace / f"{key}.json"
+    dest = HttpCacheEntry.root() / namespace / f"{key}.json"
     try:
         atomic_write(dest, ".response.", lambda tmp_path: tmp_path.write_bytes(data))
     except OSError:
@@ -485,70 +581,6 @@ def store_response(
     return dest
 
 
-def http_cache_info() -> list[HttpCacheEntry]:
-    """List all cached HTTP responses.
-
-    :return: List of {class}`HttpCacheEntry` instances, sorted by namespace
-        then key.
-    """
-    http_root = _http_dir()
-    if not http_root.is_dir():
-        return []
-
-    entries: list[HttpCacheEntry] = []
-    for ns_dir in sorted(http_root.iterdir()):
-        if not ns_dir.is_dir():
-            continue
-        namespace = ns_dir.name
-        for json_file in sorted(ns_dir.rglob("*.json")):
-            if not json_file.is_file():
-                continue
-            # Derive key from relative path minus .json extension.
-            rel = json_file.relative_to(ns_dir)
-            key = str(rel.with_suffix(""))
-            stat = json_file.stat()
-            entries.append(
-                HttpCacheEntry(
-                    namespace=namespace,
-                    key=key,
-                    size=stat.st_size,
-                    path=json_file,
-                    mtime=stat.st_mtime,
-                )
-            )
-    return entries
-
-
-def clear_http_cache(
-    namespace: str | None = None,
-    max_age_days: int | None = None,
-) -> tuple[int, int]:
-    """Remove cached HTTP responses.
-
-    :param namespace: If set, only remove entries in this namespace. Otherwise
-        remove all cached responses.
-    :param max_age_days: If set, only remove entries with mtime older than
-        this many days. Otherwise remove all matching entries.
-    :return: Tuple of (files_deleted, bytes_freed).
-    """
-    return _clear_subtree(
-        http_cache_info(),
-        _http_dir(),
-        scope=namespace,
-        max_age_days=max_age_days,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Config cache
-# ---------------------------------------------------------------------------
-
-
-def _config_dir() -> Path:
-    """Return the `config/` subdirectory under the cache root."""
-    return cache_dir() / "config"
-
-
 def store_config(
     tool_name: str,
     filename: str,
@@ -556,9 +588,10 @@ def store_config(
 ) -> Path | None:
     """Store a generated tool config in the cache atomically.
 
-    Uses the same write-to-temp-then-rename pattern as {func}`store_response`.
-    Does **not** trigger {func}`auto_purge`: config files are tiny and
-    overwritten on every invocation, so age-based pruning is unnecessary.
+    The digest of *content* names the directory of the file, so the same
+    content always lands on the same path, and different content never
+    overwrites it. A run storing a config refreshes its age, which keeps a
+    config in use out of reach of {func}`auto_purge`.
 
     :param tool_name: Tool name (registry key).
     :param filename: Config filename (e.g., `yamllint.yaml`).
@@ -566,7 +599,10 @@ def store_config(
     :return: Path to the cached config file, or `None` if the write
         failed (permissions, read-only filesystem, sandbox restrictions).
     """
-    dest = _config_dir() / tool_name / filename
+    digest = hashlib.sha256(content.encode("UTF-8")).hexdigest()
+    dest = (
+        ConfigCacheEntry.root() / tool_name / digest[:CONFIG_DIGEST_LENGTH] / filename
+    )
     try:
         atomic_write(
             dest,
@@ -578,56 +614,8 @@ def store_config(
         return None
 
     logging.debug(f"Cached config for {tool_name} at {dest}.")
+    auto_purge()
     return dest
-
-
-def config_cache_info() -> list[ConfigCacheEntry]:
-    """List all cached tool configurations.
-
-    :return: List of {class}`ConfigCacheEntry` instances, sorted by tool name.
-    """
-    config_root = _config_dir()
-    if not config_root.is_dir():
-        return []
-
-    entries: list[ConfigCacheEntry] = []
-    for tool_dir in sorted(config_root.iterdir()):
-        if not tool_dir.is_dir():
-            continue
-        for config_file in sorted(tool_dir.iterdir()):
-            if not config_file.is_file():
-                continue
-            stat = config_file.stat()
-            entries.append(
-                ConfigCacheEntry(
-                    tool=tool_dir.name,
-                    filename=config_file.name,
-                    size=stat.st_size,
-                    path=config_file,
-                    mtime=stat.st_mtime,
-                )
-            )
-    return entries
-
-
-def clear_config_cache(
-    tool: str | None = None,
-    max_age_days: int | None = None,
-) -> tuple[int, int]:
-    """Remove cached tool configurations.
-
-    :param tool: If set, only remove entries for this tool. Otherwise remove
-        all cached configurations.
-    :param max_age_days: If set, only remove entries older than this many
-        days, matching {func}`clear_cache` and {func}`clear_http_cache`.
-    :return: Tuple of (files_deleted, bytes_freed).
-    """
-    return _clear_subtree(
-        config_cache_info(),
-        _config_dir(),
-        scope=tool,
-        max_age_days=max_age_days,
-    )
 
 
 def cache_rows() -> tuple[list[tuple[str, str, str, str, str]], int]:
@@ -637,89 +625,40 @@ def cache_rows() -> tuple[list[tuple[str, str, str, str, str]], int]:
     ({meth}`CachedFile.as_row`), so the command stays a print call and a new
     cache kind shows up in the listing by existing.
 
-    :return: `(rows, total_size)`, rows ordered binaries, then HTTP responses,
-        then tool configs.
+    :return: `(rows, total_size)`, rows ordered as {data}`CACHE_KINDS`.
     """
-    entries: list[CachedFile] = [
-        *cache_info(),
-        *http_cache_info(),
-        *config_cache_info(),
-    ]
+    entries = [entry for kind in CACHE_KINDS for entry in kind.entries()]
     return [entry.as_row() for entry in entries], sum(e.size for e in entries)
 
 
-def _clear_subtree(
-    entries: Sequence[CachedFile],
-    root: Path,
+def clean(
     *,
-    scope: str | None,
-    max_age_days: int | None,
-    sidecars: bool = False,
+    tool: str | None = None,
+    namespace: str | None = None,
+    max_age_days: int | None = None,
 ) -> tuple[int, int]:
-    """Remove the entries of one cache subtree, honoring both filters.
+    """Remove cached entries, as `repomatic cache clean` selects them.
 
-    The shared body of {func}`clear_cache`, {func}`clear_http_cache` and
-    {func}`clear_config_cache`, which differ only in the subtree they walk and
-    the name their scope filter goes by on the command line.
+    A scope filter reaches only the caches it applies to: *tool* narrows the
+    binary and config caches and leaves HTTP responses alone, *namespace* the
+    reverse. With neither filter, every cache is cleaned.
 
-    :param entries: Candidate entries, from that cache's `*_cache_info()`.
-    :param root: The subtree they live in. A missing one clears nothing.
-    :param scope: Keep entries whose {attr}`~CachedFile.scope` differs. `None`
-        selects every entry.
-    :param max_age_days: Keep entries younger than this. `None` selects every
-        entry.
-    :param sidecars: Also remove each entry's `.sha256` sidecar.
-    :return: Tuple of (files_deleted, bytes_freed).
+    :param tool: Only remove the binary and config entries of this tool.
+    :param namespace: Only remove the HTTP responses of this namespace.
+    :param max_age_days: Only remove entries older than this many days.
+    :return: Tuple of (files_deleted, bytes_freed) over every cache cleaned.
     """
-    if not root.is_dir():
-        return 0, 0
-    return _purge(
-        entries,
-        root,
-        keep=lambda entry: (
-            (scope is not None and entry.scope != scope) or entry.is_fresh(max_age_days)
-        ),
-        sidecars=sidecars,
-    )
-
-
-def _purge(
-    entries: Sequence[CachedFile],
-    root: Path,
-    *,
-    keep: Callable[[CachedFile], bool],
-    sidecars: bool = False,
-) -> tuple[int, int]:
-    """Delete the cache *entries* not spared by the *keep* predicate.
-
-    Shared delete loop behind {func}`clear_cache`, {func}`clear_http_cache`,
-    and {func}`clear_config_cache`. Empty parent directories under *root* are
-    pruned afterwards.
-
-    :param entries: Candidate entries from one of the `*_cache_info()` listers.
-    :param root: The cache subtree the entries live in.
-    :param keep: Entries for which this returns `True` are left untouched.
-    :param sidecars: Also remove each entry's `.sha256` sidecar (binary cache).
-    :return: Tuple of (files_deleted, bytes_freed).
-    """
+    scopes = {"tool": tool, "namespace": namespace}
+    scoped = any(scope is not None for scope in scopes.values())
     files_deleted = 0
     bytes_freed = 0
-    for entry in entries:
-        if keep(entry):
+    for kind in CACHE_KINDS:
+        scope = scopes[kind.scope_option]
+        if scoped and scope is None:
             continue
-        logging.debug(f"Purging cache entry: {entry.path}")
-        try:
-            bytes_freed += entry.size
-            entry.path.unlink()
-            if sidecars:
-                sidecar = binary_sidecar_path(entry.path)
-                if sidecar.is_file():
-                    sidecar.unlink()
-            files_deleted += 1
-        except OSError:
-            logging.debug(f"Failed to remove {entry.path}.")
-
-    _prune_empty_dirs(root)
+        deleted, freed = kind.clear(scope=scope, max_age_days=max_age_days)
+        files_deleted += deleted
+        bytes_freed += freed
     return files_deleted, bytes_freed
 
 
@@ -768,22 +707,21 @@ def _max_age_days() -> int:
 _PURGED_ROOTS: set[Path] = set()
 """Cache roots already swept by {func}`auto_purge` in this process.
 
-Every {func}`store_response` triggers a purge, and a dependency sweep stores
-hundreds of responses per run: without the guard each store re-walks the whole
-binary and HTTP subtrees to re-delete nothing. One sweep per root per process
-is enough, since entries only age on the scale of days.
+Every store triggers a purge, and a dependency sweep stores hundreds of
+responses per run: without the guard each store re-walks every subtree to
+re-delete nothing. One sweep per root per process is enough, since entries
+only age on the scale of days.
 """
 
 
 def auto_purge() -> None:
     """Remove cached entries older than the configured TTL.
 
-    Called automatically after {func}`store_binary` and
-    {func}`store_response`, and runs at most once per cache root per process
-    (see `_PURGED_ROOTS`). Purges both binary and HTTP cache entries.
-    Resolves the TTL from `REPOMATIC_CACHE_MAX_AGE` env var, then
-    `cache.max-age` in `[tool.repomatic]`, then the
-    `CacheConfig.max_age` field default. Set to `0` to disable.
+    Called automatically after every store, and runs at most once per cache
+    root per process (see `_PURGED_ROOTS`). Purges every cache. Resolves the
+    TTL from `REPOMATIC_CACHE_MAX_AGE` env var, then `cache.max-age` in
+    `[tool.repomatic]`, then the `CacheConfig.max_age` field default. Set to
+    `0` to disable.
     """
     root = cache_dir()
     if root in _PURGED_ROOTS:
@@ -792,11 +730,6 @@ def auto_purge() -> None:
     days = _max_age_days()
     if days <= 0:
         return
-    bin_deleted, bin_freed = clear_cache(max_age_days=days)
-    http_deleted, http_freed = clear_http_cache(max_age_days=days)
-    total_deleted = bin_deleted + http_deleted
-    total_freed = bin_freed + http_freed
-    if total_deleted:
-        logging.debug(
-            f"Auto-purged {total_deleted} cached entry(ies), freed {total_freed} bytes."
-        )
+    deleted, freed = clean(max_age_days=days)
+    if deleted:
+        logging.debug(f"Auto-purged {deleted} cached entry(ies), freed {freed} bytes.")

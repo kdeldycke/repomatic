@@ -59,16 +59,14 @@ _HEALTHY_INDICATOR = "none"
 
 @dataclass(frozen=True)
 class GitHubStatus:
-    """Snapshot of the [githubstatus.com](https://www.githubstatus.com) summary.
-
-    :param indicator: One of `none`, `minor`, `major`, `critical`,
-        `maintenance`.
-    :param description: Human-readable summary (like `All Systems Operational`
-        or `Partial System Outage`).
-    """
+    """Snapshot of the [githubstatus.com](https://www.githubstatus.com) summary."""
 
     indicator: str
+    """One of `none`, `minor`, `major`, `critical`, `maintenance`."""
+
     description: str
+    """Human-readable summary, like `All Systems Operational` or `Partial System
+    Outage`."""
 
     @property
     def is_incident(self) -> bool:
@@ -132,9 +130,9 @@ def with_status_annotation(msg: str, *, sep: str = " ") -> str:
     """Append the incident annotation to *msg* when one is active.
 
     Returns *msg* unchanged when GitHub reports healthy or the probe fails, so
-    callers can wrap any diagnostic without branching. The separator is
-    load-bearing: the PAT probes annotate inline, while the `gh` wrapper puts
-    the annotation on its own line under a multi-line stderr.
+    callers can wrap any diagnostic without branching. The separator differs
+    per caller: the PAT probes annotate inline, while the `gh` wrapper puts the
+    annotation on its own line under a multi-line stderr.
     """
     annotation = status_annotation()
     if annotation:

@@ -45,16 +45,15 @@ from pathlib import Path
 import pytest
 
 from repomatic.bundle import get_data_content
-from repomatic.components import (
-    COMPONENTS_BY_NAME,
+from repomatic.components import COMPONENTS_BY_NAME, SKILL_FILENAME, _skill_dir
+from repomatic.frontmatter import split_frontmatter
+from repomatic.init.run import _copy_template_tree
+from repomatic.skills import (
     RECOMMENDED_MODEL_RE,
-    SKILL_FILENAME,
-    _skill_dir,
+    SKILL_PHASE_ORDER,
     skill_catalog,
     skill_launcher,
 )
-from repomatic.frontmatter import split_frontmatter
-from repomatic.init_project import _copy_template_tree
 
 SKILLS_PAGE = Path(__file__).parent.parent / "docs" / "agent-skills.md"
 """The hand-maintained page whose table must mirror the skill registry."""
@@ -352,3 +351,15 @@ def test_skill_launcher_passes_arguments_through():
     assert skill_launcher("repomatic-upgrade", "v7.14.0", "v7.15.0") == (
         "claude --model opus '/repomatic-upgrade v7.14.0 v7.15.0'"
     )
+
+
+def test_skill_catalog_follows_the_phase_order():
+    """The catalog lists the skills in lifecycle order, Setup first."""
+    phases = [phase for phase, _name, _description in skill_catalog()]
+    assert phases == sorted(phases, key=SKILL_PHASE_ORDER.index)
+
+
+def test_skill_launcher_rejects_an_unknown_skill():
+    """A launcher for a skill the registry does not ship is a mistake."""
+    with pytest.raises(KeyError, match="papaya-report"):
+        skill_launcher("papaya-report")

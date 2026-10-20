@@ -17,54 +17,145 @@
 """Git commit-range logic of {class}`~repomatic.metadata.core.Metadata`.
 
 Resolves the commit range an event bundles, the release commits inside it,
-what those commits changed, and the per-commit matrices built by rewinding
-the checkout. This is the one concern that can touch the repository state,
-always restoring it (see `_restored_worktree`).
+what those commits changed, and the per-commit matrices. Every read goes
+through the git object store, so the checkout and the working tree never
+move.
 """
 
 from __future__ import annotations
 
 import logging
-import subprocess
-from contextlib import contextmanager, nullcontext
 from functools import cached_property
+from pathlib import Path
 
-from extra_platforms import is_github_ci
+import tomlrt
 
 from ..git_ops import (
-    MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
-    RELEASE_COMMIT_PATTERN,
+    NULL_SHA,
     SHORT_SHA_LENGTH,
     Commit,
-    checkout,
-    commit_exists,
-    count_commits,
-    current_branch,
+    GitError,
+    deepen_until_related,
     diff_names,
-    fetch_deepen,
+    fetch_commit,
     get_commit,
     head_sha,
     list_commits,
-    stash,
-    stash_count,
-    stash_pop,
+    show_file,
 )
-from ..github.actions import (
-    NULL_SHA,
-    WorkflowEvent,
-)
+from ..github.actions import WorkflowEvent
 from ..matrix.model import Matrix
-from ..release.binary import (
+from ..pyproject import resolve_source_paths
+from ..release.protocol import (
     BINARY_AFFECTING_PATHS,
+    MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
+    RELEASE_COMMIT_PATTERN,
     SKIP_BINARY_BUILD_BRANCHES,
 )
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Generator, Sequence
-    from contextlib import AbstractContextManager
-    from pathlib import Path
-    from typing import Any
+    from collections.abc import Iterable, Sequence
+    from typing import Any, Final
+
+    from ..config import Config
+    from ..file_inventory import FileInventory
+
+
+BUMPVERSION_SOURCES: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
+    (".bumpversion.toml", ()),
+    ("pyproject.toml", ("tool", "bumpversion")),
+)
+"""Files bump-my-version reads `current_version` from, in lookup order.
+
+Each file comes with the path of the table holding the key: the top level of
+`.bumpversion.toml`, `[tool.bumpversion]` of `pyproject.toml`.
+"""
+
+
+def version_at(ref: str) -> str | None:
+    """Return the version bump-my-version manages, as committed at *ref*.
+
+    Reads {data}`BUMPVERSION_SOURCES` from the object store, so a past commit
+    is read without a checkout. A file that is absent at *ref*, or does not
+    parse, is skipped like a file without the key.
+
+    :param ref: The commit to read.
+    :return: The `current_version` value, or `None` when no source holds one.
+    """
+    for filename, table_path in BUMPVERSION_SOURCES:
+        content = show_file(ref, filename)
+        if content is None:
+            continue
+        try:
+            table: Any = tomlrt.loads(content)
+        except tomlrt.TOMLParseError:
+            logging.debug(f"{filename} does not parse at {ref}.")
+            continue
+        for key in table_path:
+            table = table.get(key)
+            if not isinstance(table, dict):
+                break
+        else:
+            version = table.get("current_version")
+            if version is not None:
+                return str(version)
+    return None
+
+
+def commit_matrix(shas: Sequence[str] | None) -> Matrix | None:
+    """Pre-compute a matrix of commits, in the order given.
+
+    Each entry carries the long and short SHA, and the version the commit
+    declares, read by {func}`version_at`. Returns a ready-to-use matrix
+    structure:
+
+    ```{code-block} python
+    {
+        "commit": [
+            "346ce664f055fbd042a25ee0b7e96702e95",
+            "6f27db47612aaee06fdf08744b09a9f5f6c2",
+        ],
+        "include": [
+            {
+                "commit": "346ce664f055fbd042a25ee0b7e96702e95",
+                "short_sha": "346ce66",
+                "current_version": "2.0.1",
+            },
+            {
+                "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
+                "short_sha": "6f27db4",
+                "current_version": "2.0.0",
+            },
+        ],
+    }
+    ```
+
+    :param shas: Full commit SHAs.
+    :return: The matrix, or `None` when *shas* is empty.
+    """
+    if not shas:
+        return None
+    matrix = Matrix()
+    for sha in shas:
+        entry = {"commit": sha, "short_sha": sha[:SHORT_SHA_LENGTH]}
+        version = version_at(sha)
+        if version:
+            entry["current_version"] = version
+        matrix.add_variation("commit", [sha])
+        matrix.add_includes(entry)
+    return matrix
+
+
+def _touches(changed: Iterable[str], files: Iterable[Path]) -> bool:
+    """Whether one of the *changed* paths is one of *files*.
+
+    `git diff` names files as repository-relative strings, while the file
+    inventory holds `Path` objects: each name is converted before the lookup,
+    since a string never equals a `Path`.
+    """
+    known = frozenset(files)
+    return any(Path(name) in known for name in changed)
 
 
 class GitMetadata:
@@ -80,12 +171,16 @@ class GitMetadata:
         # class) defines, so every concern type-checks on its own.
 
         @cached_property
+        def config(self) -> Config:
+            """See {class}`~repomatic.metadata.project.ProjectMetadata`."""
+
+        @cached_property
         def event_type(self) -> WorkflowEvent | None:
             """See {class}`~repomatic.metadata.env.EnvironmentMetadata`."""
 
-        @staticmethod
-        def get_current_version() -> str | None:
-            """See {class}`~repomatic.metadata.project.ProjectMetadata`."""
+        @cached_property
+        def files(self) -> FileInventory:
+            """See {class}`~repomatic.metadata.core.Metadata`."""
 
         @cached_property
         def github_event(self) -> dict[str, Any]:
@@ -96,6 +191,10 @@ class GitMetadata:
             """See {class}`~repomatic.metadata.env.EnvironmentMetadata`."""
 
         @cached_property
+        def pyproject_toml(self) -> dict[str, Any]:
+            """See {class}`~repomatic.metadata.project.ProjectMetadata`."""
+
+        @cached_property
         def script_entries(self) -> list[tuple[str, str, str]]:
             """See {class}`~repomatic.metadata.project.ProjectMetadata`."""
 
@@ -103,220 +202,33 @@ class GitMetadata:
         def sha(self) -> str | None:
             """See {class}`~repomatic.metadata.env.EnvironmentMetadata`."""
 
-        @cached_property
-        def workflow_files(self) -> list[Path]:
-            """See {class}`~repomatic.metadata.core.Metadata`."""
-
-        @cached_property
-        def yaml_files(self) -> list[Path]:
-            """See {class}`~repomatic.metadata.core.Metadata`."""
-
-        @cached_property
-        def zsh_files(self) -> list[Path]:
-            """See {class}`~repomatic.metadata.core.Metadata`."""
-
-    def git_stash_count(self) -> int:
-        """Returns the number of stashes."""
-        count = stash_count()
-        logging.debug(f"Number of stashes in repository: {count}")
-        return count
-
-    def git_deepen(
-        self, commit_hash: str, max_attempts: int = 10, deepen_increment: int = 50
-    ) -> bool:
-        """Deepen a shallow clone until the provided `commit_hash` is found.
-
-        Progressively fetches more commits from the current repository until the
-        specified commit is found or max attempts is reached.
-
-        Returns `True` if the commit was found, `False` otherwise.
-        """
-        # Cache the current depth to avoid repeated subprocess calls.
-        current_depth: int | None = None
-
-        for attempt in range(max_attempts):
-            if commit_exists(commit_hash):
-                if attempt > 0:
-                    logging.info(
-                        f"Found commit {commit_hash} after {attempt} deepen "
-                        "operation(s)."
-                    )
-                return True
-
-            logging.debug(f"Commit {commit_hash} not found.")
-
-            # Only compute depth if not cached yet.
-            if current_depth is None:
-                current_depth = count_commits()
-
-            if attempt == max_attempts - 1:
-                # We've exhausted all attempts.
-                logging.error(
-                    f"Cannot find commit {commit_hash} in repository after "
-                    f"{max_attempts} deepen attempts. "
-                    f"Final depth is {current_depth} commits."
-                )
-                return False
-
-            logging.info(f"Commit {commit_hash} not found at depth {current_depth}.")
-            logging.info(
-                f"Deepening by {deepen_increment} commits (attempt "
-                f"{attempt + 1}/{max_attempts})..."
-            )
-
-            try:
-                fetch_deepen(deepen_increment)
-            except subprocess.CalledProcessError as ex:
-                logging.error(f"Failed to deepen repository: {ex}")
-                return False
-            # Update cached depth after successful fetch.
-            current_depth = count_commits()
-            logging.debug(
-                f"Repository deepened successfully. New depth: {current_depth}"
-            )
-
-        return False
-
-    @contextmanager
-    def _restored_worktree(self) -> Generator[None, None, None]:
-        """Save the repository state, and restore it however the body exits.
-
-        Stashes any local changes and records the initial ref (the canonical
-        active branch name, like `main`, or the HEAD SHA when detached), then
-        checks out and unstashes on the way out, exception included: a
-        `checkout()` raising mid-scan must not leave the repository on a past
-        commit with the user's changes still stashed.
-
-        :raises RuntimeError: Outside a CI environment, where rewinding a
-            developer's checkout is never worth the metadata.
-        """
-        if not is_github_ci():
-            raise RuntimeError(
-                "Local repository manipulations only allowed in CI environment"
-            )
-        init_ref = current_branch() or head_sha()
-        logging.debug(f"Initial commit reference: {init_ref}")
-
-        counter_before = self.git_stash_count()
-        logging.debug("Try to stash local changes before our series of checkouts.")
-        stash()
-        counter_after = self.git_stash_count()
-        logging.debug(
-            "Stash counter changes after 'git stash' command: "
-            f"{counter_before} -> {counter_after}"
-        )
-        assert counter_after >= counter_before
-        need_unstash = counter_after > counter_before
-        logging.debug(f"Need to unstash after checkouts: {need_unstash}")
-        try:
-            yield
-        finally:
-            logging.debug(f"Restore repository to {init_ref}.")
-            checkout(init_ref)
-            if need_unstash:
-                logging.debug("Unstash local changes that were previously saved.")
-                stash_pop()
-
-    def commit_matrix(self, commits: Sequence[Commit] | None) -> Matrix | None:
-        """Pre-compute a matrix of commits.
-
-        ```{danger}
-        This method temporarily modifies the state of the repository to
-        compute version metadata from the past.
-
-        To prevent any loss of uncommitted data, it stashes local changes
-        before its checkouts and restores the initial state however the scan
-        exits, through `_restored_worktree`.
-        ```
-
-        The list of commits is augmented with long and short SHA values, as well as
-        current version. Most recent commit is first, oldest is last.
-
-        Returns a ready-to-use matrix structure:
-
-        ```{code-block} python
-        {
-            "commit": [
-                "346ce664f055fbd042a25ee0b7e96702e95",
-                "6f27db47612aaee06fdf08744b09a9f5f6c2",
-            ],
-            "include": [
-                {
-                    "commit": "346ce664f055fbd042a25ee0b7e96702e95",
-                    "short_sha": "346ce66",
-                    "current_version": "2.0.1",
-                },
-                {
-                    "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
-                    "short_sha": "6f27db4",
-                    "current_version": "2.0.0",
-                },
-            ],
-        }
-        ```
-        """
-        if not commits:
-            return None
-
-        current_commit = head_sha()
-
-        # Whether we must go back in time in the git log and browse past
-        # commits: always with several commits, and with a single one only
-        # when HEAD is not already sitting on it.
-        past_commit_lookup = len(commits) > 1 or current_commit != commits[0].hash
-        restore: AbstractContextManager[None]
-        if past_commit_lookup:
-            logging.debug(
-                "We need to look into the commit history. Inspect the initial state "
-                "of the repository."
-            )
-            restore = self._restored_worktree()
-        else:
-            logging.debug(
-                "No need to look into the commit history: repository is already "
-                f"checked out at {current_commit}"
-            )
-            restore = nullcontext()
-
-        matrix = Matrix()
-        with restore:
-            for commit in commits:
-                if past_commit_lookup:
-                    logging.debug(f"Checkout to commit {commit.hash}")
-                    checkout(commit.hash)
-
-                commit_metadata = {
-                    "commit": commit.hash,
-                    "short_sha": commit.hash[:SHORT_SHA_LENGTH],
-                }
-
-                logging.debug(f"Extract project version at commit {commit.hash}")
-                current_version = self.get_current_version()
-                if current_version:
-                    commit_metadata["current_version"] = current_version
-
-                matrix.add_variation("commit", [commit.hash])
-                matrix.add_includes(commit_metadata)
-
-        return matrix
-
     @cached_property
     def changed_files(self) -> tuple[str, ...] | None:
-        """Returns the list of files changed in the current event's commit range.
+        """Returns the files changed in the current event's commit range.
 
-        Uses `git diff --name-only` between the start and end of the commit range.
-        Returns `None` if no commit range is available (e.g., outside CI).
+        Diffs the trees of the two ends of {attr}`commit_range`. An end that is
+        missing from a shallow clone is fetched first, on its own: the diff
+        needs that commit's tree, not the history in between.
+
+        Returns `None` when the range is unknown: outside CI, on a push that
+        creates a branch or a tag (its start is
+        {data}`~repomatic.git_ops.NULL_SHA`), or when git cannot produce an
+        end of the range.
         """
         if not self.commit_range:
             return None
         start, end = self.commit_range
-        if not start or not end:
+        if not start or not end or start == NULL_SHA:
             return None
         try:
+            if not (fetch_commit(start) and fetch_commit(end)):
+                logging.warning(
+                    f"Cannot fetch {start} or {end}: changed files are unknown."
+                )
+                return None
             return diff_names(start, end)
-        except subprocess.CalledProcessError as ex:
-            detail = ex.stderr.strip() if ex.stderr else ex
-            logging.warning(f"Failed to get changed files from git diff: {detail}")
+        except GitError as error:
+            logging.warning(f"Failed to get changed files from git diff: {error}")
             return None
 
     @cached_property
@@ -324,21 +236,28 @@ class GitMetadata:
         """Path prefixes that affect compiled binaries for this project.
 
         Combines the static
-        {data}`~repomatic.release.binary.BINARY_AFFECTING_PATHS` (common files
-        like `pyproject.toml`, `uv.lock`, `tests/`) with project-specific source
-        directories derived from `[project.scripts]` in `pyproject.toml`.
+        {data}`~repomatic.release.protocol.BINARY_AFFECTING_PATHS` (common
+        files like `pyproject.toml`, `uv.lock`, `tests/`) with the project's
+        source directories, from two places:
 
-        For example, a project with `mpm = "meta_package_manager.__main__:main"`
-        adds `meta_package_manager/` as an affecting path. This makes the check
-        reusable across downstream repositories without hardcoding source directories.
+        - The top-level package of each `[project.scripts]` entry point. A
+          project with `mpm = "meta_package_manager.__main__:main"` adds
+          `meta_package_manager/`.
+        - The `[tool.repomatic] workflow.source-paths` directories, or the
+          import name they default to. This is what covers a `src/` layout,
+          whose package does not sit at the root the entry point names.
+
+        This makes the check reusable across downstream repositories without
+        hardcoding source directories.
         """
-        # Derive top-level source package directories from script entry points.
-        source_dirs: set[str] = set()
-        for _cli_id, module_id, _callable_id in self.script_entries:
-            # Extract top-level package: "meta_package_manager.__main__" →
-            # "meta_package_manager/".
-            top_package = module_id.split(".")[0]
-            source_dirs.add(f"{top_package}/")
+        source_dirs = {
+            f"{module_id.split('.')[0]}/"
+            for _cli_id, module_id, _callable_id in self.script_entries
+        }
+        source_dirs.update(
+            f"{path.strip('/')}/"
+            for path in resolve_source_paths(self.config, self.pyproject_toml) or ()
+        )
         return BINARY_AFFECTING_PATHS + tuple(sorted(source_dirs))
 
     @cached_property
@@ -362,7 +281,7 @@ class GitMetadata:
         existing behavior of those manual runs.
         """
         if self.changed_files is None:
-            return bool(self.yaml_files)
+            return bool(self.files.yaml_files)
         return any(f.endswith((".yaml", ".yml")) for f in self.changed_files)
 
     @cached_property
@@ -374,9 +293,8 @@ class GitMetadata:
         is unavailable.
         """
         if self.changed_files is None:
-            return bool(self.zsh_files)
-        zsh_set = set(self.zsh_files)
-        return any(f in zsh_set for f in self.changed_files)
+            return bool(self.files.zsh_files)
+        return _touches(self.changed_files, self.files.zsh_files)
 
     @cached_property
     def workflows_changed(self) -> bool:
@@ -387,9 +305,8 @@ class GitMetadata:
         range is unavailable.
         """
         if self.changed_files is None:
-            return bool(self.workflow_files)
-        wf_set = set(self.workflow_files)
-        return any(f in wf_set for f in self.changed_files)
+            return bool(self.files.workflow_files)
+        return _touches(self.changed_files, self.files.workflow_files)
 
     @cached_property
     def skip_binary_build(self) -> bool:
@@ -401,9 +318,9 @@ class GitMetadata:
 
         Three mechanisms are checked:
 
-        1. **Branch name** — PRs from known non-code branches (documentation,
+        1. **Branch name**: PRs from known non-code branches (documentation,
            `.mailmap`, `.gitignore`, etc.) are skipped.
-        2. **Version-bump commit** — Push events whose head commit is a
+        2. **Version-bump commit**: Push events whose head commit is a
            user-initiated version bump (`Bump (major|minor) version to `)
            are skipped: the bump merge changes only version strings and
            `uv.lock`, so the new binary differs from the previous one only
@@ -412,7 +329,7 @@ class GitMetadata:
            checked here: the `prepare-release` merge bundles the release
            commit with the post-release-bump commit, and the release
            commit must still produce its binary.
-        3. **Changed files** — Push events where all changed files fall outside
+        3. **Changed files**: Push events where all changed files fall outside
            {attr}`binary_affecting_paths` are skipped. This avoids ~2h of Nuitka
            builds for documentation-only commits to `main`.
         """
@@ -466,8 +383,8 @@ class GitMetadata:
 
         This is critical for releases where two commits are pushed together:
 
-        1. `[changelog] Release vX.Y.Z` — the release commit
-        2. `[changelog] Post-release bump vX.Y.Z → vX.Y.Z` — the post-release bump
+        1. `[changelog] Release vX.Y.Z`: the release commit
+        2. `[changelog] Post-release bump vX.Y.Z → vX.Y.Z`: the post-release bump
 
         Without extracting the full commit range, the release commit would be missed
         since `github.event.head_commit` only exposes the post-release bump.
@@ -514,18 +431,9 @@ class GitMetadata:
         return start, end
 
     @cached_property
-    def current_commit(self) -> Commit:
-        """Returns the current `Commit` object.
-
-        Raises if `HEAD` cannot be resolved (an empty repository), mirroring the
-        previous behavior where traversing an empty history raised too.
-        """
-        return get_commit("HEAD")
-
-    @cached_property
     def current_commit_matrix(self) -> Matrix | None:
         """Pre-computed matrix with long and short SHA values of the current commit."""
-        return self.commit_matrix((self.current_commit,))
+        return commit_matrix((head_sha(),))
 
     @cached_property
     def new_commits(self) -> tuple[Commit, ...] | None:
@@ -536,59 +444,64 @@ class GitMetadata:
         post-release bump commit, allowing downstream jobs to process each one.
 
         Commits are returned in chronological order (oldest first, most recent last).
+
+        A shallow clone is completed as far as the range needs: both ends are
+        fetched, then the clone is deepened until they share history. See
+        {func}`~repomatic.git_ops.deepen_until_related` for why both ends
+        being present is not enough.
         """
         if not self.commit_range:
             return None
         start, end = self.commit_range
 
-        # Treat the null SHA as no start commit. GitHub sends this value when a tag is
-        # created, since there is no previous commit to compare against.
+        # Treat the null SHA as no start commit. GitHub sends this value when a
+        # branch or a tag is created, since there is no previous commit.
         if start == NULL_SHA:
             logging.info(
                 f"Start commit is null SHA ({NULL_SHA}), treating as no start commit."
             )
             start = None
 
-        # Every branch below shells out to git, so mirror `changed_files`: a git
-        # failure (a compiled binary run over a checkout git rejects as "dubious
-        # ownership", a shallow clone that cannot be deepened) degrades to "range
-        # unknown" instead of crashing the whole `metadata` command.
+        # A git failure (a compiled binary run over a checkout git rejects as
+        # "dubious ownership", a remote that cannot be reached) degrades to
+        # "range unknown" instead of crashing the whole `metadata` command.
         try:
-            # Sanity check: make sure both ends of the range exist in the repository.
-            # Even though `start..end` excludes `start` from the result, git still
-            # needs `start` present locally to resolve the range and walk history.
-            for commit_id in (start, end):
-                if not commit_id:
-                    continue
-
-                if not self.git_deepen(commit_id):
-                    logging.warning(
-                        "Skipping metadata extraction of the range of new commits."
-                    )
-                    return None
+            if not end or not fetch_commit(end):
+                logging.warning(
+                    "Skipping metadata extraction of the range of new commits."
+                )
+                return None
 
             if not start:
                 logging.warning("No start commit found. Only one commit in range.")
-                assert end
                 return (get_commit(end),)
+
+            if not (fetch_commit(start) and deepen_until_related(start, end)):
+                logging.warning(
+                    "Skipping metadata extraction of the range of new commits."
+                )
+                return None
 
             # The `start..end` range already excludes `start`, so every returned
             # commit is a new one, in chronological order (oldest first).
             return list_commits(start, end)
-        except subprocess.CalledProcessError as ex:
-            detail = ex.stderr.strip() if ex.stderr else ex
-            logging.warning(f"git failed while resolving new commits: {detail}")
+        except GitError as error:
+            logging.warning(f"git failed while resolving new commits: {error}")
             return None
 
     @cached_property
     def new_commits_matrix(self) -> Matrix | None:
         """Pre-computed matrix with long and short SHA values of new commits."""
-        return self.commit_matrix(self.new_commits)
+        if not self.new_commits:
+            return None
+        return commit_matrix(tuple(commit.hash for commit in self.new_commits))
 
     @cached_property
     def new_commits_hash(self) -> tuple[str, ...] | None:
         """List all hashes of new commits."""
-        return self.new_commits_matrix["commit"] if self.new_commits_matrix else None
+        if not self.new_commits:
+            return None
+        return tuple(commit.hash for commit in self.new_commits)
 
     @cached_property
     def release_commits(self) -> tuple[Commit, ...] | None:
@@ -622,13 +535,13 @@ class GitMetadata:
     @cached_property
     def release_commits_matrix(self) -> Matrix | None:
         """Pre-computed matrix with long and short SHA values of release commits."""
-        return self.commit_matrix(self.release_commits)
+        if not self.release_commits:
+            return None
+        return commit_matrix(tuple(commit.hash for commit in self.release_commits))
 
     @cached_property
     def release_commits_hash(self) -> tuple[str, ...] | None:
         """List all hashes of release commits."""
-        return (
-            self.release_commits_matrix["commit"]
-            if self.release_commits_matrix
-            else None
-        )
+        if not self.release_commits:
+            return None
+        return tuple(commit.hash for commit in self.release_commits)

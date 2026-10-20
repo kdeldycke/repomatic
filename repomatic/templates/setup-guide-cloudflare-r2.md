@@ -1,6 +1,6 @@
 ---
 args: [bucket, domain, repo_slug, token_name]
-footer: 'false'
+footer: false
 ---
 
 `[tool.repomatic] site.cloudflare-r2-bucket` is `$bucket`, so the deploy moves [files over 25 MiB](https://repomatic.net/cloudflare#files-over-25-mib) there. The bucket and the keys are both required: without either, the deploy drops those files and fails.

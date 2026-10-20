@@ -16,10 +16,9 @@
 
 """File digesting, shared by every integrity check.
 
-A stdlib-only leaf, like {mod}`repomatic.versions`: the digest used to live in
-{mod}`repomatic.release.binary`, so the tool runner and the VirusTotal client each
-imported the whole ELF and Mach-O parsing stack (pyelftools included) to hash
-a file.
+A stdlib-only leaf, like {mod}`repomatic.versions`, so that hashing a file
+never imports the ELF and Mach-O parsing stack of
+{mod}`repomatic.release.binary`.
 """
 
 from __future__ import annotations
@@ -31,23 +30,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-READ_CHUNK_SIZE = 65536
-"""Read size for incremental hashing and for streaming downloads.
-
-Both walk a file the same way, so they share one buffer: the tool runner hashes
-what it just downloaded, and a mismatch between the two sizes would only make
-the second pass re-chunk the first one's bytes.
-"""
-
-
 def compute_file_sha256(path: Path) -> str:
     """Compute the SHA-256 hex digest of a file.
 
     :param path: Path to the file.
     :return: Lowercase hex digest string.
     """
-    sha256 = hashlib.sha256()
     with path.open("rb") as f:
-        while chunk := f.read(READ_CHUNK_SIZE):
-            sha256.update(chunk)
-    return sha256.hexdigest()
+        return hashlib.file_digest(f, "sha256").hexdigest()

@@ -14,22 +14,28 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for Sphinx linkcheck parsing, filtering, and report generation."""
+"""Tests for the broken links report: linkcheck parsing and the issue verdict."""
 
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import pytest
 
 from repomatic.broken_links import (
+    NO_BROKEN_LINKS,
     LinkcheckResult,
+    LinkVerdict,
     filter_broken,
     generate_markdown_report,
     get_label,
+    lychee_section,
+    manage_combined_broken_links_issue,
     parse_output_json,
+    sphinx_section,
 )
-from repomatic.github.pr_body import sanitize_markdown_mentions
+from repomatic.markdown import sanitize_markdown_mentions
 
 # ---------------------------------------------------------------------------
 # Label selection tests
@@ -100,7 +106,6 @@ def test_parse_output_json_single_entry(tmp_path):
         filename="api.rst",
         lineno=42,
         status="broken",
-        code=404,
         uri="https://example.com/missing",
         info="404 Not Found",
     )
@@ -170,7 +175,6 @@ def test_filter_by_status(status, expected_count):
             filename="index.rst",
             lineno=1,
             status=status,
-            code=0,
             uri="https://example.com",
             info="",
         ),
@@ -181,11 +185,11 @@ def test_filter_by_status(status, expected_count):
 def test_filter_broken_mixed_statuses():
     """Only broken and timeout are kept from a mixed list."""
     results = [
-        LinkcheckResult("a.rst", 1, "working", 200, "https://a.com", ""),
-        LinkcheckResult("b.rst", 2, "broken", 404, "https://b.com", "Not Found"),
-        LinkcheckResult("c.rst", 3, "redirected", 301, "https://c.com", ""),
-        LinkcheckResult("d.rst", 4, "timeout", 0, "https://d.com", "Timed out"),
-        LinkcheckResult("e.rst", 5, "unchecked", 0, "https://e.com", ""),
+        LinkcheckResult("a.rst", 1, "working", "https://a.com", ""),
+        LinkcheckResult("b.rst", 2, "broken", "https://b.com", "Not Found"),
+        LinkcheckResult("c.rst", 3, "redirected", "https://c.com", ""),
+        LinkcheckResult("d.rst", 4, "timeout", "https://d.com", "Timed out"),
+        LinkcheckResult("e.rst", 5, "unchecked", "https://e.com", ""),
     ]
     broken = filter_broken(results)
     assert len(broken) == 2
@@ -215,7 +219,6 @@ def test_report_single_broken_link():
             filename="index.rst",
             lineno=10,
             status="broken",
-            code=404,
             uri="https://example.com/missing",
             info="404 Not Found",
         ),
@@ -237,9 +240,9 @@ def test_report_single_broken_link():
 def test_report_groups_by_file_alphabetically():
     """Results are grouped by filename in alphabetical order."""
     broken = [
-        LinkcheckResult("z_file.rst", 1, "broken", 404, "https://z.com", ""),
-        LinkcheckResult("a_file.rst", 5, "broken", 404, "https://a.com", ""),
-        LinkcheckResult("a_file.rst", 2, "broken", 404, "https://a2.com", ""),
+        LinkcheckResult("z_file.rst", 1, "broken", "https://z.com", ""),
+        LinkcheckResult("a_file.rst", 5, "broken", "https://a.com", ""),
+        LinkcheckResult("a_file.rst", 2, "broken", "https://a2.com", ""),
     ]
     report = generate_markdown_report(broken)
     a_pos = report.index("## `a_file.rst`")
@@ -254,7 +257,6 @@ def test_report_escapes_pipe_chars_in_info():
             filename="index.rst",
             lineno=1,
             status="broken",
-            code=0,
             uri="https://example.com",
             info="Error | Details",
         ),
@@ -270,7 +272,6 @@ def test_report_source_url_links_filenames_and_lines():
             filename="architectures.md",
             lineno=4,
             status="broken",
-            code=404,
             uri="https://example.com/missing",
             info="404 Not Found",
         ),
@@ -297,7 +298,6 @@ def test_report_no_source_url_plain_text():
             filename="architectures.md",
             lineno=4,
             status="broken",
-            code=404,
             uri="https://example.com/missing",
             info="404 Not Found",
         ),
@@ -343,7 +343,6 @@ def test_report_leaves_external_content_unsanitized(info):
             filename="index.rst",
             lineno=1,
             status="broken",
-            code=0,
             uri="https://example.com",
             info=info,
         ),
@@ -360,3 +359,114 @@ def test_lychee_output_sanitized(tmp_path):
     assert f"@{ZWS}admin" in sanitized
     assert "redirect.github.com/" in sanitized
     assert f"#{ZWS}99" in sanitized
+
+
+# ---------------------------------------------------------------------------
+# Verdicts and the issue lifecycle
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "has_report", "verdict", "needle"),
+    (
+        pytest.param(0, False, LinkVerdict.CLEAN, NO_BROKEN_LINKS, id="clean"),
+        pytest.param(2, True, LinkVerdict.BROKEN, "Broken: mango.example", id="broken"),
+        pytest.param(
+            2, False, LinkVerdict.UNKNOWN, "wrote no report", id="broken-no-report"
+        ),
+        pytest.param(1, True, LinkVerdict.UNKNOWN, "did not complete", id="failure"),
+        pytest.param(3, False, LinkVerdict.UNKNOWN, "exit code 3", id="config-error"),
+    ),
+)
+def test_lychee_section_reads_the_exit_code(
+    tmp_path, exit_code, has_report, verdict, needle
+):
+    """Only exit 2 with a report reports broken links; 1 and 3 report nothing."""
+    report = tmp_path / "out.md"
+    report.write_text("Broken: mango.example", encoding="UTF-8")
+    section, found = lychee_section(exit_code, report if has_report else None)
+    assert found is verdict
+    assert section.startswith("## Lychee\n\n")
+    assert needle in section
+
+
+@pytest.mark.parametrize(
+    ("status", "verdict"),
+    (("working", LinkVerdict.CLEAN), ("broken", LinkVerdict.BROKEN)),
+)
+def test_sphinx_section_reads_the_statuses(tmp_path, status, verdict):
+    """Any broken or timed-out link makes the Sphinx verdict broken."""
+    output = tmp_path / "output.json"
+    entry = {
+        "filename": "index.rst",
+        "lineno": 3,
+        "status": status,
+        "uri": "https://example.com/kiwi",
+    }
+    output.write_text(json.dumps(entry) + "\n", encoding="UTF-8")
+    section, found = sphinx_section(output)
+    assert found is verdict
+    assert section.startswith("## Sphinx linkcheck\n\n")
+
+
+def _manage(tmp_path, monkeypatch, exit_code, sphinx_status=None):
+    """Run the lifecycle with lychee's *exit_code*, capturing the issue call."""
+    monkeypatch.chdir(tmp_path)
+    report = tmp_path / "out.md"
+    report.write_text("Broken: mango.example", encoding="UTF-8")
+    output = None
+    if sphinx_status:
+        output = tmp_path / "output.json"
+        entry = {
+            "filename": "index.rst",
+            "lineno": 3,
+            "status": sphinx_status,
+            "uri": "https://example.com/kiwi",
+        }
+        output.write_text(json.dumps(entry) + "\n", encoding="UTF-8")
+    with patch("repomatic.broken_links.manage_issue_lifecycle") as lifecycle:
+        verdict = manage_combined_broken_links_issue(
+            repo_name="orchard",
+            lychee_exit_code=exit_code,
+            lychee_body_file=report,
+            sphinx_output_json=output,
+        )
+    return verdict, lifecycle
+
+
+@pytest.mark.parametrize("exit_code", (1, 3))
+def test_a_failed_lychee_run_leaves_the_issue_alone(tmp_path, monkeypatch, exit_code):
+    """A run that did not complete never closes an open broken links issue.
+
+    It says nothing about the links, so claiming "No more issues." would close
+    a report of links that may still be broken.
+    """
+    verdict, lifecycle = _manage(tmp_path, monkeypatch, exit_code)
+    assert verdict is LinkVerdict.UNKNOWN
+    lifecycle.assert_not_called()
+
+
+def test_a_failed_lychee_run_beside_broken_sphinx_links_files_both(
+    tmp_path, monkeypatch
+):
+    """Broken links found anywhere are filed, with the incomplete run said so."""
+    verdict, lifecycle = _manage(tmp_path, monkeypatch, 1, sphinx_status="broken")
+    assert verdict is LinkVerdict.BROKEN
+    kwargs = lifecycle.call_args.kwargs
+    assert kwargs["has_issues"] is True
+    assert "Lychee did not complete" in kwargs["body"]
+    assert "https://example.com/kiwi" in kwargs["body"]
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "has_issues"),
+    (pytest.param(2, True, id="broken"), pytest.param(0, False, id="clean")),
+)
+def test_a_completed_run_files_or_closes_the_issue(
+    tmp_path, monkeypatch, exit_code, has_issues
+):
+    """A completed run decides the issue, either way."""
+    verdict, lifecycle = _manage(tmp_path, monkeypatch, exit_code)
+    assert verdict is (LinkVerdict.BROKEN if has_issues else LinkVerdict.CLEAN)
+    assert lifecycle.call_args.kwargs["has_issues"] is has_issues
+    assert lifecycle.call_args.kwargs["labels"] == ["📚 documentation"]

@@ -32,7 +32,6 @@ from textwrap import dedent
 from click_extra import (
     CONFIG_PATH_METADATA_KEY,
     NORMALIZE_KEYS_METADATA_KEY,
-    ColumnSpec,
     make_schema_callable,
     schema_field_infos,
 )
@@ -1542,137 +1541,18 @@ def config_key_paths() -> dict[str, tuple[str, ...]]:
     return paths
 
 
-SUBCOMMAND_CONFIG_FIELDS: Final[frozenset[str]] = frozenset((
-    "abandoned_versions",
-    "action_pins_sync",
-    "awesome_template_sync",
-    "bumpversion_sync",
-    "cache",
-    "changelog_archive_location",
-    "changelog_bullet_word_threshold",
-    "changelog_location",
-    "debug_sync",
-    "dep_sources_sync",
-    "dependency_graph",
-    "dev_release_sync",
-    "docs",
-    "exclude",
-    "gitignore",
-    "include",
-    "labels",
-    "lint_deps",
-    "lint_repo",
-    "mailmap_sync",
-    "metrics",
-    "minimum_release_age",
-    "notification_max_unsubscribes",
-    "notification_months",
-    "notification_unsubscribe",
-    "nuitka_enabled",
-    "nuitka_nofollow_imports",
-    "pypi_package_history",
-    "settings_location",
-    "setup_guide",
-    "site_cloudflare_compatibility_date",
-    "site_cloudflare_placement",
-    "site_cloudflare_r2_bucket",
-    "site_cloudflare_r2_domain",
-    "skills_location",
-    "subagents_location",
-    "sync_runner_images",
-    "test_matrix",
-    "tool_versions_sync",
-    "upstream_pin_sync",
-    "uv_lock_sync",
-    "vulnerable_deps",
-    "workflow",
-    "workflow_pins_sync",
-))
-"""Config fields consumed directly by subcommands, not needed as metadata outputs.
+def config_reference() -> list[tuple[str, str, Any, str]]:
+    """The `[tool.repomatic]` reference: one row per configuration key.
 
-These fields are read directly from `[tool.repomatic]` in `pyproject.toml` by
-their respective subcommands (e.g. `dep-graph`), so they no longer need to be
-passed through workflow metadata outputs.
-"""
+    Introspection comes from click-extra's `schema_field_infos()`: the dotted
+    kebab-case key, the type annotation, the default and the summary of the
+    attribute docstring of every leaf field. The `show-config` command renders
+    the rows.
 
-
-def _format_default(value: object) -> str:
-    """Format a `Config` field default for the reference table."""
-    if value is None:
-        return "*(none)*"
-    if isinstance(value, bool):
-        return f"`{str(value).lower()}`"
-    if isinstance(value, int):
-        return f"`{value}`"
-    if isinstance(value, str):
-        if "\n" in value:
-            return "*(see example)*"
-        return f'`"{value}"`'
-    if isinstance(value, list):
-        if not value:
-            return "`[]`"
-        return f"`{value!r}`"
-    return str(value)
-
-
-def _format_type(annotation: str) -> str:
-    """Simplify a type annotation string for the reference table.
-
-    Strips `| None` suffixes since the default column already shows whether
-    `None` is the default.
-    """
-    return annotation.replace(" | None", "")
-
-
-def escape_type_for_gfm_table(ftype: str) -> str:
-    """Escape outer brackets of nested generics for raw GFM table cells.
-
-    Nested generics like `list[dict[str, str]]` would otherwise be
-    interpreted by mdformat as a markdown link reference and re-escaped on
-    every reformat. Escaping the outermost brackets up front keeps the
-    cell stable under mdformat. Simple generics like `list[str]` have no
-    nested brackets and stay unescaped.
-
-    Apply this only when the value lands directly in a raw GFM table cell
-    (e.g. CLI `show-config` output). Do not apply when wrapping the value
-    in inline code backticks: inside a code span, backslashes are literal
-    characters in CommonMark and would render visibly as `\\[`.
-    """
-    if "[" in ftype:
-        first = ftype.index("[")
-        last = ftype.rindex("]")
-        inner = ftype[first + 1 : last]
-        if "[" in inner:
-            return ftype[:first] + "\\[" + inner + "\\]" + ftype[last + 1 :]
-    return ftype
-
-
-CONFIG_REFERENCE_HEADER_DEFS: tuple[ColumnSpec, ...] = (
-    ColumnSpec("option", "Option"),
-    ColumnSpec("type", "Type", max_width=24),
-    ColumnSpec("default", "Default", max_width=24),
-    ColumnSpec("description", "Description", max_width=60),
-)
-"""Column definitions for the `[tool.repomatic]` configuration reference table."""
-
-
-def config_reference() -> list[tuple[str, str, str, str]]:
-    """Build the `[tool.repomatic]` configuration reference as table rows.
-
-    Introspection comes from click-extra's `schema_field_infos()` (dotted
-    kebab-case keys, type annotations, defaults, attribute-docstring
-    summaries); this wrapper only applies the Markdown presentation of the
-    `show-config` table. Returns a list of
-    `(option, type, default, description)` tuples suitable for
-    `click_extra.table.print_table`.
+    :return: `(key, type_hint, default, summary)` rows, in field order.
     """
     return [
-        (
-            f"`{info.key}`",
-            _format_type(info.type_hint),
-            _format_default(info.default),
-            info.summary,
-        )
+        (info.key, info.type_hint, info.default, info.summary)
         for info in schema_field_infos(Config)
     ]
 

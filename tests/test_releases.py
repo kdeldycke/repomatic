@@ -25,7 +25,9 @@ from urllib.error import URLError
 
 import pytest
 
+from repomatic.github.gh import GhCommandError
 from repomatic.github.releases import (
+    RELEASES_PAGE_SIZE,
     GitHubRelease,
     GitHubReleasesUnavailable,
     dev_release_url_and_previous_version,
@@ -33,6 +35,8 @@ from repomatic.github.releases import (
     extract_version,
     fetch_github_release_notes,
     get_github_releases,
+    get_release_tags,
+    release_review_steps,
 )
 from tests.conftest import FakeResponse
 
@@ -81,17 +85,80 @@ def test_get_github_releases_single_page(monkeypatch):
     }
 
 
-def test_get_github_releases_multi_page_pagination(monkeypatch):
-    """Pagination merges results across pages until an empty page."""
-    _bypass_cache(monkeypatch)
-    page_1 = json.dumps([_release_payload("2.0.0", "2026-03-01")]).encode()
-    page_2 = json.dumps([_release_payload("1.0.0", "2026-01-01")]).encode()
-    page_3 = b"[]"
+def _full_page(major: int) -> bytes:
+    """One page holding as many releases as a page can, all of one major."""
+    return json.dumps([
+        _release_payload(f"{major}.{minor}.0", "2026-03-01")
+        for minor in range(RELEASES_PAGE_SIZE)
+    ]).encode()
 
-    with _paged_urlopen(page_1, page_2, page_3):
+
+def test_get_github_releases_multi_page_pagination(monkeypatch):
+    """Pagination merges results across pages until a short page."""
+    _bypass_cache(monkeypatch)
+    page_2 = json.dumps([_release_payload("1.0.0", "2026-01-01")]).encode()
+
+    with _paged_urlopen(_full_page(2), page_2) as mock_urlopen:
         result = get_github_releases("https://github.com/user/repo")
 
-    assert set(result) == {"2.0.0", "1.0.0"}
+    assert len(result) == RELEASES_PAGE_SIZE + 1
+    assert "1.0.0" in result
+    assert mock_urlopen.call_count == 2
+
+
+def test_get_github_releases_stops_on_a_short_page(monkeypatch):
+    """A page shorter than a full one is the last: no empty page is fetched."""
+    _bypass_cache(monkeypatch)
+    page = json.dumps([_release_payload("1.0.0", "2026-01-01")]).encode()
+
+    with _paged_urlopen(page, b"[]") as mock_urlopen:
+        get_github_releases("https://github.com/user/repo")
+
+    assert mock_urlopen.call_count == 1
+
+
+def test_release_maps_leave_drafts_out(monkeypatch):
+    """A draft reads as absent, whatever token can see it."""
+    _bypass_cache(monkeypatch)
+    page = json.dumps([
+        {**_release_payload("1.1.0.dev0", "2026-02-10"), "draft": True},
+        _release_payload("1.0.0", "2026-01-01"),
+    ]).encode()
+
+    with _paged_urlopen(page):
+        tags = get_release_tags("https://github.com/user/repo")
+
+    assert set(tags) == {"v1.0.0"}
+
+
+def test_get_github_releases_strips_the_tag_prefix(monkeypatch):
+    """Only `v`-prefixed tags count, keyed by their bare version."""
+    fake = {
+        "v1.0.0": GitHubRelease(date="2026-01-01", body="notes"),
+        "lychee-v0.24.0": GitHubRelease(date="2026-02-01", body="other scheme"),
+    }
+    with patch("repomatic.github.releases.get_release_tags", return_value=fake):
+        assert get_github_releases("https://github.com/user/repo") == {
+            "1.0.0": GitHubRelease(date="2026-01-01", body="notes")
+        }
+
+
+def test_force_refresh_skips_the_cached_map(monkeypatch):
+    """A forced refresh reads the API even when a cached map is fresh."""
+    cached = json.dumps({"v0.1.0": {"date": "2025-01-01", "body": ""}}).encode()
+    monkeypatch.setattr(
+        "repomatic.github.releases.get_cached_response",
+        lambda namespace, key, ttl: cached,
+    )
+    monkeypatch.setattr(
+        "repomatic.github.releases.store_response", lambda namespace, key, data: None
+    )
+    page = json.dumps([_release_payload("1.0.0", "2026-01-01")]).encode()
+
+    assert set(get_release_tags("https://github.com/user/repo")) == {"v0.1.0"}
+    with _paged_urlopen(page):
+        tags = get_release_tags("https://github.com/user/repo", force_refresh=True)
+    assert set(tags) == {"v1.0.0"}
 
 
 def test_get_github_releases_empty_repo(monkeypatch):
@@ -168,9 +235,7 @@ def test_get_github_releases_raises_on_partial_pagination(monkeypatch):
     "no GitHub release exists."
     """
     _bypass_cache(monkeypatch)
-    page_1 = json.dumps([_release_payload("3.0.0", "2026-03-01")]).encode()
-
-    responses = iter([FakeResponse(page_1)])
+    responses = iter([FakeResponse(_full_page(3))])
     fail_after_first = [False]
 
     def fake_urlopen(*args, **kwargs):
@@ -335,13 +400,33 @@ def test_edit_release_notes_keeps_title():
     assert "--title" not in mock_gh.call_args.args[0]
 
 
-def test_edit_release_notes_not_found():
+@pytest.mark.parametrize(
+    "error",
+    (
+        GhCommandError("release not found"),
+        GhCommandError("gh: Not Found (HTTP 404)"),
+    ),
+)
+def test_edit_release_notes_not_found(error):
     """Returns False when the release does not exist."""
-    with patch(
-        "repomatic.github.releases.run_gh_command",
-        side_effect=RuntimeError("release not found"),
-    ):
+    with patch("repomatic.github.releases.run_gh_command", side_effect=error):
         assert edit_release_notes("v1.2.3", "user/repo", "body") is False
+
+
+def test_edit_release_notes_raises_on_a_transient_failure():
+    """A failure other than an absence is raised, never read as one.
+
+    A caller treating it as "no such release" would create a second release
+    for the same tag.
+    """
+    with (
+        patch(
+            "repomatic.github.releases.run_gh_command",
+            side_effect=GhCommandError("gh: Server Error (HTTP 502)"),
+        ),
+        pytest.raises(GhCommandError, match="502"),
+    ):
+        edit_release_notes("v1.2.3", "user/repo", "body")
 
 
 def _asset_payload(
@@ -453,3 +538,56 @@ def test_dev_release_url_and_previous_version_unavailable(monkeypatch):
     assert dev_release_url_and_previous_version(
         "https://github.com/user/repo", "1.0.0"
     ) == (None, None)
+
+
+# --- release_review_steps() ---
+
+
+def test_release_review_steps(monkeypatch):
+    """Review steps embed the draft dev URL and the previous-version compare link."""
+    monkeypatch.setattr(
+        "repomatic.github.releases.dev_release_url_and_previous_version",
+        lambda repo_url, version: (
+            "https://github.com/owner/repo/releases/tag/untagged-abc",
+            "1.2.2",
+        ),
+    )
+
+    dev_review, changes_review = release_review_steps(
+        "https://github.com/owner/repo", "1.2.3"
+    )
+
+    assert dev_review == (
+        "1. Review the [`v1.2.3.dev0` GitHub release]"
+        "(https://github.com/owner/repo/releases/tag/untagged-abc)\n"
+    )
+    assert changes_review == (
+        "1. Review the full changes: [`v1.2.2...main`]"
+        "(https://github.com/owner/repo/compare/v1.2.2...main)\n"
+    )
+
+
+def test_release_review_steps_partial(monkeypatch):
+    """Each step is omitted independently when its release data is missing."""
+    monkeypatch.setattr(
+        "repomatic.github.releases.dev_release_url_and_previous_version",
+        lambda repo_url, version: (None, "1.2.2"),
+    )
+
+    dev_review, changes_review = release_review_steps(
+        "https://github.com/owner/repo", "1.2.3"
+    )
+
+    assert dev_review == ""
+    assert "v1.2.2...main" in changes_review
+
+
+@pytest.mark.parametrize("repo_url", ("https://github.com/owner/repo", "", None))
+def test_release_review_steps_unavailable(monkeypatch, repo_url):
+    """Both steps collapse to empty strings when nothing can be looked up."""
+    monkeypatch.setattr(
+        "repomatic.github.releases.dev_release_url_and_previous_version",
+        lambda repo_url, version: (None, None),
+    )
+
+    assert release_review_steps(repo_url, "1.2.3") == ("", "")

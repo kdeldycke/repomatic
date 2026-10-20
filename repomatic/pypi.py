@@ -230,10 +230,10 @@ accessor only multiplies the timeout.
 
 
 def _project_urls(package: str) -> dict[str, str]:
-    """Fetch a package's `project_urls`, or an empty mapping.
+    """Fetch a package's `project_urls`, keyed by lowercased label.
 
     Shared by the `project_urls` scanners ({func}`get_source_url` and
-    {func}`get_changelog_url`), which each look the same keys up in a
+    {func}`get_changelog_url`), which each look their keys up in this
     lowercased index of whatever spelling the project wrote: see the note on
     {data}`_SOURCE_URL_KEYS`.
 
@@ -242,13 +242,13 @@ def _project_urls(package: str) -> dict[str, str]:
     reports a package that simply declares no matching URL.
 
     :param package: The PyPI package name.
-    :return: The declared `project_urls` mapping, keys untouched.
+    :return: The declared `project_urls`, keyed by lowercased label.
     """
     data = _fetch_json(package)
     if data is None:
         return {}
     urls: dict[str, str] = data.get("info", {}).get("project_urls") or {}
-    return urls
+    return {key.lower(): value for key, value in urls.items()}
 
 
 class PyPIRelease(NamedTuple):
@@ -276,7 +276,7 @@ class PyPIRelease(NamedTuple):
     """
 
 
-def get_release_dates(
+def pypi_release_dates(
     package: str, *, force_refresh: bool = False
 ) -> dict[str, PyPIRelease]:
     """Get upload dates and yanked status for all versions from PyPI.
@@ -322,6 +322,10 @@ def get_release_dates(
     return result
 
 
+# 8.0.0 shim: re-export for callers not migrated yet.
+get_release_dates = pypi_release_dates
+
+
 def get_source_url(package: str) -> str | None:
     """Discover the GitHub repository URL for a PyPI package.
 
@@ -336,9 +340,8 @@ def get_source_url(package: str) -> str | None:
     :return: The GitHub repository URL, or `None` if not found.
     """
     project_urls = _project_urls(package)
-    by_key = {key.lower(): value for key, value in project_urls.items()}
     # The keys known to name the source come first, then every other value.
-    candidates = [by_key.get(key, "") for key in _SOURCE_URL_KEYS]
+    candidates = [project_urls.get(key, "") for key in _SOURCE_URL_KEYS]
     candidates.extend(project_urls.values())
     for candidate in candidates:
         parsed = parse_github_repo(candidate)
@@ -476,9 +479,9 @@ def get_changelog_url(package: str) -> str | None:
     :param package: The PyPI package name.
     :return: The changelog URL, or `None` if not found.
     """
-    by_key = {key.lower(): value for key, value in _project_urls(package).items()}
+    project_urls = _project_urls(package)
     for key in _CHANGELOG_URL_KEYS:
-        candidate = by_key.get(key, "")
+        candidate = project_urls.get(key, "")
         if candidate:
             return candidate.rstrip("/")
     return None

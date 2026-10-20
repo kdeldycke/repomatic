@@ -14,51 +14,55 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Generate PR body with workflow metadata for auto-created pull requests.
+"""Assemble the body of an automated pull request or issue.
 
-Callers inject a {class}`~repomatic.metadata.core.Metadata` instance for CI
-context to produce a collapsible `<details>` block containing a metadata
-table (the injection keeps this module import-cycle-free: `Metadata` pulls
-in half the package). Template prefixes are loaded from markdown files in
-`repomatic/templates/`, optionally with YAML frontmatter for templates that
-require arguments.
+{func}`render_pr` renders a pull request's title, body and commit message from
+a {class}`~repomatic.templating.PrTemplate`, filling each argument the template
+declares from the CLI, the environment or the GitHub API. The body ends on a
+collapsible `<details>` block of workflow metadata, read from an injected
+{class}`~repomatic.metadata.core.Metadata` instance (the injection keeps this
+module import-cycle-free: `Metadata` pulls in half the package).
 
-```{note}
-{func}`load_template` and the `render_*` helpers also accept a
-{class}`~pathlib.Path` to read a template from disk. Downstream repos can ship
-project-specific templates and feed them through `repomatic pr-body
---template-file path/to/template.md` (paired with one or more
-`--template-arg KEY=VALUE` entries to fill the placeholders) without forking
-repomatic. External templates should set `footer: false` in their frontmatter
-to avoid duplicating the attribution footer that already ships with the
-metadata block.
-```
-
-Also provides two helpers for embedding externally-sourced markdown in PR or
-issue bodies: {func}`sanitize_markdown_mentions` neutralizes `@mentions`,
-`#issue` refs, and GitHub URLs, and {func}`demote_markdown_headings` pushes
-the embedded content's headings below the embedding document's own sections.
+{func}`build_pr_body` and {func}`fit_github_body` keep a body within GitHub's
+size limit, and {func}`temp_body_file` hands it to `gh` as a file.
 """
 
 from __future__ import annotations
 
-import re
+import logging
+import os
 import tempfile
 from contextlib import contextmanager
-from functools import cache
-from importlib.resources import as_file, files
+from dataclasses import dataclass
 from pathlib import Path
-from string import Template
 
 from .. import __version__
-from ..frontmatter import split_frontmatter
-from .actions import extract_workflow_filename, trim_to_budget
-from .releases import dev_release_url_and_previous_version
+from ..deps.sources import build_release_readiness
+from ..templating import PrTemplate, render_template
+from ..versions import strip_dev_suffix
+from .event import extract_workflow_filename
+from .outputs import read_file_output, trim_to_budget
+from .releases import release_review_steps
+
+# isort: split
+# 8.0.0 shim: re-export for callers not migrated yet.
+from ..markdown import (  # noqa: F401
+    demote_markdown_headings,
+    sanitize_markdown_mentions,
+)
+
+# 8.0.0 shim: re-export for callers not migrated yet.
+from ..templating import (  # noqa: F401
+    footer_opted_out,
+    get_template_names,
+    template_stem,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Generator, Mapping
+    from collections.abc import Callable, Generator, Mapping
 
+    from ..config import Config
     from ..metadata.core import Metadata
 
 GITHUB_BODY_MAX_CHARS = 65536
@@ -66,11 +70,9 @@ GITHUB_BODY_MAX_CHARS = 65536
 
 GitHub's API rejects longer bodies outright, so an oversized body has to be
 trimmed before it is posted. The obvious trim is the wrong one: cutting the
-**end** (what a plain `body[:65536]` does, and what
-[peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request)
-did before {mod}`repomatic.github.pr` replaced it) drops whatever sits last,
-which here is the refresh tip, the metadata block and the attribution footer:
-the navigational parts a reader needs most when a report is too long to read.
+**end** (what a plain `body[:65536]` does) drops whatever sits last, which here
+is the refresh tip, the metadata block and the attribution footer: the
+navigational parts a reader needs most when a report is too long to read.
 {func}`build_pr_body` (PRs) and {func}`fit_github_body` (issues) therefore trim
 the leading content instead, so the tail always survives.
 """
@@ -79,485 +81,23 @@ _TRUNCATION_NOTICE = "> [!CAUTION]\n> Report truncated to fit GitHub's body size
 """Admonition replacing the content dropped by {func}`build_pr_body` and
 {func}`fit_github_body`."""
 
-_ZERO_WIDTH_SPACE = "\u200b"
-"""Unicode zero-width space inserted to break GitHub's mention/issue parser.
 
-Both Dependabot ([dependabot/dependabot-core#3157](https://github.com/dependabot/dependabot-core/pull/3157),
-[link_and_mention_sanitizer.rb](https://github.com/dependabot/dependabot-core/blob/main/common/lib/dependabot/pull_request_creator/message_builder/link_and_mention_sanitizer.rb))
-and Renovate ([renovatebot/renovate#1083](https://github.com/renovatebot/renovate/pull/1083),
-[markdown.ts](https://github.com/renovatebot/renovate/blob/main/lib/util/markdown.ts))
-independently converged on this character to neutralize `@mentions` and
-`#issue` references in PR bodies without affecting visual rendering.
-"""
+class TemplateArgumentError(ValueError):
+    """A template argument that nothing supplied a value for."""
 
-_ATX_HEADING_RE = re.compile(r"^( {0,3})(#{1,6})(?=\s|$)", re.MULTILINE)
-"""Matches ATX headings per CommonMark: up to 3 leading spaces, then 1-6 `#`
-followed by whitespace or end of line. Four-space indents are code blocks and
-`#word` without a space is prose, so neither matches."""
 
-_FENCED_CODE_BLOCK_RE = re.compile(
-    r"^(`{3,}|~{3,})[^\n]*\n.*?\n\1\s*$",
-    re.MULTILINE | re.DOTALL,
-)
-"""Matches fenced code blocks (backtick or tilde) per CommonMark spec."""
+@dataclass(frozen=True)
+class PrContent:
+    """A rendered pull request, ready for `gh` and for the commit."""
 
-_INLINE_CODE_RE = re.compile(r"(`+)(.+?)\1", re.DOTALL)
-"""Matches inline code spans with one or more backticks."""
+    title: str
+    """The pull request title, empty when no template supplies one."""
 
-_MENTION_RE = re.compile(
-    r"(?<![a-zA-Z0-9._%+\-/])@"
-    r"([a-zA-Z0-9](?:[a-zA-Z0-9\-]*[a-zA-Z0-9])?(?:/[a-zA-Z0-9](?:[a-zA-Z0-9\-]*[a-zA-Z0-9])?)?)",
-)
-"""Matches `@username` and `@org/team` mentions in prose.
+    body: str
+    """The markdown body, metadata block and attribution footer included."""
 
-The negative lookbehind excludes email addresses (`user@example.com`),
-URL user-info (`git@github.com`), and URL paths (`/compare/@v1`).
-"""
-
-_ISSUE_REF_RE = re.compile(r"(?<![&a-zA-Z0-9/])#(\d+)")
-"""Matches `#123` issue/PR references in prose.
-
-The negative lookbehind excludes HTML entities (`&#8203;`), URL fragments
-(`page#section`), and path-like references (`path/#1`). Markdown headings
-(`# Title`) are excluded because `#` is followed by a space, not a digit.
-"""
-
-_GITHUB_URL_RE = re.compile(r"(https?://)(github\.com/)")
-"""Matches `github.com` URLs for rewriting to `redirect.github.com`."""
-
-
-def _stash_fenced_blocks(text: str) -> tuple[str, list[str]]:
-    """Replace fenced code blocks with placeholders.
-
-    Fenced blocks are extracted first (they may contain inline backticks) so
-    later prose rewrites cannot touch code. Returns the substituted text and the
-    extracted blocks, restored later by {func}`_restore_fenced_blocks`.
-    """
-    fenced_blocks: list[str] = []
-
-    def stash(match: re.Match[str]) -> str:
-        fenced_blocks.append(match.group(0))
-        return f"\x00FENCED{len(fenced_blocks) - 1}\x00"
-
-    return _FENCED_CODE_BLOCK_RE.sub(stash, text), fenced_blocks
-
-
-def _restore_fenced_blocks(text: str, blocks: list[str]) -> str:
-    """Restore fenced code blocks stashed by {func}`_stash_fenced_blocks`."""
-    for i, block in enumerate(blocks):
-        text = text.replace(f"\x00FENCED{i}\x00", block)
-    return text
-
-
-def sanitize_markdown_mentions(text: str) -> str:
-    """Neutralize `@mentions`, `#issue` refs, and GitHub URLs in markdown.
-
-    Prevents GitHub from auto-linking mentions and issue references in
-    externally-sourced markdown (upstream release notes, third-party tool
-    output) that would cause notification spam or accidental issue closure.
-
-    Uses a placeholder extraction approach: fenced code blocks and inline code
-    spans are temporarily replaced with unique placeholders before sanitization,
-    then restored afterward. This avoids the fragile "sanitize then restore"
-    pattern that caused bugs in both Dependabot (2019 code-fence regression,
-    [dependabot/dependabot-core#1421](https://github.com/dependabot/dependabot-core/issues/1421)) and Renovate
-    (ongoing restoration pass edge cases, [renovatebot/renovate#8823](https://github.com/renovatebot/renovate/issues/8823),
-    [renovatebot/renovate#2554](https://github.com/renovatebot/renovate/issues/2554)).
-
-    Inserts a Unicode zero-width space (U+200B) after `@` and `#` to break
-    GitHub's mention and issue parsers without affecting visual rendering.
-    Rewrites `github.com` URLs to `redirect.github.com` to prevent backlink
-    cross-references on upstream issues.
-
-    :param text: Raw markdown text from an external source.
-    :return: Sanitized markdown safe for embedding in a GitHub PR or issue body.
-
-    ```{note}
-    Only call this on externally-sourced content (upstream release notes,
-    third-party tool output). Do not call on content authored by the
-    repository owner where mentions are intentional.
-    ```
-    """
-    if not text:
-        return text
-
-    # Phase 1: Extract code blocks into placeholders.
-    # Fenced blocks first (they may contain inline backticks).
-    result, fenced_blocks = _stash_fenced_blocks(text)
-
-    # Inline code spans second.
-    inline_spans: list[str] = []
-
-    def _stash_inline(match: re.Match[str]) -> str:
-        inline_spans.append(match.group(0))
-        return f"\x00INLINE{len(inline_spans) - 1}\x00"
-
-    result = _INLINE_CODE_RE.sub(_stash_inline, result)
-
-    # Phase 2: Sanitize prose content.
-    # URLs first, before @ in URLs gets a zero-width space.
-    result = _GITHUB_URL_RE.sub(r"\1redirect.github.com/", result)
-    result = _MENTION_RE.sub(
-        lambda m: f"@{_ZERO_WIDTH_SPACE}{m.group(1)}",
-        result,
-    )
-    result = _ISSUE_REF_RE.sub(
-        lambda m: f"#{_ZERO_WIDTH_SPACE}{m.group(1)}",
-        result,
-    )
-
-    # Phase 3: Restore placeholders (reverse order of extraction).
-    for i, span in enumerate(inline_spans):
-        result = result.replace(f"\x00INLINE{i}\x00", span)
-    result = _restore_fenced_blocks(result, fenced_blocks)
-
-    return result
-
-
-def demote_markdown_headings(text: str, floor: int) -> str:
-    """Demote ATX headings so the shallowest one lands at level *floor*.
-
-    Externally-sourced markdown (upstream release notes) carries its own `#`
-    and `##` headings, which GitHub renders at full size even inside a
-    `<details>` block, so they compete with the embedding document's section
-    hierarchy. All headings are shifted deeper by the uniform offset that puts
-    the shallowest at *floor*, preserving the body's internal structure;
-    levels past `######` (h6, markdown's deepest) are clamped. Headings
-    already at or below *floor* are left alone: this function never promotes.
-
-    Fenced code blocks are shielded with the same placeholder extraction as
-    {func}`sanitize_markdown_mentions`, so `# comments` in shell samples
-    survive. Only ATX headings are rewritten: setext headings (underlined
-    with `===` or `---`), rare in release notes, pass through unchanged.
-
-    :param text: Raw markdown text from an external source.
-    :param floor: Target level (1-6) for the shallowest heading.
-    :return: Markdown with headings demoted.
-    """
-    if not text:
-        return text
-
-    result, fenced_blocks = _stash_fenced_blocks(text)
-
-    levels = [len(m.group(2)) for m in _ATX_HEADING_RE.finditer(result)]
-    shift = floor - min(levels) if levels else 0
-    if shift > 0:
-        result = _ATX_HEADING_RE.sub(
-            lambda m: m.group(1) + "#" * min(6, len(m.group(2)) + shift),
-            result,
-        )
-
-    return _restore_fenced_blocks(result, fenced_blocks)
-
-
-def _unescape_dollars(text: str) -> str:
-    r"""Replace `\$` with `$` in template text.
-
-    ```{caution}
-    Workaround for mdformat escaping `$` characters in markdown files.
-    Templates use `string.Template` (`$variable` syntax), but mdformat
-    rewrites `$var` as `\$var`. We undo this at load time so that
-    `string.Template.substitute()` sees the original placeholders.
-    ```
-    """
-    return text.replace(r"\$", "$")
-
-
-def _parse_template(raw: str) -> tuple[dict[str, object], str]:
-    """Split a template file into YAML frontmatter and markdown body.
-
-    Delegates the split to {func}`~repomatic.frontmatter.split_frontmatter` and
-    adds the one template-specific step: restoring the `$placeholder` syntax
-    mdformat escapes (see {func}`_unescape_dollars`). The body is unescaped, the
-    frontmatter is not: its values are metadata (`args`, `title`, `docs`), never
-    `string.Template` sources.
-
-    :param raw: Raw template file content.
-    :return: A tuple of (frontmatter dict, body string).
-    """
-    meta, body = split_frontmatter(raw)
-    return meta, _unescape_dollars(body)
-
-
-@cache
-def _load_bundled_template(name: str) -> tuple[dict[str, object], str]:
-    """Load and parse a packaged template, once per process.
-
-    Bundled resources are immutable for the life of the interpreter, and one
-    PR sync reads the same template up to six times (title, commit message,
-    labels, draft state, docs link, body), so the parse is memoized. Callers
-    treat the frontmatter mapping as read-only.
-
-    :param name: Template name without extension.
-    :return: A tuple of (frontmatter metadata dict, template body string).
-    :raises FileNotFoundError: If no such packaged resource exists.
-    """
-    template_files = files("repomatic.templates")
-    for ext in (".md.noformat", ".md"):
-        resource = template_files.joinpath(f"{name}{ext}")
-        if resource.is_file():
-            with as_file(resource) as path:
-                raw = path.read_text(encoding="UTF-8")
-            return _parse_template(raw)
-    msg = f"Template {name!r} not found in repomatic/templates/"
-    raise FileNotFoundError(msg)
-
-
-def load_template(name: str | Path) -> tuple[dict[str, object], str]:
-    """Load a PR body template by name or filesystem path.
-
-    Dispatch is type-based:
-
-    - `str` (e.g. `"bump-version"`): looked up as a packaged resource under
-      `repomatic.templates`, cached for the process (see
-      `_load_bundled_template`). Tries `{name}.md.noformat` first, then
-      `{name}.md`. The `.md.noformat` extension is used for templates whose
-      `string.Template` placeholders confuse mdformat (e.g. `$rerun_entry`
-      prefixed to a list line is parsed as literal text, breaking the list
-      structure). See `pr-metadata.md.noformat` for the canonical example.
-    - `Path`: read directly from the filesystem, never cached, so a downstream
-      repo iterating on a project-specific template sees each edit.
-
-    :param name: Template name without extension, or a {class}`~pathlib.Path`
-        pointing to a template file.
-    :return: A tuple of (frontmatter metadata dict, template body string).
-    :raises FileNotFoundError: If neither resource nor file exists.
-    """
-    if isinstance(name, Path):
-        if not name.is_file():
-            msg = f"Template file {str(name)!r} does not exist"
-            raise FileNotFoundError(msg)
-        return _parse_template(name.read_text(encoding="UTF-8"))
-    return _load_bundled_template(name)
-
-
-def _substitute(text: str, kwargs: dict[str, str | None]) -> str:
-    """Apply `string.Template` substitution if kwargs are provided.
-
-    `None` values are normalized to empty strings so callers can pass
-    {class}`~repomatic.metadata.core.Metadata` properties directly without
-    coercing at the call site.
-    """
-    if kwargs:
-        safe = {k: (v if v is not None else "") for k, v in kwargs.items()}
-        return Template(text).substitute(safe)
-    return text
-
-
-def footer_opted_out(meta: Mapping[str, object]) -> bool:
-    """Whether a template's frontmatter opts out of the attribution footer.
-
-    A template opts out with `footer: false`. Both the boolean and the quoted
-    string are honored: the frontmatter is YAML, so a bare `false` parses as a
-    boolean, but a template may well have quoted it, and the two spellings mean
-    the same thing to whoever wrote them. An absent field keeps the footer.
-    {func}`repomatic.lint_repo.check_pr_templates` applies the same rule, so it
-    never flags a spelling the renderer honors.
-
-    :param meta: Parsed frontmatter of one template.
-    :return: `True` when the template drops the footer.
-    """
-    return meta.get("footer", True) in (False, "false")
-
-
-def _render_single(name: str | Path, kwargs: dict[str, str | None]) -> tuple[str, bool]:
-    """Render a single template and return its body with footer preference.
-
-    See {func}`footer_opted_out` for the frontmatter that drops the footer.
-
-    :param name: Template name without `.md` extension, or a
-        {class}`~pathlib.Path` pointing to a template file.
-    :param kwargs: Variables to substitute into the template.
-    :return: A tuple of (rendered body, wants_footer).
-    """
-    meta, body = load_template(name)
-    result = _substitute(body, kwargs).strip()
-    wants_footer = not footer_opted_out(meta) and name != "generated-footer"
-    return result, wants_footer
-
-
-def render_template(*names: str | Path, **kwargs: str | None) -> str:
-    """Load and render one or more templates with variable substitution.
-
-    When multiple template names are given, each is rendered and joined with
-    a blank line. The `generated-footer` attribution is appended
-    once at the end if **any** of the templates wants it (i.e. does not have
-    `footer: false` in its frontmatter).
-
-    Static templates (no `$variable` placeholders) are returned as-is.
-    Dynamic templates use `string.Template` (`$variable` syntax) to avoid
-    conflicts with markdown braces like `[tool.repomatic]`.
-
-    Consecutive blank lines left by empty variables are collapsed to a single
-    blank line.
-
-    ```{note}
-    The footer's version is `__version__` as read from the working tree, which
-    makes it cosmetically wrong on the version-machinery PRs. That is accepted
-    rather than fixed. Upstream runs the CLI from its own checkout
-    ({data}`~repomatic.release.prepare_release.LOCAL_CLI_INVOCATION`), and both the
-    `bump-version` and `prepare-release` jobs rewrite `__version__` with
-    `bump-my-version` before this renders, so each of those bodies advertises
-    the version its own PR produces (the `minor` or `major` bump target, or
-    the post-release patch bump) instead of the identical code that rendered
-    it. Both fixes cost more than the tag is worth: rendering the body before
-    the bump means splitting `pr-body` back out of `pr-sync`, and feeding the
-    pre-bump version in means a CLI option that exists only to work around
-    step ordering. Downstream never sees it, since a frozen workflow runs
-    `uvx 'repomatic==X.Y.Z'` and takes its version from the installed
-    distribution.
-    ```
-
-    :param names: One or more template names (without `.md` extension) or
-        {class}`~pathlib.Path` objects pointing to template files.
-    :param kwargs: Variables to substitute into all templates.
-    :return: The rendered markdown string.
-    """
-    parts = []
-    append_footer = False
-    for name in names:
-        body, wants_footer = _render_single(name, kwargs)
-        parts.append(body)
-        if wants_footer:
-            append_footer = True
-    result = "\n\n".join(parts)
-    if append_footer:
-        result += "\n\n---\n\n" + render_template(
-            "generated-footer", version=__version__
-        )
-    result = re.sub(r"\n{3,}", "\n\n", result)
-    if append_footer:
-        result += "\n"
-    return result
-
-
-def render_title(name: str | Path, **kwargs: str | None) -> str:
-    """Load and render a template's PR title with variable substitution.
-
-    :param name: Template name without `.md` extension, or a
-        {class}`~pathlib.Path` pointing to a template file.
-    :param kwargs: Variables to substitute into the title.
-    :return: The rendered title string, or an empty string when the template
-        has no `title` field in its frontmatter.
-    """
-    meta, _body = load_template(name)
-    title = meta.get("title")
-    if not title or not isinstance(title, str):
-        return ""
-    return _substitute(title, kwargs)
-
-
-def render_commit_message(name: str | Path, **kwargs: str | None) -> str:
-    """Load and render a template's commit message with variable substitution.
-
-    Falls back to the `title` if no `commit_message` is defined, and to an
-    empty string if neither is set (templates without a title or commit
-    message render only their body).
-
-    :param name: Template name without `.md` extension, or a
-        {class}`~pathlib.Path` pointing to a template file.
-    :param kwargs: Variables to substitute into the commit message.
-    :return: The rendered commit message string, or an empty string when the
-        template defines neither `commit_message` nor `title`.
-    """
-    meta, _body = load_template(name)
-    commit_msg = meta.get("commit_message")
-    if commit_msg and isinstance(commit_msg, str):
-        return _substitute(commit_msg, kwargs)
-    return render_title(name, **kwargs)
-
-
-def template_args(name: str | Path) -> list[str]:
-    """Return the list of required arguments for a template.
-
-    :param name: Template name without `.md` extension, or a
-        {class}`~pathlib.Path` pointing to a template file.
-    :return: List of argument names from the frontmatter `args` field.
-    """
-    meta, _body = load_template(name)
-    args = meta.get("args", [])
-    if isinstance(args, list):
-        return args
-    return []
-
-
-def template_labels(name: str | Path) -> list[str]:
-    """Return the labels a template's pull request should carry.
-
-    Read from the `labels:` frontmatter key, accepting a YAML list or a single
-    string. The template is the one place that knows which operation it fronts,
-    so its labels live beside its title and commit message rather than being
-    repeated in every workflow step that opens the PR.
-
-    :param name: Template name without extension, or a template file path.
-    :return: The labels, empty when the frontmatter declares none.
-    """
-    meta, _ = load_template(name)
-    labels = meta.get("labels", [])
-    if isinstance(labels, str):
-        return [labels]
-    if isinstance(labels, list):
-        return [str(label) for label in labels]
-    return []
-
-
-def template_draft(name: str | Path) -> bool:
-    """Return whether a template's pull request should be held in draft.
-
-    Read from the `draft:` frontmatter key. Both the YAML boolean and its
-    quoted spelling are honored, mirroring the `footer:` key.
-
-    :param name: Template name without extension, or a template file path.
-    """
-    meta, _ = load_template(name)
-    return meta.get("draft", False) in (True, "true")
-
-
-def template_docs_url(name: str | Path) -> str:
-    """Return a template's documentation deep link, if it declares one.
-
-    PR templates carry a `docs:` frontmatter field pointing at their job's
-    section of the hosted workflows reference, surfaced as the
-    `Documentation` entry of the metadata block now that PR bodies have no
-    description section.
-
-    :param name: Template name without `.md` extension, or a
-        {class}`~pathlib.Path` pointing to a template file.
-    :return: The URL from the frontmatter `docs` field, or an empty string.
-    """
-    meta, _body = load_template(name)
-    docs = meta.get("docs", "")
-    return docs if isinstance(docs, str) else ""
-
-
-def template_stem(filename: str) -> str:
-    """Return a template's name, shorn of its `.md` or `.md.noformat` extension.
-
-    The one place that knows how template filenames decompose: `.md.noformat`
-    files are renamed `.md` files hidden from mdformat (see
-    {func}`load_template`), so both extensions strip down to the same name.
-    Callers derive a PR branch or a documentation label from a
-    `--template-file` path with it, and {func}`get_template_names` names the
-    bundled templates through it.
-
-    :param filename: A template file's basename.
-    :return: The name with neither extension.
-    """
-    return filename.removesuffix(".noformat").removesuffix(".md")
-
-
-def get_template_names() -> list[str]:
-    """Discover all available template names from the templates package.
-
-    :return: Sorted list of template names (without `.md` extension).
-    """
-    template_dir = files("repomatic.templates")
-    names = []
-    for item in template_dir.iterdir():
-        item_name = getattr(item, "name", str(item))
-        if item_name.endswith((".md", ".md.noformat")):
-            names.append(template_stem(item_name))
-    return sorted(names)
+    commit_message: str
+    """The commit message, empty when no template supplies one."""
 
 
 def generate_pr_metadata_block(
@@ -572,8 +112,8 @@ def generate_pr_metadata_block(
         CI context from.
     :param docs_url: Optional deep link to the job's section of the hosted
         workflows reference, rendered as the leading `Documentation` entry.
-        Comes from the PR template's `docs:` frontmatter field (see
-        {func}`template_docs_url`).
+        Comes from the template's `docs:` frontmatter field (see
+        {attr}`~repomatic.templating.PrTemplate.docs_url`).
     :param docs_name: Label for the documentation link, usually the template
         (operation) name. Without it the raw URL renders as an autolink.
     :return: A markdown string with the metadata block.
@@ -628,59 +168,12 @@ def generate_refresh_tip(md: Metadata) -> str:
     )
 
 
-def build_release_review_steps(md: Metadata, version: str) -> tuple[str, str]:
-    """Build the two optional review steps of the prepare-release checklist.
-
-    The `How-to release` list opens with two review steps that render only
-    when their GitHub data is reachable, so the checklist degrades to the bare
-    merge instructions offline (or when the dev pre-release is disabled):
-
-    - **Dev pre-release review**: links the rolling `v{version}.dev0` draft
-      through its {attr}`~repomatic.github.releases.ReleaseWithAssets.html_url`
-      (drafts have no public tag URL). Omitted when no such draft is visible.
-    - **Full-changes review**: links the `v{previous}...main` comparison.
-      Omitted when no prior release exists to compare against.
-
-    Both come from a single
-    {func}`~repomatic.github.releases.dev_release_url_and_previous_version`
-    lookup. Each returned string is a complete ordered-list line ending in a
-    newline (or empty), written with a `1.` marker so the surrounding lazily
-    numbered list renumbers correctly however many steps survive.
-
-    :param md: CI context, read for the repository URL.
-    :param version: The release version being prepared (e.g. `1.2.3`).
-    :return: A `(dev_release_review, changes_review)` pair of list-item lines.
-    """
-    repo_url = md.repo_url
-    if not repo_url:
-        return "", ""
-    dev_release_url, previous_version = dev_release_url_and_previous_version(
-        repo_url, version
-    )
-
-    dev_release_review = ""
-    if dev_release_url:
-        dev_release_review = (
-            f"1. Review the [`v{version}.dev0` GitHub release]({dev_release_url})\n"
-        )
-
-    changes_review = ""
-    if previous_version:
-        changes_review = (
-            "1. Review the full changes: "
-            f"[`v{previous_version}...main`]"
-            f"({repo_url}/compare/v{previous_version}...main)\n"
-        )
-
-    return dev_release_review, changes_review
-
-
 def _utf16_len(text: str) -> int:
     """Length of *text* in UTF-16 code units.
 
-    GitHub's body size limit and create-pull-request's truncation both count
-    JavaScript string length (UTF-16 code units), not Unicode code points, so
-    emoji-heavy reports must be measured the same way.
+    GitHub's body size limit counts JavaScript string length (UTF-16 code
+    units), not Unicode code points, so emoji-heavy reports must be measured
+    the same way.
     """
     return len(text.encode("utf-16-le")) // 2
 
@@ -688,7 +181,7 @@ def _utf16_len(text: str) -> int:
 def _trim_to_budget(text: str, budget: int) -> str:
     """Keep the leading whole lines of *text* that fit in *budget*.
 
-    {func}`~repomatic.github.actions.trim_to_budget` in the body-content unit,
+    {func}`~repomatic.github.outputs.trim_to_budget` in the body-content unit,
     UTF-16 code units.
 
     :param text: Content to trim.
@@ -702,8 +195,9 @@ def build_pr_body(prefix: str, metadata_block: str, refresh_tip: str = "") -> st
     """Concatenate prefix, refresh tip, and metadata block into a PR body.
 
     The `metadata_block` already includes the attribution footer (appended
-    automatically by {func}`render_template`); the *refresh_tip* comes
-    pre-rendered from {func}`generate_refresh_tip` (empty to omit it).
+    automatically by {func}`~repomatic.templating.render_template`); the
+    *refresh_tip* comes pre-rendered from {func}`generate_refresh_tip` (empty
+    to omit it).
 
     Bodies over {data}`GITHUB_BODY_MAX_CHARS` have their prefix trimmed to
     fit, replacing the dropped lines with a caution admonition, so the refresh
@@ -791,3 +285,169 @@ def temp_body_file(body: str) -> Generator[Path, None, None]:
         yield path
     finally:
         path.unlink(missing_ok=True)
+
+
+def _arg_sources(
+    md: Metadata,
+    config: Config,
+    *,
+    version: str | None,
+    part: str | None,
+    pr_ref: str | None,
+) -> dict[str, str | Callable[[], str | None] | None]:
+    """Where each template argument repomatic knows comes from.
+
+    A callable is only called when the template declares its argument, so a
+    template pays for no lookup it does not use.
+
+    :param md: CI context, read for the repository and the commit.
+    :param config: The resolved `[tool.repomatic]` configuration.
+    :param version: The `--version` value, or `None` to read the bumpversion
+        configuration.
+    :param part: The `--part` value.
+    :param pr_ref: The `--pr-ref` value.
+    :return: Argument name to its value, a callable producing it, or `None`
+        when nothing supplies it.
+    """
+
+    def resolve_version() -> str:
+        """The release version, `--version` first, else the bumpversion config."""
+        if version is not None:
+            return version
+        current = md.get_current_version()
+        if not current:
+            msg = "Cannot auto-detect version: no bumpversion config found."
+            raise TemplateArgumentError(msg)
+        resolved = strip_dev_suffix(current)
+        logging.info(f"Auto-detected version: {resolved}")
+        return resolved
+
+    # The two review steps of the prepare-release checklist share one GitHub
+    # releases lookup, made only when the template declares them.
+    review_steps: dict[str, str] = {}
+
+    def review_step(key: str) -> str:
+        if not review_steps:
+            dev_release_review, changes_review = release_review_steps(
+                md.repo_url, resolve_version()
+            )
+            review_steps["dev_release_review"] = dev_release_review
+            review_steps["changes_review"] = changes_review
+        return review_steps[key]
+
+    def release_readiness() -> str:
+        # Pinned to the commit the body was rendered from, so the line the
+        # banner points at is the line that was read. A branch ref would drift
+        # onto whatever `main` holds when the maintainer clicks it.
+        blob_url = f"{md.repo_url}/blob/{md.sha}" if md.repo_url and md.sha else None
+        return build_release_readiness(
+            Path("pyproject.toml"),
+            Path("uv.lock"),
+            config.minimum_release_age,
+            allow=config.lint_deps.allow,
+            source_url=blob_url,
+            repo_url=md.repo_url or None,
+        )
+
+    return {
+        "changes_review": lambda: review_step("changes_review"),
+        "dev_release_review": lambda: review_step("dev_release_review"),
+        # File-backed step outputs, relayed by the workflow step that opens
+        # the pull request.
+        "diff_table": lambda: read_file_output("REPOMATIC_DIFF_TABLE"),
+        "part": part,
+        "pr_ref": pr_ref,
+        "release_readiness": release_readiness,
+        "repo_url": lambda: md.repo_url,
+        "upgrade_report": lambda: read_file_output("REPOMATIC_UPGRADE_REPORT"),
+        "upgrade_version": os.getenv("REPOMATIC_UPGRADE_VERSION"),
+        "version": resolve_version,
+    }
+
+
+def render_pr(
+    md: Metadata,
+    config: Config,
+    *,
+    template: PrTemplate | None = None,
+    prefix: str = "",
+    extra_args: Mapping[str, str] | None = None,
+    version: str | None = None,
+    part: str | None = None,
+    pr_ref: str | None = None,
+) -> PrContent:
+    """Render a pull request's title, body and commit message.
+
+    The rendering core shared by `pr-body` (which emits the three as step
+    outputs for external consumption) and `pr-sync` (which feeds them straight
+    to {func}`~repomatic.github.pr.upsert_pr`, skipping the `$GITHUB_OUTPUT`
+    round-trip and its step-output ceiling entirely).
+
+    :param md: CI context. One instance for the whole render, so the review
+        steps, the `repo_url` argument and the metadata block read the same
+        state.
+    :param config: The resolved `[tool.repomatic]` configuration.
+    :param template: The template to render, or `None` for a body made of
+        *prefix* and the metadata block alone.
+    :param prefix: Content placed before the rendered template.
+    :param extra_args: Template arguments given explicitly. They win over every
+        source repomatic knows, so a caller can feed any name.
+    :param version: The release version, read from the bumpversion
+        configuration when `None`.
+    :param part: The version part a bump template names.
+    :param pr_ref: The pull request reference a squash-merge report names.
+    :return: The title and commit message are empty when no template supplies
+        them.
+    :raises TemplateArgumentError: When nothing supplies an argument the
+        template declares.
+    """
+    title = commit_message = docs_url = docs_name = ""
+    if template:
+        sources = _arg_sources(md, config, version=version, part=part, pr_ref=pr_ref)
+        sources.update(extra_args or {})
+        kwargs: dict[str, str | None] = {}
+        for arg in template.args:
+            value = sources.get(arg)
+            if value is None:
+                msg = f"--{arg} is required for template {template.name!r}"
+                raise TemplateArgumentError(msg)
+            kwargs[arg] = value() if callable(value) else value
+        content = render_template(template, **kwargs)
+        prefix = f"{prefix}\n\n{content}" if prefix else content
+        title = template.title(**kwargs)
+        commit_message = template.commit_message(**kwargs)
+        docs_url, docs_name = template.docs_url, template.name
+
+    metadata_block = generate_pr_metadata_block(
+        md, docs_url=docs_url, docs_name=docs_name
+    )
+    body = build_pr_body(prefix, metadata_block, refresh_tip=generate_refresh_tip(md))
+    return PrContent(title, body, commit_message)
+
+
+# 8.0.0 shim: re-export for callers not migrated yet.
+def load_template(name: str | Path) -> tuple[dict[str, object], str]:
+    """Load a template's frontmatter and body.
+
+    See {meth}`repomatic.templating.PrTemplate.load`.
+    """
+    template = PrTemplate.load(name)
+    return dict(template.meta), template.body
+
+
+# 8.0.0 shim: re-export for callers not migrated yet.
+def template_docs_url(name: str | Path) -> str:
+    """A template's documentation link.
+
+    See {attr}`repomatic.templating.PrTemplate.docs_url`.
+    """
+    return PrTemplate.load(name).docs_url
+
+
+# 8.0.0 shim: re-export for callers not migrated yet.
+def template_labels(name: str | Path) -> list[str]:
+    """A template's pull request labels.
+
+    See {attr}`repomatic.templating.PrTemplate.labels`.
+    """
+    return list(PrTemplate.load(name).labels)

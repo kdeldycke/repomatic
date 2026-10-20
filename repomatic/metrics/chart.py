@@ -32,51 +32,36 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import date
+from enum import StrEnum
 from html import escape
 from math import floor, log10
 from pathlib import Path
 
 from ..file_ops import write_if_changed
-from .store import CHARTABLE_METRICS, METRICS_BY_ID, PREDECESSOR_SUFFIX
+from .store import (
+    chartable_metric,
+    is_predecessor,
+    predecessor_key,
+    series,
+    subject_of,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
+    from typing import TypeVar
 
-CHART_MODES = ("absolute", "relative")
-"""Horizontal axes a chart can measure against.
+    from ..config import MetricsConfig
+    from .store import MetricStore
 
-`absolute` shares one calendar across every curve, answering when a project
-gathered its following. `relative` starts each curve at its own repository's
-creation, which is the only origin they all share, so a project that took eight
-years to reach a figure another hit in two is read at a glance.
+    AxisT = TypeVar("AxisT", bound=StrEnum)
 
-Kept separate from {data}`CHART_SCALES`, which measures the vertical one: a
-comparison chart routinely wants both, and folding them into a single setting
-would make each pair of choices a new name.
-"""
+CHART_HEIGHT = 460
+"""Height of the drawn SVG, in pixels."""
 
-CHART_SCALES = ("linear", "logarithmic")
-"""Vertical axes a chart can measure against.
-
-`linear` reads a difference, and is right whenever the series are the same size.
-`logarithmic` reads a *rate*, and is what puts a project of 57 stars on one
-chart with a peer of 25,000 without flattening it onto the axis: equal slopes
-mean equal growth in percentage terms, whatever the counts.
-
-A count of zero has no logarithm, and most series carry one, since the day a
-repository was created is the only date its count is known exactly. So the
-bottom {data}`LOG_ZERO_BAND` of the plot is kept linear, spanning nothing but
-the step from zero to one. The curve then leaves the axis where the first star
-landed rather than beginning in mid-air or being silently dropped.
-
-A repository starred on its creation day carries no zero: that day's
-measurement outranks the anchor and takes its place, per
-{data}`repomatic.metrics.store.SOURCE_RANK`, so its curve starts at one. Its by-age
-origin is still right, since the reading that displaced the anchor is dated the
-creation day and so is the series' first point.
-"""
+CHART_WIDTH = 960
+"""Width of the drawn SVG, in pixels."""
 
 LABEL_CHAR_WIDTH = 7.6
 """Pixels a direct label's average character occupies, for margin arithmetic.
@@ -133,6 +118,67 @@ _CSS_UNSAFE_RE = re.compile(r"[^a-z0-9]+")
 """Runs of characters a CSS class name cannot carry, folded to one dash."""
 
 
+class ChartMode(StrEnum):
+    """What the horizontal axis of a chart measures against.
+
+    Kept separate from {class}`ChartScale`, which measures the vertical one: a
+    comparison chart routinely wants both, and folding them into a single
+    setting would make each pair of choices a new name.
+    """
+
+    ABSOLUTE = "absolute"
+    """One calendar shared by every curve, answering when a project gathered
+    its following."""
+
+    RELATIVE = "relative"
+    """Each curve starts at its own repository's creation, which is the only
+    origin they all share: a project that took eight years to reach a figure
+    another hit in two is read at a glance."""
+
+
+class ChartScale(StrEnum):
+    """What the vertical axis of a chart measures against."""
+
+    LINEAR = "linear"
+    """Reads a difference, and is right whenever the series are the same size."""
+
+    LOGARITHMIC = "logarithmic"
+    """Reads a *rate*, and puts a project of 57 stars on one chart with a peer of
+    25,000 without flattening it onto the axis: equal slopes mean equal growth
+    in percentage terms, whatever the counts.
+
+    A count of zero has no logarithm, and most series carry one, since the day
+    a repository was created is the only date its count is known exactly. So
+    the bottom {data}`LOG_ZERO_BAND` of the plot is kept linear, spanning
+    nothing but the step from zero to one. The curve then leaves the axis where
+    the first star landed rather than beginning in mid-air or being silently
+    dropped.
+
+    A repository starred on its creation day carries no zero: that day's
+    measurement outranks the anchor and takes its place, per
+    {attr}`repomatic.metrics.store.Source.rank`, so its curve starts at one. Its
+    by-age origin is still right, since the reading that displaced the anchor is
+    dated the creation day and so is the series' first point.
+    """
+
+
+def _axis(kind: type[AxisT], value: str, name: str, output: str) -> AxisT:
+    """Read the axis setting *value* of chart *output* as a member of *kind*.
+
+    An axis nothing implements must not fall back to the default: a misspelled
+    `logarithmic` that drew a linear axis would look plausible, and misread
+    every series on it by orders of magnitude.
+
+    :raises ValueError: When *value* names no member of *kind*.
+    """
+    try:
+        return kind(value)
+    except ValueError:
+        choices = ", ".join(kind)
+        msg = f"Unsupported chart {name} {value!r} for {output}: pick {choices}."
+        raise ValueError(msg) from None
+
+
 @dataclass(frozen=True)
 class ChartSpec:
     """One chart a repository asked for."""
@@ -148,27 +194,38 @@ class ChartSpec:
     which is a table cell rather than a curve.
     """
 
-    mode: str = "absolute"
-    """Which of {data}`CHART_MODES` measures the horizontal axis."""
+    mode: ChartMode = ChartMode.ABSOLUTE
+    """What the horizontal axis measures."""
 
     only: tuple[str, ...] = ()
     """Series to plot, in draw order. Every declared subject when empty."""
 
-    scale: str = "linear"
-    """Which of {data}`CHART_SCALES` measures the vertical axis."""
+    scale: ChartScale = ChartScale.LINEAR
+    """What the vertical axis measures."""
 
     title: str = ""
     """Accessible name for the chart, describing what it shows."""
 
+    def __post_init__(self) -> None:
+        """Refuse a chart of a metric the store keeps no history of.
+
+        :raises ValueError: When {attr}`metric` does not accrue.
+        """
+        try:
+            chartable_metric(self.metric)
+        except ValueError as error:
+            msg = f"Chart {self.output}: {error}"
+            raise ValueError(msg) from None
+
     @property
     def logarithmic(self) -> bool:
         """Whether the vertical axis measures by powers of ten."""
-        return self.scale == "logarithmic"
+        return self.scale is ChartScale.LOGARITHMIC
 
     @property
     def relative(self) -> bool:
         """Whether the horizontal axis measures project age."""
-        return self.mode == "relative"
+        return self.mode is ChartMode.RELATIVE
 
     @classmethod
     def from_mapping(cls, entry: Mapping[str, object]) -> ChartSpec:
@@ -176,7 +233,7 @@ class ChartSpec:
 
         :param entry: The entry as configuration parsed it.
         :return: The corresponding spec.
-        :raises ValueError: When `output` is missing, the mode is unknown, or
+        :raises ValueError: When `output` is missing, an axis is unknown, or
             the named metric has no history to chart.
         """
         output = entry.get("output")
@@ -184,14 +241,6 @@ class ChartSpec:
             msg = (
                 "A [[tool.repomatic.metrics.charts]] entry needs an output path: "
                 f"{entry!r}"
-            )
-            raise ValueError(msg)
-        metric = str(entry.get("metric") or cls.metric)
-        if metric not in CHARTABLE_METRICS:
-            chartable = ", ".join(CHARTABLE_METRICS)
-            msg = (
-                f"Chart {output} plots metric {metric!r}, which the store keeps no "
-                f"history of. Pick one of: {chartable}."
             )
             raise ValueError(msg)
         declared = entry.get("only") or ()
@@ -208,36 +257,16 @@ class ChartSpec:
             # a human wrote in `pyproject.toml`, and every other configuration
             # fault here raises ValueError for one CLI handler to catch.
             raise ValueError(msg)  # noqa: TRY004
+        mode = str(entry.get("mode") or cls.mode)
+        scale = str(entry.get("scale") or cls.scale)
         return cls(
             output=Path(output),
-            metric=metric,
-            mode=str(entry.get("mode") or cls.mode),
+            metric=str(entry.get("metric") or cls.metric),
+            mode=_axis(ChartMode, mode, "mode", output),
             only=only,
-            scale=str(entry.get("scale") or cls.scale),
+            scale=_axis(ChartScale, scale, "scale", output),
             title=str(entry.get("title") or cls.title),
         )
-
-    def __post_init__(self) -> None:
-        """Reject an axis nothing implements, which would silently draw the default.
-
-        Both axes fail the same way and so are checked the same way: a
-        misspelled `logarithmic` that fell through to linear would draw a chart
-        that looks plausible, and misreads every series on it by orders of
-        magnitude.
-        """
-        if self.mode not in CHART_MODES:
-            modes = ", ".join(CHART_MODES)
-            msg = (
-                f"Unsupported chart mode {self.mode!r} for {self.output}: pick {modes}."
-            )
-            raise ValueError(msg)
-        if self.scale not in CHART_SCALES:
-            scales = ", ".join(CHART_SCALES)
-            msg = (
-                f"Unsupported chart scale {self.scale!r} for {self.output}: "
-                f"pick {scales}."
-            )
-            raise ValueError(msg)
 
 
 @dataclass
@@ -327,18 +356,18 @@ def build_chart_data(
     wanted = (
         list(spec.only)
         if spec.only
-        else [name for name in grouped if not name.endswith(PREDECESSOR_SUFFIX)]
+        else [name for name in grouped if not is_predecessor(name)]
     )
     points: dict[str, list[tuple[date, int]]] = {}
     for name in wanted:
         if name in grouped:
             points[name] = grouped[name]
-        prior = name + PREDECESSOR_SUFFIX
+        prior = predecessor_key(name)
         if prior in grouped:
             points[prior] = grouped[prior]
     if not points:
         plotted = ", ".join(wanted) or "nothing"
-        label = METRICS_BY_ID[spec.metric].label.lower()
+        label = chartable_metric(spec.metric).label.lower()
         msg = (
             f"Chart {spec.output.name} has no {label} history to plot "
             f"({plotted}). Run a sample or a reconstruction first."
@@ -358,157 +387,215 @@ def build_chart_data(
 
     colors = assign_colors(wanted, overrides)
     for name in list(points):
-        base = name.removesuffix(PREDECESSOR_SUFFIX)
-        colors.setdefault(name, colors[base])
+        colors.setdefault(name, colors[subject_of(name)])
     return ChartData(points=points, colors=colors)
 
 
-def render_chart(
-    data: ChartData,
-    *,
-    relative: bool = False,
-    logarithmic: bool = False,
-    title: str = "",
-    label: str = "Stars",
-    stamp: str | None = None,
-) -> str:
-    """Draw the line chart as a standalone, themeable SVG.
+@dataclass(frozen=True)
+class _Plot:
+    """Where the series of one chart land: the frame, the axes and the points."""
 
-    :param data: The series to plot and their hues.
-    :param relative: Measure the horizontal axis from each repository's own
-        first point rather than from the calendar.
-    :param logarithmic: Measure the vertical axis by powers of ten, so series
-        orders of magnitude apart stay legible on one chart. See
-        {data}`CHART_SCALES` for how a series' zero is placed, and for the
-        series that carries none.
-    :param title: Accessible name for the chart. Derived from the metric and
-        the mode when empty.
-    :param label: What the vertical axis counts, from the plotted metric's
-        {attr}`~repomatic.metrics.store.Metric.label`.
-    :param stamp: Sampling date shown in the caption, in `YYYY-MM-DD` form.
-        Today (UTC) when `None`.
-    :return: The complete SVG document.
-    """
-    if stamp is None:
-        stamp = datetime.now(UTC).date().isoformat()
-    grouped = data.points
+    left: int
+    """Left margin, which holds the value ticks."""
 
-    width, height = 960, 460
-    # The right margin carries the direct labels, so it is measured from the
-    # longest one rather than fixed. A constant wide enough for one project's
-    # own chart clips `semantic-release · 23,977` on a comparison of ten, and an
-    # SVG text node does not wrap: the overflow is simply cut by the viewBox.
-    captions = [
-        len(f"{name} · {points[-1][1]:,}")
-        for name, points in grouped.items()
-        if not name.endswith(PREDECESSOR_SUFFIX)
-    ]
-    left, top, bottom = 58, 28, 46
-    right = max(
-        MIN_LABEL_MARGIN, round(max(captions, default=0) * LABEL_CHAR_WIDTH) + 20
-    )
-    plot_w, plot_h = width - left - right, height - top - bottom
+    top: int
+    """Top margin."""
 
-    all_points = [point for points in grouped.values() for point in points]
-    first_day = min(day for day, _stars in all_points)
-    last_day = max(day for day, _stars in all_points)
-    peak = max(stars for _day, stars in all_points)
+    plot_width: int
+    """Width of the area the curves are drawn in."""
 
-    # Both modes plot a day offset; only its origin differs. Absolute measures
-    # from the earliest date on the chart, so the curves share a calendar.
-    # Relative measures each series from its own first point, which slides
-    # every project to a common birth and compares trajectories.
-    offsets: dict[str, list[tuple[int, int]]] = {}
-    for name, points in grouped.items():
-        origin = points[0][0] if relative else first_day
-        offsets[name] = [((day - origin).days, stars) for day, stars in points]
-    span = max((max(x for x, _s in points) for points in offsets.values()), default=1)
-    span = max(span, 1)
+    plot_height: int
+    """Height of the area the curves are drawn in."""
 
-    # Round the axis up to a decade-ish step so the top gridline is a whole
-    # number the eye can anchor on. Annotated because `int ** int` widens to
-    # `Any` (a negative exponent would yield a float), which would otherwise
-    # leak all the way into the plotted coordinates. The halving floors at 1:
-    # a peak of 0 or 1 would otherwise halve the step to 0 and crash the
-    # ceiling division, which is the chart of a brand-new repository whose
-    # only reading is its zero-star creation row.
-    step: int = 10 ** (len(str(peak)) - 1)
-    step = max(step // 2, 1) if peak / step < 2 else step
-    ceiling: int = ((peak // step) + 1) * step
+    first_day: date
+    """Earliest reading on the chart."""
 
-    # A logarithmic axis stops at the peak itself rather than at the next whole
-    # decade above it: rounding a peak of 25,057 up to 100,000 would spend three
-    # quarters of the height on emptiness. Its gridlines are the decades falling
-    # below that, which stay nameable powers of ten wherever the top lands.
-    log_span = max(log10(peak), 1.0) if peak >= 1 else 1.0
+    last_day: date
+    """Latest reading on the chart."""
 
-    def x_of(offset: int) -> float:
-        return left + offset / span * plot_w
+    span: int
+    """Days the horizontal axis covers, at least one."""
 
-    def y_of(stars: int) -> float:
-        if not logarithmic:
-            return top + plot_h - (stars / ceiling) * plot_h
-        if stars < 1:
+    ceiling: int
+    """Top of a linear vertical axis: a round number above the peak."""
+
+    log_span: float
+    """Decades a logarithmic vertical axis covers, at least one."""
+
+    relative: bool
+    """Whether the horizontal axis measures project age."""
+
+    logarithmic: bool
+    """Whether the vertical axis measures by powers of ten."""
+
+    offsets: dict[str, list[tuple[int, int]]]
+    """The points of each series, their days turned into offsets from its origin."""
+
+    @classmethod
+    def measure(
+        cls,
+        points: Mapping[str, list[tuple[date, int]]],
+        *,
+        relative: bool,
+        logarithmic: bool,
+    ) -> _Plot:
+        """Fit the frame and the axes to the series of a chart."""
+        # The right margin carries the direct labels, so it is measured from the
+        # longest one rather than fixed. A constant wide enough for one
+        # project's own chart clips `semantic-release · 23,977` on a comparison
+        # of ten, and an SVG text node does not wrap: the overflow is simply cut
+        # by the viewBox.
+        captions = [
+            len(f"{name} · {series_points[-1][1]:,}")
+            for name, series_points in points.items()
+            if not is_predecessor(name)
+        ]
+        left, top, bottom = 58, 28, 46
+        right = max(
+            MIN_LABEL_MARGIN, round(max(captions, default=0) * LABEL_CHAR_WIDTH) + 20
+        )
+
+        all_points = [
+            point for series_points in points.values() for point in series_points
+        ]
+        first_day = min(day for day, _stars in all_points)
+        last_day = max(day for day, _stars in all_points)
+        peak = max(stars for _day, stars in all_points)
+
+        # Both modes plot a day offset; only its origin differs. Absolute
+        # measures from the earliest date on the chart, so the curves share a
+        # calendar. Relative measures each series from its own first point,
+        # which slides every project to a common birth and compares
+        # trajectories.
+        offsets: dict[str, list[tuple[int, int]]] = {}
+        for name, series_points in points.items():
+            origin = series_points[0][0] if relative else first_day
+            offsets[name] = [
+                ((day - origin).days, stars) for day, stars in series_points
+            ]
+        span = max(
+            (max(x for x, _s in shifted) for shifted in offsets.values()), default=1
+        )
+
+        # Round the axis up to a decade-ish step so the top gridline is a whole
+        # number the eye can anchor on. Annotated because `int ** int` widens to
+        # `Any` (a negative exponent would yield a float), which would otherwise
+        # leak all the way into the plotted coordinates. The halving floors at
+        # 1: a peak of 0 or 1 would otherwise halve the step to 0 and crash the
+        # ceiling division, which is the chart of a brand-new repository whose
+        # only reading is its zero-star creation row.
+        step: int = 10 ** (len(str(peak)) - 1)
+        step = max(step // 2, 1) if peak / step < 2 else step
+
+        # A logarithmic axis stops at the peak itself rather than at the next
+        # whole decade above it: rounding a peak of 25,057 up to 100,000 would
+        # spend three quarters of the height on emptiness. Its gridlines are the
+        # decades falling below that, which stay nameable powers of ten wherever
+        # the top lands.
+        return cls(
+            left=left,
+            top=top,
+            plot_width=CHART_WIDTH - left - right,
+            plot_height=CHART_HEIGHT - top - bottom,
+            first_day=first_day,
+            last_day=last_day,
+            span=max(span, 1),
+            ceiling=((peak // step) + 1) * step,
+            log_span=max(log10(peak), 1.0) if peak >= 1 else 1.0,
+            relative=relative,
+            logarithmic=logarithmic,
+            offsets=offsets,
+        )
+
+    def x_of(self, offset: int) -> float:
+        """Place a day offset on the horizontal axis."""
+        return self.left + offset / self.span * self.plot_width
+
+    def y_of(self, value: int) -> float:
+        """Place a value on the vertical axis."""
+        if not self.logarithmic:
+            return (
+                self.top + self.plot_height - (value / self.ceiling) * self.plot_height
+            )
+        if value < 1:
             # The floor itself, which is what {data}`LOG_ZERO_BAND` reserves.
-            return top + plot_h
-        height = LOG_ZERO_BAND + (1 - LOG_ZERO_BAND) * log10(stars) / log_span
-        return top + plot_h - height * plot_h
+            return self.top + self.plot_height
+        share = LOG_ZERO_BAND + (1 - LOG_ZERO_BAND) * log10(value) / self.log_span
+        return self.top + self.plot_height - share * self.plot_height
 
-    parts: list[str] = []
 
-    # Horizontal gridlines and their value labels: quarters of the ceiling on a
-    # linear axis, every decade plus the zero baseline on a logarithmic one.
-    gridlines: list[int] = (
-        [0, *(10**power for power in range(floor(log_span) + 1))]
-        if logarithmic
-        else [round(ceiling * i / 4) for i in range(5)]
+def _value_gridlines(plot: _Plot) -> list[str]:
+    """Draw the horizontal gridlines and their value labels.
+
+    Quarters of the ceiling on a linear axis, every decade plus the zero
+    baseline on a logarithmic one.
+    """
+    values: list[int] = (
+        [0, *(10**power for power in range(floor(plot.log_span) + 1))]
+        if plot.logarithmic
+        else [round(plot.ceiling * i / 4) for i in range(5)]
     )
-    for value in gridlines:
-        y = y_of(value)
+    parts: list[str] = []
+    for value in values:
+        y = plot.y_of(value)
         gridline = (
-            f'<line class="grid" x1="{left}" y1="{y:.1f}" '
-            f'x2="{left + plot_w}" y2="{y:.1f}"/>'
+            f'<line class="grid" x1="{plot.left}" y1="{y:.1f}" '
+            f'x2="{plot.left + plot.plot_width}" y2="{y:.1f}"/>'
         )
         tick = (
-            f'<text class="tick" x="{left - 10}" y="{y + 4:.1f}" '
+            f'<text class="tick" x="{plot.left - 10}" y="{y + 4:.1f}" '
             f'text-anchor="end">{value:,}</text>'
         )
         parts.extend((gridline, tick))
+    return parts
 
-    # Vertical gridlines: calendar years when absolute, years of age when
-    # relative. Thinned on a long relative span so the labels stay readable.
-    if relative:
-        stride = 1 + span // 365 // 8
+
+def _time_marks(plot: _Plot) -> list[str]:
+    """Draw the vertical gridlines and their labels.
+
+    Calendar years on an absolute axis, years of age on a relative one,
+    thinned on a long relative span so the labels stay readable.
+    """
+    if plot.relative:
+        stride = 1 + plot.span // 365 // 8
         marks = [
             (year * 365, "1st year" if year == 1 else f"{year} years")
-            for year in range(stride, span // 365 + 1, stride)
+            for year in range(stride, plot.span // 365 + 1, stride)
         ]
     else:
         marks = [
-            ((date(year, 1, 1) - first_day).days, str(year))
-            for year in range(first_day.year, last_day.year + 1)
-            if first_day <= date(year, 1, 1) <= last_day
+            ((date(year, 1, 1) - plot.first_day).days, str(year))
+            for year in range(plot.first_day.year, plot.last_day.year + 1)
+            if plot.first_day <= date(year, 1, 1) <= plot.last_day
         ]
+    parts: list[str] = []
+    bottom = plot.top + plot.plot_height
     for offset, caption in marks:
-        x = x_of(offset)
+        x = plot.x_of(offset)
         gridline = (
-            f'<line class="grid" x1="{x:.1f}" y1="{top}" '
-            f'x2="{x:.1f}" y2="{top + plot_h}"/>'
+            f'<line class="grid" x1="{x:.1f}" y1="{plot.top}" '
+            f'x2="{x:.1f}" y2="{bottom}"/>'
         )
         tick = (
-            f'<text class="tick" x="{x:.1f}" y="{top + plot_h + 20}" '
+            f'<text class="tick" x="{x:.1f}" y="{bottom + 20}" '
             f'text-anchor="middle">{caption}</text>'
         )
         parts.extend((gridline, tick))
+    return parts
 
-    # Series, drawn in the fixed order so a name keeps its hue.
+
+def _series(plot: _Plot) -> tuple[list[str], list[tuple[float, str, str]]]:
+    """Draw every curve, in the fixed order so a name keeps its hue.
+
+    :return: The drawn curves, and the label each live series ends on, as
+        `(height, name, value)`. A forerunner carries its label on the curve.
+    """
+    parts: list[str] = []
     labels: list[tuple[float, str, str]] = []
-    for key, shifted in offsets.items():
-        # The separator, not the tail: `partition` returns what follows it,
-        # which for a key ending in the suffix is always the empty string.
-        name, prior, _rest = key.partition(PREDECESSOR_SUFFIX)
+    for key, shifted in plot.offsets.items():
+        name, prior = subject_of(key), is_predecessor(key)
         slug = css_class(name)
-        coords = " ".join(f"{x_of(x):.1f},{y_of(s):.1f}" for x, s in shifted)
+        coords = " ".join(f"{plot.x_of(x):.1f},{plot.y_of(s):.1f}" for x, s in shifted)
         css = f"s-{slug} prior" if prior else f"s-{slug}"
         parts.append(f'<polyline class="{css}" points="{coords}"/>')
         end_offset, end_stars = shifted[-1]
@@ -518,55 +605,53 @@ def render_chart(
             # read as its final position on a date it never reached.
             parts.append(
                 f'<text class="lbl prior s-{slug}" '
-                f'x="{x_of(end_offset) + 6:.1f}" '
-                f'y="{y_of(end_stars) - 8:.1f}">retired · {end_stars:,}</text>'
+                f'x="{plot.x_of(end_offset) + 6:.1f}" '
+                f'y="{plot.y_of(end_stars) - 8:.1f}">retired · {end_stars:,}</text>'
             )
             continue
-        labels.append((y_of(end_stars), name, f"{end_stars:,}"))
+        labels.append((plot.y_of(end_stars), name, f"{end_stars:,}"))
+    return parts, labels
 
-    # Direct labels at each line's end, the relief for the light-mode hues that
-    # sit below 3:1. Nudged apart so close finishers stay legible.
-    labels.sort()
-    for index in range(1, len(labels)):
-        if labels[index][0] - labels[index - 1][0] < 15:
+
+def _direct_labels(plot: _Plot, labels: list[tuple[float, str, str]]) -> list[str]:
+    """Label each line at its end, nudging close finishers apart.
+
+    The labels are the relief for the light-mode hues that sit below 3:1, so
+    each must stay legible.
+    """
+    placed = sorted(labels)
+    for index in range(1, len(placed)):
+        if placed[index][0] - placed[index - 1][0] < 15:
             # Rebuilt field by field rather than with a starred unpack, which
             # widens the tuple to a homogeneous type mypy cannot match.
-            _label_y, label_name, label_text = labels[index]
-            labels[index] = (labels[index - 1][0] + 15, label_name, label_text)
-    for label_y, label_name, label_text in labels:
-        caption = escape(f"{label_name} · {label_text}")
-        parts.append(
-            f'<text class="lbl s-{css_class(label_name)}" x="{left + plot_w + 12}" '
-            f'y="{label_y + 4:.1f}">{caption}</text>'
-        )
+            _label_y, label_name, label_text = placed[index]
+            placed[index] = (placed[index - 1][0] + 15, label_name, label_text)
+    return [
+        f'<text class="lbl s-{css_class(label_name)}" '
+        f'x="{plot.left + plot.plot_width + 12}" '
+        f'y="{label_y + 4:.1f}">{escape(f"{label_name} · {label_text}")}</text>'
+        for label_y, label_name, label_text in placed
+    ]
 
+
+def _stylesheet(colors: Mapping[str, tuple[str, str]]) -> str:
+    """Write the `<style>` element: the base theme, then each series' hues.
+
+    A forerunner draws in the hue of the series it precedes, through the class
+    the two share, so it adds no rule of its own.
+    """
+    live = [
+        (css_class(name), light, dark)
+        for name, (light, dark) in colors.items()
+        if not is_predecessor(name)
+    ]
     css_light = "\n".join(
-        f"    .s-{css_class(name)}{{stroke:{light};color:{light}}}"
-        for name, (light, _dark) in data.colors.items()
-        if not name.endswith(PREDECESSOR_SUFFIX)
+        f"    .s-{slug}{{stroke:{light};color:{light}}}" for slug, light, _dark in live
     )
     css_dark = "\n".join(
-        f"      .s-{css_class(name)}{{stroke:{dark};color:{dark}}}"
-        for name, (_light, dark) in data.colors.items()
-        if not name.endswith(PREDECESSOR_SUFFIX)
+        f"      .s-{slug}{{stroke:{dark};color:{dark}}}" for slug, _light, dark in live
     )
-
-    # Named in the accessible description as well as the caption: a
-    # logarithmic chart read as a linear one is not slightly misread, it is
-    # misread by orders of magnitude, and a screen reader has only this to go on.
-    scale_note = ", logarithmic scale" if logarithmic else ""
-    if relative:
-        axis = f"{label} by age of the project, aligned on each series' origin"
-        described = title or f"{label} by project age{scale_note}"
-    else:
-        axis = f"{label}, {first_day} to {last_day}"
-        described = title or f"{label} history{scale_note}"
-    axis += scale_note
-    body = "\n  ".join(parts)
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}"
-     width="{width}" height="{height}" font-family="system-ui, sans-serif"
-     role="img" aria-label="{escape(described, quote=True)}">
-  <style>
+    return f"""  <style>
     text{{fill:#0b0b0b}}
     .tick{{font-size:12px;fill:#52514e}}
     .lbl{{font-size:13px;font-weight:600;fill:currentColor}}
@@ -582,7 +667,60 @@ def render_chart(
       .grid{{stroke:#fff;stroke-opacity:.14}}
 {css_dark}
     }}
-  </style>
+  </style>"""
+
+
+def render_chart(
+    data: ChartData,
+    *,
+    relative: bool = False,
+    logarithmic: bool = False,
+    title: str = "",
+    label: str,
+    stamp: str,
+) -> str:
+    """Draw the line chart as a standalone, themeable SVG.
+
+    :param data: The series to plot and their hues.
+    :param relative: Measure the horizontal axis from each repository's own
+        first point rather than from the calendar.
+    :param logarithmic: Measure the vertical axis by powers of ten, so series
+        orders of magnitude apart stay legible on one chart. See
+        {attr}`ChartScale.LOGARITHMIC` for how a series' zero is placed, and
+        for the series that carries none.
+    :param title: Accessible name for the chart. Derived from the metric and
+        the mode when empty.
+    :param label: What the vertical axis counts, from the plotted metric's
+        {attr}`~repomatic.metrics.store.Metric.label`.
+    :param stamp: Sampling date shown in the caption, in `YYYY-MM-DD` form.
+    :return: The complete SVG document.
+    """
+    plot = _Plot.measure(data.points, relative=relative, logarithmic=logarithmic)
+    curves, labels = _series(plot)
+    parts = [
+        *_value_gridlines(plot),
+        *_time_marks(plot),
+        *curves,
+        *_direct_labels(plot, labels),
+    ]
+
+    # Named in the accessible description as well as the caption: a
+    # logarithmic chart read as a linear one is not slightly misread, it is
+    # misread by orders of magnitude, and a screen reader has only this to go on.
+    scale_note = ", logarithmic scale" if logarithmic else ""
+    if relative:
+        axis = f"{label} by age of the project, aligned on each series' origin"
+        described = title or f"{label} by project age{scale_note}"
+    else:
+        axis = f"{label}, {plot.first_day} to {plot.last_day}"
+        described = title or f"{label} history{scale_note}"
+    axis += scale_note
+    body = "\n  ".join(parts)
+    width, height, left = CHART_WIDTH, CHART_HEIGHT, plot.left
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}"
+     width="{width}" height="{height}" font-family="system-ui, sans-serif"
+     role="img" aria-label="{escape(described, quote=True)}">
+{_stylesheet(data.colors)}
   {body}
   <text class="axis" x="{left}" y="{height - 10}">{escape(axis)} · sampled on {stamp}</text>
 </svg>
@@ -593,26 +731,48 @@ def write_chart(
     grouped: Mapping[str, list[tuple[date, int]]],
     spec: ChartSpec,
     overrides: Mapping[str, Sequence[str]] | None = None,
-    stamp: str | None = None,
 ) -> bool:
     """Render one chart and write it, leaving an unchanged file alone.
+
+    The caption is stamped with the newest reading of the plotted metric, over
+    every series rather than the plotted ones alone. Re-rendering an unmoved
+    history then rewrites nothing, where a stamp naming the run date would
+    churn the committed SVG on every scheduled pass that found nothing new.
 
     :param grouped: Every recorded series, as {func}`repomatic.metrics.store.series`
         returns them.
     :param spec: The chart to draw.
     :param overrides: Per-name `[light, dark]` pairs from configuration.
-    :param stamp: Sampling date shown in the caption. Today (UTC) when `None`.
     :return: `True` when the file content changed.
     :raises ValueError: When the chart cannot be built (see
         {func}`build_chart_data`).
     """
     data = build_chart_data(grouped, spec, overrides)
+    # Not empty: the chart plots at least one of these series.
+    stamp = max(day for points in grouped.values() for day, _value in points)
     content = render_chart(
         data,
         relative=spec.relative,
         logarithmic=spec.logarithmic,
         title=spec.title,
-        label=METRICS_BY_ID[spec.metric].label,
-        stamp=stamp,
+        label=chartable_metric(spec.metric).label,
+        stamp=stamp.isoformat(),
     )
     return write_if_changed(spec.output, content)
+
+
+def render_charts(
+    store: MetricStore, config: MetricsConfig
+) -> Iterator[tuple[Path, bool]]:
+    """Redraw every chart `[tool.repomatic.metrics] charts` declares, in order.
+
+    :param store: The readings to plot.
+    :param config: The `[tool.repomatic.metrics]` configuration.
+    :return: Yields each chart's output path, with whether its file changed.
+    :raises ValueError: When an entry is malformed, or a chart has nothing to
+        plot.
+    """
+    for entry in config.charts:
+        spec = ChartSpec.from_mapping(entry)
+        grouped = series(store, config.subjects, spec.metric, config.predecessors)
+        yield spec.output, write_chart(grouped, spec, config.colors)

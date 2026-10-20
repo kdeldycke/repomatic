@@ -24,7 +24,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from click_extra import (
-    Choice,
+    ClickException,
+    EnumChoice,
     SortByOption,
     UsageError,
     argument,
@@ -34,11 +35,6 @@ from click_extra import (
     pass_context,
 )
 
-from ..github.actions import (
-    AnnotationLevel,
-    cancel_superseded_runs,
-    emit_annotation,
-)
 from ..github.ci_status import (
     CI_STATUS_HEADER_DEFS,
     STABLE_GLYPH,
@@ -50,29 +46,25 @@ from ..github.ci_status import (
 from ..github.job_timings import (
     JOB_TIMINGS_HEADER_DEFS,
     fetch_job_timings,
-    format_duration,
     render_markdown,
     summarize,
 )
+from ..github.outputs import AnnotationLevel, report_finding
+from ..github.runs import cancel_superseded_runs
 from ..github.workflow_files import WORKFLOW_DIR, literal_runners
 from ..init_project import is_source_repo
 from ..matrix.axes import (
     KNOWN_RUNNERS,
-    TEST_RUNNERS_FULL,
-    TEST_RUNNERS_PR,
+    MatrixName,
     python_version_sort_key,
 )
 from ..matrix.model import (
     JOB_STATE_KEY,
     OS_AXIS,
-    PIVOT_CELL_SEPARATOR,
     PYTHON_VERSION_AXIS,
 )
 from ..matrix.runner_sync import (
-    apply_axes_retirement,
-    apply_literal_rewrite,
-    apply_upgrade,
-    close_legacy_issue,
+    AXES_SOURCE_PATH,
     plan_runner_changes,
     render_change_table,
 )
@@ -93,8 +85,6 @@ if TYPE_CHECKING:
     from typing import Any
 
     from click_extra import Context
-
-    from ..matrix.model import Matrix
 
 
 AXIS_HEADER_LABELS = {
@@ -117,14 +107,19 @@ without them. That makes them the safe answer when the real matrix cannot be
 read at all, which is the only time {class}`MatrixAxis` needs one.
 """
 
+CELL_STATE_SEPARATOR = ", "
+"""Joins the labels of the distinct states one grid cell holds."""
+
+EMPTY_CELL = "—"
+"""What a grid cell shows where the matrix puts no job, like an excluded one."""
+
 JOB_COUNT_MARK = "×"
 """Introduces the job count of a cell standing for more than one job.
 
 A cell collapses every job at its intersection, so a matrix varying on a third
 axis renders five jobs exactly like one. The mark is the East Asian Ambiguous
-U+00D7, like the `—` placeholder the grid already uses: a terminal drawing
-ambiguous characters double-width misaligns both alike, and neither before the
-other.
+U+00D7, like the {data}`EMPTY_CELL` placeholder: a terminal drawing ambiguous
+characters double-width misaligns both alike, and neither before the other.
 """
 
 TEST_MATRIX_STATE_DISPLAY = {
@@ -138,17 +133,6 @@ and that {meth}`repomatic.github.ci_status.JobStatus.required` reads back off
 it, so the grid and the CI verdict cannot come to disagree about which mark
 means "allowed to fail".
 """
-
-
-def matrix_axis_keys(matrix: Matrix) -> tuple[str, ...]:
-    """Every job key one matrix carries, sorted.
-
-    Read off the solved job stream rather than off the declared axes, so a key
-    only an `include` directive contributes is listed and one whose directive
-    every `exclude` cancelled is not. That makes the listing exactly the set an
-    axis can pivot on: anything outside it yields an empty grid.
-    """
-    return tuple(sorted({key for job in matrix.solve() for key in job}))
 
 
 class MatrixAxis(LazyChoice):
@@ -175,7 +159,7 @@ class MatrixAxis(LazyChoice):
     """Every matrix carries these three, so an unreadable one still pivots."""
 
     def resolve(self) -> tuple[str, ...]:
-        return matrix_axis_keys(Metadata().test_matrix)
+        return Metadata().test_matrix.job_keys()
 
 
 class WorkflowFile(LazyChoice):
@@ -193,7 +177,9 @@ class WorkflowFile(LazyChoice):
         return workflow_files(WORKFLOW_DIR)
 
 
-def matrix_axis_sort_key(axis: str, matrix_name: str) -> Callable[[str], Any] | None:
+def matrix_axis_sort_key(
+    axis: str, matrix_name: MatrixName
+) -> Callable[[str], Any] | None:
     """Canonical ordering for one grid axis, or `None` to keep job order.
 
     Keyed on which axis it is rather than on which side of the grid it landed:
@@ -210,7 +196,7 @@ def matrix_axis_sort_key(axis: str, matrix_name: str) -> Callable[[str], Any] | 
         # An include directive or a full-include flattening can perturb
         # first-seen runner order. Runners outside the canonical tuple keep
         # their first-seen order after it.
-        canonical = TEST_RUNNERS_FULL if matrix_name == "full" else TEST_RUNNERS_PR
+        canonical = matrix_name.runners
         rank = {runner: index for index, runner in enumerate(canonical)}
         return lambda runner: rank.get(runner, len(canonical))
     return None
@@ -268,35 +254,30 @@ def flat_matrix_table(
     return headers, rows
 
 
-def format_matrix_cell(
-    cell: str, tally: Counter[str] | None, emoji: bool = True
-) -> str:
-    """Render one `show-test-matrix` cell from the jobs that landed in it.
+def format_matrix_cell(tally: Counter[str] | None, emoji: bool = True) -> str:
+    """Render one `show-test-matrix` grid cell from the jobs that landed in it.
 
     Every state is labelled on its own. A cell holds more than one when the
     matrix carries an axis beyond its two (a `click-version` variation, say):
-    both jobs land on the same intersection, and a label looked up for the
-    joined string would match nothing and leave that cell the only bare one in
-    its column.
+    both jobs land on the same intersection, and each keeps its own label.
 
     A state carrying several jobs also states how many, since the grid gives a
     reader no other way to tell five stable jobs from one.
 
-    :param cell: The cell {meth}`~repomatic.matrix.model.Matrix.pivot`
-        rendered, returned untouched when no job occupies the intersection:
-        the placeholder for an empty one is that method's to choose.
-    :param tally: That intersection's job count per state, or `None` where the
-        matrix puts no job at all.
+    :param tally: That intersection's job count per state, as
+        {meth}`~repomatic.matrix.model.Matrix.pivot_counts` reports it, or
+        `None` where the matrix puts no job at all.
     :param emoji: Label each state with its glyph rather than its bare word. A
         count is not decoration, and shows either way.
+    :return: The cell text, or {data}`EMPTY_CELL` for an empty intersection.
     """
     if tally is None:
-        return cell
+        return EMPTY_CELL
     labels = []
     for state, count in tally.items():
         label = state_label(state, emoji)
         labels.append(f"{label} {JOB_COUNT_MARK}{count}" if count > 1 else label)
-    return PIVOT_CELL_SEPARATOR.join(labels)
+    return CELL_STATE_SEPARATOR.join(labels)
 
 
 @subcommand(
@@ -327,7 +308,11 @@ def cancel_runs(branch: str, current_run_id: str) -> None:
     completion. The repository is resolved by the gh CLI from GH_REPO or
     the current checkout.
     """
-    cancelled = cancel_superseded_runs(branch, current_run_id)
+    try:
+        cancelled = cancel_superseded_runs(branch, current_run_id)
+    except RuntimeError as error:
+        msg = f"Cannot list the live runs of {branch!r}: {error}"
+        raise ClickException(msg) from error
     echo(f"Cancelled {cancelled} run(s) for branch {branch!r}.")
 
 
@@ -390,48 +375,25 @@ def ci_status(
         echo("No workflow to read.")
         ctx.exit(0)
 
-    status = read_ci_status(names, branch)
+    try:
+        status = read_ci_status(names, branch)
+    except RuntimeError as error:
+        msg = f"Cannot read the CI runs of {branch!r}: {error}"
+        raise ClickException(msg) from error
     if not status.runs:
         echo(f"No run found on {branch!r} for: {', '.join(names)}.")
         ctx.exit(0)
 
-    rows = [
-        (
-            run.workflow,
-            run.head_sha[:8],
-            run.status,
-            run.verdict,
-        )
-        for run in status.runs
-    ]
-    ctx.print_table(rows, CI_STATUS_HEADER_DEFS)
+    ctx.print_table([run.cells() for run in status.runs], CI_STATUS_HEADER_DEFS)
 
+    # Only what gates a merge becomes an annotation: a warning names a run
+    # that holds nothing up.
     for run in status.runs:
-        if run.workflow_level_failure:
-            message = (
-                f"{run.workflow}: run {run.run_id} failed with no failed job. "
-                "This is a workflow-level error (an invalid matrix expression, "
-                "malformed YAML, a missing secret): read the run's error "
-                "annotations, there is no job log."
-            )
-            emit_annotation(AnnotationLevel.ERROR, message)
-            echo(f"✗ {message}")
-        for job in run.failed_required:
-            message = f"{run.workflow}: required job failed: {job.name}"
-            emit_annotation(AnnotationLevel.ERROR, message)
-            echo(f"✗ {message}")
-        for job in run.failed_probes:
-            echo(f"⚠ {run.workflow}: allowed-failure probe failed: {job.name}")
-        if run.inconclusive:
-            reason = (
-                "was cancelled before its required jobs finished"
-                if run.cancelled
-                else "ran no job"
-            )
-            echo(
-                f"⚠ {run.workflow}: run {run.run_id} {reason}, so"
-                f" {run.head_sha[:8]} has no result from it."
-            )
+        for level, message in run.findings():
+            if level is AnnotationLevel.ERROR:
+                report_finding(level, message)
+            else:
+                echo(f"{level.glyph} {message}")
 
     if status.skipped_on_tip:
         echo(
@@ -489,11 +451,10 @@ def job_timings(
 ) -> None:
     """Report median whole-job wall-clock per runner image.
 
-    Runner choice is supposed to rest on measurement, and the measurement that
-    matters is whole-job: this repository once kept a lean image for years on a
-    benchmark that timed only the tool pass, where it looked near-parity, while
-    end to end it was 20-56% slower. The jobs API reports start and end
-    timestamps, so what this reads is whole-job by construction.
+    Runner choice rests on measurement, and the measurement that matters is
+    the whole job: a benchmark that times only the tool pass misses checkout
+    and install. The jobs API reports start and end timestamps, so what this
+    reads is whole-job by construction.
 
     Only successful runs are sampled, because a failed run's jobs stop early
     and time where the failure landed rather than what the image costs. The
@@ -509,19 +470,7 @@ def job_timings(
         ctx.exit(0)
 
     reports = summarize(timings)
-    ctx.print_table(
-        [
-            (
-                report.runner,
-                str(report.job_count),
-                format_duration(report.median_seconds),
-                report.slowest_job,
-                format_duration(report.slowest_seconds),
-            )
-            for report in reports
-        ],
-        JOB_TIMINGS_HEADER_DEFS,
-    )
+    ctx.print_table([report.cells() for report in reports], JOB_TIMINGS_HEADER_DEFS)
 
     if output:
         write_output(
@@ -573,9 +522,9 @@ def job_timings(
 )
 @argument(
     "matrix_name",
-    metavar="[full|pr]",
-    type=Choice(["full", "pr"]),
-    default="full",
+    metavar=f"[{'|'.join(MatrixName)}]",
+    type=EnumChoice(MatrixName),
+    default=MatrixName.FULL,
     required=False,
 )
 @pass_context
@@ -585,7 +534,7 @@ def show_test_matrix(
     grid: bool,
     row_axis: str,
     col_axis: str,
-    matrix_name: str,
+    matrix_name: MatrixName,
 ) -> None:
     """List every job of the computed CI test matrix, one row per job.
 
@@ -601,13 +550,12 @@ def show_test_matrix(
     read of the same jobs, and it is lossy, so a cell standing for several
     jobs states how many.
     """
-    meta = Metadata()
-    matrix = meta.test_matrix if matrix_name == "full" else meta.test_matrix_pr
+    matrix = Metadata().test_matrix_named(matrix_name)
     # An axis no job carries pivots into an empty grid, which reads as a matrix
     # with nothing in it rather than as the typo it is. The `--help` listing
     # offers the full matrix's keys, so a `pr` grid lands here on the few the
     # reduced matrix drops.
-    job_keys = matrix_axis_keys(matrix)
+    job_keys = matrix.job_keys()
     for hint, axis in (("--row-axis", row_axis), ("--col-axis", col_axis)):
         if axis not in job_keys:
             msg = (
@@ -632,29 +580,25 @@ def show_test_matrix(
         )
         ctx.print_table(flat_rows, flat_headers)
         return
-    col_values, rows = matrix.pivot(row_axis, col_axis)
     tallies = matrix.pivot_counts(row_axis, col_axis)
+    # First-seen order, then the canonical one where the axis has one.
+    row_values = list(dict.fromkeys(row for row, _ in tallies))
+    col_values = list(dict.fromkeys(col for _, col in tallies))
     if row_key:
-        rows = tuple(sorted(rows, key=lambda row: row_key(row[0])))
+        row_values.sort(key=row_key)
     if col_key:
-        permutation = sorted(
-            range(len(col_values)), key=lambda index: col_key(col_values[index])
-        )
-        col_values = tuple(col_values[index] for index in permutation)
-        rows = tuple(
-            (row[0], *(row[1 + index] for index in permutation)) for row in rows
-        )
+        col_values.sort(key=col_key)
     headers = (AXIS_HEADER_LABELS.get(row_axis, row_axis), *col_values)
-    rows = tuple(
+    rows = [
         (
-            row[0],
+            row,
             *(
-                format_matrix_cell(cell, tallies.get((row[0], col)), emoji=emoji)
-                for col, cell in zip(col_values, row[1:], strict=True)
+                format_matrix_cell(tallies.get((row, col)), emoji=emoji)
+                for col in col_values
             ),
         )
-        for row in rows
-    )
+        for row in row_values
+    ]
     ctx.print_table(rows, headers)
 
 
@@ -695,12 +639,6 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
     alone brings it back on the next run.
     """
     config = get_tool_config(ctx)
-    # Retires the issue the announcement feed used to maintain. Harmless where
-    # there never was one, and the only moment a repository adopting this
-    # release can be noticed.
-    if not dry_run:
-        close_legacy_issue()
-
     literal = literal_runners()
     changes = plan_runner_changes(
         literal,
@@ -716,6 +654,10 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
             write_output("runner image proposal", "", output)
         ctx.exit(0)
 
+    # Only a checkout of repomatic itself holds the curated axes. Downstream
+    # they arrive through the pin, so a repository consuming repomatic picks
+    # the new matrix up when it adopts a release.
+    axes_path = AXES_SOURCE_PATH if is_source_repo(Path.cwd()) else None
     for change in changes:
         echo(f"{change.kind}: {change.summary}")
         echo(f"  because {change.reason}")
@@ -723,20 +665,8 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
             echo(f"  passed over: {change.alternative} (preview)")
         if dry_run:
             continue
-        # Both kinds move the jobs naming the image outright: a retirement
-        # because the image is going away, an upgrade because a literal
-        # `runs-on:` is the one the matrix probe below cannot reach.
-        for path in apply_literal_rewrite(change, WORKFLOW_DIR):
-            echo(f"  rewrote {path.name}")
-        if change.kind == "retirement":
-            # Only here do the curated axes exist to move. Downstream they
-            # arrive through the pin, so a repo consuming repomatic picks the
-            # new matrix up when it adopts a release.
-            axes = Path("repomatic/matrix/axes.py")
-            if is_source_repo(Path.cwd()) and apply_axes_retirement(change, axes):
-                echo(f"  rewrote {axes.name} (every downstream matrix follows)")
-        elif apply_upgrade(change, Path("pyproject.toml")):
-            echo("  added a continue-on-error probe to pyproject.toml")
+        for path in change.apply(WORKFLOW_DIR, Path("pyproject.toml"), axes_path):
+            echo(f"  rewrote {path}")
 
     if output:
         write_output("runner image proposal", render_change_table(changes), output)

@@ -47,7 +47,7 @@ from pathlib import Path
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Sequence
+    from collections.abc import Sequence
 
 FORBIDDEN_HEADINGS: tuple[str, ...] = (
     "Contents",
@@ -74,9 +74,8 @@ this roster alone is not enough: see {func}`forbidden_headings_for`.
 README_RE = re.compile(r"^readme(\.[^.]+)?\.md$")
 """Match `readme.md` and every `readme.{lang}.md` translation beside it.
 
-Only the repository root is scanned. The `find ./` this replaced walked the
-whole tree, which on a checkout carrying a `node_modules/` directory would
-have reached a few hundred vendored readmes.
+Only the repository root is scanned: a walk of the whole tree would reach the
+readmes vendored under a `node_modules/` directory, a few hundred of them.
 """
 
 REFERENCE_README = "readme.md"
@@ -259,22 +258,21 @@ def fix_awesome_toc(root: Path | None = None) -> dict[Path, list[str]]:
     return report
 
 
-def _readmes(root: Path) -> Iterator[Path]:
-    """Yield the readmes of *root*, the reference first.
+def _readmes(root: Path) -> list[Path]:
+    """List the readmes of *root*, the reference first.
 
     The reference goes first so its own entries are gone before a translation
     is compared against it, which keeps a partial failure from leaving the
     English readme dirtier than its translations.
 
     :param root: Directory to scan.
-    :return: Each matching readme path, sorted after the reference.
+    :return: The reference, then every translation sorted by name.
     """
-    matches: Iterable[Path] = sorted(
-        path for path in root.iterdir() if path.is_file() and README_RE.match(path.name)
+    return sorted(
+        (
+            path
+            for path in root.iterdir()
+            if path.is_file() and README_RE.match(path.name)
+        ),
+        key=lambda path: (path.name != REFERENCE_README, path.name),
     )
-    for path in matches:
-        if path.name == REFERENCE_README:
-            yield path
-    for path in matches:
-        if path.name != REFERENCE_README:
-            yield path

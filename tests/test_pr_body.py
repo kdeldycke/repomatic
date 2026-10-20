@@ -18,47 +18,32 @@
 
 from __future__ import annotations
 
-import inspect
-import re
-from importlib.resources import files
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
-from click_extra import Context
 
 from repomatic import __version__
 from repomatic.cli.main import repomatic
-from repomatic.config import config_reference
-from repomatic.deps.sources import RELEASE_READY_SENTENCE
-from repomatic.frontmatter import split_frontmatter
-from repomatic.git_ops import (
-    CHANGELOG_COMMIT_PREFIX,
-    MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
-    VERSION_BUMP_COMMIT_PREFIXES,
-)
-from repomatic.github.actions import extract_workflow_filename
+from repomatic.config import Config
 from repomatic.github.pr_body import (
     GITHUB_BODY_MAX_CHARS,
-    _parse_template,
-    _unescape_dollars,
+    TemplateArgumentError,
     _utf16_len,
     build_pr_body,
-    build_release_review_steps,
-    demote_markdown_headings,
     fit_github_body,
     generate_pr_metadata_block,
     generate_refresh_tip,
-    get_template_names,
-    load_template,
-    render_commit_message,
-    render_template,
-    render_title,
-    template_args,
+    render_pr,
 )
 from repomatic.metadata.core import Metadata
+from repomatic.templating import PrTemplate, get_template_names, render_template
 from repomatic.versions import strip_dev_suffix
-from tests.conftest import docs_heading_anchors
+
+PR_TEMPLATES = tuple(
+    name for name in get_template_names() if PrTemplate.load(name).meta.get("title")
+)
+"""The templates that front a pull request or an issue: the ones with a title."""
 
 # Full set of GITHUB_* environment variables for testing.
 GITHUB_ENV_VARS = {
@@ -88,107 +73,11 @@ def github_env(monkeypatch):
         monkeypatch.setenv(key, value)
 
 
-@pytest.mark.parametrize(
-    ("workflow_ref", "expected"),
-    [
-        (
-            "owner/repo/.github/workflows/autofix.yaml@refs/heads/main",
-            "autofix.yaml",
-        ),
-        (
-            "owner/repo/.github/workflows/release.yaml@refs/tags/v1.0.0",
-            "release.yaml",
-        ),
-        ("", ""),
-        ("just-a-filename.yaml", "just-a-filename.yaml"),
-    ],
-)
-def test_extract_workflow_filename(workflow_ref, expected):
-    """Extract workflow filename from various reference formats."""
-    assert extract_workflow_filename(workflow_ref) == expected
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        # The shallowest heading lands on the floor; deeper ones keep their
-        # relative depth.
-        ("## Harvest\n\n### Apples", "##### Harvest\n\n###### Apples"),
-        # An h1-led body shifts further down to reach the same floor.
-        ("# Orchard report", "##### Orchard report"),
-        # Levels pushed past h6 (markdown's deepest) are clamped.
-        ("## Harvest\n\n#### Apples", "##### Harvest\n\n###### Apples"),
-        # Headings already at or below the floor are never promoted.
-        ("##### Apples\n\n###### Pears", "##### Apples\n\n###### Pears"),
-        # Up to 3 leading spaces still form a heading and are preserved.
-        ("  ## Cellar", "  ##### Cellar"),
-        # Fenced code blocks pass through untouched.
-        (
-            "## Recipe\n\n```bash\n# a comment\n```",
-            "##### Recipe\n\n```bash\n# a comment\n```",
-        ),
-        # A 4-space indent is a code block; `#word` and `#123` are prose.
-        ("    # indented code", "    # indented code"),
-        ("#hashtag", "#hashtag"),
-        # No headings at all.
-        ("plain prose", "plain prose"),
-        ("", ""),
-    ],
-)
-def test_demote_markdown_headings(text, expected):
-    """Headings are uniformly demoted so the shallowest lands on the floor."""
-    assert demote_markdown_headings(text, floor=5) == expected
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        (r"no dollars here", "no dollars here"),
-        (r"\$var", "$var"),
-        (r"prefix \$x and \$y suffix", "prefix $x and $y suffix"),
-        (r"already $fine", "already $fine"),
-        (r"double \\$x", r"double \$x"),
-    ],
-)
-def test_unescape_dollars(text, expected):
-    r"""``\$`` sequences are converted back to ``$``."""
-    assert _unescape_dollars(text) == expected
-
-
-def test_parse_template_unescapes_body():
-    r"""Body ``\$`` placeholders are unescaped at parse time."""
-    raw = "---\ntitle: Test\n---\nHello \\$name"
-    _meta, body = _parse_template(raw)
-    assert "$name" in body
-    assert r"\$" not in body
-
-
-def test_parse_template_unescapes_no_frontmatter():
-    r"""Templates without frontmatter also get ``\$`` unescaped."""
-    raw = "Hello \\$world"
-    _meta, body = _parse_template(raw)
-    assert body == "Hello $world"
-
-
-@pytest.mark.parametrize(
-    ("declaration", "wants_footer"),
-    [
-        pytest.param("footer: false", False, id="yaml-boolean"),
-        pytest.param('footer: "false"', False, id="quoted-string"),
-        pytest.param("footer: true", True, id="explicit-opt-in"),
-        pytest.param("title: Harvest", True, id="unset"),
-    ],
-)
-def test_footer_opt_out_accepts_both_spellings(tmp_path, declaration, wants_footer):
-    """`footer: false` opts out whether written as a YAML boolean or a string.
-
-    The frontmatter is real YAML, so a bare `false` arrives as a boolean, but a
-    downstream template may have quoted it. Both spell the same intent.
-    """
-    template = tmp_path / "harvest.md"
-    template.write_text(f"---\n{declaration}\n---\nCrates packed.\n", encoding="UTF-8")
-    rendered = render_template(template)
-    assert ("Generated with" in rendered) is wants_footer
+@pytest.fixture
+def no_github_env(monkeypatch):
+    """Clear the `GITHUB_*` environment, as on a developer machine."""
+    for key in GITHUB_ENV_VARS:
+        monkeypatch.delenv(key, raising=False)
 
 
 def test_generate_metadata_block_all_vars(github_env):
@@ -247,12 +136,8 @@ def test_generate_metadata_block_docs_entry(github_env):
     ) in unlabelled
 
 
-def test_generate_metadata_block_minimal_vars(monkeypatch):
+def test_generate_metadata_block_minimal_vars(no_github_env):
     """Graceful degradation when most env vars are unset."""
-    # Clear all GITHUB_ vars that might be set.
-    for key in GITHUB_ENV_VARS:
-        monkeypatch.delenv(key, raising=False)
-
     block = generate_pr_metadata_block(Metadata())
 
     # Should still produce a valid details block without crashing.
@@ -270,501 +155,87 @@ def test_generate_refresh_tip_with_workflow_ref(github_env):
     assert "https://github.com/owner/repo/actions/workflows/autofix.yaml" in tip
 
 
-def test_generate_refresh_tip_without_workflow_ref(monkeypatch):
+def test_generate_refresh_tip_without_workflow_ref(no_github_env):
     """Tip is empty when workflow ref is unavailable."""
-    for key in GITHUB_ENV_VARS:
-        monkeypatch.delenv(key, raising=False)
-
     assert generate_refresh_tip(Metadata()) == ""
 
 
-def test_get_template_names():
-    """All expected template names are discovered."""
-    names = get_template_names()
-
-    assert "bump-version" in names
-    assert "prepare-release" in names
-    assert "fix-typos" in names
-    assert "format-json" in names
-    assert "format-markdown" in names
-    assert "format-pyproject" in names
-    assert "format-python" in names
-    assert "sync-bumpversion" in names
-    assert "update-dep-graph" in names
-    assert "update-docs" in names
-    assert "sync-gitignore" in names
-    assert "sync-mailmap" in names
-    assert "sync-uv-lock" in names
-    assert "sync-tool-versions" in names
-    assert "sync-action-pins" in names
-    assert "sync-workflow-pins" in names
-    assert "sync-repomatic" in names
-    assert "fix-changelog" in names
-    assert "fix-vulnerable-deps" in names
-    assert "pr-metadata" in names
-    assert "refresh-tip" in names
-    assert "setup-guide" in names
-    assert "detect-squash-merge" in names
-    assert "generated-footer" in names
-    assert "github-releases" in names
-    assert "immutable-releases" in names
-    assert "release-notes" in names
-    assert "available-admonition" in names
-    assert "broken-links-issue" in names
-    assert "development-warning" in names
-    assert "release-sync-report" in names
-    assert "unavailable-admonition" in names
-    assert "unsubscribe-phase1" in names
-    assert "unsubscribe-phase2" in names
-    assert "setup-guide-fork-pr-approval" in names
-    assert "setup-guide-sha-pinning-required" in names
-    assert "setup-guide-notifications-pat" in names
-    assert "setup-guide-virustotal" in names
-    assert "yanked-admonition" in names
-    assert "format-shell" in names
-    assert "setup-guide-pypi-trusted-publisher" in names
-    assert "sync-dep-sources" in names
-    assert "sync-runner-images" in names
-    # Counted off the directory rather than written here: a literal turns
-    # adding a template into a failure of a test that has nothing to say about
-    # it, while still catching a name discovered twice or not at all.
-    assert len(names) == len(set(names))
-    assert set(names) == {
-        item.name.removesuffix(".noformat").removesuffix(".md")
-        for item in files("repomatic.templates").iterdir()
-        if item.name.endswith((".md", ".md.noformat"))
-    }
+# -- render_pr ------------------------------------------------------------------
 
 
-def test_load_template_frontmatter():
-    """Frontmatter is parsed correctly from a parameterized template."""
-    meta, body = load_template("bump-version")
+@pytest.mark.parametrize("name", PR_TEMPLATES)
+def test_render_pr_carries_one_footer(name, github_env):
+    """Every pull request body ends on exactly one attribution footer.
 
-    assert meta["args"] == ["version", "part"]
-    assert body.startswith("Merge this pull request")
-
-
-def test_load_template_title_only_frontmatter():
-    """Static templates have frontmatter with title but no args."""
-    meta, body = load_template("fix-typos")
-
-    assert "title" in meta
-    assert "args" not in meta
-    assert body.startswith("> [!TIP]")
-
-
-def test_load_template_external_file(tmp_path):
-    """A {class}`~pathlib.Path` argument loads the template from disk."""
-    template_path = tmp_path / "custom.md.noformat"
-    template_path.write_text(
-        "---\n"
-        "args: [version]\n"
-        'title: "Update package to v$version"\n'
-        "---\n\n"
-        "### Update\n\n"
-        "Bumped to `$version`.\n",
-        encoding="UTF-8",
-    )
-
-    meta, body = load_template(template_path)
-
-    assert meta["args"] == ["version"]
-    assert meta["title"] == "Update package to v$version"
-    assert body.startswith("### Update")
-
-
-def test_load_template_external_file_missing(tmp_path):
-    """Pointing at a non-existent file raises FileNotFoundError."""
-    missing = tmp_path / "does-not-exist.md"
-    with pytest.raises(FileNotFoundError, match="does not exist"):
-        load_template(missing)
-
-
-def test_render_template_external_file(tmp_path):
-    """External templates render with substitution like packaged ones."""
-    template_path = tmp_path / "external.md"
-    template_path.write_text(
-        "---\n"
-        "args: [channel]\n"
-        'title: "Update $channel package"\n'
-        'commit_message: "Sync $channel"\n'
-        "---\n\n"
-        "### Update\n\nChannel: $channel.\n",
-        encoding="UTF-8",
-    )
-
-    rendered = render_template(template_path, channel="Nix")
-    assert "Channel: Nix." in rendered
-
-    assert render_title(template_path, channel="Nix") == "Update Nix package"
-    assert render_commit_message(template_path, channel="Nix") == "Sync Nix"
-
-
-def test_render_title_no_title_returns_empty(tmp_path):
-    """A template without a `title` field renders to an empty string."""
-    template_path = tmp_path / "bodyless.md"
-    template_path.write_text("### Notice\n\nNothing to report.\n", encoding="UTF-8")
-
-    assert render_title(template_path) == ""
-
-
-def test_render_commit_message_no_title_returns_empty(tmp_path):
-    """Templates with neither `commit_message` nor `title` render empty."""
-    template_path = tmp_path / "bodyless.md"
-    template_path.write_text("### Notice\n\nNothing to report.\n", encoding="UTF-8")
-
-    assert render_commit_message(template_path) == ""
-
-
-def test_template_args_parameterized():
-    """Parameterized templates report their required arguments."""
-    assert template_args("bump-version") == ["version", "part"]
-    assert template_args("prepare-release") == [
-        "changes_review",
-        "dev_release_review",
-        "release_readiness",
-        "version",
-    ]
-
-
-def test_template_args_static():
-    """Static templates report no required arguments."""
-    assert template_args("fix-typos") == []
-    assert template_args("format-json") == []
-
-
-def test_render_title_static():
-    """Static templates have a literal title."""
-    assert render_title("fix-typos") == "Typo"
-    assert render_title("format-python") == "Format Python"
-
-
-def test_render_title_parameterized():
-    """Parameterized templates substitute variables in the title."""
-    title = render_title("bump-version", version="1.2.0", part="minor")
-    assert title == "[changelog] Bump minor version to `v1.2.0`"
-
-    title = render_title("prepare-release", version="5.8.1")
-    assert title == "Release `v5.8.1`"
-
-
-def test_render_commit_message_falls_back_to_title():
-    """Templates without explicit commit_message fall back to title."""
-    assert render_commit_message("fix-typos") == "Typo"
-    assert render_commit_message("format-markdown") == "Format Markdown"
-
-
-def test_render_commit_message_explicit():
-    """Templates without explicit commit_message fall back to title with backticks."""
-    msg = render_commit_message("format-pyproject")
-    assert msg == "Format `pyproject.toml`"
-
-    msg = render_commit_message("sync-gitignore")
-    assert msg == "Sync `.gitignore`"
-
-
-def test_render_commit_message_parameterized():
-    """Parameterized templates substitute variables in commit_message.
-
-    The bump-version message must start with a MANUAL_VERSION_BUMP_COMMIT_PREFIXES
-    member: that is the emission half of the invariant the workflow gates match
-    against (see test_changelog_prefix_is_the_machinery_invariant).
+    The metadata block carries it, so a template that rendered its own on top
+    would show it twice.
     """
-    msg = render_commit_message("bump-version", version="1.2.0", part="minor")
-    assert msg == "[changelog] Bump minor version to `v1.2.0`"
-    assert any(msg.startswith(p) for p in MANUAL_VERSION_BUMP_COMMIT_PREFIXES)
-
-    msg = render_commit_message("prepare-release", version="5.8.1")
-    assert msg == "Release `v5.8.1`"
-
-
-def test_render_bump_version():
-    """Bump version template includes part, version, and merge instructions."""
-    result = render_template("bump-version", version="1.2.0", part="minor")
-
-    assert "bump the minor part" in result
-    assert "## To bump version to `v1.2.0`" in result
-    assert "Ready for review" in result
-    assert "Rebase and merge" in result
-    assert "bump-version" in result
-    assert "changelog-yaml-jobs" in result
-
-
-def test_render_prepare_release():
-    """Prepare release template includes version, links, and caution admonition."""
-    dev_review = (
-        "1. Review the [`v5.8.1.dev0` GitHub release]"
-        "(https://github.com/kdeldycke/repomatic/releases/tag/untagged-abc123)\n"
+    template = PrTemplate.load(name)
+    content = render_pr(
+        Metadata(),
+        Config(),
+        template=template,
+        extra_args=dict.fromkeys(template.args, "x"),
     )
-    changes_review = (
-        "1. Review the full changes: [`v5.8.0...main`]"
-        "(https://github.com/kdeldycke/repomatic/compare/v5.8.0...main)\n"
+    assert content.body.count("Generated with") == 1
+
+
+def test_render_pr_without_a_template(no_github_env):
+    """A prefix alone renders a body, and no title nor commit message."""
+    content = render_pr(Metadata(), Config(), prefix="Ten crates of mango.")
+    assert content.body.startswith("Ten crates of mango.")
+    assert content.title == ""
+    assert content.commit_message == ""
+    assert "Documentation" not in content.body
+
+
+def test_render_pr_links_the_template_documentation(no_github_env):
+    """The metadata block names the template and links its job's section."""
+    content = render_pr(Metadata(), Config(), template=PrTemplate.load("format-python"))
+    assert content.title == "Format Python"
+    assert content.commit_message == "Format Python"
+    assert "[`format-python`](https://repomatic.net/workflows#" in content.body
+
+
+def test_render_pr_extra_args_win_over_flags(no_github_env):
+    """An explicit argument supersedes the dedicated flag of the same name."""
+    content = render_pr(
+        Metadata(),
+        Config(),
+        template=PrTemplate.load("bump-version"),
+        extra_args={"version": "2.0.0"},
+        version="1.0.0",
+        part="minor",
     )
-    result = render_template(
-        "prepare-release",
-        version="5.8.1",
-        dev_release_review=dev_review,
-        changes_review=changes_review,
-        release_readiness=RELEASE_READY_SENTENCE,
-    )
-
-    assert "## How-to release `v5.8.1`" in result
-    assert "`v5.8.1` tag on `main`" in result
-    assert "`v5.8.1` release" in result
-    # Both review steps render ahead of the merge instructions.
-    assert "GitHub release]" in result
-    assert "Review the full changes" in result
-    assert result.index("GitHub release]") < result.index("Ready for review")
-    assert result.index("Review the full changes") < result.index("Ready for review")
-    # The template owns the squash-merge safeguard alone, at warning level;
-    # `[!CAUTION]` is reserved for the readiness banner, which is absent here.
-    assert "[!WARNING]" in result
-    assert "[!CAUTION]" not in result
-    assert "Squash and merge" in result
-    assert "PyPI" in result
-    assert "prepare-release" in result
-    assert "changelog-yaml-jobs" in result
-    assert "release-yaml-jobs" in result
+    assert content.title == "[changelog] Bump minor version to `v2.0.0`"
 
 
-def test_render_prepare_release_without_review_steps():
-    """Empty review fragments degrade the checklist to the merge instructions."""
-    result = render_template(
-        "prepare-release",
-        version="5.8.1",
-        dev_release_review="",
-        changes_review="",
-        release_readiness=RELEASE_READY_SENTENCE,
-    )
-
-    assert "## How-to release `v5.8.1`" in result
-    assert "Ready for review" in result
-    assert "Rebase and merge" in result
-    # No dangling review links survive when the data is unavailable.
-    assert "GitHub release]" not in result
-    assert "Review the full changes" not in result
-
-
-def test_build_release_review_steps(github_env, monkeypatch):
-    """Review steps embed the draft dev URL and the previous-version compare link."""
-    monkeypatch.setattr(
-        "repomatic.github.pr_body.dev_release_url_and_previous_version",
-        lambda repo_url, version: (
-            "https://github.com/owner/repo/releases/tag/untagged-abc",
-            "1.2.2",
-        ),
-    )
-
-    dev_review, changes_review = build_release_review_steps(Metadata(), "1.2.3")
-
-    assert dev_review == (
-        "1. Review the [`v1.2.3.dev0` GitHub release]"
-        "(https://github.com/owner/repo/releases/tag/untagged-abc)\n"
-    )
-    assert changes_review == (
-        "1. Review the full changes: [`v1.2.2...main`]"
-        "(https://github.com/owner/repo/compare/v1.2.2...main)\n"
-    )
-
-
-def test_build_release_review_steps_partial(github_env, monkeypatch):
-    """Each step is omitted independently when its release data is missing."""
-    # Dev draft absent, previous version present.
-    monkeypatch.setattr(
-        "repomatic.github.pr_body.dev_release_url_and_previous_version",
-        lambda repo_url, version: (None, "1.2.2"),
-    )
-
-    dev_review, changes_review = build_release_review_steps(Metadata(), "1.2.3")
-
-    assert dev_review == ""
-    assert "v1.2.2...main" in changes_review
-
-
-def test_build_release_review_steps_unavailable(github_env, monkeypatch):
-    """Both steps collapse to empty strings when the lookup returns nothing."""
-    monkeypatch.setattr(
-        "repomatic.github.pr_body.dev_release_url_and_previous_version",
-        lambda repo_url, version: (None, None),
-    )
-
-    assert build_release_review_steps(Metadata(), "1.2.3") == ("", "")
-
-
-@pytest.mark.parametrize(
-    ("template", "needles"),
-    [
-        # Templates whose job reads `[tool.repomatic]`: they list the keys
-        # under a Configuration section. `test_template_config_options_are_real_keys`
-        # separately proves each listed key exists and is anchored, so only the
-        # roster is asserted here.
-        pytest.param(
-            "sync-bumpversion",
-            ("## ⚙️ Configuration", "[tool.repomatic]", "bumpversion.sync"),
-            id="sync-bumpversion",
-        ),
-        pytest.param(
-            "sync-gitignore",
-            (
-                "## ⚙️ Configuration",
-                "[tool.repomatic]",
-                "gitignore.extra-categories",
-                "gitignore.extra-content",
-                "gitignore.location",
-            ),
-            id="sync-gitignore",
-        ),
-        pytest.param(
-            "sync-mailmap",
-            ("## ⚙️ Configuration", "[tool.repomatic]", "mailmap.sync"),
-            id="sync-mailmap",
-        ),
-        pytest.param(
-            "sync-repomatic-upgrade",
-            (
-                "## ⚙️ Configuration",
-                "[tool.repomatic]",
-                "minimum-release-age",
-                "upstream-pin.sync",
-            ),
-            id="sync-repomatic-upgrade",
-        ),
-        pytest.param(
-            "update-dep-graph",
-            ("## ⚙️ Configuration", "[tool.repomatic]", "dependency-graph.output"),
-            id="update-dep-graph",
-        ),
-        pytest.param(
-            "update-docs",
-            (
-                "## ⚙️ Configuration",
-                "[tool.repomatic]",
-                "docs.apidoc-exclude",
-                "docs.update-script",
-            ),
-            id="update-docs",
-        ),
-        # Templates whose job is driven by a third-party tool instead: they
-        # point at that tool's own config table from a tip admonition.
-        pytest.param("fix-typos", ("[!TIP]", "[tool.typos]"), id="fix-typos"),
-        pytest.param("format-json", ("[!TIP]", "[tool.biome]"), id="format-json"),
-        pytest.param(
-            "format-markdown", ("[!TIP]", "[tool.mdformat]"), id="format-markdown"
-        ),
-        pytest.param(
-            "format-pyproject",
-            ("[!TIP]", "[tool.pyproject-fmt]"),
-            id="format-pyproject",
-        ),
-        pytest.param(
-            "format-python",
-            ("[!TIP]", "[tool.ruff]", "[tool.autopep8]"),
-            id="format-python",
-        ),
-    ],
-)
-def test_render_surfaces_the_config_surface(template: str, needles: tuple[str, ...]):
-    """Each job's PR body points the reader at the knobs that job obeys."""
-    result = render_template(template)
-    for needle in needles:
-        assert needle in result, f"{template} body does not mention {needle!r}"
-
-
-def test_render_upgrade_title():
-    """The upgrade pull request is titled after the release it adopts."""
-    assert render_title("sync-repomatic-upgrade", upgrade_version="7.15.0") == (
-        "Upgrade `repomatic` to `v7.15.0`"
-    )
-
-
-def test_render_upgrade_invite():
-    """The invitation names both releases and hands over the launcher verbatim."""
-    body = render_template(
-        "upgrade-invite",
-        previous="v7.14.0",
-        adopted="v7.15.0",
-        command="claude --model opus '/repomatic-upgrade v7.14.0 v7.15.0'",
-    )
-    assert "## 🧭 Upgrade review" in body
-    assert "moves `repomatic` from `v7.14.0` to `v7.15.0`" in body
-    assert (
-        "```shell\nclaude --model opus '/repomatic-upgrade v7.14.0 v7.15.0'\n```"
-        in body
-    )
-    assert "Generated with" not in body
-
-
-# Config-option references in PR body templates, written as
-# ``- [`key`](…/configuration#anchor)`` bullets under "## ⚙️ Configuration".
-CONFIG_OPTION_BULLET = re.compile(
-    r"- \[`(?P<key>[^`]+)`\]"
-    r"\(https://repomatic\.net/configuration#(?P<anchor>[^)]+)\)"
-)
-
-VALID_CONFIG_KEYS = frozenset(row[0].strip("`") for row in config_reference())
-"""Every `[tool.repomatic]` key, dotted and nested-expanded, from the schema."""
-
-
-@pytest.mark.parametrize("name", get_template_names())
-def test_template_config_options_are_real_keys(name: str) -> None:
-    """Every option a template lists is a real key, anchored and sorted.
-
-    Each ``- [`key`](…/configuration#anchor)`` bullet must name a live
-    `[tool.repomatic]` key, link to its matching anchor, and appear in
-    alphabetical order. Guards against a renamed or mistyped option silently
-    surviving in a PR body template (the lone unenforced `workflow.sync` was
-    one such drift).
-    """
-    _, body = load_template(name)
-    options = [(m["key"], m["anchor"]) for m in CONFIG_OPTION_BULLET.finditer(body)]
-
-    for key, anchor in options:
-        assert key in VALID_CONFIG_KEYS, (
-            f"{name} lists unknown [tool.repomatic] option `{key}`"
-        )
-        assert anchor == key.replace(".", "-"), (
-            f"{name} links `{key}` to #{anchor}, expected #{key.replace('.', '-')}"
+def test_render_pr_names_the_missing_argument(no_github_env):
+    """An argument nothing supplies fails with the flag that would supply it."""
+    with pytest.raises(TemplateArgumentError, match="--part is required"):
+        render_pr(
+            Metadata(),
+            Config(),
+            template=PrTemplate.load("bump-version"),
+            version="1.2.0",
         )
 
-    keys = [key for key, _ in options]
-    assert keys == sorted(keys), f"{name} config options are not sorted: {keys}"
 
-
-SWITCH_KEY_RE = re.compile(r'exit_if_disabled\(.*?"(?P<key>[\w.-]+)",?\s*\)', re.DOTALL)
-"""The `[tool.repomatic]` key a command hands to `exit_if_disabled`."""
-
-
-def test_templates_list_the_switch_of_their_command() -> None:
-    """A pull request body that lists options names the one that stops it.
-
-    A command gated by `exit_if_disabled` opens no pull request once its switch
-    is off, so the option list of that pull request is where a maintainer looks
-    for the switch. Only a template named after its command is read: `audit`
-    and `sync-binaries` fill a template of another name. A template with no
-    option list is left alone, like the `setup-guide` issue body.
-    """
-    templates = set(get_template_names())
-    checked = 0
-    missing = []
-    ctx = Context(repomatic)
-    for name in repomatic.list_commands(ctx):
-        command = repomatic.get_command(ctx, name)
-        if name not in templates or command is None or command.callback is None:
-            continue
-        switch = SWITCH_KEY_RE.search(inspect.getsource(command.callback))
-        _, body = load_template(name)
-        listed = {match["key"] for match in CONFIG_OPTION_BULLET.finditer(body)}
-        if not switch or not listed:
-            continue
-        checked += 1
-        if switch["key"] not in listed:
-            missing.append(f"{name}: {switch['key']}")
-    # An empty population would make the loop above prove nothing.
-    assert checked
-    assert not missing, (
-        "These templates list the options of their command without the one that"
-        f" turns it off: {missing}"
+def test_render_pr_reads_the_diff_table_from_its_file(
+    no_github_env, tmp_path, monkeypatch
+):
+    """A report reaches the body through the file its `_FILE` variable names."""
+    report = tmp_path / "diff-table.md"
+    report.write_text(
+        "| Fruit | Crates |\n| --- | --- |\n| fig | 3 |", encoding="UTF-8"
     )
+    monkeypatch.setenv("REPOMATIC_DIFF_TABLE_FILE", str(report))
+    monkeypatch.delenv("REPOMATIC_DIFF_TABLE", raising=False)
+    content = render_pr(Metadata(), Config(), template=PrTemplate.load("sync-uv-lock"))
+    assert "| fig | 3 |" in content.body
+
+
+# -- Body size ------------------------------------------------------------------
 
 
 FAKE_FOOTER = (
@@ -775,11 +246,8 @@ FAKE_FOOTER = (
 """Simulates ``generate_pr_metadata_block(Metadata())`` output for unit tests."""
 
 
-def test_build_pr_body_with_prefix(monkeypatch):
+def test_build_pr_body_with_prefix(no_github_env):
     """Prefix is prepended with triple newline separator."""
-    for key in GITHUB_ENV_VARS:
-        monkeypatch.delenv(key, raising=False)
-
     result = build_pr_body("Fix formatting issues.", FAKE_FOOTER)
 
     assert result.startswith("Fix formatting issues.")
@@ -801,11 +269,8 @@ def test_build_pr_body_with_tip(github_env):
     assert result.index("<details>") < result.index("Generated with")
 
 
-def test_build_pr_body_empty_prefix(monkeypatch):
+def test_build_pr_body_empty_prefix(no_github_env):
     """Empty prefix without tip still includes footer and metadata."""
-    for key in GITHUB_ENV_VARS:
-        monkeypatch.delenv(key, raising=False)
-
     result = build_pr_body("", FAKE_FOOTER)
 
     assert "Generated with [repomatic]" in result
@@ -815,10 +280,10 @@ def test_build_pr_body_empty_prefix(monkeypatch):
 def test_build_pr_body_trims_oversized_prefix(github_env):
     """An oversized prefix is trimmed so the tail always survives.
 
-    GitHub and create-pull-request truncate oversized bodies from the end,
-    which silently drops the refresh tip, metadata block, and attribution
-    footer (the fate of huge `sync-uv-lock` tables). The prefix is trimmed
-    instead, on line boundaries, with a caution admonition marking the cut.
+    GitHub truncates oversized bodies from the end, which silently drops the
+    refresh tip, metadata block, and attribution footer (the fate of huge
+    `sync-uv-lock` tables). The prefix is trimmed instead, on line boundaries,
+    with a caution admonition marking the cut.
     """
     # Astral-plane emoji make the UTF-16 length diverge from the code-point
     # length, matching real dependency tables (🆙 heading, 🆕/🗑️ labels).
@@ -851,9 +316,8 @@ def test_build_pr_body_under_limit_untouched(github_env):
 def test_fit_github_body_trims_keeping_footer():
     """An oversized issue body is trimmed above the footer, which survives.
 
-    Unlike PR bodies (silently truncated by create-pull-request), oversized
-    issue bodies make `gh issue create` and `gh issue edit` fail outright, so
-    the guard rewrites the body to fit before it reaches the API.
+    Oversized issue bodies make `gh issue create` and `gh issue edit` fail
+    outright, so the guard rewrites the body to fit before it reaches the API.
     """
     line = "- [https://example.com/papaya](https://example.com/papaya) 🍈 404"
     body = render_template(
@@ -898,192 +362,6 @@ def test_fit_github_body_without_footer_still_fits():
     assert "Generated with" not in fitted
 
 
-# ---------------------------------------------------------------------------
-# Template file policy validation
-# ---------------------------------------------------------------------------
-
-REFERENCE_WORKFLOWS = (
-    ".github/workflows/autofix.yaml",
-    ".github/workflows/changelog.yaml",
-    # The detect-squash-merge --template reference lives in the build lane, not
-    # the release.yaml entry (which only calls the lanes and publishes).
-    ".github/workflows/_release-build.yaml",
-    # The scan-virustotal --template reference lives in the engine lane: that
-    # job scans the assets a release publishes.
-    ".github/workflows/_release-engine.yaml",
-    # The sample-metrics --template reference lives in its own schedule-only
-    # workflow, which `repomatic init` only materializes for a repository that
-    # opted into an accumulating store.
-    ".github/workflows/metrics.yaml",
-    # Upstream-only bumpers, whose write domain exists only in this repository.
-    ".github/workflows/self-maintenance.yaml",
-)
-"""Workflow files that reference PR body templates via ``--template``."""
-
-PROGRAMMATIC_TEMPLATES = frozenset({
-    "available-admonition",
-    "broken-links-issue",
-    "development-warning",
-    "generated-footer",
-    "github-releases",
-    "immutable-releases",
-    "pr-metadata",
-    "refresh-tip",
-    "release-notes",
-    "release-sync-report",
-    "setup-guide",
-    "setup-guide-branch-ruleset",
-    "setup-guide-cloudflare-pages",
-    "setup-guide-cloudflare-r2",
-    "setup-guide-dependabot",
-    "setup-guide-fork-pr-approval",
-    "setup-guide-notifications-pat",
-    "setup-guide-pages-source",
-    "setup-guide-pypi-trusted-publisher",
-    "setup-guide-sha-pinning-required",
-    "setup-guide-token",
-    "setup-guide-verify",
-    "setup-guide-virustotal",
-    "unavailable-admonition",
-    "unsubscribe-phase1",
-    "unsubscribe-phase2",
-    "upgrade-invite",
-    "yanked-admonition",
-})
-"""Templates rendered from Python code, not via the ``--template`` CLI flag."""
-
-
-WORKFLOWS_DOCS_URL = "https://repomatic.net/workflows"
-"""Hosted workflows reference that template ``docs:`` fields deep-link into."""
-
-
-def _collect_template_references() -> set[str]:
-    """Scan reference workflows for all ``--template <name>`` arguments."""
-    repo_root = Path(__file__).resolve().parent.parent
-    pattern = re.compile(r"--template\s+([\w-]+)")
-    refs: set[str] = set()
-    for rel_path in REFERENCE_WORKFLOWS:
-        content = (repo_root / rel_path).read_text(encoding="UTF-8")
-        refs.update(pattern.findall(content))
-    return refs
-
-
-def _template_package_items(
-    *,
-    exclude: frozenset[str] = frozenset(),
-) -> list[tuple[str, str]]:
-    """Return ``(filename, name)`` pairs for every file in the templates package.
-
-    :param exclude: Template names to skip.
-    """
-    items = []
-    for item in files("repomatic.templates").iterdir():
-        # Only packaged template files count: skip directories and hidden or
-        # dunder entries, since local tool droppings (like a `.DS_Store` file
-        # or a `.claude/` directory) land in the same source directory.
-        if not item.is_file():
-            continue
-        filename = getattr(item, "name", str(item))
-        if filename.startswith((".", "__")):
-            continue
-        # .md.noformat files are renamed .md files hidden from mdformat.
-        if filename.endswith(".md.noformat"):
-            name = filename.removesuffix(".md.noformat")
-        elif filename.endswith(".md"):
-            name = filename.removesuffix(".md")
-        else:
-            name = filename
-        if name in exclude:
-            continue
-        items.append((filename, name))
-    return sorted(items)
-
-
-@pytest.mark.parametrize(
-    ("filename", "name"),
-    _template_package_items(exclude=PROGRAMMATIC_TEMPLATES),
-    ids=[pair[1] for pair in _template_package_items(exclude=PROGRAMMATIC_TEMPLATES)],
-)
-def test_template_file_policy(filename, name):
-    """Each PR template file must be a valid ``.md`` file with correct frontmatter."""
-    # Must be a markdown file. ``.md.noformat`` is a markdown template hidden
-    # from mdformat (its ``string.Template`` placeholders confuse the list
-    # parser); see :func:`load_template`.
-    assert filename.endswith((".md", ".md.noformat")), (
-        f"Template file {filename!r} is not a .md or .md.noformat file"
-    )
-
-    # Must parse without errors.
-    meta, body = load_template(name)
-
-    # Frontmatter must have a non-empty 'title'.
-    assert "title" in meta, f"Template {name!r} is missing 'title' in frontmatter"
-    assert meta["title"], f"Template {name!r} has an empty 'title'"
-
-    # If frontmatter has 'args', it must be a list with matching $variables in body
-    # or any other frontmatter field.
-    if "args" in meta:
-        assert isinstance(meta["args"], list), (
-            f"Template {name!r} 'args' must be a list, got {type(meta['args'])}"
-        )
-        # Collect all string-valued frontmatter fields for variable reference checks.
-        frontmatter_text = " ".join(
-            v for k, v in meta.items() if k != "args" and isinstance(v, str)
-        )
-        for arg in meta["args"]:
-            # Both the bare (`$arg`) and braced (`${arg}`) substitution forms
-            # count as a reference; the braced form is needed when a
-            # placeholder abuts an identifier character (e.g. `${step}1.`).
-            markers = (f"${arg}", "${" + arg + "}")
-            haystack = body + " " + frontmatter_text
-            assert any(marker in haystack for marker in markers), (
-                f"Template {name!r} declares arg {arg!r}"
-                f" but neither body nor frontmatter references {markers[0]}"
-            )
-
-    # PR body sections render as h2: no h3 heading (like the retired
-    # per-template "### Description" boilerplate) may sneak back in.
-    assert "### " not in body, f"Template {name!r} body must use '##' section headings"
-
-    # Every CLI template deep-links its job's section of the workflows
-    # reference (surfaced as the metadata block's Documentation entry, in
-    # place of the retired description section). Validating the anchor
-    # against the in-tree headings keeps a docs reword from orphaning it.
-    docs = meta.get("docs")
-    assert isinstance(docs, str) and docs.startswith(f"{WORKFLOWS_DOCS_URL}#"), (
-        f"Template {name!r} must declare a 'docs' deep link into {WORKFLOWS_DOCS_URL}"
-    )
-    anchor = docs.partition("#")[2]
-    assert anchor in docs_heading_anchors("workflows"), (
-        f"Template {name!r} docs anchor {anchor!r} matches no docs/workflows.md heading"
-    )
-
-
-FRONTMATTER_KEY_ORDER = ["args", "title", "commit_message", "docs", "footer"]
-"""Canonical ordering of keys within template frontmatter."""
-
-
-@pytest.mark.parametrize(
-    ("filename", "name"),
-    _template_package_items(),
-    ids=[pair[1] for pair in _template_package_items()],
-)
-def test_frontmatter_key_ordering(filename, name):
-    """Frontmatter keys must follow the canonical order in `FRONTMATTER_KEY_ORDER`.
-
-    `yaml.safe_load` preserves document order in the mapping it builds, so the
-    parsed keys read back in the order the template spells them.
-    """
-    template_dir = files("repomatic.templates")
-    raw = template_dir.joinpath(filename).read_text(encoding="UTF-8")
-    meta, _body = split_frontmatter(raw)
-    known = [k for k in meta if k in FRONTMATTER_KEY_ORDER]
-    expected = [k for k in FRONTMATTER_KEY_ORDER if k in known]
-    assert known == expected, (
-        f"Template {name!r} frontmatter keys are {known}, expected order {expected}"
-    )
-
-
 @pytest.mark.parametrize(
     ("version", "expected"),
     [
@@ -1105,23 +383,6 @@ def test_version_dev_suffix_stripping(version, expected):
     the callers do.
     """
     assert strip_dev_suffix(version) == expected
-
-
-def test_templates_match_workflow_references():
-    """Every CLI template must be referenced by ``--template`` in a workflow file."""
-    template_names = set(get_template_names()) - PROGRAMMATIC_TEMPLATES
-    workflow_refs = _collect_template_references()
-
-    unreferenced = template_names - workflow_refs
-    assert not unreferenced, "Templates not referenced in any workflow: " + ", ".join(
-        sorted(unreferenced)
-    )
-
-    missing_templates = workflow_refs - template_names
-    assert not missing_templates, (
-        "Workflow --template references with no template file: "
-        + ", ".join(sorted(missing_templates))
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1250,6 +511,18 @@ def test_cli_template_arg_invalid_format(tmp_path, monkeypatch):
     assert "KEY=VALUE" in result.output
 
 
+def test_cli_missing_template_arg_is_a_usage_error(tmp_path, monkeypatch):
+    """An argument nothing supplies is reported as a usage error."""
+    result = _invoke_pr_body(
+        ["--template", "bump-version", "--version", "1.2.0"],
+        monkeypatch,
+        tmp_path / "body.txt",
+    )
+
+    assert result.exit_code == 2
+    assert "--part is required" in result.output
+
+
 def test_cli_template_arg_overrides_dedicated_flag(tmp_path, monkeypatch):
     """`--template-arg` values supersede the dedicated `--version` flag."""
     template_path = tmp_path / "release.md"
@@ -1282,73 +555,3 @@ def test_cli_template_arg_overrides_dedicated_flag(tmp_path, monkeypatch):
     rendered = output_path.read_text(encoding="UTF-8")
     assert "### Release 2.0.0" in rendered
     assert "title=Release 2.0.0" in rendered
-
-
-# Commit-subject tokens that make GitHub Actions skip a workflow run. They
-# match anywhere in the message, not just at the start, and a skipped required
-# check sits in "Pending" forever rather than failing, blocking the merge. See
-# docs/commit-messages.md.
-CI_SKIP_TOKENS: frozenset[str] = frozenset({
-    "[skip ci]",
-    "[ci skip]",
-    "[no ci]",
-    "[skip actions]",
-    "[actions skip]",
-    "skip-checks:true",
-    "skip-checks: true",
-})
-
-
-@pytest.mark.parametrize("name", get_template_names())
-def test_template_commit_message_carries_no_ci_skip_token(name: str) -> None:
-    """No generated commit message may silently skip CI.
-
-    Every `sync-*`, `format-*` and `fix-*` job commits a message rendered
-    from a template, in this repository and in every downstream one. A skip
-    token anywhere in that message stops the run, and because the required
-    check is then never reported, the pull request blocks on a "Pending"
-    status instead of failing visibly.
-    """
-    message = render_commit_message(name, **dict.fromkeys(template_args(name), "x"))
-    lowered = message.lower()
-    for token in CI_SKIP_TOKENS:
-        assert token not in lowered, (
-            f"template {name!r} renders a commit message containing {token!r}, "
-            "which would skip CI for the job's own pull request"
-        )
-
-
-@pytest.mark.parametrize("name", get_template_names())
-def test_template_commit_subject_claims_no_bracket_prefix(name: str) -> None:
-    """A `[bracketed]` prefix is reserved for machine-parsed mechanisms.
-
-    The one family templates may emit is
-    {data}`repomatic.git_ops.CHANGELOG_COMMIT_PREFIX`, which
-    {data}`repomatic.git_ops.VERSION_BUMP_COMMIT_PREFIXES` matches back
-    (`bump-version` is the template that earns it). Any other bracket would
-    either collide with that matcher or invent a label nothing reads. See
-    docs/commit-messages.md.
-    """
-    message = render_commit_message(name, **dict.fromkeys(template_args(name), "x"))
-    subject = message.splitlines()[0] if message else ""
-    assert not subject.startswith("[") or subject.startswith(CHANGELOG_COMMIT_PREFIX), (
-        f"template {name!r} starts its commit subject with a bracket prefix "
-        f"({subject!r}) other than {CHANGELOG_COMMIT_PREFIX!r}: brackets are "
-        "reserved for parsed mechanisms"
-    )
-
-
-def test_only_the_changelog_prefix_is_bracketed() -> None:
-    """The parsed-prefix set stays a single bracket family.
-
-    `docs/commit-messages.md` tells readers that `[changelog] ` is the only
-    bracket prefix any machine reads, carried by every version-machinery
-    commit. This pins that claim to the code, so a second bracket namespace
-    fails here and forces the documentation to follow.
-    """
-    for prefix in VERSION_BUMP_COMMIT_PREFIXES:
-        assert prefix.startswith(CHANGELOG_COMMIT_PREFIX), (
-            f"{prefix!r} opens a second bracket-prefixed commit contract: "
-            "document it in docs/commit-messages.md before extending this "
-            "assertion"
-        )

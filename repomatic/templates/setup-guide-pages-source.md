@@ -1,6 +1,6 @@
 ---
 args: [repo_url, repo_slug]
-footer: 'false'
+footer: false
 ---
 
 Set the GitHub Pages deployment source to **GitHub Actions**, which is how `docs.yaml` deploys:

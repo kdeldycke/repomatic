@@ -47,8 +47,7 @@ import time
 from functools import cache
 from subprocess import run
 
-from click_extra import ClickException
-
+from ..tooling.binaries import BinaryInstallError, ensure_binary
 from .status import with_status_annotation
 
 TYPE_CHECKING = False
@@ -70,26 +69,18 @@ different credential issued by Actions itself."""
 
 _TRANSIENT_AUTH_MARKERS = ("Requires authentication",)
 """Subset of {data}`_AUTH_FALLBACK_MARKERS` worth retrying with the *same*
-token. `Bad credentials` is deliberately excluded: it means the PAT is
-expired or revoked, which no amount of waiting reverses, so retrying it
-buys nothing and delays the cross-token fallback. Worse, it buries the
-cause: rotating `REPOMATIC_PAT` mid-run once left a job logging 25 retry
-warnings, and the empty API responses that followed surfaced as a repo
-description mismatch, which reads as a permission problem rather than an
-auth one. Both markers still reach the cross-token fallback, where a
-second credential genuinely can recover either."""
+token. `Bad credentials` is excluded: it means the PAT is expired or revoked,
+which no wait reverses. A retry on it only delays the cross-token fallback and
+buries the cause under retry warnings. Both markers still reach the cross-token
+fallback, where a second credential can recover either."""
 
 _TRANSIENT_AUTH_BACKOFF_SECONDS = (1, 3)
 """Sleep durations between bounded same-token retries on a 401. Empty tuple
-disables the retry loop. `Requires authentication` 401s sometimes come
-back on the first call and clear on the next within the same workflow
-run, no token rotation involved: the click-extra `v7.19.0` release saw
-`manage_issue_lifecycle` fail with 401 once, then succeed on a manual
-workflow re-run with the *same* `REPOMATIC_PAT`. A single-token retry
-absorbs that transient before the cross-token fallback or the final
-raise. Stays small on purpose: two retries (1s + 3s) cover the common
-GitHub auth-flap window without disguising a genuine credential
-problem behind seconds of idle wait."""
+disables the retry loop. A `Requires authentication` 401 can come back on one
+call and clear on the next with the *same* token, so a short retry absorbs it
+before the cross-token fallback or the final raise. Two retries (1s + 3s) cover
+the common auth-flap window without hiding a real credential problem behind
+seconds of idle wait."""
 
 _TRANSIENT_THROTTLE_MARKERS = (
     "No server is currently available to service your request",
@@ -194,14 +185,9 @@ def gh_executable() -> str:
     Memoized: the install-and-verify path runs once per process however many
     of the ~60 call sites fire.
     """
-    # Imported here rather than at module scope: `tool_runner` reaches
-    # `metadata`, which imports this module, so a top-level import would close
-    # the cycle.
-    from ..tooling.runner import ensure_binary
-
     try:
         return str(ensure_binary("gh"))
-    except (ClickException, OSError) as error:
+    except (BinaryInstallError, OSError) as error:
         logging.warning(
             "Could not install the pinned gh, falling back to whatever is on PATH "
             f"(unpinned and unverified): {error}"
@@ -410,6 +396,32 @@ def gh_json(args: Sequence[str], *, soft: bool = False) -> Any | None:
         return None
 
 
+def gh_api_pages(endpoint: str, *, key: str = "", soft: bool = False) -> list[Any]:
+    """Read every page of a paginated REST endpoint, and return their items.
+
+    `gh api --paginate --slurp` follows the `Link` headers and wraps every page
+    in one JSON array, so the pages parse at once rather than line by line.
+
+    :param endpoint: The REST endpoint, query string included. Send `per_page`
+        in it to keep the page count low.
+    :param key: The field holding the items, for an endpoint that wraps them in
+        an object, like `workflow_runs` for the runs endpoints. Empty for an
+        endpoint that answers with an array.
+    :param soft: Return an empty list when the command fails or prints
+        something that is not JSON, as {func}`gh_json` does.
+    :return: The items of every page, in API order.
+    :raises GhCommandError: When the command fails and *soft* is not set.
+    :raises GhOutputError: When the output is not JSON and *soft* is not set.
+    """
+    pages = gh_json(["api", "--paginate", "--slurp", endpoint], soft=soft)
+    items: list[Any] = []
+    for page in pages if isinstance(pages, list) else ():
+        batch = page.get(key) if key and isinstance(page, dict) else page
+        if isinstance(batch, list):
+            items.extend(batch)
+    return items
+
+
 def gh_api_json(args: Sequence[str], *, strict: bool = False) -> Any | None:
     """Run a `gh` command expected to emit JSON, and parse it.
 
@@ -475,10 +487,10 @@ def gh_graphql(
     :raises GhCommandError: When the `gh` invocation fails (see
         {func}`run_gh_command`), unless *partial* is set and the output still
         holds a `data` object.
+    :raises GhOutputError: When the output is not JSON.
     """
-    args = _graphql_args(query, variables)
     try:
-        output = run_gh_command(args)
+        response = gh_json(_graphql_args(query, variables))
     except GhCommandError as error:
         if not partial:
             raise
@@ -490,7 +502,10 @@ def gh_graphql(
             raise
         logging.debug(f"GraphQL query failed in part, keeping its data: {error}")
         return data
-    return json.loads(output)["data"]
+    if not isinstance(response, dict):
+        msg = f"GraphQL answered something other than an object: {response!r}"
+        raise GhOutputError(msg)
+    return response["data"]
 
 
 def iter_graphql_nodes(
@@ -526,6 +541,7 @@ def iter_graphql_nodes(
     :yields: Each node dict, in API order.
     :raises GhCommandError: When a `gh` invocation fails
         (see {func}`run_gh_command`).
+    :raises GhOutputError: When a page is not JSON.
     """
     cursor: str | None = None
     while True:
@@ -535,8 +551,8 @@ def iter_graphql_nodes(
         if cursor:
             page_variables["cursor"] = cursor
 
-        response = json.loads(run_gh_command(_graphql_args(query, page_variables)))
-        connection = response.get("data", {})
+        response = gh_json(_graphql_args(query, page_variables))
+        connection = (response.get("data") if isinstance(response, dict) else {}) or {}
         for key in connection_path:
             connection = connection.get(key) or {}
 

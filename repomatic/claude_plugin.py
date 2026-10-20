@@ -85,15 +85,15 @@ the only state the app's `Sync automatically` can ever observe a change in.
 
 That split is why the tag is not simply pinned everywhere: a tag never moves, so
 an entry frozen to one turns automatic sync into a no-op until the next release.
-It also survives a layout change, where a pin naming the last release cannot: the
-plugin root moved into {data}`PLUGIN_ROOT` in this very cycle, and a catalog
-pinned to the previous tag pointed at a tree with no manifest in it.
+It also survives a layout change, where a pin naming the last release cannot: a
+catalog pinned to a tag reads the tree of that tag, with the manifest wherever
+that release kept it.
 
-An `archive` source pointing at the release asset was the previous shape, and it
-worked in the CLI alone. The claude.ai ingester behind the Desktop and Cowork
-plugin panels rejects it with `External plugin source type 'archive' is not
-supported. Supported types: git-subdir, github, url`, surfaced in the app as a
-bare "Marketplace sync failed" naming no cause. `git-subdir` is the narrowest
+An `archive` source pointing at the release asset works in the CLI alone. The
+claude.ai ingester behind the Desktop and Cowork plugin panels rejects it with
+`External plugin source type 'archive' is not supported. Supported types:
+git-subdir, github, url`, surfaced in the app as a bare "Marketplace sync
+failed" naming no cause. `git-subdir` is the narrowest
 supported type: it clones this one directory through a partial clone rather than
 the whole repository.
 ```
@@ -124,6 +124,7 @@ from . import __version__
 from .components import COMPONENTS_BY_NAME
 from .pyproject import read_pyproject_toml
 from .tooling.registry import TOOL_REGISTRY
+from .upstream import DEFAULT_REPO
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -176,8 +177,11 @@ listed in the same catalog later. Like {data}`PLUGIN_NAME`, renaming it breaks
 every existing install.
 """
 
-MARKETPLACE_REPO = "kdeldycke/repomatic"
-"""Repository a consumer registers to reach {data}`MARKETPLACE_PATH`."""
+MARKETPLACE_REPO = DEFAULT_REPO
+"""Repository a consumer registers to reach {data}`MARKETPLACE_PATH`.
+
+The upstream repository itself, which hosts the catalog beside the plugin.
+"""
 
 BIOME_DEFAULT_INDENT: Final[str] = "\t"
 """Indent `format-json` writes when no Biome configuration overrides it.
@@ -294,9 +298,13 @@ def _stamped_manifest(repo_root: Path, version: str = __version__) -> bytes:
         raise TypeError(msg)
 
     manifest["version"] = version
-    # Sorted keys and a tab indent, so the packaged manifest reads exactly like
-    # the checked-in one `format-json` maintains.
-    return (json.dumps(manifest, indent="\t", sort_keys=True) + "\n").encode("UTF-8")
+    # Sorted keys and the indent of the repository's Biome configuration, so the
+    # packaged manifest reads exactly like the checked-in one `format-json`
+    # maintains.
+    rendered = json.dumps(
+        manifest, indent=_biome_json_indent(repo_root), sort_keys=True
+    )
+    return (rendered + "\n").encode("UTF-8")
 
 
 def pack_plugin(repo_root: Path, output: Path, version: str = __version__) -> list[str]:
@@ -392,9 +400,9 @@ def _biome_json_indent(root: Path) -> str:
     :return: The literal string one level of indentation is written with.
     """
     config: Mapping[str, Any] = {}
-    # Probe every filename the registry declares for Biome, in its order: a
-    # repository configured through `biome.jsonc` used to fall through to the
-    # `[tool.biome]` branch and could get an indent `format-json` then fought.
+    # Probe every filename the registry declares for Biome, in its order, so a
+    # repository configured through `biome.jsonc` gets the indent `format-json`
+    # applies rather than the one of `[tool.biome]`.
     native = next(
         (
             candidate
@@ -468,7 +476,7 @@ def render_plugin_settings(
     return json.dumps(document, indent=indent, sort_keys=True) + "\n"
 
 
-def merge_plugin_settings(target: Path, root: Path | None = None) -> bool:
+def merge_plugin_settings(target: Path, root: Path) -> bool:
     """Write the plugin wiring into *target*, creating the file if absent.
 
     Idempotent: re-running against an already-wired document rewrites nothing
@@ -485,14 +493,11 @@ def merge_plugin_settings(target: Path, root: Path | None = None) -> bool:
     `_biome_json_indent` accepts when it has to guess.
 
     :param target: Path to the Claude Code settings file to update.
-    :param root: Repository root whose Biome config sets the indent. Defaults to
-        *target*'s own directory, which is right only for a root-level file.
+    :param root: Repository root whose Biome config sets the indent.
     :return: Whether the file was created or modified.
     """
     existing = target.read_text(encoding="UTF-8") if target.is_file() else ""
-    merged = render_plugin_settings(
-        existing, _biome_json_indent(root if root is not None else target.parent)
-    )
+    merged = render_plugin_settings(existing, _biome_json_indent(root))
     # `existing` parsed cleanly above, or `render_plugin_settings` would have
     # raised, so only the empty-file case needs guarding here.
     if existing.strip() and json.loads(existing) == json.loads(merged):

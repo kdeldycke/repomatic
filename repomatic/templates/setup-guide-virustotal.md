@@ -1,6 +1,6 @@
 ---
 args: [repo_url, repo_slug]
-footer: 'false'
+footer: false
 ---
 
 Optional. Scanning release binaries on VirusTotal seeds AV vendor databases and cuts false positives. Without the key, releases skip the scan.

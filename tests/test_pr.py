@@ -26,15 +26,18 @@ from click.testing import CliRunner
 
 from repomatic.cli.main import repomatic
 from repomatic.github.pr import (
+    OPEN_PR_LIMIT,
     PrOperation,
     PrSyncResult,
     _needs_push,
     carry_pr_branch_paths,
     close_open_prs_on_branch,
     close_pr,
+    list_changed_files,
     list_open_prs_by_branch,
     upsert_pr,
 )
+from repomatic.github.pr_body import PrContent
 
 BRANCH = "sync-fruit-basket"
 """Arbitrary head branch the sync tests target."""
@@ -50,7 +53,7 @@ REMOTE_SHA = "c" * 40
 
 
 def test_list_open_prs_by_branch_filters_arguments():
-    with patch("repomatic.github.pr.run_gh_command") as mock_gh:
+    with patch("repomatic.github.gh.run_gh_command") as mock_gh:
         mock_gh.return_value = json.dumps([{"number": 42, "isDraft": False}])
         prs = list_open_prs_by_branch("minor-version-increment")
     assert prs == [{"number": 42, "isDraft": False}]
@@ -60,28 +63,36 @@ def test_list_open_prs_by_branch_filters_arguments():
     assert (
         "--head" in args and args[args.index("--head") + 1] == "minor-version-increment"
     )
+    assert args[args.index("--limit") + 1] == str(OPEN_PR_LIMIT)
 
 
 def test_list_open_prs_by_branch_empty():
-    with patch("repomatic.github.pr.run_gh_command") as mock_gh:
+    with patch("repomatic.github.gh.run_gh_command") as mock_gh:
         mock_gh.return_value = "[]"
         assert list_open_prs_by_branch("major-version-increment") == []
 
 
-def test_close_pr_default_deletes_branch():
-    # The close write goes through the issue module's lock-recovery wrapper.
-    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
+def test_list_changed_files_reads_every_page():
+    """The files of every page come back as paths, in API order."""
+    pages = [[{"filename": "mango.py"}, {"filename": "kiwi.md"}], [{"filename": "fig"}]]
+    with patch(
+        "repomatic.github.gh.run_gh_command", return_value=json.dumps(pages)
+    ) as mock_gh:
+        files = list_changed_files(7, "kevin/fruits")
+    assert files == ["mango.py", "kiwi.md", "fig"]
+    args = mock_gh.call_args.args[0]
+    assert args[:3] == ["api", "--paginate", "--slurp"]
+    assert args[3].startswith("repos/kevin/fruits/pulls/7/files?")
+
+
+def test_close_pr_deletes_branch():
+    # The close write goes through the threads module's lock-recovery wrapper.
+    with patch("repomatic.github.threads.run_gh_command") as mock_gh:
         close_pr(7, "stale")
     args = mock_gh.call_args.args[0]
     assert args[:3] == ["pr", "close", "7"]
     assert "--comment" in args and args[args.index("--comment") + 1] == "stale"
     assert "--delete-branch" in args
-
-
-def test_close_pr_can_keep_branch():
-    with patch("repomatic.github.issue.run_gh_command") as mock_gh:
-        close_pr(7, "stale", delete_branch=False)
-    assert "--delete-branch" not in mock_gh.call_args.args[0]
 
 
 def test_close_pr_unlocks_a_locked_conversation():
@@ -97,7 +108,7 @@ def test_close_pr_unlocks_a_locked_conversation():
             )
         return ""
 
-    with patch("repomatic.github.issue.run_gh_command", side_effect=fake_gh):
+    with patch("repomatic.github.threads.run_gh_command", side_effect=fake_gh):
         close_pr(7, "stale")
 
     assert [call[:2] for call in calls] == [
@@ -108,7 +119,7 @@ def test_close_pr_unlocks_a_locked_conversation():
 
 
 def test_close_open_prs_on_branch_no_match_is_noop():
-    with patch("repomatic.github.pr.run_gh_command") as mock_gh:
+    with patch("repomatic.github.gh.run_gh_command") as mock_gh:
         mock_gh.return_value = "[]"
         closed = close_open_prs_on_branch("minor-version-increment", "stale")
     assert closed == []
@@ -121,8 +132,8 @@ def test_close_open_prs_on_branch_closes_every_match():
         {"number": 22, "isDraft": False},
     ])
     with (
-        patch("repomatic.github.pr.run_gh_command") as mock_list,
-        patch("repomatic.github.issue.run_gh_command") as mock_close,
+        patch("repomatic.github.gh.run_gh_command") as mock_list,
+        patch("repomatic.github.threads.run_gh_command") as mock_close,
     ):
         mock_list.return_value = payload
         closed = close_open_prs_on_branch("minor-version-increment", "stale")
@@ -192,13 +203,15 @@ def git(monkeypatch):
 def gh(monkeypatch):
     """Capture `gh` invocations, returning whatever the test queues up.
 
-    One stub covers both dispatch points: the module's own calls and the
-    close path, which routes through the issue module's lock-recovery
-    wrapper. A single mock keeps each test's call sequence in one list.
+    One stub covers every dispatch point: the module's own calls, the
+    listings parsed through the `gh` module, and the close path and label
+    writes of the threads module. A single mock keeps each test's call
+    sequence in one list.
     """
     stub = MagicMock(return_value="[]")
     monkeypatch.setattr("repomatic.github.pr.run_gh_command", stub)
-    monkeypatch.setattr("repomatic.github.issue.run_gh_command", stub)
+    monkeypatch.setattr("repomatic.github.gh.run_gh_command", stub)
+    monkeypatch.setattr("repomatic.github.threads.run_gh_command", stub)
     return stub
 
 
@@ -207,10 +220,30 @@ def verbs(gh_stub) -> list[str]:
     return [" ".join(call.args[0][:2]) for call in gh_stub.call_args_list]
 
 
-def test_upsert_pr_requires_a_base_on_detached_head(git, gh):
+def test_upsert_pr_requires_a_base_on_detached_head(git, gh, monkeypatch):
     git.current_branch.return_value = None
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
     with pytest.raises(RuntimeError, match="detached"):
         upsert_pr(BRANCH, "t", "b", "m")
+
+
+def test_upsert_pr_falls_back_to_the_event_default_branch(
+    git, gh, monkeypatch, tmp_path
+):
+    """A detached checkout takes its base from the CI event payload."""
+    git.current_branch.return_value = None
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps({"repository": {"default_branch": "trunk"}}), encoding="UTF-8"
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    git.fetch_remote_branch.side_effect = lambda name, remote="origin": (
+        BASE_SHA if name == "trunk" else None
+    )
+    gh.side_effect = ["[]", "https://github.com/kate/fruits/pull/90", ""]
+    upsert_pr(BRANCH, "Title", "Body", "Message")
+    create_args = gh.call_args_list[1].args[0]
+    assert create_args[create_args.index("--base") + 1] == "trunk"
 
 
 def test_upsert_pr_rejects_a_base_missing_from_the_remote(git, gh):
@@ -443,15 +476,16 @@ def cli_upsert(monkeypatch):
 
     monkeypatch.setattr("repomatic.cli.github.upsert_pr", spy)
     monkeypatch.setattr(
-        "repomatic.cli.github._render_pr_content",
-        lambda **kwargs: ("Rendered title", "Rendered body", "Rendered message"),
+        "repomatic.cli.github.render_pr",
+        lambda *args, **kwargs: PrContent(
+            "Rendered title", "Rendered body", "Rendered message"
+        ),
     )
     return captured
 
 
-def test_pr_sync_cli_resolves_everything_from_the_template(cli_upsert, monkeypatch):
+def test_pr_sync_cli_resolves_everything_from_the_template(cli_upsert):
     """One flag yields branch, labels, draft, title, body and commit message."""
-    monkeypatch.setattr("repomatic.cli.github.current_branch", lambda: "main")
     result = CliRunner().invoke(
         repomatic, ["pr-sync", "--template", "format-python"], catch_exceptions=False
     )
@@ -472,7 +506,6 @@ def test_pr_sync_cli_renders_the_upgrade_template(tmp_path, monkeypatch):
         return PrSyncResult(PrOperation.NONE, kwargs["branch"])
 
     monkeypatch.setattr("repomatic.cli.github.upsert_pr", spy)
-    monkeypatch.setattr("repomatic.cli.github.current_branch", lambda: "main")
     report = tmp_path / "upgrade-report.md"
     report.write_text("## 🆙 Upgraded release\n\nMango season.", encoding="UTF-8")
     monkeypatch.setenv("REPOMATIC_UPGRADE_REPORT_FILE", str(report))
@@ -498,9 +531,7 @@ def test_pr_sync_cli_renders_the_upgrade_template(tmp_path, monkeypatch):
     assert "Mango season." in captured["body"]
 
 
-def test_pr_sync_cli_reads_draft_from_frontmatter(cli_upsert, monkeypatch):
-
-    monkeypatch.setattr("repomatic.cli.github.current_branch", lambda: "main")
+def test_pr_sync_cli_reads_draft_from_frontmatter(cli_upsert):
     result = CliRunner().invoke(
         repomatic,
         [
@@ -518,26 +549,7 @@ def test_pr_sync_cli_reads_draft_from_frontmatter(cli_upsert, monkeypatch):
     assert cli_upsert["draft"] is True
 
 
-def test_pr_sync_cli_falls_back_to_the_event_default_branch(
-    cli_upsert, monkeypatch, tmp_path
-):
-    """A detached checkout takes its base from the CI event payload."""
-    monkeypatch.setattr("repomatic.cli.github.current_branch", lambda: None)
-    event = tmp_path / "event.json"
-    event.write_text(
-        json.dumps({"repository": {"default_branch": "trunk"}}), encoding="UTF-8"
-    )
-    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
-    result = CliRunner().invoke(
-        repomatic, ["pr-sync", "--template", "fix-changelog"], catch_exceptions=False
-    )
-    assert result.exit_code == 0
-    assert cli_upsert["base"] == "trunk"
-
-
-def test_pr_sync_cli_explicit_labels_override_frontmatter(cli_upsert, monkeypatch):
-
-    monkeypatch.setattr("repomatic.cli.github.current_branch", lambda: "main")
+def test_pr_sync_cli_explicit_labels_override_frontmatter(cli_upsert):
     result = CliRunner().invoke(
         repomatic,
         ["pr-sync", "--template", "format-python", "--label", "🍉 special"],
@@ -565,7 +577,6 @@ def test_pr_sync_cli_explicit_labels_override_frontmatter(cli_upsert, monkeypatc
     ),
 )
 def test_pr_sync_cli_validates_its_inputs(cli_upsert, args, error):
-
     result = CliRunner().invoke(repomatic, ["pr-sync", *args])
     assert result.exit_code != 0
     assert error in result.output

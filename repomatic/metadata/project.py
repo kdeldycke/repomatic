@@ -27,8 +27,8 @@ import logging
 import re
 from functools import cached_property
 from pathlib import Path
+from typing import NamedTuple
 
-import tomlrt
 from packaging.version import Version
 from pyproject_metadata import ConfigurationError, StandardMetadata
 
@@ -41,20 +41,29 @@ from ..git_ops import (
     get_release_version_from_commits,
 )
 from ..pyproject import (
+    get_current_version,
     is_python_package as _is_python_package,
     is_python_project as _is_python_project,
-    load_pyproject_doc,
     read_pyproject_toml,
 )
-from ..release.binary import NUITKA_BUILD_TARGETS
-from ..tooling.registry import MYPY_VERSION_MIN
 from ..versions import BUMP_PARTS
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from typing import Any, Final, Literal
 
-    from ..matrix.model import Matrix
+
+MYPY_VERSION_MIN = (3, 10)
+"""Earliest Python dialect the pinned mypy accepts for `--python-version`.
+
+Floors the value {attr}`ProjectMetadata.mypy_params` derives from the project's
+`requires-python`, which the `mypy` entry of
+{data}`~repomatic.tooling.registry.TOOL_REGISTRY` passes through
+`computed_params`. A project declaring an older floor would otherwise hand mypy
+a version it refuses with exit code `2`. Mypy's own `PYTHON3_VERSION_MIN`
+holds the value, in
+[`mypy/defaults.py`](https://github.com/python/mypy/blob/master/mypy/defaults.py).
+"""
 
 
 _SCRIPT_NAME_RE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9._-]+")
@@ -68,24 +77,72 @@ the regex in {meth}`ProjectMetadata.script_entries`.
 """
 
 
-def _known_build_targets(names: list[str], kind: str) -> set[str]:
-    """Keep the recognized Nuitka build targets among *names*.
+class BumpBaseline(NamedTuple):
+    """The two versions a version-bump gate compares."""
 
-    Shared by {attr}`ProjectMetadata.dev_targets` and
-    {attr}`ProjectMetadata.unstable_targets`, which read two different config lists
-    against the same roster and would otherwise drift on how they treat a name
-    that roster does not carry.
+    current: Version
+    """The version the bump-my-version configuration declares now."""
 
-    :param names: Target names, as configured.
-    :param kind: What the list configures, for the warning naming the strays.
-    :return: The subset of *names* present in
-        {data}`~repomatic.release.binary.NUITKA_BUILD_TARGETS`.
-    """
-    targets = set(names)
-    unknown = targets - set(NUITKA_BUILD_TARGETS)
-    if unknown:
-        logging.warning(f"Unrecognized {kind} targets: {unknown}")
-    return targets & set(NUITKA_BUILD_TARGETS)
+    released: Version
+    """The latest release, read from its tag or from its release commit."""
+
+    @classmethod
+    def resolve(cls) -> BumpBaseline | None:
+        """Read both versions from the working directory and its git history.
+
+        The latest release comes from the tags first. When none is found, as on
+        a shallow clone or while the release workflow has not pushed its tag
+        yet, it comes from the most recent release commit message.
+
+        :return: The baseline, or `None` when either version is unknown: a gate
+            with nothing to compare against allows the bump.
+        """
+        current = get_current_version()
+        if not current:
+            logging.warning("Cannot determine current version. Allowing bump.")
+            return None
+        released = get_latest_tag_version()
+        if not released:
+            logging.info("No tags found, falling back to commit message parsing.")
+            released = get_release_version_from_commits()
+        if not released:
+            logging.warning(
+                "No release version found from tags or commits. Allowing bump."
+            )
+            return None
+        baseline = cls(Version(current), released)
+        logging.info(f"Current version: {baseline.current}, Latest release: {released}")
+        return baseline
+
+    def allows(self, part: Literal["minor", "major"]) -> bool:
+        """Whether a bump of *part* would not increment it twice in one cycle.
+
+        - Last release `5.0.1`, current `5.0.2`: a minor bump is allowed.
+        - Last release `5.0.1`, current `5.1.0`: the minor was already bumped.
+        - Last release `5.0.1`, current `6.0.0`: the major was already bumped,
+          which blocks both parts.
+
+        :param part: The version part to bump.
+        :return: `True` if the bump should proceed.
+        """
+        if self.current.major > self.released.major:
+            logging.info(
+                "Major version already bumped "
+                f"({self.current.major} > {self.released.major}). Skipping bump."
+            )
+            return False
+        if (
+            part == "minor"
+            and self.current.major == self.released.major
+            and self.current.minor > self.released.minor
+        ):
+            logging.info(
+                "Minor version already bumped "
+                f"({self.current.minor} > {self.released.minor}). Skipping bump."
+            )
+            return False
+        logging.info(f"Version bump for {part} is allowed.")
+        return True
 
 
 def is_version_bump_allowed(part: Literal["minor", "major"]) -> bool:
@@ -93,98 +150,37 @@ def is_version_bump_allowed(part: Literal["minor", "major"]) -> bool:
 
     This prevents double version increments within a development cycle. A bump is
     blocked if the version has already been bumped (but not released) since the last
-    tagged release.
-
-    For example:
-    - Last release: `v5.0.1`, current: `5.0.2` → minor bump allowed
-    - Last release: `v5.0.1`, current: `5.1.0` → minor bump NOT allowed (bumped)
-    - Last release: `v5.0.1`, current: `6.0.0` → major bump NOT allowed (bumped)
-
-    ```{note}
-    When tags are not available (e.g., due to race conditions between workflows),
-    this function falls back to parsing version from recent commit messages.
-    ```
+    tagged release. {meth}`BumpBaseline.allows` holds the rule.
 
     :param part: The version part to check (`minor` or `major`).
     :return: `True` if the bump should proceed, `False` if it should be skipped.
+    :raises ValueError: When *part* is not a bumpable part.
     """
-    # Validate part argument early.
     if part not in BUMP_PARTS:
         expected = " or ".join(repr(p) for p in BUMP_PARTS)
         raise ValueError(f"Invalid version part: {part!r}. Must be {expected}.")
-
-    current_version_str = ProjectMetadata.get_current_version()
-    if not current_version_str:
-        logging.warning("Cannot determine current version. Allowing bump.")
-        return True
-
-    # Try to get the latest release version from tags first.
-    latest_release = get_latest_tag_version()
-
-    # Fallback to commit message parsing if tag not found.
-    # This handles race conditions where the release workflow hasn't pushed the tag yet.
-    if not latest_release:
-        logging.info("No tags found, falling back to commit message parsing.")
-        latest_release = get_release_version_from_commits()
-
-    if not latest_release:
-        logging.warning("No release version found from tags or commits. Allowing bump.")
-        return True
-
-    current = Version(current_version_str)
-    logging.info(f"Current version: {current}, Latest release: {latest_release}")
-
-    if part == "major":
-        # Block if major version is already ahead of the latest release.
-        if current.major > latest_release.major:
-            logging.info(
-                "Major version already bumped "
-                f"({current.major} > {latest_release.major}). Skipping bump."
-            )
-            return False
-    elif part == "minor":
-        # Block if major is ahead, or if minor is ahead within the same major.
-        if current.major > latest_release.major:
-            logging.info(
-                "Major version already bumped "
-                f"({current.major} > {latest_release.major}). Skipping minor bump."
-            )
-            return False
-        if (
-            current.major == latest_release.major
-            and current.minor > latest_release.minor
-        ):
-            logging.info(
-                "Minor version already bumped "
-                f"({current.minor} > {latest_release.minor}). Skipping bump."
-            )
-            return False
-
-    logging.info(f"Version bump for {part} is allowed.")
-    return True
+    baseline = BumpBaseline.resolve()
+    return baseline is None or baseline.allows(part)
 
 
 class ProjectMetadata:
     """What `pyproject.toml` and the Sphinx configuration declare.
 
     A concern mixin of {class}`~repomatic.metadata.core.Metadata`: never
-    instantiated on its own, and reads sibling concerns through `self`.
+    instantiated on its own.
     """
 
-    if TYPE_CHECKING:
-        # Sibling-concern surface read through `self`: each stub mirrors
-        # the descriptor another mixin (or the assembled `Metadata`
-        # class) defines, so every concern type-checks on its own.
-        pyproject_path: Path
-        sphinx_conf_path: Path
+    pyproject_path = Path() / "pyproject.toml"
+    """The project file every property here reads."""
 
-        @cached_property
-        def new_commits_matrix(self) -> Matrix | None:
-            """See {class}`~repomatic.metadata.git.GitMetadata`."""
+    sphinx_conf_path = Path() / "docs" / "conf.py"
+    """The Sphinx configuration file."""
 
-        @cached_property
-        def release_commits_matrix(self) -> Matrix | None:
-            """See {class}`~repomatic.metadata.git.GitMetadata`."""
+    # 8.0.0 shim: re-export for callers not migrated yet.
+    @staticmethod
+    def get_current_version() -> str | None:
+        """See {func}`repomatic.pyproject.get_current_version`."""
+        return get_current_version()
 
     @cached_property
     def is_python_project(self) -> bool:
@@ -257,67 +253,6 @@ class ProjectMetadata:
         return load_repomatic_config(project_root=self.pyproject_path.parent)
 
     @cached_property
-    def nuitka_entry_points(self) -> list[str]:
-        """Entry points selected for Nuitka binary compilation.
-
-        Reads `[tool.repomatic].nuitka.entry-points` from `pyproject.toml`.
-        When empty (the default), deduplicates by callable target: keeps the
-        first entry point for each unique `module:callable` pair, so alias
-        entry points (like both `mpm` and `meta-package-manager` pointing to
-        the same function) don't produce duplicate binaries.
-        Unrecognized CLI IDs are logged as warnings and discarded.
-        """
-        all_cli_ids = [cli_id for cli_id, _, _ in self.script_entries]
-        if not all_cli_ids:
-            return []
-
-        raw = self.config.nuitka_entry_points
-        if not raw:
-            # Default: first entry point per unique callable target.
-            seen_targets: set[str] = set()
-            unique: list[str] = []
-            for cli_id, module_id, callable_id in self.script_entries:
-                target = f"{module_id}:{callable_id}"
-                if target not in seen_targets:
-                    seen_targets.add(target)
-                    unique.append(cli_id)
-            return unique
-
-        selected = []
-        for cli_id in raw:
-            if cli_id in all_cli_ids:
-                selected.append(cli_id)
-            else:
-                logging.warning(
-                    f"Unrecognized nuitka entry point {cli_id!r}; valid: {all_cli_ids}"
-                )
-        return selected or all_cli_ids[:1]
-
-    @cached_property
-    def dev_targets(self) -> set[str]:
-        """Nuitka build targets compiled on ordinary (non-release) pushes.
-
-        Reads `[tool.repomatic].nuitka.dev-targets` from `pyproject.toml`. An
-        empty list disables dev builds entirely. See
-        {attr}`~repomatic.config.Config.nuitka_dev_targets` for the default and
-        the canary rationale.
-
-        Unrecognized target names are logged as warnings and discarded.
-        """
-        return _known_build_targets(self.config.nuitka_dev_targets, "dev")
-
-    @cached_property
-    def unstable_targets(self) -> set[str]:
-        """Nuitka build targets allowed to fail without blocking the release.
-
-        Reads `[tool.repomatic].nuitka.unstable-targets` from `pyproject.toml`.
-        Defaults to an empty set.
-
-        Unrecognized target names are logged as warnings and discarded.
-        """
-        return _known_build_targets(self.config.nuitka_unstable_targets, "unstable")
-
-    @cached_property
     def package_name(self) -> str | None:
         """Returns package name as published on PyPI."""
         if self.pyproject and self.pyproject.canonical_name:
@@ -388,9 +323,6 @@ class ProjectMetadata:
                     )
                 module_id, callable_id = parts
                 entries.append((cli_id, module_id, callable_id))
-        # Double check we do not have duplicate entries.
-        all_cli_ids = [cli_id for cli_id, _, _ in entries]
-        assert len(set(all_cli_ids)) == len(all_cli_ids)
         return entries
 
     @cached_property
@@ -429,93 +361,10 @@ class ProjectMetadata:
         major, minor = max(MYPY_VERSION_MIN, min_version)
         return ["--python-version", f"{major}.{minor}"]
 
-    @staticmethod
-    def get_current_version() -> str | None:
-        """Returns the current version as managed by bump-my-version.
-
-        Same as calling the CLI:
-
-            ```{code-block} shell-session
-            $ bump-my-version show current_version
-            ```
-
-        Reads `current_version` from the first TOML file found in the
-        current working directory: `.bumpversion.toml` (top-level table) or
-        `pyproject.toml` (`[tool.bumpversion]`).
-        """
-        cwd = Path.cwd()
-        for filename, section_path in (
-            (".bumpversion.toml", ()),
-            ("pyproject.toml", ("tool", "bumpversion")),
-        ):
-            path = cwd / filename
-            if not path.exists():
-                continue
-            try:
-                data = load_pyproject_doc(path)
-            except tomlrt.TOMLParseError:
-                continue
-            section = data
-            for key in section_path:
-                section = section.get(key, {})
-                if not isinstance(section, dict):
-                    section = {}
-                    break
-            version = section.get("current_version")
-            if version is not None:
-                return str(version)
-        return None
-
     @cached_property
-    def current_version(self) -> str | None:
-        """Returns the current version.
-
-        Current version is fetched from the `bump-my-version` configuration file.
-
-        During a release, two commits are bundled into a single push event:
-
-        1. `[changelog] Release vX.Y.Z` — freezes the version to the release number
-        2. `[changelog] Post-release bump vX.Y.Z → vX.Y.Z` — bumps to the next dev version
-
-        In this situation, the current version returned is the one from the most recent
-        commit (the post-release bump), which represents the next development version.
-        Use `released_version` to get the version from the release commit.
-        """
-        version = None
-        if self.new_commits_matrix:
-            details = self.new_commits_matrix.include
-            if details:
-                version = details[0].get("current_version")
-        else:
-            version = self.get_current_version()
-        return version
-
-    @cached_property
-    def released_version(self) -> str | None:
-        """Returns the version of the release commit.
-
-        During a release push event, this extracts the version from the
-        `[changelog] Release vX.Y.Z` commit, which is distinct from
-        `current_version` (the post-release bump version). This is used for
-        tagging, PyPI publishing, and GitHub release creation.
-
-        Returns `None` if no release commit is found in the current event.
-        """
-        version = None
-        if self.release_commits_matrix:
-            details = self.release_commits_matrix.include
-            if details:
-                # This script is only designed for at most 1 release in the list of new
-                # commits.
-                assert len(details) == 1
-                version = details[0].get("current_version")
-        return version
-
-    @cached_property
-    def is_sphinx(self) -> bool:
-        """Returns `True` if the Sphinx config file is present."""
-        # The Sphinx config file is present, that's enough for us.
-        return self.sphinx_conf_path.exists() and self.sphinx_conf_path.is_file()
+    def _bump_baseline(self) -> BumpBaseline | None:
+        """The versions both bump gates compare, read once for the two."""
+        return BumpBaseline.resolve()
 
     @cached_property
     def minor_bump_allowed(self) -> bool:
@@ -523,7 +372,7 @@ class ProjectMetadata:
 
         This prevents double version increments within a development cycle.
         """
-        return is_version_bump_allowed("minor")
+        return self._bump_baseline is None or self._bump_baseline.allows("minor")
 
     @cached_property
     def major_bump_allowed(self) -> bool:
@@ -531,38 +380,64 @@ class ProjectMetadata:
 
         This prevents double version increments within a development cycle.
         """
-        return is_version_bump_allowed("major")
+        return self._bump_baseline is None or self._bump_baseline.allows("major")
 
-    def _has_sphinx_extension(self, extension_name: str) -> bool:
-        """Check if a Sphinx extension is listed in `conf.py`'s `extensions`.
+    @cached_property
+    def is_sphinx(self) -> bool:
+        """Returns `True` if the Sphinx config file is present."""
+        # The Sphinx config file is present, that's enough for us.
+        return self.sphinx_conf_path.is_file()
 
-        Parses the Sphinx configuration file as an AST and looks for an
-        `extensions = [...]` assignment containing `extension_name`.
+    @cached_property
+    def sphinx_extensions(self) -> frozenset[str]:
+        """The extensions the Sphinx configuration lists, read once.
+
+        Parses `conf.py` as an AST rather than running it, and reads every
+        top-level assignment to the `extensions` variable: a plain or annotated
+        one sets the list, an augmented one (`+=`) extends it. An assignment to
+        anything other than the bare name, like a tuple target or a subscript,
+        is not the extension list and is passed over.
+
+        :return: The extension module names, empty when there is no Sphinx
+            configuration or it does not parse.
         """
         if not self.is_sphinx:
-            return False
-        for node in ast.parse(self.sphinx_conf_path.read_bytes()).body:
-            if isinstance(node, ast.Assign) and isinstance(
-                node.value, ast.List | ast.Tuple
-            ):
-                extension_found = "extensions" in (
-                    t.id  # type: ignore[attr-defined]
-                    for t in node.targets
-                )
-                if extension_found:
-                    elements = (
-                        e.value for e in node.value.elts if isinstance(e, ast.Constant)
-                    )
-                    if extension_name in elements:
-                        return True
-        return False
+            return frozenset()
+        try:
+            tree = ast.parse(self.sphinx_conf_path.read_bytes())
+        except (OSError, SyntaxError, ValueError) as error:
+            logging.warning(f"Cannot read {self.sphinx_conf_path}: {error}")
+            return frozenset()
+        extensions: set[str] = set()
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                targets: list[ast.expr] = node.targets
+            elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                targets = [node.target]
+            else:
+                continue
+            if not any(
+                isinstance(target, ast.Name) and target.id == "extensions"
+                for target in targets
+            ) or not isinstance(node.value, (ast.List, ast.Tuple)):
+                continue
+            names = {
+                element.value
+                for element in node.value.elts
+                if isinstance(element, ast.Constant) and isinstance(element.value, str)
+            }
+            if isinstance(node, ast.AugAssign):
+                extensions |= names
+            else:
+                extensions = names
+        return frozenset(extensions)
 
     @cached_property
     def active_autodoc(self) -> bool:
         """Returns `True` if Sphinx autodoc is active."""
-        return self._has_sphinx_extension("sphinx.ext.autodoc")
+        return "sphinx.ext.autodoc" in self.sphinx_extensions
 
     @cached_property
     def uses_myst(self) -> bool:
         """Returns `True` if MyST-Parser is active in Sphinx."""
-        return self._has_sphinx_extension("myst_parser")
+        return "myst_parser" in self.sphinx_extensions

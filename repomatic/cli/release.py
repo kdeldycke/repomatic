@@ -22,7 +22,6 @@ under its help section.
 from __future__ import annotations
 
 import logging
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -42,14 +41,11 @@ from click_extra import (
     pass_context,
 )
 
-from ..changelog import (
-    Changelog,
-    lint_changelog_dates,
-    load_changelog_repo,
-)
+from ..changelog import Changelog, load_changelog_repo
 from ..claude_plugin import ARCHIVE_NAME, pack_plugin
 from ..components import DEFAULT_REPO
-from ..git_ops import create_and_push_tag
+from ..file_ops import write_if_changed
+from ..git_ops import GitError, create_and_push_tag
 from ..github.dev_release import (
     cleanup_dev_releases,
     sync_dev_release,
@@ -65,25 +61,21 @@ from ..github.releases import (
 )
 from ..github.urls import parse_github_repo
 from ..github.workflow_files import WORKFLOW_DIR
-from ..init_project import run_init
+from ..init.tool_config import init_config
+from ..lint_changelog import lint_changelog_dates
 from ..metadata.core import Metadata
 from ..release.attestation import pack_attestation
-from ..release.binaries_page import (
-    render_binaries_csv,
-    render_chart_section,
-    update_binaries_csv,
-    update_binaries_page,
-)
+from ..release.binaries_page import update_catalog
 from ..release.binary import (
     BINARY_ASSET_SUFFIXES,
     NUITKA_BUILD_TARGETS,
     pack_binary_assets,
-    verify_binary_arch,
-    verify_binary_floor,
 )
-from ..release.prepare_release import PrepareRelease
+from ..release.prepare_release import CITATION_PATH, PrepareRelease
+from ..release.verify import verify_binary_arch, verify_binary_floor
 from ..release.virustotal import (
     FREE_TIER_RATE_LIMIT,
+    RequestPacer,
     download_release_binaries,
     load_scan_records,
     poll_detection_stats,
@@ -142,22 +134,16 @@ def changelog(
         logging.info(f"Read initial changelog from {changelog_path}")
         initial_content = changelog_path.read_text(encoding="UTF-8")
 
-    content = Changelog(initial_content, Metadata.get_current_version()).update(
-        default_branch=default_branch
-    )
+    changelog = Changelog(initial_content, Metadata.get_current_version())
+    updated = changelog.update(default_branch=default_branch)
     if output is None:
         output = changelog_path
-    # The update strips the trailing newline the file ends with, and the write
-    # adds it back, so compare without it.
-    if (
-        output == changelog_path
-        and initial_content is not None
-        and content == initial_content.rstrip()
-    ):
+    if not updated and output == changelog_path and initial_content is not None:
         logging.warning("Changelog already up to date. Do nothing.")
         ctx.exit()
 
-    write_output("updated changelog", content, output)
+    # The write adds back the one trailing newline the file ends with.
+    write_output("updated changelog", changelog.content.rstrip(), output)
 
 
 @subcommand(
@@ -269,8 +255,8 @@ def lint_changelog(
     "--citation",
     "citation_path",
     type=file_path(readable=True, writable=True, resolve_path=True),
-    default="citation.cff",
-    help="Path to the citation file.",
+    default=CITATION_PATH.as_posix(),
+    help="Path to the citation file. Skipped when it does not exist.",
 )
 @option(
     "--workflow-dir",
@@ -334,7 +320,7 @@ def prepare_release(
 
     prep = PrepareRelease(
         changelog_path=changelog_path,
-        citation_path=citation_path if citation_path.exists() else None,
+        citation_path=citation_path,
         workflow_dir=workflow_dir,
         default_branch=default_branch,
     )
@@ -410,11 +396,8 @@ def git_tag(
         )
     except ValueError as e:
         raise ClickException(str(e))
-    except subprocess.CalledProcessError as e:
-        msg = f"Failed to create/push tag: {e}"
-        if e.stderr:
-            msg += f"\n{e.stderr.strip()}"
-        raise ClickException(msg)
+    except GitError as e:
+        raise ClickException(f"Failed to create/push tag: {e}")
 
     if created:
         echo(f"Created{' and pushed' if push else ''} tag {tag!r}")
@@ -673,7 +656,7 @@ def scan_virustotal(
 
     if download and repo:
         try:
-            download_release_binaries(repo, tag, tag.removeprefix("v"), binaries_dir)
+            download_release_binaries(repo, tag, binaries_dir)
         except RuntimeError as error:
             raise ClickException(f"Could not download {tag} binaries: {error}")
 
@@ -686,8 +669,10 @@ def scan_virustotal(
         echo("No .bin or .exe files found, nothing to upload.")
         return
 
+    # One pacer for the uploads and the polls: they draw on the same budget.
+    pacer = RequestPacer(rate_limit)
     echo(f"Uploading {len(file_paths)} file(s) to VirusTotal...")
-    results = scan_files(api_key, file_paths, rate_limit)
+    results = scan_files(api_key, file_paths, pacer)
     for result in results:
         echo(f"  {result.filename}: {result.analysis_url}")
     if not results:
@@ -699,7 +684,7 @@ def scan_virustotal(
             f"Polling VirusTotal for {len(results)} file(s)"
             f" (timeout {poll_timeout}s)..."
         )
-        results = poll_detection_stats(api_key, results, rate_limit, poll_timeout)
+        results = poll_detection_stats(api_key, results, pacer, poll_timeout)
         for result in results:
             stats = str(result.detection_stats) if result.detection_stats else "pending"
             echo(f"  {result.filename}: {stats}")
@@ -758,10 +743,12 @@ def verify_binary(target: str, binary_path: Path, dist_dirs: tuple[Path, ...]) -
     over the binary plus the Nuitka dist directories whose content its
     onefile payload repacks.
     """
-    verify_binary_arch(target, binary_path)
+    # The choice of `--target` already rejected an unknown target.
+    build_target = NUITKA_BUILD_TARGETS[target]
+    verify_binary_arch(build_target, binary_path)
     echo(f"Binary architecture verified for {target}: {binary_path}")
     scan_dirs = list(dist_dirs) or sorted(Path.cwd().glob("*.dist"))
-    verify_binary_floor(target, binary_path, scan_dirs)
+    verify_binary_floor(build_target, binary_path, scan_dirs)
     echo(f"OS floor verified for {target}.")
 
 
@@ -802,11 +789,12 @@ def sync_binaries(
     """Regenerate the binaries catalog from the GitHub Releases API.
 
     Writes the catalog data to assets/binaries.csv next to the page, one row
-    per released binary: download link, size, SHA-256 checksum linking to the
-    VirusTotal analysis, and the detection snapshot when a scan history file
-    is given. The page renders the CSV through a csv-table directive and is
-    created from a default template when missing; only its chart region is
-    rewritten afterwards, so the prose can be edited per repository.
+    per released binary: its version linking to the release, its platform
+    linking to the download, its release date, and the VirusTotal detection
+    snapshot when a scan history file is given. The page renders the CSV
+    through a csv-table directive and is created from a default template when
+    missing; only its chart region is rewritten afterwards, so the prose can
+    be edited per repository.
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.binaries_sync, "binaries.sync")
@@ -816,22 +804,13 @@ def sync_binaries(
     except GitHubReleasesUnavailable as e:
         raise ClickException(str(e))
 
-    # Fixed location relative to the page, matching the `:file:` path in the
-    # page template's csv-table directive.
-    csv_path = page.parent / "assets" / "binaries.csv"
-
     try:
         scan_records = load_scan_records(records) if records else []
-        csv_changed = update_binaries_csv(
-            csv_path, render_binaries_csv(repo, releases, scan_records)
-        )
-        page_changed = update_binaries_page(
-            page, render_chart_section(scan_records), repo
-        )
+        changes = update_catalog(page, repo, releases, scan_records)
     except ValueError as e:
         raise ClickException(str(e))
 
-    for path, changed in ((csv_path, csv_changed), (page, page_changed)):
+    for path, changed in changes.items():
         if changed:
             echo(f"Updated {path}.")
         else:
@@ -844,23 +823,18 @@ def sync_bumpversion(ctx: Context) -> None:
     """Sync [tool.bumpversion] config in pyproject.toml from the bundled
     template.
 
-    Overwrites the [tool.bumpversion] section with the canonical template
-    bundled in repomatic. Designed for the sync-bumpversion autofix job.
-    The repomatic init bumpversion command remains available for interactive
-    bootstrapping.
+    Re-derives the [tool.bumpversion] section from the canonical template
+    bundled in repomatic, keeping the local additions. Designed for the
+    sync-bumpversion autofix job. The repomatic init bumpversion command
+    remains available for interactive bootstrapping.
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, config.bumpversion_sync, "bumpversion.sync")
 
-    result = run_init(
-        output_dir=Path("."),
-        components=("bumpversion",),
-        config=config,
-    )
-    changed = [*result.created, *result.updated]
-    if changed:
-        for path in changed:
-            echo(f"Updated: {path}")
+    pyproject_path = Path("pyproject.toml")
+    merged = init_config("bumpversion", pyproject_path)
+    if merged is not None and write_if_changed(pyproject_path, merged):
+        echo(f"Updated: {pyproject_path}")
     else:
         echo("bumpversion config is up to date.")
 
@@ -938,9 +912,13 @@ def sync_dev_release_cmd(
         echo("Deleted all dev releases.")
         return
 
-    if sync_dev_release(
-        changelog_path, version, repository, dry_run, asset_dir=upload_assets
-    ):
+    try:
+        synced = sync_dev_release(
+            changelog_path, version, repository, dry_run, asset_dir=upload_assets
+        )
+    except RuntimeError as error:
+        raise ClickException(str(error))
+    if synced:
         mode = "dry-run" if dry_run else "live"
         echo(f"[{mode}] Dev release v{version} synced.")
 

@@ -92,7 +92,7 @@ def _offline_setup_guide(
     :param sha_pinning_ok: Return of the SHA-pinning-required check.
     :param pypi_ok: Return of the PyPI Trusted Publisher check.
     :param pages_ok: Return of the Pages deployment-source check.
-    :param owner_type: `.type` the org-detection `gh api users/…` call returns.
+    :param owner_type: Owner `type` of the repository object the context reads.
     """
     if pat is None:
         pat = pat_results()
@@ -118,13 +118,13 @@ def _offline_setup_guide(
         enter(patch("repomatic.github.token.validate_gh_token_env"))
         enter(
             patch(
-                "repomatic.github.token.check_all_pat_permissions",
+                "repomatic.lint_repo.context.check_all_pat_permissions",
                 return_value=pat,
             )
         )
         enter(
             patch(
-                "repomatic.setup_guide.check_pat_repository_scope",
+                "repomatic.lint_repo.context.check_pat_repository_scope",
                 return_value=scope_ok,
             )
         )
@@ -164,7 +164,14 @@ def _offline_setup_guide(
                 return_value=pages_ok,
             )
         )
-        enter(patch("repomatic.setup_guide.run_gh_command", return_value=owner_type))
+        # The one remote read the guide makes itself: the repository object,
+        # whose owner type decides the organization tip.
+        enter(
+            patch(
+                "repomatic.lint_repo.context.gh_json",
+                return_value={"owner": {"type": owner_type}},
+            )
+        )
         lifecycle = enter(patch("repomatic.setup_guide.manage_issue_lifecycle"))
         lifecycle.side_effect = lambda **kw: bodies.append(kw["body"])
         yield lifecycle, bodies
@@ -518,7 +525,7 @@ def test_setup_guide_scope_probe_needs_a_pat():
     """Without a PAT there is no token to probe, and the step says nothing of scope."""
     with (
         _offline_setup_guide() as (_lifecycle, bodies),
-        patch("repomatic.setup_guide.check_pat_repository_scope") as probe,
+        patch("repomatic.lint_repo.context.check_pat_repository_scope") as probe,
     ):
         _invoke(["setup-guide", "--repo", REPO_SLUG])
     probe.assert_not_called()
@@ -800,6 +807,33 @@ def test_setup_guide_closes_with_github_pages_never_configured(tmp_path, monkeyp
         )
     assert result.exit_code == 0
     assert lifecycle.call_args_list[0][1]["has_issues"] is False
+
+
+def test_setup_guide_probes_each_step_once():
+    """A step's probe runs once, though both its section and the gate read it."""
+    with (
+        _offline_setup_guide() as (_lifecycle, _bodies),
+        patch(
+            "repomatic.setup_guide.check_fork_pr_approval_policy",
+            return_value=CheckResult(True, "Fork PR approval policy: all."),
+        ) as probe,
+    ):
+        _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
+    assert probe.call_count == 1
+
+
+@pytest.mark.parametrize(
+    ("owner_type", "tipped"),
+    (
+        pytest.param("Organization", True, id="organization"),
+        pytest.param("User", False, id="user"),
+    ),
+)
+def test_setup_guide_suggests_a_machine_user_to_an_organization(owner_type, tipped):
+    """The owner type comes off the repository object the checks read too."""
+    with _offline_setup_guide(owner_type=owner_type) as (_lifecycle, bodies):
+        _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
+    assert ("**For organizations**" in bodies[0]) is tipped
 
 
 def test_every_setup_step_feeds_the_close_gate():

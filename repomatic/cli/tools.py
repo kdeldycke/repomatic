@@ -27,6 +27,7 @@ from pathlib import Path
 from click_extra import (
     UNPROCESSED,
     Choice,
+    ClickException,
     SortByOption,
     UsageError,
     argument,
@@ -34,25 +35,26 @@ from click_extra import (
     group,
     option,
     pass_context,
+    resolve_jobs,
 )
 
 from ..cache import (
     CACHE_LIST_HEADER_DEFS,
     cache_dir,
     cache_rows,
-    clear_cache,
-    clear_config_cache,
-    clear_http_cache,
+    clean as clean_cache,
 )
+from ..http import FetchError
 from ..humanize import format_file_size
 from ..tooling import registry as tool_registry
-from ..tooling.checksums import update_registry_checksums
+from ..tooling.checksums import checksum_targets, update_registry_checksums
 from ..tooling.registry import (
     TOOL_LIST_HEADER_DEFS,
     TOOL_REGISTRY,
+    ToolInstallError,
 )
 from ..tooling.runner import (
-    resolve_config_source,
+    ConfigSource,
     run_tool,
     verify_via_write_path,
 )
@@ -154,7 +156,7 @@ def run(
     """
     if list_tools:
         rows = [
-            (spec.name, spec.version, resolve_config_source(spec))
+            (spec.name, spec.version, ConfigSource.find(spec).label)
             for spec in TOOL_REGISTRY.values()
         ]
         ctx.print_table(rows, TOOL_LIST_HEADER_DEFS)
@@ -163,27 +165,29 @@ def run(
     if tool_name is None:
         raise UsageError("Missing argument 'TOOL'. Use --list to see available tools.")
 
-    if verify:
-        exit_code, drifted = verify_via_write_path(
-            tool_name,
-            extra_args=extra_args,
-            version=tool_version,
-            checksum=checksum,
-            skip_checksum=skip_checksum,
-            no_cache=no_cache,
-        )
-        for path in drifted:
-            echo(f"Would rewrite: {path}")
-        ctx.exit(exit_code)
-
-    exit_code = run_tool(
-        tool_name,
-        extra_args=extra_args,
-        version=tool_version,
-        checksum=checksum,
-        skip_checksum=skip_checksum,
-        no_cache=no_cache,
-    )
+    try:
+        if verify:
+            exit_code, drifted = verify_via_write_path(
+                tool_name,
+                extra_args=extra_args,
+                version=tool_version,
+                checksum=checksum,
+                skip_checksum=skip_checksum,
+                no_cache=no_cache,
+            )
+            for path in drifted:
+                echo(f"Would rewrite: {path}")
+        else:
+            exit_code = run_tool(
+                tool_name,
+                extra_args=extra_args,
+                version=tool_version,
+                checksum=checksum,
+                skip_checksum=skip_checksum,
+                no_cache=no_cache,
+            )
+    except ToolInstallError as exc:
+        raise ClickException(str(exc)) from exc
     ctx.exit(exit_code)
 
 
@@ -193,9 +197,9 @@ def run(
 def cache() -> None:
     """Manage the local download cache.
 
-    Binary tools and HTTP API responses are cached to avoid redundant
-    downloads. This group provides subcommands to inspect, clean, and locate
-    the cache.
+    Binary tools, HTTP API responses and generated tool configs are cached to
+    avoid redundant downloads. This group provides subcommands to inspect,
+    clean, and locate the cache.
     """
 
 
@@ -205,7 +209,7 @@ def cache() -> None:
 )
 @pass_context
 def show(ctx: Context) -> None:
-    """List all cached binaries and HTTP responses."""
+    """List all cached binaries, HTTP responses and tool configs."""
     rows, total_size = cache_rows()
     if not rows:
         echo("Cache is empty.")
@@ -251,24 +255,9 @@ def clean(
     binary tool and its cached config, --namespace for a specific HTTP
     namespace, or --max-age for entries older than a threshold.
     """
-    # Each scoping option only reaches the cache kinds it applies to: a
-    # --namespace clean leaves binaries and configs alone, a --tool clean
-    # leaves HTTP responses alone. Bare and age-only cleans cover everything.
-    scoped = tool is not None or namespace is not None
-    bin_deleted = bin_freed = cfg_deleted = cfg_freed = 0
-    http_deleted = http_freed = 0
-    if tool is not None or not scoped:
-        bin_deleted, bin_freed = clear_cache(tool=tool, max_age_days=max_age)
-        cfg_deleted, cfg_freed = clear_config_cache(tool=tool, max_age_days=max_age)
-    if namespace is not None or not scoped:
-        http_deleted, http_freed = clear_http_cache(
-            namespace=namespace,
-            max_age_days=max_age,
-        )
-    total_deleted = bin_deleted + http_deleted + cfg_deleted
-    total_freed = bin_freed + http_freed + cfg_freed
-    if total_deleted:
-        echo(f"Removed {total_deleted} file(s), freed {format_file_size(total_freed)}.")
+    deleted, freed = clean_cache(tool=tool, namespace=namespace, max_age_days=max_age)
+    if deleted:
+        echo(f"Removed {deleted} file(s), freed {format_file_size(freed)}.")
     else:
         echo("Nothing to remove.")
 
@@ -288,7 +277,8 @@ def path() -> None:
         ("Recompute every checksum in the tool registry", "repomatic update-checksums"),
     ),
 )
-def update_checksums() -> None:
+@pass_context
+def update_checksums(ctx: Context) -> None:
     """Recompute SHA-256 checksums for the binary tool registry.
 
     Downloads each binary-distributed tool in the `repomatic run` registry at
@@ -300,7 +290,11 @@ def update_checksums() -> None:
     refreshes checksums when it bumps a version.
     """
     registry_path = Path(tool_registry.__file__)
-    updated = update_registry_checksums(registry_path)
+    jobs = resolve_jobs(ctx, len(checksum_targets()), serial_at_debug=True)
+    try:
+        updated = update_registry_checksums(registry_path, jobs=jobs)
+    except FetchError as exc:
+        raise ClickException(f"Cannot download a release artifact: {exc}") from exc
 
     for url, old_hash, new_hash in updated:
         echo(f"Updated: {url}")

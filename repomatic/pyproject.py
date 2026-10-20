@@ -32,10 +32,22 @@ from pyproject_metadata import ConfigurationError, StandardMetadata
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from typing import Any
+    from collections.abc import Mapping
+    from typing import Any, Final
 
     from .config import Config
 
+
+BUMPVERSION_SOURCES: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
+    (".bumpversion.toml", ()),
+    ("pyproject.toml", ("tool", "bumpversion")),
+)
+"""Where bump-my-version reads its configuration, in the order it searches.
+
+Each entry pairs a file name with the path of the table holding
+`current_version` in it: the top level of `.bumpversion.toml`, or the
+`[tool.bumpversion]` table of `pyproject.toml`.
+"""
 
 _TOML_CACHE: dict[Path, tuple[int, int, Any]] = {}
 """Parsed TOML documents, keyed by absolute path.
@@ -125,6 +137,54 @@ def load_pyproject_doc(pyproject_path: Path) -> Any:
     :return: The parsed document.
     """
     return tomlrt.loads(pyproject_path.read_text(encoding="UTF-8"))
+
+
+def bumpversion_current_version(
+    document: Mapping[str, Any], table_path: tuple[str, ...]
+) -> str | None:
+    """Read `current_version` from the bump-my-version table of a TOML document.
+
+    :param document: A parsed TOML document.
+    :param table_path: The keys leading to the table, as
+        {data}`BUMPVERSION_SOURCES` gives them.
+    :return: The version, or `None` when the table or the key is missing.
+    """
+    table: Any = document
+    for key in table_path:
+        table = table.get(key)
+        if not isinstance(table, dict):
+            return None
+    version = table.get("current_version")
+    return None if version is None else str(version)
+
+
+def get_current_version(project_root: Path | None = None) -> str | None:
+    """Returns the current version as managed by bump-my-version.
+
+    Same as calling the CLI:
+
+    ```{code-block} shell-session
+    $ bump-my-version show current_version
+    ```
+
+    Reads the first file of {data}`BUMPVERSION_SOURCES` that declares a
+    version. Each parse is cached per version of the file's bytes, see
+    {func}`cached_toml`.
+
+    :param project_root: Directory holding the configuration files. Defaults to
+        the current working directory.
+    :return: The version, or `None` when no file declares one.
+    """
+    root = Path() if project_root is None else project_root
+    for filename, table_path in BUMPVERSION_SOURCES:
+        try:
+            document = cached_toml(root / filename)
+        except (tomlrt.TOMLParseError, OSError):
+            continue
+        version = bumpversion_current_version(document, table_path)
+        if version is not None:
+            return version
+    return None
 
 
 def uv_table(doc: Any) -> Any:

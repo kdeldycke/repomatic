@@ -24,17 +24,17 @@ a reason unrelated to the logic under test.
 from __future__ import annotations
 
 import pytest
+from click_extra.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.matrix.runner_sync import (
-    apply_axes_retirement,
-    apply_literal_rewrite,
-    apply_upgrade,
+    ChangeKind,
     plan_runner_changes,
     render_change_table,
 )
-from repomatic.matrix.runners import RunnerImage
+from repomatic.matrix.runners import RunnerCatalog, RunnerImage
 
-CATALOG = [
+CATALOG = RunnerCatalog((
     RunnerImage("Ubuntu 26.04", "x64", ("ubuntu-26.04",), True, False),
     RunnerImage("Ubuntu 24.04", "x64", ("ubuntu-24.04",), False, False),
     RunnerImage("Ubuntu 22.04", "x64", ("ubuntu-22.04",), False, True),
@@ -49,7 +49,7 @@ CATALOG = [
         True,
         False,
     ),
-]
+))
 
 
 def test_deprecated_label_moves_to_a_released_successor() -> None:
@@ -116,7 +116,7 @@ def test_a_successor_already_in_the_fleet_is_moved_onto_but_never_probed(
 
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text('[project]\nname = "papaya"\n', encoding="UTF-8")
-    assert not apply_upgrade(change, pyproject)
+    assert not change.add_probe(pyproject)
     assert "test-matrix" not in pyproject.read_text(encoding="UTF-8")
 
 
@@ -138,7 +138,7 @@ def test_ignored_labels_are_never_proposed() -> None:
 def test_an_unreadable_catalog_proposes_nothing() -> None:
     """Fail closed: no table means no successor can be trusted."""
     assert not plan_runner_changes(
-        {"ubuntu-22.04": ["tests.yaml:build"]}, {"ubuntu-22.04"}, []
+        {"ubuntu-22.04": ["tests.yaml:build"]}, {"ubuntu-22.04"}, RunnerCatalog()
     )
 
 
@@ -168,12 +168,12 @@ def test_apply_literal_rewrite_touches_literals_only(tmp_path) -> None:
         {"ubuntu-22.04": ["tests.yaml:a"]}, {"ubuntu-22.04"}, CATALOG
     )
 
-    assert [p.name for p in apply_literal_rewrite(change, workflows)] == ["tests.yaml"]
+    assert [p.name for p in change.rewrite_literals(workflows)] == ["tests.yaml"]
     written = (workflows / "tests.yaml").read_text(encoding="UTF-8")
     assert "runs-on: ubuntu-24.04" in written
     assert 'runs-on: "ubuntu-24.04"' in written
     assert "runs-on: ${{ matrix.os }}" in written
-    assert not apply_literal_rewrite(change, workflows), "second run should be a no-op"
+    assert not change.rewrite_literals(workflows), "second run should be a no-op"
 
 
 def test_apply_upgrade_writes_sections_not_inline_tables(tmp_path) -> None:
@@ -182,12 +182,12 @@ def test_apply_upgrade_writes_sections_not_inline_tables(tmp_path) -> None:
     pyproject.write_text('[project]\nname = "demo"\n', encoding="UTF-8")
     (change,) = plan_runner_changes({}, {"ubuntu-24.04"}, CATALOG)
 
-    assert apply_upgrade(change, pyproject)
+    assert change.add_probe(pyproject)
     written = pyproject.read_text(encoding="UTF-8")
     assert "[tool.repomatic.test-matrix]" in written
     assert "[tool.repomatic.test-matrix.variations]" in written
     assert 'os = ["ubuntu-26.04"]' in written
-    assert not apply_upgrade(change, pyproject), "second run should be a no-op"
+    assert not change.add_probe(pyproject), "second run should be a no-op"
 
 
 def test_apply_upgrade_is_idempotent_against_the_formatter_shape(tmp_path) -> None:
@@ -210,7 +210,7 @@ def test_apply_upgrade_is_idempotent_against_the_formatter_shape(tmp_path) -> No
     )
     (change,) = plan_runner_changes({}, {"ubuntu-24.04"}, CATALOG)
 
-    assert not apply_upgrade(change, pyproject), (
+    assert not change.add_probe(pyproject), (
         "the probe is already declared in the formatter's dotted-key shape, so "
         "re-applying must write nothing: otherwise sync-runner-images and "
         "format-pyproject each undo the other, forever"
@@ -231,10 +231,10 @@ def test_apply_axes_retirement_moves_the_curated_tuple(tmp_path) -> None:
         {"ubuntu-22.04": ["tests.yaml:a"]}, {"ubuntu-22.04"}, CATALOG
     )
 
-    assert apply_axes_retirement(change, axes)
+    assert change.rewrite_axes(axes)
     written = axes.read_text(encoding="UTF-8")
     assert '"ubuntu-24.04",  # the x86 slot' in written
-    assert not apply_axes_retirement(change, axes), "second run should be a no-op"
+    assert not change.rewrite_axes(axes), "second run should be a no-op"
 
 
 def test_change_table_carries_the_reasoning() -> None:
@@ -273,3 +273,92 @@ def test_every_change_explains_itself(kind: str) -> None:
         if change.kind == kind:
             assert change.reason
             assert change.successor
+
+
+def test_apply_moves_the_axes_only_for_a_retirement(tmp_path) -> None:
+    """A retirement moves the curated axes when given them, never the matrix probe."""
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    (workflows / "tests.yaml").write_text(
+        "jobs:\n  a:\n    runs-on: ubuntu-22.04\n", encoding="UTF-8"
+    )
+    axes = tmp_path / "axes.py"
+    axes.write_text('TEST_RUNNERS_FULL = ("ubuntu-22.04",)\n', encoding="UTF-8")
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "papaya"\n', encoding="UTF-8")
+    (change,) = plan_runner_changes(
+        {"ubuntu-22.04": ["tests.yaml:a"]}, {"ubuntu-22.04"}, CATALOG
+    )
+    assert change.kind is ChangeKind.RETIREMENT
+
+    assert change.apply(workflows, pyproject) == [workflows / "tests.yaml"]
+    assert "ubuntu-22.04" in axes.read_text(encoding="UTF-8")
+
+    (workflows / "tests.yaml").write_text(
+        "jobs:\n  a:\n    runs-on: ubuntu-22.04\n", encoding="UTF-8"
+    )
+    assert change.apply(workflows, pyproject, axes) == [
+        workflows / "tests.yaml",
+        axes,
+    ]
+    assert "test-matrix" not in pyproject.read_text(encoding="UTF-8")
+
+
+def test_apply_adds_the_probe_only_for_an_upgrade(tmp_path) -> None:
+    """An upgrade lands its matrix probe, and leaves the curated axes alone."""
+    axes = tmp_path / "axes.py"
+    axes.write_text('TEST_RUNNERS_FULL = ("ubuntu-24.04",)\n', encoding="UTF-8")
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "papaya"\n', encoding="UTF-8")
+    (change,) = plan_runner_changes({}, {"ubuntu-24.04"}, CATALOG)
+    assert change.kind is ChangeKind.UPGRADE
+
+    assert change.apply(tmp_path, pyproject, axes) == [pyproject]
+    assert "ubuntu-24.04" in axes.read_text(encoding="UTF-8")
+
+
+@pytest.mark.parametrize(
+    ("kind", "label"),
+    [
+        (ChangeKind.RETIREMENT, "🔴 retirement"),
+        (ChangeKind.UPGRADE, "🆕 upgrade"),
+    ],
+)
+def test_change_kind_labels(kind: ChangeKind, label: str) -> None:
+    """Each kind carries the cell the pull request table shows for it."""
+    assert kind.label == label
+    assert label.endswith(str(kind))
+
+
+def test_retirements_rank_first() -> None:
+    """A retirement carries a deadline, so it sorts before an upgrade."""
+    assert ChangeKind.RETIREMENT.rank < ChangeKind.UPGRADE.rank
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_sync_runner_images_command(tmp_path, monkeypatch, dry_run) -> None:
+    """The command proposes each change, and makes it unless asked not to."""
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    workflow = workflows / "tests.yaml"
+    workflow.write_text(
+        "jobs:\n  build:\n    runs-on: ubuntu-22.04\n    steps: []\n",
+        encoding="UTF-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "papaya"\n', encoding="UTF-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("repomatic.cli.ci.fetch_catalog", lambda: CATALOG)
+
+    args = ["sync-runner-images", "--output", "proposal.md"]
+    result = CliRunner().invoke(
+        repomatic, [*args, "--dry-run" if dry_run else "--live"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "retirement: `ubuntu-22.04` → `ubuntu-24.04`" in result.output
+    assert "🔴 retirement" in (tmp_path / "proposal.md").read_text(encoding="UTF-8")
+    written = workflow.read_text(encoding="UTF-8")
+    assert ("runs-on: ubuntu-22.04" in written) is dry_run
+    assert ("runs-on: ubuntu-24.04" in written) is not dry_run

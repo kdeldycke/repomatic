@@ -35,40 +35,45 @@ notes cannot.
 ```
 
 ```{note}
-The free-tier API allows 4 requests per minute. All API calls (uploads and
-polls) are rate-limited with a sleep between each request.
+The free-tier API allows 4 requests per minute. Every API call, upload or
+poll, goes through one {class}`RequestPacer`, which spaces the calls to stay
+within that budget.
 ```
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 import time
 from dataclasses import dataclass
-from pathlib import Path
 
 import vt
 from packaging.version import Version
 
-from ..github.gh import run_gh_command
+from ..github.gh import gh_json, run_gh_command
 from ..hashing import compute_file_sha256
 from ..humanize import today_utc
-from ..tabular import load_records, read_csv, render_csv, write_csv
+from ..tabular import load_records, render_csv, write_csv
 from ..versions import parse_tag_version
 from .binary import BINARY_ASSET_SUFFIXES
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Mapping
+    from pathlib import Path
     from typing import Any
 
 FREE_TIER_RATE_LIMIT = 4
 """VirusTotal free-tier request budget, in API calls per minute.
 
 The single source for the upload and polling pace: the `scan-virustotal`
-CLI default and both client functions below derive from it.
+CLI default and {class}`RequestPacer` derive from it.
+"""
+
+UPLOAD_REQUESTS = 2
+"""API calls one file upload costs.
+
+`vt.Client.scan_file` first asks for an upload URL, then posts the file to it.
 """
 
 RELEASE_ASSET_POLL_ATTEMPTS = 6
@@ -98,18 +103,32 @@ the tag strings would get wrong past `v9`.
 VIRUSTOTAL_GUI_URL = "https://www.virustotal.com/gui/file/{sha256}"
 """URL template for the VirusTotal file analysis page."""
 
-_LEGACY_NOTES_ROW_RE = re.compile(
-    r"\|\s*\[?`(?P<filename>[^`|]+)`[^|]*"
-    r"\|\s*(?P<flagged>\d+)\s*/\s*(?P<total>\d+)\s*"
-    r"\|[^|]*https://www\.virustotal\.com/gui/file/(?P<sha256>[a-f0-9]{64})"
-)
-"""Matches one row of the legacy VirusTotal table in GitHub release notes.
 
-The retired release-body format was
-`| [\\`file\\`](url) | flagged / total | [View scan](analysis-url) |`.
-Rows without a numeric Detections cell (link-only tables, `*pending*`
-placeholders) deliberately don't match: they carry no snapshot to recover.
-"""
+class RequestPacer:
+    """Space VirusTotal API calls to stay within a per-minute budget.
+
+    One pacer serves every call of a run, uploads and polls alike, so the
+    budget covers them all: the first poll waits on the last upload like any
+    other call. A call reserves its share of the minute when it starts, so the
+    time a slow upload takes counts toward the wait before the next call.
+    """
+
+    def __init__(self, per_minute: int = FREE_TIER_RATE_LIMIT) -> None:
+        self.interval = 60.0 / per_minute
+        """Seconds one API call reserves out of the budget."""
+        self._ready_at = 0.0
+
+    def wait(self, calls: int = 1) -> None:
+        """Sleep until the budget allows another request, then reserve it.
+
+        :param calls: The API calls the coming request makes, like
+            {data}`UPLOAD_REQUESTS` for an upload.
+        """
+        delay = self._ready_at - time.monotonic()
+        if delay > 0:
+            logging.info(f"Rate limiting: waiting {delay:.0f}s before the next call.")
+            time.sleep(delay)
+        self._ready_at = time.monotonic() + calls * self.interval
 
 
 @dataclass(frozen=True)
@@ -210,11 +229,7 @@ class ScanRecord:
 
     @classmethod
     def from_row(cls, data: Mapping[str, Any]) -> ScanRecord:
-        """Rebuild a record from one parsed CSV row, or a legacy JSON mapping.
-
-        Both shapes carry the same eight keys, so one reader covers a store
-        mid-migration as well as one already converted.
-        """
+        """Rebuild a record from one parsed CSV row."""
         return cls(
             tag=data["tag"],
             filename=data["filename"],
@@ -229,9 +244,7 @@ class ScanRecord:
         )
 
 
-def download_release_binaries(
-    repository: str, tag: str, version: str, dest: Path
-) -> None:
+def download_release_binaries(repository: str, tag: str, dest: Path) -> None:
     """Download a release's versioned binaries once its asset list shows them.
 
     A read landing seconds after a release is published can list no asset, and
@@ -246,17 +259,17 @@ def download_release_binaries(
     submit duplicates.
 
     :param repository: Repository in `owner/repo` format.
-    :param tag: Release tag, like `v1.2.3`.
-    :param version: Version the binary filenames carry, like `1.2.3`.
+    :param tag: Release tag, like `v1.2.3`. The binary filenames carry its
+        version, `1.2.3`.
     :param dest: Directory to download into, created when missing.
     :raises RuntimeError: When `gh release download` fails.
     """
     view = ["release", "view", tag, "--repo", repository, "--json", "assets"]
     for attempt in range(1, RELEASE_ASSET_POLL_ATTEMPTS + 1):
         try:
-            if json.loads(run_gh_command(view)).get("assets"):
+            if (gh_json(view) or {}).get("assets"):
                 break
-        except (RuntimeError, json.JSONDecodeError) as error:
+        except RuntimeError as error:
             logging.warning(f"Attempt {attempt}: could not read {tag}: {error}")
         else:
             logging.warning(f"Attempt {attempt}: {tag} lists no asset yet.")
@@ -264,6 +277,7 @@ def download_release_binaries(
             time.sleep(RELEASE_ASSET_POLL_DELAY)
 
     dest.mkdir(parents=True, exist_ok=True)
+    version = tag.removeprefix("v")
     patterns = [
         arg
         for suffix in BINARY_ASSET_SUFFIXES
@@ -278,27 +292,26 @@ def download_release_binaries(
 def scan_files(
     api_key: str,
     file_paths: list[Path],
-    rate_limit: int = FREE_TIER_RATE_LIMIT,
+    pacer: RequestPacer | None = None,
 ) -> list[ScanResult]:
     """Upload files to VirusTotal and return scan results.
 
-    Uses the synchronous `vt.Client` API. Sleeps between uploads to respect
-    the free-tier rate limit.
+    Uses the synchronous `vt.Client` API, spacing the uploads through
+    *pacer* to respect the free-tier rate limit.
 
     :param api_key: VirusTotal API key.
     :param file_paths: Paths to binary files to upload.
-    :param rate_limit: Maximum requests per minute (free tier: 4).
+    :param pacer: The pacer every API call of the run shares. A fresh one at
+        the free-tier rate when `None`.
     :return: List of scan results with analysis URLs.
     """
+    if pacer is None:
+        pacer = RequestPacer()
     results: list[ScanResult] = []
-    delay = 60.0 / rate_limit
 
     with vt.Client(api_key) as client:
-        for i, path in enumerate(sorted(file_paths)):
-            if i > 0:
-                logging.info(f"Rate limiting: waiting {delay:.0f}s before next upload.")
-                time.sleep(delay)
-
+        for path in sorted(file_paths):
+            pacer.wait(UPLOAD_REQUESTS)
             sha256 = compute_file_sha256(path)
             analysis_url = VIRUSTOTAL_GUI_URL.format(sha256=sha256)
 
@@ -323,44 +336,40 @@ def scan_files(
 def poll_detection_stats(
     api_key: str,
     results: list[ScanResult],
-    rate_limit: int = FREE_TIER_RATE_LIMIT,
+    pacer: RequestPacer | None = None,
     timeout: int = 600,
 ) -> list[ScanResult]:
     """Poll VirusTotal for detection statistics of previously uploaded files.
 
     Queries ``GET /files/{sha256}`` for each file until analysis completes or
-    the timeout is reached. Respects the free-tier rate limit for all API calls.
+    the timeout is reached, spacing every query through *pacer*.
 
     :param api_key: VirusTotal API key.
     :param results: Scan results from a previous upload.
-    :param rate_limit: Maximum API requests per minute (shared with uploads).
+    :param pacer: The pacer the uploads of the run went through, so the first
+        poll waits on the last upload. A fresh one at the free-tier rate when
+        `None`.
     :param timeout: Maximum seconds to wait for all analyses to complete.
     :return: Results with `detection_stats` populated (or `None` for
         files whose analysis did not complete before the timeout).
     """
     if not results:
         return []
+    if pacer is None:
+        pacer = RequestPacer()
 
-    delay = 60.0 / rate_limit
     deadline = time.monotonic() + timeout
     # Map SHA-256 to result for lookup.
     by_sha = {r.sha256: r for r in results}
     stats: dict[str, DetectionStats] = {}
     pending = set(by_sha)
-    request_count = 0
 
     with vt.Client(api_key) as client:
         while pending and time.monotonic() < deadline:
             for sha256 in list(pending):
                 if time.monotonic() >= deadline:
                     break
-
-                if request_count > 0:
-                    logging.info(
-                        f"Rate limiting: waiting {delay:.0f}s before next poll."
-                    )
-                    time.sleep(delay)
-                request_count += 1
+                pacer.wait()
 
                 try:
                     file_obj = client.get_object(f"/files/{sha256}")
@@ -431,54 +440,6 @@ def records_from_results(
     ]
 
 
-def records_from_release_notes(
-    body: str,
-    tag: str,
-    scanned: str,
-) -> list[ScanRecord]:
-    """Recover detection snapshots from a legacy release-notes table.
-
-    Before the scan history file existed, the release pipeline appended a
-    VirusTotal table to GitHub release notes, with a `flagged / total`
-    Detections cell frozen minutes after publication. Those cells are genuine
-    at-release snapshots, so `sync-binaries --backfill-records` harvests them
-    to seed the history for releases that predate the file.
-
-    ```{note}
-    The legacy table only recorded the flagged and total aggregates, not the
-    malicious/suspicious/undetected/harmless split. The split is rebuilt as
-    flagged = malicious and the remainder = undetected, which is lossless for
-    everything the catalog consumes (`flagged` and `total`).
-    ```
-
-    :param body: Release notes markdown.
-    :param tag: Git tag of the release.
-    :param scanned: Snapshot date, normally the release publication date.
-    :return: One record per table row carrying a numeric Detections cell.
-    """
-    records = []
-    for match in _LEGACY_NOTES_ROW_RE.finditer(body):
-        flagged = int(match["flagged"])
-        total = int(match["total"])
-        if total < flagged:
-            continue
-        records.append(
-            ScanRecord(
-                tag=tag,
-                filename=match["filename"],
-                sha256=match["sha256"],
-                scanned=scanned,
-                stats=DetectionStats(
-                    malicious=flagged,
-                    suspicious=0,
-                    undetected=total - flagged,
-                    harmless=0,
-                ),
-            )
-        )
-    return records
-
-
 def _record_sort_key(record: ScanRecord) -> tuple[Version, str, str, str]:
     """Order records by release version, then filename, then scan date.
 
@@ -492,39 +453,24 @@ def _record_sort_key(record: ScanRecord) -> tuple[Version, str, str, str]:
 def load_scan_records(path: Path) -> list[ScanRecord]:
     """Load scan records from the CSV history file.
 
-    ```{note}
-    A repository whose history predates the CSV store carries the same records
-    in a sibling `.json`, and is read from there when the CSV is absent. The
-    next {func}`upsert_scan_records` write lands as CSV, so a repository
-    migrates on its first release after upgrading without anyone converting
-    anything. The stale `.json` is then inert and can be deleted.
-    ```
-
     :param path: Path to the CSV file.
-    :return: The records, or an empty list when neither file exists.
-    :raises ValueError: When a file exists but cannot be parsed. Loud on
-        purpose: a corrupt history must never be silently clobbered by the
-        next {func}`upsert_scan_records` write.
+    :return: The records, or an empty list when the file does not exist.
+    :raises ValueError: When the file exists but cannot be parsed, or when it
+        does not exist but a JSON history sits beside it. Loud on purpose: a
+        history must never be silently clobbered by the next
+        {func}`upsert_scan_records` write, and a JSON one is the store of a
+        release older than `7.13.0`, which nothing reads any more.
     """
-    return load_records(
-        path, ScanRecord.from_row, "scan records file", rows=_scan_rows(path)
-    )
-
-
-def _scan_rows(path: Path) -> Iterator[Mapping[str, Any]]:
-    """Yield store rows, falling back to the pre-CSV legacy JSON sibling.
-
-    A generator on purpose: the reads then execute inside
-    {func}`~repomatic.tabular.load_records`' guarded parse, so a truncated
-    CSV and a corrupt legacy JSON both fail with the store's own message.
-    """
-    rows: list[Mapping[str, Any]] = list(read_csv(path))
-    if not rows:
-        legacy = path.with_suffix(".json")
-        if legacy.exists():
-            logging.info(f"Reading legacy scan records from {legacy}.")
-            rows = json.loads(legacy.read_text(encoding="UTF-8"))
-    yield from rows
+    legacy = path.with_suffix(".json")
+    if not path.exists() and legacy.exists():
+        msg = (
+            f"{legacy} holds the scan history in the JSON format of releases"
+            f" older than 7.13.0, and {path} does not exist. Convert it to CSV"
+            f" with the columns {', '.join(SCAN_HEADERS)}, or delete it to"
+            " start a new history."
+        )
+        raise ValueError(msg)
+    return load_records(path, ScanRecord.from_row, "scan records file")
 
 
 def upsert_scan_records(path: Path, new_records: list[ScanRecord]) -> bool:

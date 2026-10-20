@@ -16,22 +16,14 @@
 
 """Check if a GitHub user is a sponsor of another user or organization.
 
-Uses the GitHub GraphQL API via the `gh` CLI to query sponsorship data.
-Supports both user and organization owners, with pagination for accounts
-that have more than 100 sponsors.
-
-When run in GitHub Actions, the owner defaults to
-{class}`~repomatic.metadata.core.Metadata`'s view of the repository; the author
-and issue/PR number come from the event-payload readers in
-{mod}`~repomatic.github.actions`.
+Uses the GitHub GraphQL API via the `gh` CLI to query sponsorship data, with
+pagination for accounts that have more than 100 sponsors.
 """
 
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 
-from ..metadata.core import Metadata
 from .gh import iter_graphql_nodes
 
 TYPE_CHECKING = False
@@ -39,90 +31,57 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 
-def get_default_owner() -> str | None:
-    """Get the repository owner from CI context.
-
-    Delegates to {attr}`Metadata.repo_owner
-    <repomatic.metadata.env.EnvironmentMetadata.repo_owner>`.
-    """
-    owner = Metadata().repo_owner
-    return owner or None
-
-
-SPONSORS_QUERY_TEMPLATE = """
+SPONSORS_QUERY = """
 query($owner: String!, $cursor: String) {
-  %s(login: $owner) {
-    sponsorshipsAsMaintainer(first: 100, after: $cursor, includePrivate: true) {
-      pageInfo { hasNextPage endCursor }
-      nodes { sponsorEntity { ... on User { login } ... on Organization { login } } }
+  repositoryOwner(login: $owner) {
+    ... on Sponsorable {
+      sponsorshipsAsMaintainer(first: 100, after: $cursor, includePrivate: true) {
+        pageInfo { hasNextPage endCursor }
+        nodes { sponsorEntity { ... on User { login } ... on Organization { login } } }
+      }
     }
   }
 }
 """
-"""GraphQL query for an account's sponsors, parameterized on the account kind.
+"""GraphQL query for an account's sponsors, a user or an organization alike.
 
-The user and organization queries are identical except for the node naming the
-account (`user` or `organization`), which doubles as the response's data path:
-`_iter_sponsors` interpolates it into both places.
+`repositoryOwner` resolves both kinds of account, and both implement the
+`Sponsorable` interface, so one query covers either without a probe for the
+kind first.
 """
 
 
-def _iter_sponsors(owner: str, kind: str) -> Iterator[str]:
-    """Iterate over all sponsors using pagination.
+def iter_sponsors(owner: str) -> Iterator[str]:
+    """Iterate over every sponsor of *owner*, following pagination.
 
-    :param owner: The owner (user or org) to query.
-    :param kind: The GraphQL node naming the account, `user` or `organization`.
+    :param owner: The user or organization to query.
     :yields: Login names of sponsors.
+    :raises GhCommandError: When a `gh` invocation fails.
     """
     for node in iter_graphql_nodes(
-        SPONSORS_QUERY_TEMPLATE % kind,
-        (kind, "sponsorshipsAsMaintainer"),
+        SPONSORS_QUERY,
+        ("repositoryOwner", "sponsorshipsAsMaintainer"),
         {"owner": owner},
     ):
-        login = node.get("sponsorEntity", {}).get("login")
+        login = (node.get("sponsorEntity") or {}).get("login")
         if login:
             yield login
-
-
-@lru_cache(maxsize=32)
-def get_sponsors(owner: str) -> frozenset[str]:
-    """Get all sponsors for a user or organization.
-
-    Tries the user query first, then falls back to organization query.
-
-    Results are cached to avoid redundant API calls within the same process.
-
-    :param owner: The GitHub username or organization name.
-    :return: Frozenset of sponsor login names.
-    """
-    sponsors: set[str] = set()
-
-    # Try user query first.
-    try:
-        sponsors.update(_iter_sponsors(owner, "user"))
-        logging.debug(f"Found {len(sponsors)} sponsors for user {owner}")
-        return frozenset(sponsors)
-    except RuntimeError:
-        logging.debug(f"User query failed for {owner}, trying organization query")
-
-    # Fall back to organization query.
-    try:
-        sponsors.update(_iter_sponsors(owner, "organization"))
-        logging.debug(f"Found {len(sponsors)} sponsors for organization {owner}")
-    except RuntimeError:
-        logging.debug(f"Organization query also failed for {owner}")
-
-    return frozenset(sponsors)
 
 
 def is_sponsor(owner: str, user: str) -> bool:
     """Check if a user is a sponsor of an owner.
 
+    A failed query reads as "not a sponsor": the label it gates is a
+    convenience, so an API outage must not fail the job that asks.
+
     :param owner: The GitHub username or organization to check sponsorship for.
     :param user: The GitHub username to check if they are a sponsor.
     :return: True if user is a sponsor of owner, False otherwise.
     """
-    sponsors = get_sponsors(owner)
-    result = user in sponsors
+    try:
+        result = user in iter_sponsors(owner)
+    except RuntimeError as error:
+        logging.warning(f"Could not read the sponsors of {owner!r}: {error}")
+        return False
     logging.info(f"User {user!r} {'is' if result else 'is not'} a sponsor of {owner!r}")
     return result

@@ -18,8 +18,8 @@
 
 The signer runs against AWS's published Signature Version 4 vectors. Everything
 else runs against stand-ins for the two network seams, `_send` for the S3 API
-and `_call` for the REST API: the module's value is in the decisions it makes,
-none of which needs a live bucket to prove.
+and `api.call` for the REST API: the module's value is in the decisions it
+makes, none of which needs a live bucket to prove.
 """
 
 from __future__ import annotations
@@ -32,8 +32,8 @@ import pytest
 from click.testing import CliRunner
 
 from repomatic.cli.main import repomatic
-from repomatic.cloudflare import r2 as cloudflare_r2
-from repomatic.cloudflare.pages import CloudflareError, CloudflareHTTPError
+from repomatic.cloudflare import api, r2 as cloudflare_r2
+from repomatic.cloudflare.api import CloudflareError, CloudflareHTTPError
 from repomatic.cloudflare.r2 import (
     ACCESS_KEY_ID_ENV,
     CACHE_CONTROL,
@@ -42,7 +42,11 @@ from repomatic.cloudflare.r2 import (
     PAGES_MAX_FILE_SIZE,
     REDIRECTS_HEADER,
     SECRET_ACCESS_KEY_ENV,
+    SUMMARY_HEADING,
+    Offload,
+    OffloadReport,
     R2Bucket,
+    R2Mode,
     _bucket_from_environment,
     offload,
     oversized_files,
@@ -272,7 +276,7 @@ def test_oversized_files_skips_what_pages_accepts(tmp_path):
     big = _sparse(tmp_path / "downloads" / "atlas.zip")
     _sparse(tmp_path / "downloads" / "lemon.zip", PAGES_MAX_FILE_SIZE)
     (tmp_path / "index.html").write_text("<p>kiwi</p>", encoding="UTF-8")
-    assert oversized_files(tmp_path) == [big]
+    assert oversized_files(tmp_path.rglob("*")) == [big]
 
 
 def test_offload_uploads_and_redirects(tmp_path):
@@ -405,8 +409,8 @@ def test_bucket_from_environment_resolves_the_account(monkeypatch):
     monkeypatch.setenv(ACCESS_KEY_ID_ENV, "key-id-under-test")
     monkeypatch.setenv(SECRET_ACCESS_KEY_ENV, "secret-under-test")
     with (
-        patch.object(cloudflare_r2, "_token", return_value="token"),
-        patch.object(cloudflare_r2, "_account", return_value="account-under-test"),
+        patch.object(api, "api_token", return_value="token"),
+        patch.object(api, "account", return_value="account-under-test"),
     ):
         bucket, reason = _bucket_from_environment("papaya-files", "papaya-site")
     assert reason == ""
@@ -418,32 +422,54 @@ def test_run_offload_touches_no_credential_when_nothing_is_oversized(tmp_path):
     with patch.object(
         cloudflare_r2, "_bucket_from_environment", side_effect=AssertionError
     ):
-        assert (
-            run_offload(tmp_path, bucket="papaya-files", domain=DOMAIN, project="p")
-            == 0
+        report = run_offload(
+            tmp_path, bucket="papaya-files", domain=DOMAIN, project="p"
         )
+    assert report.exit_code == 0
+    assert report.markdown() == ""
 
 
 def test_run_offload_fails_loudly_on_a_dropped_file(tmp_path, monkeypatch, capsys):
     """The tree is still deployable, but the run must end red: a dead link is
-    already broken, and a green run with a warning is how one hid for years."""
+    already broken, and a green run with a warning hides it."""
     site = tmp_path / "site"
     _sparse(site / "atlas.zip")
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
 
-    assert run_offload(site, bucket="", domain="", project="papaya-site") == 1
+    report = run_offload(site, bucket="", domain="", project="papaya-site")
 
+    assert report.exit_code == 1
+    assert report.dropped == 1
     assert not (site / "atlas.zip").exists()
     output = capsys.readouterr().out
     assert "::error::/atlas.zip (" in output
     # An annotation renders no Markdown: the link is spelled out there.
     assert f"big file offloading ({OFFLOAD_DOCS_URL})" in output
     assert OFFLOAD_DOCS_LINK not in output
-    table = summary.read_text(encoding="UTF-8")
+    table = report.markdown()
+    assert table.startswith(f"{SUMMARY_HEADING}\n\n")
     assert "| `/atlas.zip` |" in table
     assert ReportAction.DROPPED.value in table
     assert OFFLOAD_DOCS_LINK in table
+    # The library writes no step summary: the command sends the table there.
+    assert not summary.exists()
+
+
+def test_offload_report_renders_one_row_per_file(tmp_path):
+    report = OffloadReport(
+        tmp_path,
+        (
+            Offload("/atlas.zip", OVERSIZED, ReportAction.UPLOADED, url="https://x/a"),
+            Offload("/globe.zip", OVERSIZED, ReportAction.DROPPED, reason="no key"),
+        ),
+    )
+    assert report.markdown().splitlines()[-2:] == [
+        f"| `/atlas.zip` | 25.0 MB | {ReportAction.UPLOADED.value} | https://x/a |",
+        f"| `/globe.zip` | 25.0 MB | {ReportAction.DROPPED.value} | Nowhere: no key |",
+    ]
+    assert report.dropped == 1
+    assert report.exit_code == 1
 
 
 def test_run_offload_succeeds_when_every_file_reaches_the_bucket(tmp_path, capsys):
@@ -454,7 +480,8 @@ def test_run_offload_succeeds_when_every_file_reaches_the_bucket(tmp_path, capsy
         "_bucket_from_environment",
         return_value=(cast("R2Bucket", FakeBucket()), ""),
     ):
-        assert run_offload(site, bucket="papaya-files", domain=DOMAIN, project="p") == 0
+        report = run_offload(site, bucket="papaya-files", domain=DOMAIN, project="p")
+    assert report.exit_code == 0
     assert "::error::" not in capsys.readouterr().out
 
 
@@ -464,7 +491,7 @@ BASE = "/accounts/account-under-test/r2/buckets/papaya-files"
 
 
 def _r2_api(state, calls):
-    """A `_call` stand-in serving one bucket's *state* and recording writes."""
+    """An `api.call` stand-in serving one bucket's *state* and recording writes."""
 
     def call(path, token, method="GET", body=None):
         calls.append((method, path, body))
@@ -491,19 +518,19 @@ ATTACHED = {
 }
 
 
-def _run(state, calls, *, zone=None, **mode):
+def _run(state, calls, mode, *, zone=None):
     with (
-        patch.object(cloudflare_r2, "_token", return_value="token"),
-        patch.object(cloudflare_r2, "_account", return_value="account-under-test"),
-        patch.object(cloudflare_r2, "_zone_for", return_value=zone),
-        patch.object(cloudflare_r2, "_call", side_effect=_r2_api(state, calls)),
+        patch.object(api, "api_token", return_value="token"),
+        patch.object(api, "account", return_value="account-under-test"),
+        patch.object(api, "zone_for", return_value=zone),
+        patch.object(api, "call", side_effect=_r2_api(state, calls)),
     ):
-        return run_cloudflare_r2("papaya-site", "papaya-files", DOMAIN, **mode)
+        return run_cloudflare_r2("papaya-site", "papaya-files", DOMAIN, mode)
 
 
 def test_check_passes_a_bucket_in_the_declared_state(capsys):
     calls: list = []
-    assert _run({"domains": [ATTACHED]}, calls, check=True) == 0
+    assert _run({"domains": [ATTACHED]}, calls, R2Mode.CHECK) == 0
     assert all(method == "GET" for method, _path, _body in calls)
     assert "DRIFT" not in capsys.readouterr().out
 
@@ -520,7 +547,7 @@ def test_check_passes_a_bucket_in_the_declared_state(capsys):
 )
 def test_check_reports_drift_and_writes_nothing(state, capsys):
     calls: list = []
-    assert _run(state, calls, check=True) == 1
+    assert _run(state, calls, R2Mode.CHECK) == 1
     assert all(method == "GET" for method, _path, _body in calls)
     assert "DRIFT" in capsys.readouterr().out
 
@@ -528,7 +555,7 @@ def test_check_reports_drift_and_writes_nothing(state, capsys):
 def test_create_builds_everything_from_nothing():
     calls: list = []
     state = {"exists": False, "r2_dev": True}
-    assert _run(state, calls, zone={"id": "zone-under-test"}, create=True) == 0
+    assert _run(state, calls, R2Mode.CREATE, zone={"id": "zone-under-test"}) == 0
     writes = [(method, path, body) for method, path, body in calls if method != "GET"]
     assert writes == [
         ("POST", "/accounts/account-under-test/r2/buckets", {"name": "papaya-files"}),
@@ -549,7 +576,7 @@ def test_create_builds_everything_from_nothing():
 def test_create_raises_the_tls_floor_of_an_attached_domain():
     calls: list = []
     state = {"domains": [{**ATTACHED, "minTLS": "1.0"}]}
-    assert _run(state, calls, create=True) == 0
+    assert _run(state, calls, R2Mode.CREATE) == 0
     assert (
         "PUT",
         f"{BASE}/domains/custom/{DOMAIN}",
@@ -562,13 +589,13 @@ def test_create_raises_the_tls_floor_of_an_attached_domain():
 
 def test_create_converges_without_writing_twice():
     calls: list = []
-    assert _run({"domains": [ATTACHED]}, calls, create=True) == 0
+    assert _run({"domains": [ATTACHED]}, calls, R2Mode.CREATE) == 0
     assert all(method == "GET" for method, _path, _body in calls)
 
 
 def test_create_names_the_manual_step_when_the_zone_is_unreadable(capsys):
     calls: list = []
-    assert _run({"domains": []}, calls, create=True) == 1
+    assert _run({"domains": []}, calls, R2Mode.CREATE) == 1
     assert "wrangler r2 bucket domain add papaya-files" in capsys.readouterr().out
 
 
@@ -613,3 +640,46 @@ def test_cli_offload_drops_without_a_bucket(project_dir):
     assert result.exit_code == 1
     assert "this deploy dropped it" in result.output
     assert not (site / "atlas.zip").exists()
+
+
+def test_cli_offload_writes_its_table_to_the_output(project_dir):
+    """`--output` is where the Docs workflow sends the table: its step summary."""
+    site = project_dir / "site"
+    _sparse(site / "atlas.zip")
+    summary = project_dir / "summary.md"
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "cloudflare-r2",
+            "--offload",
+            str(site),
+            "--project",
+            "papaya",
+            "--output",
+            str(summary),
+        ],
+    )
+    assert result.exit_code == 1
+    table = summary.read_text(encoding="UTF-8")
+    assert table.startswith(SUMMARY_HEADING)
+    assert "| `/atlas.zip` |" in table
+
+
+def test_cli_offload_writes_no_table_when_nothing_is_oversized(project_dir):
+    site = project_dir / "site"
+    site.mkdir()
+    summary = project_dir / "summary.md"
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "cloudflare-r2",
+            "--offload",
+            str(site),
+            "--project",
+            "papaya",
+            "--output",
+            str(summary),
+        ],
+    )
+    assert result.exit_code == 0
+    assert not summary.exists()

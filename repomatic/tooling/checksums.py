@@ -16,12 +16,11 @@
 
 """Recompute SHA-256 checksums for the binary tool registry.
 
-Iterates every `TOOL_REGISTRY` entry with a `binary` spec, downloads each
-platform's release artifact, and rewrites stale hashes in-place in
-`tooling/registry.py` (alongside the `VERSIONS` stamps). Driven by
-`repomatic update-checksums` and, with a version override, by
-`sync-tool-versions` so a version bump and its matching checksums land in one
-pass.
+Downloads the release artifact of each platform of the binary tools, and
+rewrites stale hashes in place in `tooling/registry.py` (alongside the
+`VERSIONS` stamps). `repomatic update-checksums` verifies every binary tool.
+`sync-tool-versions` passes the tools it bumped, with their new versions, so a
+version bump and its matching checksums land in one pass.
 """
 
 from __future__ import annotations
@@ -31,127 +30,132 @@ import re
 import tempfile
 from pathlib import Path
 
-from click_extra import (
-    OperationTrail,
-    get_current_context,
-    resolve_jobs,
-    run_jobs,
-)
+from click_extra import OperationTrail, run_jobs
 
+from ..file_ops import write_if_changed
+from ..http import download
 from .registry import TOOL_REGISTRY
-from .runner import download_with_retry
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from .registry import PlatformKey, ToolSpec
+    from collections.abc import Mapping
+
+    from .registry import ResolvedBinary, ToolSpec
 
 
 def _download_sha256(url: str) -> str:
     """Download a URL and return its SHA-256 hex digest.
 
-    Streams through {func}`~repomatic.tooling.runner.download_with_retry`
-    into a scratch file, inheriting its retries, its stall timeout and its
-    Content-Length truncation guard. The retries are what keep one transient
-    failure from ending a batch over every binary of the registry. A short
-    body must fail loudly here: its digest would otherwise be written into
-    `tooling/registry.py` as the new canonical checksum, poisoning every later
-    verified install. Feedback is suppressed because the caller fans downloads
-    out under its own `OperationTrail`.
+    Streams through {func}`repomatic.http.download` into a scratch file,
+    inheriting its retries, its stall timeout and its `Content-Length`
+    truncation guard. The retries keep one transient failure from ending a
+    batch over every binary of the registry. A short body must fail loudly
+    here: its digest would otherwise be written into `tooling/registry.py` as
+    the new canonical checksum, poisoning every later verified install. No
+    progress feedback: the caller fans downloads out under its own
+    `OperationTrail`.
 
     :param url: The URL to download.
     :return: Lowercase hex SHA-256 digest of the response body.
-    :raises OSError: If every attempt fails at the network level.
+    :raises repomatic.http.FetchError: If the download fails.
     """
     with tempfile.TemporaryDirectory(prefix="repomatic-checksum-") as scratch:
-        digest = download_with_retry(url, Path(scratch) / "artifact", progress=False)
+        digest = download(url, Path(scratch) / "artifact")
     logging.debug(f"SHA-256 of {url}: {digest}")
     return digest
 
 
+def checksum_targets(
+    version_overrides: Mapping[str, str] | None = None,
+) -> list[tuple[ToolSpec, ResolvedBinary]]:
+    """List the release artifacts whose checksums the registry records.
+
+    :param version_overrides: Tool name to the version to download instead of
+        the pinned one. When given, only these tools are listed: the other
+        tools keep the checksums of their pinned version.
+    :return: `(spec, download)` for each platform of each selected tool, where
+        the download names the artifact URL and the checksum on record.
+    """
+    targets: list[tuple[ToolSpec, ResolvedBinary]] = []
+    for spec in TOOL_REGISTRY.values():
+        binary = spec.binary
+        if binary is None:
+            continue
+        target = spec
+        if version_overrides is not None:
+            if spec.name not in version_overrides:
+                continue
+            target = spec.with_overrides(version=version_overrides[spec.name])
+        targets.extend((target, target.resolve_binary(key)) for key in binary.urls)
+    return targets
+
+
 def update_registry_checksums(
     registry_path: Path,
-    version_overrides: dict[str, str] | None = None,
+    version_overrides: Mapping[str, str] | None = None,
+    *,
+    jobs: int = 1,
 ) -> list[tuple[str, str, str]]:
     """Recompute binary checksums and version stamps in `tooling/registry.py`.
 
-    Iterates every `TOOL_REGISTRY` entry with a `binary` spec, downloads each
-    platform URL (concurrently, sized by the global `--jobs` option and
-    sequential at `DEBUG` verbosity or without an active CLI context), computes
-    its SHA-256, and replaces stale hashes in-place. Also reconciles each tool's
-    `VERSIONS` stamp with the version the checksums were computed for, the basis
-    of the offline staleness test.
+    Downloads each artifact {func}`checksum_targets` lists, computes its
+    SHA-256, and replaces stale hashes in-place. Also reconciles the `VERSIONS`
+    stamp of each tool it verified with the version the checksums were
+    computed for, the basis of the offline staleness test.
 
     :param registry_path: Path to `tooling/registry.py`.
     :param version_overrides: Optional mapping of tool name to a version to
-        download instead of the in-memory `ToolSpec.version`. `sync-tool-versions`
-        passes this so it can bump the version in the source and refresh the
-        checksums in a single process: the in-memory registry still holds the
-        pre-bump version because the file was edited, not reimported.
+        download instead of the in-memory `ToolSpec.version`, which limits the
+        run to these tools. `sync-tool-versions` passes this so it can bump the
+        version in the source and refresh the checksums in a single process:
+        the in-memory registry still holds the pre-bump version because the
+        file was edited, not reimported.
+    :param jobs: How many downloads run at once.
     :return: List of `(url, old_hash, new_hash)` for each updated checksum.
         Empty if all checksums are already correct.
     """
-    overrides = version_overrides or {}
+    targets = checksum_targets(version_overrides)
     original = registry_path.read_text(encoding="UTF-8")
     content = original
     updated: list[tuple[str, str, str]] = []
 
-    # Flatten all binary platform entries for progress tracking, resolving each
-    # download URL against the override version when one is supplied.
-    entries = [
-        (
-            spec,
-            pk,
-            tmpl.format(version=overrides.get(spec.name, spec.version)),
-            spec.binary.checksums[pk],
+    def target_sha256(target: tuple[ToolSpec, ResolvedBinary]) -> str:
+        spec, resolved = target
+        logging.info(
+            f"Verifying registry checksum for {spec.name} ({resolved.cache_key})"
         )
-        for spec in TOOL_REGISTRY.values()
-        if spec.binary is not None
-        for pk, tmpl in spec.binary.urls.items()
-    ]
-
-    def entry_sha256(entry: tuple[ToolSpec, PlatformKey, str, str]) -> str:
-        spec, platform_key, url, _ = entry
-        logging.info(f"Verifying registry checksum for {spec.name} ({platform_key})")
-        return _download_sha256(url)
-
-    # Size the fan-out once, up front, so the trail's rendering mode matches
-    # the width run_jobs fans out to below.
-    ctx = get_current_context(silent=True)
-    jobs = resolve_jobs(ctx, len(entries), serial_at_debug=True)
+        return _download_sha256(resolved.url)
 
     # run_jobs yields digests in submission order, so the rewrite loop below
     # stays deterministic while the downloads overlap. A download that raises
     # still aborts the batch (no partial rewrite), leaving the trail's completed
     # rows on screen.
     with OperationTrail(
-        label="Verifying", unit="checksums", total=len(entries), jobs=jobs
+        label="Verifying", unit="checksums", total=len(targets), jobs=jobs
     ) as trail:
-        for (spec, platform_key, url, old_hash), new_hash in zip(
-            entries, run_jobs(entry_sha256, entries, jobs=jobs)
+        for (spec, resolved), new_hash in zip(
+            targets, run_jobs(target_sha256, targets, jobs=jobs)
         ):
-            trail.mark(True, f"{spec.name} ({platform_key})")
-            if old_hash != new_hash:
-                content = content.replace(old_hash, new_hash)
-                updated.append((url, old_hash, new_hash))
-                logging.info(f"Updated checksum: {old_hash} -> {new_hash}")
-            else:
+            trail.mark(True, f"{spec.name} ({resolved.cache_key})")
+            old_hash = resolved.checksum
+            if old_hash is None or old_hash == new_hash:
                 logging.info("Checksum unchanged.")
-        trail.finish(True, f"Verified {trail.ok_count}/{len(entries)} checksums")
+                continue
+            content = content.replace(old_hash, new_hash)
+            updated.append((resolved.url, old_hash, new_hash))
+            logging.info(f"Updated checksum: {old_hash} -> {new_hash}")
+        trail.finish(True, f"Verified {trail.ok_count}/{len(targets)} checksums")
 
-    # Reconcile each tool's VERSIONS stamp with its target version (idempotent).
-    # The key pattern only matches the quoted-string values in `VERSIONS`, never
-    # the `ToolSpec(` registry entries or the tuple-keyed `CHECKSUMS` entries.
-    for spec in TOOL_REGISTRY.values():
-        if spec.binary is None:
-            continue
-        target = overrides.get(spec.name, spec.version)
+    # Reconcile the VERSIONS stamp of each verified tool with its version
+    # (idempotent). The key pattern only matches the quoted-string values in
+    # `VERSIONS`, never the `ToolSpec(` registry entries or the tuple-keyed
+    # `CHECKSUMS` entries.
+    for spec in {spec.name: spec for spec, _ in targets}.values():
         content = re.sub(
             rf'("{re.escape(spec.name)}":\s*)"[^"]*"',
-            rf'\g<1>"{target}"',
+            rf'\g<1>"{spec.version}"',
             content,
         )
 
-    if content != original:
-        registry_path.write_text(content, encoding="UTF-8")
-
+    write_if_changed(registry_path, content, previous=original)
     return updated

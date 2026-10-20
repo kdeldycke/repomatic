@@ -25,15 +25,15 @@ from extra_platforms import LINUX, MACOS
 
 from repomatic.github.releases import ReleaseAsset, ReleaseWithAssets
 from repomatic.release.binaries_page import (
+    CATALOG_CSV,
     CSV_HEADERS,
-    LEGACY_PAGE_END_MARKER,
-    LEGACY_PAGE_START_MARKERS,
     PAGE_END_MARKER,
     PAGE_START_MARKER,
+    PAGE_TEMPLATE,
     render_binaries_csv,
     render_chart_section,
-    update_binaries_csv,
     update_binaries_page,
+    update_catalog,
 )
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from repomatic.release.virustotal import DetectionStats, ScanRecord
@@ -297,21 +297,33 @@ def test_chart_uses_earliest_snapshot():
     assert '"date": "2026-07-01"' in section
 
 
-# --- update_binaries_csv ---
+# --- update_catalog ---
 
 
-def test_update_binaries_csv_creates_file(tmp_path):
-    """The CSV and its parent directories are created on demand."""
-    path = tmp_path / "assets" / "binaries.csv"
-    assert update_binaries_csv(path, "Version\n1.0.0\n") is True
-    assert path.read_text(encoding="UTF-8") == "Version\n1.0.0\n"
+def test_update_catalog_writes_the_csv_the_page_reads(tmp_path):
+    """The CSV lands where the page's `csv-table` directive reads it."""
+    page = tmp_path / "docs" / "binaries.md"
+    release = _release(
+        "v1.0.0", (_asset("papaya-1.0.0-linux-x64.bin", sha256="a" * 64),)
+    )
+
+    changes = update_catalog(page, REPO, [release], [])
+
+    csv_path = page.parent / CATALOG_CSV
+    assert changes == {csv_path: True, page: True}
+    assert csv_path.read_text(encoding="UTF-8").startswith(",".join(CSV_HEADERS))
+    assert f":file: {CATALOG_CSV.as_posix()}" in PAGE_TEMPLATE
+    assert f":file: {CATALOG_CSV.as_posix()}" in page.read_text(encoding="UTF-8")
 
 
-def test_update_binaries_csv_idempotent(tmp_path):
-    """Rewriting identical content reports no change."""
-    path = tmp_path / "binaries.csv"
-    update_binaries_csv(path, "Version\n")
-    assert update_binaries_csv(path, "Version\n") is False
+def test_update_catalog_is_idempotent(tmp_path):
+    """A second run over the same data changes nothing."""
+    page = tmp_path / "binaries.md"
+    update_catalog(page, REPO, [], [])
+    assert update_catalog(page, REPO, [], []) == {
+        page.parent / CATALOG_CSV: False,
+        page: False,
+    }
 
 
 # --- update_binaries_page ---
@@ -357,34 +369,6 @@ def test_update_binaries_page_preserves_prose(tmp_path):
     assert "Trailing prose." in text
     assert "old chart" not in text
     assert "new chart" in text
-
-
-@pytest.mark.parametrize(
-    ("legacy_open", "close_marker"),
-    [
-        # Oldest generation: bare open paired with the bare close.
-        (LEGACY_PAGE_START_MARKERS[0], LEGACY_PAGE_END_MARKER),
-        # Short-lived `-start`/`-end` pair: its close is already the current one.
-        (LEGACY_PAGE_START_MARKERS[1], PAGE_END_MARKER),
-    ],
-)
-def test_update_binaries_page_migrates_legacy_markers(
-    tmp_path, legacy_open, close_marker
-):
-    """Pages carrying any superseded open marker are migrated in place."""
-    page = tmp_path / "binaries.md"
-    page.write_text(
-        f"# Intro\n\n{legacy_open}\n\nold chart\n\n{close_marker}\n\nTrailing prose.\n",
-        encoding="UTF-8",
-    )
-    assert update_binaries_page(page, "new chart", REPO) is True
-    text = page.read_text(encoding="UTF-8")
-    assert legacy_open not in text
-    assert PAGE_START_MARKER in text
-    assert PAGE_END_MARKER in text
-    assert "old chart" not in text
-    assert "new chart" in text
-    assert "Trailing prose." in text
 
 
 def test_update_binaries_page_idempotent(tmp_path):

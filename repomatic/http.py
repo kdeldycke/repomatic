@@ -27,14 +27,17 @@ Most responses are JSON ({func}`get_json`); {func}`get_text` serves the
 datasources that are text rather than an API payload (the `astral-sh/setup-uv`
 checksum table {mod}`repomatic.deps.pins` reads, the gitignore.io template
 {mod}`repomatic.gitignore` fetches), and {func}`get_bytes` the ones written
-back verbatim (a downloaded label-definition file).
+back verbatim (a downloaded label-definition file). {func}`download` streams a
+large artifact to disk instead of reading it into memory.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
+from contextlib import nullcontext
 from http.client import HTTPException, IncompleteRead
 from typing import NamedTuple
 from urllib.error import HTTPError
@@ -45,7 +48,9 @@ from .cache import get_cached_response, store_response
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
+    from contextlib import AbstractContextManager
+    from pathlib import Path
     from typing import Any
 
 
@@ -85,6 +90,26 @@ A retry sent at once tends to meet the same flaky connection or interfering
 proxy that cut the first read, so each one waits first. Two retries (1s + 3s)
 cost little next to a failed fetch, which callers often turn into a skipped
 check.
+"""
+
+DOWNLOAD_ATTEMPTS = 3
+"""Attempts at one {func}`download` before it gives up.
+
+Runner egress fails in ways that clear on the next connection: a
+TLS-intercepting proxy, a dropped connection, a short body. A retry after a
+pause keeps such a fault from ending a whole release job.
+"""
+
+DOWNLOAD_CHUNK_SIZE = 65536
+"""Bytes {func}`download` reads from the response, writes and hashes per step."""
+
+DOWNLOAD_TIMEOUT = 30
+"""Socket timeout of a {func}`download`, in seconds.
+
+A stall guard, not a transfer budget: `urlopen` applies it to each blocking
+socket operation, so a healthy multi-minute download is unaffected while a dead
+connection fails in seconds. Larger than {data}`DEFAULT_TIMEOUT`, which is
+sized for small API responses.
 """
 
 
@@ -195,6 +220,98 @@ def request(
         # open at all.
         except (OSError, HTTPException, ValueError) as exc:
             raise FetchError(str(exc)) from exc
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _no_progress(size: int) -> None:
+    """Ignore the size of a downloaded chunk."""
+
+
+def _download_once(
+    url: str,
+    dest: Path,
+    timeout: float,
+    progress: Callable[[int], AbstractContextManager[Callable[[int], object]]] | None,
+) -> str:
+    """Stream *url* into *dest* once, with no retry.
+
+    :return: Lowercase hex SHA-256 digest of the body.
+    :raises FetchError: On any failure, including a body shorter than its
+        `Content-Length`.
+    """
+    sha256 = hashlib.sha256()
+    total = received = 0
+    try:
+        with (
+            urlopen(
+                Request(url, headers={"User-Agent": USER_AGENT}), timeout=timeout
+            ) as response,
+            dest.open("wb") as file,
+        ):
+            total = int(response.headers.get("Content-Length") or 0)
+            feedback = (
+                progress(total) if progress is not None else nullcontext(_no_progress)
+            )
+            with feedback as advance:
+                while chunk := response.read(DOWNLOAD_CHUNK_SIZE):
+                    file.write(chunk)
+                    sha256.update(chunk)
+                    received += len(chunk)
+                    advance(len(chunk))
+    except HTTPError as exc:
+        raise FetchError(str(exc), status=exc.code, body=_error_excerpt(exc)) from exc
+    # The same failure modes as `request`, plus a malformed `Content-Length`.
+    except (OSError, HTTPException, ValueError) as exc:
+        raise FetchError(str(exc)) from exc
+    if total and received != total:
+        msg = f"Truncated download for {url}: got {received} of {total} bytes."
+        raise FetchError(msg)
+    return sha256.hexdigest()
+
+
+def download(
+    url: str,
+    dest: Path,
+    *,
+    timeout: float = DOWNLOAD_TIMEOUT,
+    progress: Callable[[int], AbstractContextManager[Callable[[int], object]]]
+    | None = None,
+) -> str:
+    """Stream *url* into *dest* and return the SHA-256 of the body.
+
+    The body goes to disk chunk by chunk, so a large binary never sits in
+    memory. A body shorter than its `Content-Length` fails as truncated. Its
+    digest would otherwise read as a checksum mismatch, which blames the pin or
+    the artifact for a network fault.
+
+    A network failure, a truncated body and a server error (`5xx`) are tried
+    again, up to {data}`DOWNLOAD_ATTEMPTS` times, after a pause that grows with
+    each attempt. A client error (`4xx`) fails at once: the same request gets
+    the same answer. A failed attempt leaves no file behind.
+
+    :param url: The URL to download.
+    :param dest: Where to write the body.
+    :param timeout: Socket timeout in seconds.
+    :param progress: Feedback for an interactive terminal. Called with the
+        advertised length (`0` when the server sends none) before the first
+        chunk, it returns a context manager. The context manager yields the
+        callable that receives the size of each chunk.
+    :return: Lowercase hex SHA-256 digest of the body.
+    :raises FetchError: On a client error, or when the last attempt fails.
+    """
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        try:
+            return _download_once(url, dest, timeout, progress)
+        except FetchError as exc:
+            dest.unlink(missing_ok=True)
+            client_error = exc.status is not None and 400 <= exc.status < 500
+            if client_error or attempt == DOWNLOAD_ATTEMPTS:
+                raise
+            logging.warning(
+                f"Download attempt {attempt}/{DOWNLOAD_ATTEMPTS} of {url} failed"
+                f" ({exc}); retrying."
+            )
+            time.sleep(2 * attempt)
     raise AssertionError("unreachable")  # pragma: no cover
 
 

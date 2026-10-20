@@ -61,9 +61,9 @@ cli_parameters = "--verbosity INFO show-metadata"
 # position 39913: character maps to <undefined>
 skip_platforms = "windows"
 stderr_contains = ["info: Print metadata to <stdout>"]
-# Note: new_commits and new_commits_matrix are empty locally, but contain commit
-# SHAs when running in GitHub Actions CI. Use stdout_contains for key checks
-# instead of fullmatch since release_notes content varies.
+# Note: new_commits_matrix is empty locally, but contains commit SHAs when
+# running in GitHub Actions CI. Use stdout_contains for key checks instead of
+# fullmatch since release_notes content varies.
 stdout_contains = [
   "mailmap_exists=true",
   "is_python_project=true",
@@ -76,8 +76,6 @@ stdout_regex_matches = [
   "yaml_changed=(true|false)",
   "zsh_changed=(true|false)",
   "workflows_changed=(true|false)",
-  "new_commits=([a-f0-9]+)?",
-  "release_commits=([a-f0-9]+)?",
   'python_files="[\S ]+"',
   'current_version=[0-9.]+(\.[a-z]+[0-9]+)?',
   "release_notes<<GHA_DELIMITER_[0-9]+",

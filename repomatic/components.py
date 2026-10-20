@@ -21,24 +21,31 @@ Each component carries all its metadata: what kind it is, whether it is
 selected by default, which files it manages, and any per-file properties like
 repo-scope gating or config keys.
 
-All derived constants (`ALL_COMPONENTS`, `REUSABLE_WORKFLOWS`,
-`SKILL_PHASES`, etc.) are computed from this single registry at the bottom of
-this module.
+All derived constants (`REUSABLE_WORKFLOWS`, `BARE_INIT_COMPONENTS` and the
+others) are computed from this single registry at the bottom of this module.
 """
 
 from __future__ import annotations
 
-import re
+import hashlib
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from click_extra import ColumnSpec
-
-from .bundle import get_data_content
 from .config import Config, location_path
-from .frontmatter import split_frontmatter
-from .github.urls import repo_name
+from .file_ops import normalize_text
 from .github.workflow_files import WORKFLOW_DIR
+
+# 8.0.0 shim: re-export for callers not migrated yet.
+from .upstream import (  # noqa: F401
+    DEFAULT_REPO,
+    INSTALL_GUIDE_PATH,
+    UPSTREAM_ASSET_GLOB,
+    UPSTREAM_PACKAGE,
+    UPSTREAM_REPO_SLUGS,
+    UPSTREAM_SOURCE_GLOB,
+    UPSTREAM_SOURCE_PREFIX,
+    is_awesome_repo,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -52,25 +59,31 @@ class InitDefault(Enum):
     """Included by default (like changelog or workflows)."""
 
     EXCLUDE = auto()
-    """In default set but excluded unless explicitly included
-    (e.g., labels, skills)."""
-
-    AUTO = auto()
-    """Auto-included only for matching repos (e.g., awesome-template)."""
+    """In the default set, but excluded unless `[tool.repomatic] include`
+    names it (like labels or skills)."""
 
     EXPLICIT = auto()
-    """Only included when explicitly requested (e.g., tool configs)."""
+    """Only included when explicitly requested (like most tool configs)."""
+
+    @property
+    def in_bare_init(self) -> bool:
+        """Whether a bare `repomatic init` considers the component at all.
+
+        `EXCLUDE` components are considered, then excluded unless the user
+        includes them. `EXPLICIT` components are never considered.
+        """
+        return self is not InitDefault.EXPLICIT
 
 
 class SyncMode(Enum):
     """How a `ToolConfigComponent` behaves when the section already exists."""
 
     BOOTSTRAP = auto()
-    """Insert once, skip if section already exists (e.g., ruff, pytest)."""
+    """Insert once, skip if section already exists (like ruff or pytest)."""
 
     ONGOING = auto()
     """Replace template content on every sync, preserving local additions
-    (e.g., bumpversion)."""
+    (like bumpversion)."""
 
     def components(self) -> tuple[ToolConfigComponent, ...]:
         """Every registered tool config this mode governs, in registry order."""
@@ -129,24 +142,44 @@ class RepoScope(Enum):
     Use for the release lane: publishing, tagging, changelog upkeep.
     """
 
-    def matches(self, is_awesome: bool, is_python: bool, is_package: bool) -> bool:
-        """Whether this scope applies to the given repository traits.
+    def matches(self, traits: RepoTraits) -> bool:
+        """Whether this scope applies to a repository with *traits*.
 
-        :param is_awesome: `True` for `awesome-*` repositories.
-        :param is_python: `True` for repositories whose `pyproject.toml`
-            declares a PEP 621 `[project].name`, per
-            {func}`repomatic.pyproject.is_python_project`.
-        :param is_package: `True` when that project is also distributable, per
-            {func}`repomatic.pyproject.is_python_package`. Always implies
-            *is_python*.
+        :param traits: What `init` read off the target repository.
         """
         if self is RepoScope.ALL:
             return True
         if self is RepoScope.AWESOME_ONLY:
-            return is_awesome
+            return traits.is_awesome
         if self is RepoScope.PACKAGE_ONLY:
-            return is_package
-        return is_python
+            return traits.is_package
+        return traits.is_python
+
+
+@dataclass(frozen=True)
+class RepoTraits:
+    """The traits of a repository that decide which {class}`RepoScope` applies.
+
+    `repomatic init` reads them off the target tree once per run, and every
+    scope check of that run asks the same instance.
+    """
+
+    is_awesome: bool = False
+    """Whether the repository is an `awesome-*` curated list."""
+
+    is_python: bool = False
+    """Whether `pyproject.toml` declares a PEP 621 `[project]` table, per
+    {func}`repomatic.pyproject.is_python_project`."""
+
+    is_package: bool = False
+    """Whether that project also builds a distributable package, per
+    {func}`repomatic.pyproject.is_python_package`. Always implies
+    {attr}`is_python`."""
+
+    is_source: bool = False
+    """Whether the repository is the upstream source checkout, per
+    {func}`repomatic.upstream.is_source_repo`. No scope reads it: `init` reads
+    it to never flag the bundled source files as stale."""
 
 
 @dataclass(frozen=True)
@@ -224,7 +257,7 @@ class Component:
     """Base class for all init components."""
 
     name: str
-    """Component name used on the CLI (e.g., `"skills"`)."""
+    """Component name used on the CLI (like `"skills"`)."""
 
     description: str
     """Human-readable description for help text."""
@@ -246,11 +279,6 @@ class Component:
 
     Resolved like {attr}`FileEntry.config_key`.
     """
-
-    keep_unmodified: bool = False
-    """Preserve files on disk even when identical to the bundled default.
-    When `False`, unmodified copies are flagged for cleanup by
-    `--delete-unmodified`."""
 
     ephemeral: bool = False
     """Whether this component's files are inputs regenerated on demand rather
@@ -278,6 +306,23 @@ class Component:
     not ours to move).
     """
 
+    @property
+    def file_ids(self) -> frozenset[str]:
+        """The identifiers a `component/file` selector may name.
+
+        Empty for a component without file-level selection, like a tool config.
+        """
+        return frozenset(entry.file_id for entry in self.files)
+
+    def entry(self, file_id: str) -> FileEntry | None:
+        """The file entry *file_id* names, or `None` when none does."""
+        return next((entry for entry in self.files if entry.file_id == file_id), None)
+
+    def target_of(self, file_id: str) -> str | None:
+        """The declared output path of *file_id*, or `None` when none matches."""
+        entry = self.entry(file_id)
+        return entry.target if entry else None
+
     def is_enabled(self, config: Config) -> bool:
         """Whether *config* enables this component.
 
@@ -287,7 +332,7 @@ class Component:
         """
         return not self.config_key or config.is_enabled(self.config_key)
 
-    def resolve_target(self, target: str, config: object) -> str:
+    def resolve_target(self, target: str, config: Config | None) -> str:
         """Rebase a declared target path onto this component's configured location.
 
         A no-op unless {attr}`location_field` is set and the resolved config
@@ -303,7 +348,8 @@ class Component:
         :param target: A path as declared on a {class}`FileEntry` (or a
             {class}`RemovedAsset` tombstone), relative to the repository root and
             expressed against the default location.
-        :param config: A {class}`~repomatic.config.Config` instance, or `None`.
+        :param config: The resolved configuration. `None` keeps every target
+            at its default location.
         :return: The target rebased onto the configured location, or *target*
             unchanged.
         """
@@ -341,8 +387,7 @@ class ToolConfigComponent(Component):
     Nothing here declares where the section lands. `init` appends it to the
     `[tool]` table, then `format-pyproject` moves it: `pyproject-fmt` sorts
     `[tool.*]` by its own known-tool order, which no per-component hint can
-    override. This class used to carry `insert_after` / `insert_before` tuples
-    for the purpose; they were read by no code and are gone.
+    override.
     ```
     """
 
@@ -410,7 +455,7 @@ class ToolConfigComponent(Component):
     For `bumpversion`, the slot is `(filename | glob | key_path, replace)`:
     `filename`/`glob`/`key_path` name the target file and `replace` names what
     the entry writes there, so a stale entry whose `search` pattern evolved
-    (e.g. gaining a regex anchor) still maps to the same slot.
+    (like one gaining a regex anchor) still maps to the same slot.
     """
 
     overlay: bool = False
@@ -513,8 +558,8 @@ class RemovedAsset:
 
     target: str
     """Relative output path the asset occupied, in default-location form
-    (like `.claude/skills/repomatic-release/SKILL.md` or
-    `.github/workflows/label-sponsors.yaml`).
+    (like `.claude/skills/papaya-report/SKILL.md` or
+    `.github/workflows/papaya.yaml`).
 
     Build skill and subagent targets with `_skill_target` / `_subagent_target`
     so they match the live registry: the `skills.location` and
@@ -523,23 +568,23 @@ class RemovedAsset:
 
     removed_in: str
     """Bare package version that first stopped shipping the asset
-    (like `6.21.0`). Surfaced in the prune report."""
+    (like `7.11.0`). Surfaced in the prune report."""
 
     hashes: tuple[str, ...] = ()
-    r"""Content gate for skills and agents: the hex SHA-256 of every distinct
-    normalized content repomatic shipped for this asset (`content.rstrip() +
-    "\n"`, exactly as `init` writes it to disk). An on-disk file whose content
-    hashes to any of these is an untouched copy of some released version and is
-    safe to delete. Listing one hash per distinct released revision (not just
-    the last) means a downstream repo that synced an older version is still
-    recognized and pruned rather than flagged for review.
+    """Content gate for skills, agents and config files: the {meth}`digest` of
+    every distinct content repomatic shipped for this asset. An on-disk file
+    whose content has any of these digests is an untouched copy of some
+    released version and is safe to delete. Listing one digest per distinct
+    released revision (not just the last) means a downstream repo that synced
+    an older version is still recognized and pruned rather than flagged for
+    review.
 
     Empty for workflows, which are fingerprint-gated by their `uses:` line
     instead (see the class docstring)."""
 
     owned_dir: str = ""
     """Directory the asset had to itself, in default-location form (like
-    `.claude/skills/repomatic-release`), for an asset shipped as a folder.
+    `.claude/skills/papaya-report`), for an asset shipped as a folder.
 
     A skill is a folder, so deleting its `SKILL.md` by any route other than
     `init` (a hand `rm`, a repomatic old enough to unlink the file alone) leaves
@@ -553,19 +598,51 @@ class RemovedAsset:
     """Optional human note describing what replaced the asset, shown in the
     report (like `replaced by repomatic-ship`)."""
 
+    @property
+    def content_gated(self) -> bool:
+        """Whether an orphan is judged by its content rather than its `uses:` line.
+
+        Every asset is content-gated except a workflow, whose thin caller
+        carries no fixed content to compare.
+        """
+        return self.component != "workflows"
+
+    @staticmethod
+    def digest(text: str) -> str:
+        """The hex SHA-256 of *text* in the form `init` writes it to disk.
+
+        The text is normalized first, through
+        {func}`~repomatic.file_ops.normalize_text`, so trailing whitespace a
+        repository added after the write never reads as a local change.
+
+        :param text: The content of a file, as shipped or as found on disk.
+        """
+        return hashlib.sha256(normalize_text(text).encode("UTF-8")).hexdigest()
+
+    def is_untouched(self, text: str) -> bool:
+        """Whether *text* is the content of a released revision of this asset.
+
+        :param text: The content of the orphan found on disk.
+        """
+        return self.digest(text) in self.hashes
+
+    def locate(self, path: str, config: Config | None) -> str:
+        """Rebase *path*, in default-location form, onto the configured location.
+
+        Applies the same `*.location` override as the live targets of
+        {attr}`component`, through {meth}`Component.resolve_target`. A dropped
+        component the registry no longer lists leaves *path* unchanged.
+
+        :param path: {attr}`target` or {attr}`owned_dir`.
+        :param config: The resolved configuration.
+        """
+        component = COMPONENTS_BY_NAME.get(self.component)
+        return component.resolve_target(path, config) if component else path
+
 
 # ---------------------------------------------------------------------------
 # Helpers for computed targets.
 # ---------------------------------------------------------------------------
-
-
-INSTALL_GUIDE_PATH = "docs/install.md"
-"""Install guide the release freeze pins download URLs in.
-
-Shared by {class}`~repomatic.release.prepare_release.PrepareRelease`, which rewrites
-those URLs, and {func}`~repomatic.lint_repo.check_install_guide_downloads`,
-which verifies the release they name actually carries the files.
-"""
 
 
 def _subagent_target(agent_id: str) -> str:
@@ -681,11 +758,6 @@ COMPONENTS: tuple[Component, ...] = (
             " (.github/actions/publish-pypi/)"
         ),
         scope=RepoScope.PACKAGE_ONLY,
-        # GitHub Actions resolves `uses: ./.github/actions/publish-pypi` and
-        # `uses: kdeldycke/repomatic/.github/actions/publish-pypi@vX.Y.Z`
-        # directly from the repo path; the file must stay on disk even when
-        # byte-identical to the bundled default.
-        keep_unmodified=True,
         files=(
             FileEntry(
                 "action-publish-pypi.yaml",
@@ -697,10 +769,6 @@ COMPONENTS: tuple[Component, ...] = (
         name="subagents",
         description="Agent subagent definitions (.claude/agents/)",
         init_default=InitDefault.EXCLUDE,
-        # Subagents are user-facing documents the runtime auto-invokes by
-        # description. Keep them on disk even when unmodified so it can always
-        # discover them.
-        keep_unmodified=True,
         location_field="subagents_location",
         files=(
             _subagent_entry("grunt-qa"),
@@ -712,9 +780,6 @@ COMPONENTS: tuple[Component, ...] = (
         name="skills",
         description="Claude Code skill definitions (.claude/skills/)",
         init_default=InitDefault.EXCLUDE,
-        # Skills are user-facing documents, not machine configs. Keep them
-        # on disk even when unmodified so Claude Code can always find them.
-        keep_unmodified=True,
         location_field="skills_location",
         files=(
             _skill_entry("av-false-positive", "Release"),
@@ -774,13 +839,14 @@ COMPONENTS: tuple[Component, ...] = (
     TemplateComponent(
         name="awesome-template",
         description="Boilerplate for awesome-* repositories",
-        init_default=InitDefault.AUTO,
+        scope=RepoScope.AWESOME_ONLY,
         config_key="awesome-template.sync",
     ),
     GeneratedComponent(
         name="changelog",
         description="Minimal changelog.md",
         scope=RepoScope.PACKAGE_ONLY,
+        location_field="changelog_location",
         target=location_path(Config.changelog_location),
     ),
     GeneratedComponent(
@@ -790,9 +856,6 @@ COMPONENTS: tuple[Component, ...] = (
         # reason: this one asks every collaborator to install something. A bare
         # `repomatic init` never touches it.
         init_default=InitDefault.EXCLUDE,
-        # The wiring is merged into a file the repository owns, so an unchanged
-        # document is the steady state rather than a stale copy to clean up.
-        keep_unmodified=True,
         location_field="settings_location",
         target=location_path(Config.settings_location),
     ),
@@ -899,39 +962,6 @@ COMPONENTS_BY_NAME: dict[str, Component] = {c.name: c for c in COMPONENTS}
 # Removed assets (tombstones).
 # ---------------------------------------------------------------------------
 
-# Successors shared by several tombstones: the 2026 reorganization retired one
-# skill per CI concern in favor of the workflow that now runs on every push, and
-# each rename generation (gha-* → repokit-* → repomatic-*) left a tombstone
-# pointing at the same replacement.
-_NOW_IN_AUTOFIX = "now handled by autofix.yaml on every push"
-_NOW_IN_LINT = "now handled by lint.yaml on every push"
-_NOW_IN_METADATA_CMD = "now handled by the repomatic show-metadata CLI command"
-_NOW_IN_TESTS = "now handled by tests.yaml on every push"
-_REPLACED_BY_SHIP = "replaced by repomatic-ship"
-
-
-def _removed_skill(
-    skill_id: str,
-    removed_in: str,
-    *hashes: str,
-    successor: str = "",
-) -> RemovedAsset:
-    """Declare a tombstone for a skill repomatic no longer ships.
-
-    Skills are content-gated: the *hashes* are the normalized contents the skill
-    shipped across its released lifetime (see {attr}`RemovedAsset.hashes` for the
-    recipe that collects them). A skill owns its whole folder, so the tombstone
-    carries that too (see {attr}`RemovedAsset.owned_dir`).
-    """
-    return RemovedAsset(
-        "skills",
-        _skill_target(skill_id),
-        removed_in,
-        hashes,
-        owned_dir=_skill_dir(skill_id),
-        successor=successor,
-    )
-
 
 def _removed_workflow(
     filename: str, removed_in: str, *, successor: str = ""
@@ -953,14 +983,14 @@ REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
     RemovedAsset(
         "codecov",
         ".github/codecov.yaml",
-        "7.8.0.dev0",
+        "7.8.0",
         ("e8e96bfead62334599f4ec4c0448f2376352629789a70a76ae6fc3746ff7057b",),
         successor="coverage is now gated by pytest --cov-fail-under",
     ),
     RemovedAsset(
         "labels",
         ".github/labeller-content-based.yaml",
-        "7.11.0.dev0",
+        "7.11.0",
         (
             "1f3e670c0b4c6687a8920fb3738a15fb82b8639b7825d81f76c55bc5784cdb08",
             "adf62c78c539229d34d4d2518a9af7f39df44d599c60852784b0faa47a6defa9",
@@ -972,7 +1002,7 @@ REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
     RemovedAsset(
         "labels",
         ".github/labeller-file-based.yaml",
-        "7.11.0.dev0",
+        "7.11.0",
         (
             "9dc0948e23a3a83d2cec5f11e400c75992fb1ce326eb6c5811c1fc3bfe258b31",
             "b216d370e4d2c6118f46d9bb2eacaf91392e6a6267a4f4857f44a698422cc860",
@@ -980,283 +1010,51 @@ REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
         ),
         successor="rules now live in repomatic.github.labels.DEFAULT_FILE_RULES",
     ),
-    _removed_skill(
-        "gha-changelog",
-        "6.0.0",
-        "2c178a58e1106f08aa6e540cd022eff12c4e954942ec5d794282c7b640adf768",
-        successor="renamed to repomatic-changelog",
-    ),
-    _removed_skill(
-        "gha-deps",
-        "6.0.0",
-        "d0bcb44f81335f4aabcadb82085f5048be12db252fc0a1f8c6bda8d9e5292efd",
-        successor="renamed to repomatic-deps",
-    ),
-    _removed_skill(
-        "gha-init",
-        "6.0.0",
-        "0f4f23f424c73774dd6253d9cb547e7a1d52ed64266c93b5b7271f4bee492a25",
-        successor="renamed to repomatic-init",
-    ),
-    _removed_skill(
-        "gha-lint",
-        "6.0.0",
-        "7079f4d79c6347b03b4788de97db2e1839006b606e9dbacbfeb51e9cca04db20",
-        successor=_NOW_IN_LINT,
-    ),
-    _removed_skill(
-        "gha-metadata",
-        "6.0.0",
-        "74c6f7d3574236d20aa7011b92f174abd2f8fdda162131e7f61851dfee7145fa",
-        successor=_NOW_IN_METADATA_CMD,
-    ),
-    _removed_skill(
-        "gha-release",
-        "6.0.0",
-        "99a466bc4d377bb056c5696de8f0eae2b025b34505ac951d504bee55a42bdd1c",
-        successor=_REPLACED_BY_SHIP,
-    ),
-    _removed_skill(
-        "gha-sync",
-        "6.0.0",
-        "f856f143db3f0ad37adb6c80b89c33efa5112e1307927ff3331f82857a71fef4",
-        successor=_NOW_IN_AUTOFIX,
-    ),
-    _removed_skill(
-        "gha-test",
-        "6.0.0",
-        "4a00dac78e0ca3c598c2a3ae6e649f354f73e754c5aaea531d8409f1eff23434",
-        successor=_NOW_IN_TESTS,
-    ),
-    _removed_skill(
-        "repokit-changelog",
-        "6.0.1",
-        "6e176d9d0090afb9d9a10035e4c6721fff8fac4a1c313010fc04a7ab631be399",
-        successor="renamed to repomatic-changelog",
-    ),
-    _removed_skill(
-        "repokit-deps",
-        "6.0.1",
-        "577687ae8481cc67b992497ee0de9fb38c0f26cd20a9b907a4bf78f834803cc0",
-        successor="renamed to repomatic-deps",
-    ),
-    _removed_skill(
-        "repokit-init",
-        "6.0.1",
-        "c68a9108ead81c4bb5b33912770155f6a587188ca72c8ba8d08f7283fdcad281",
-        successor="renamed to repomatic-init",
-    ),
-    _removed_skill(
-        "repokit-lint",
-        "6.0.1",
-        "1c05f0fb8c5ff8eed38ac02af2fff016e931fdf8866fd93a3fc6c61f84d4df52",
-        successor=_NOW_IN_LINT,
-    ),
-    _removed_skill(
-        "repokit-metadata",
-        "6.0.1",
-        "0322f70cdd8e53d03fce2befbf904be1f0dc5596b79e41557ce8ec788a202cff",
-        successor=_NOW_IN_METADATA_CMD,
-    ),
-    _removed_skill(
-        "repokit-release",
-        "6.0.1",
-        "a6ceb0394f084f481765bb834f275af0cb1cf58a9383059358ceec50ea87b93a",
-        successor=_REPLACED_BY_SHIP,
-    ),
-    _removed_skill(
-        "repokit-sync",
-        "6.0.1",
-        "412811337a541b6c4518e588240ce2cb13f3f476bcd311f32edcf04394e17ade",
-        successor=_NOW_IN_AUTOFIX,
-    ),
-    _removed_skill(
-        "repokit-test",
-        "6.0.1",
-        "63f0b532f379aa4400eea5a6284c3004ddc09749c8f476f4ea5a5e8ce3c4716f",
-        successor=_NOW_IN_TESTS,
-    ),
-    _removed_skill(
-        "repomatic-lint",
-        "6.21.0",
-        "11131553c99adb7daf880b6b19b84e4d4573eedbe7b951092aa7d4a1f9357aab",
-        "d72cada008b46db93eff0b7a167f1f57346c528ec317fca73857205895fb1395",
-        "058b9cc3248cd1d537d8fbf7a0c1133e3107c6ed405859457e88625b9301d3d8",
-        "7ec6520cba0a14af07ed1bb4e2f0388109ac8db0509ca92ffa0829cf2967bd11",
-        successor=_NOW_IN_LINT,
-    ),
-    _removed_skill(
-        "repomatic-metadata",
-        "6.3.0",
-        "e94ba4246c0bf56b8dfb6a7e4d3ea2e9521c000e8322130b1746e7a54d3f260b",
-        "58c6eec756177f445893366960464c2d5872de994a692399440df0eb30b11e35",
-        successor=_NOW_IN_METADATA_CMD,
-    ),
-    _removed_skill(
-        "repomatic-release",
-        "6.21.0",
-        "0ecfa8ff5d55b33394d83bce76d39015450403124ff63e131fea14adf685c00b",
-        "8546a42c1ea44b2a4fa0ed1bc49f71eaf8be3b5656a323ee93957ea1fdb0bb38",
-        "778783f3ef6093d9892a4772fc312747155b399e18ba33f416fa9b138897b43d",
-        "b076cae374b3104f50996cf8b92eae6f53ec9546d3b0fab2c033c90cb1e8a107",
-        "8e93d723827042e90acbe22d038516400bcd743bf39f3fb45a65c115008a97d0",
-        successor=_REPLACED_BY_SHIP,
-    ),
-    _removed_skill(
-        "repomatic-sync",
-        "6.21.0",
-        "3b36a8b4fc76282c280f6cc19fdc24aa826db8a81ee91a66737b24cb921c84d9",
-        "1460738708f7e878c17ef578a7fad14710962a5fd7e7789f3bc08ae6bc49247b",
-        "54a2b2aa40799c05d666295ee0a1f4d65946605c5397a006185123e4c2e9f1d0",
-        "771d4e15efab4739fb00a7c1ba20495e063025842beb2e54d84207e1410f40a1",
-        "687c7f9cae7271ee56f4d35b754325ba7a2c3b13537eee057679cc160e39471e",
-        "ceaf3141599850847ee51b2e4f85c76a4cae130a01b2a4fd820dd3b5c0dd0dc0",
-        "91add2c0b7686f64f810bb86fa70c3ac99d3940b37ba6fbe57c01a4d427cc902",
-        successor=_NOW_IN_AUTOFIX,
-    ),
-    _removed_skill(
-        "repomatic-test",
-        "6.21.0",
-        "8bc5f054507b369f9be34dd4a34183e00b6a8e0186c34d4deb385032e6682e1a",
-        "cb987bfe342c2d00ea1a6226585238f19bc5a351a678124f7e6225d5c6122c2c",
-        "17bae80a4b98518b6037518ad340a60d117d35a4fa26725fa2ab685ebd23e8dd",
-        successor=_NOW_IN_TESTS,
-    ),
-    _removed_workflow(
-        "label-sponsors.yaml",
-        "4.25.0",
-        successor="merged into labels.yaml",
-    ),
-    _removed_workflow(
-        "labeller-content-based.yaml",
-        "4.25.0",
-        successor="merged into labels.yaml",
-    ),
-    _removed_workflow(
-        "labeller-file-based.yaml",
-        "4.25.0",
-        successor="merged into labels.yaml",
-    ),
     _removed_workflow(
         "renovate.yaml",
-        "7.0.0.dev0",
+        "7.0.0",
         successor="replaced by self-hosted sync-tool-versions, sync-action-pins,"
         " and sync-workflow-pins",
     ),
 )
-r"""Tombstones for assets repomatic has dropped (see {class}`RemovedAsset`).
+"""Tombstones for assets repomatic has dropped (see {class}`RemovedAsset`).
 
 `init` prunes orphaned copies of these from downstream repos. Ordered by
-`(component, target)`.
+`(component, target)`. A tombstone stays for the major releases a downstream
+repository may still upgrade from: the ones of assets dropped before `7.0.0`
+are gone.
 
 When you drop a bundled asset from {data}`COMPONENTS`, add an entry here so
 the removal propagates downstream on the next `init` instead of leaving an
-orphan. List one hash per distinct content the asset shipped across its
+orphan. List one digest per distinct content the asset shipped across its
 released lifetime, collected from the release tags where its data file
 existed:
 
 ```python
-import hashlib, subprocess
+import subprocess
 
-src = "repomatic/data/skill-repomatic-release.md"  # the dropped data file
+from repomatic.components import RemovedAsset
+
+src = "repomatic/data/skills/papaya-report/SKILL.md"  # The dropped data file.
 tags = subprocess.run(
-    ["git", "tag", "--list", "v*"], capture_output=True, text=True, check=True
+    ["git", "tag", "--list", "v*"],
+    capture_output=True, text=True, encoding="UTF-8", check=True,
 ).stdout.split()
-hashes = {}
+digests = {}
 for tag in tags:
     blob = subprocess.run(
         ["git", "show", f"{tag}:{src}"],
         capture_output=True, text=True, encoding="UTF-8",
     )
     if blob.returncode == 0:
-        normalized = blob.stdout.rstrip() + "\n"
-        hashes.setdefault(hashlib.sha256(normalized.encode("UTF-8")).hexdigest(), tag)
-print(tuple(hashes))  # distinct contents, in first-shipped order
+        digests.setdefault(RemovedAsset.digest(blob.stdout), tag)
+print(tuple(digests))  # Distinct contents, in first-shipped order.
 ```
 
-Removed *workflows* are fingerprint-gated, not hashed: omit `hashes` and give
-the workflow's downstream path as `target` (`.github/workflows/{name}`).
-"""
-
-DEFAULT_REPO: str = "kdeldycke/repomatic"
-"""Default upstream repository for reusable workflows."""
-
-
-def is_awesome_repo(name: str) -> bool:
-    """Whether a repository name marks an `awesome-*` curated list.
-
-    The one spelling of the prefix test: repository-trait detection, the
-    broken-links label choice and the awesome-template auto-inclusion all
-    classify on it.
-    """
-    return name.startswith("awesome-")
-
-
-UPSTREAM_PACKAGE: str = repo_name(DEFAULT_REPO)
-"""Distribution name of the upstream toolkit, derived from {data}`DEFAULT_REPO`.
-
-The freeze, cooldown-exemption, and lint code that handles the `uses:` refs
-and the inline self-pin all key on this name: deriving it here keeps the
-writer/checker pairs in lockstep and makes a rename a one-line change.
-"""
-
-UPSTREAM_REPO_SLUGS: tuple[str, ...] = (
-    DEFAULT_REPO,
-    "kdeldycke/repokit",
-    "kdeldycke/workflows",
-)
-"""Upstream repository slugs across the project's renames, current first.
-
-A downstream thin-caller's `uses:` line references whichever slug was current
-when it was generated. Workflow-tombstone detection matches against all of
-them (current first, since most callers are recent) so an orphaned thin-caller
-is recognized regardless of which era set it up."""
-
-UPSTREAM_SOURCE_GLOB: str = "repomatic/**"
-"""Path glob for the upstream source directory in canonical workflows.
-
-Canonical workflow `paths:` filters use this glob to match source code
-changes. In downstream repos, this is replaced with the project's own source
-directory.
-"""
-
-UPSTREAM_SOURCE_PREFIX: str = "repomatic/"
-"""Path prefix for upstream-specific files in canonical workflows.
-
-Paths starting with this prefix (but not matching
-{data}`UPSTREAM_SOURCE_GLOB`) are dropped in downstream thin callers because
-they reference files that only exist in the upstream repository (like
-`repomatic/data/labels.toml`).
-"""
-
-UPSTREAM_ASSET_GLOB: str = ".claude/**"
-"""Path glob for the bundled skills and agents in canonical workflows.
-
-The package ships them through symlinks under `repomatic/data/`, so editing one
-changes no path {data}`UPSTREAM_SOURCE_GLOB` matches, while the test suite reads
-every one. Downstream, `.claude/` holds synced copies that no test reads, so the
-glob is dropped there like the {data}`UPSTREAM_SOURCE_PREFIX` paths.
-"""
-
-SKILL_PHASE_ORDER: tuple[str, ...] = (
-    "Setup",
-    "Development",
-    "Quality",
-    "Maintenance",
-    "Release",
-)
-"""Canonical display order for lifecycle phases in `list-skills` output."""
-
-SKILL_LIST_HEADER_DEFS: tuple[ColumnSpec, ...] = (
-    ColumnSpec("phase", "Phase"),
-    ColumnSpec("skill", "Skill"),
-    ColumnSpec("description", "Description", max_width=60),
-)
-"""Column definitions for the `repomatic list-skills` table.
-
-Lives beside {func}`skill_catalog`, whose triples these columns render, so the
-two cannot drift apart. The columns mirror the hand-maintained roster of
-`docs/agent-skills.md`, which the page renders this command right above.
+A skill ships as a folder: give its `SKILL.md` as `target` and its folder as
+`owned_dir`, both through `_skill_target` and `_skill_dir`. Removed
+*workflows* are fingerprint-gated, not hashed: declare them through
+`_removed_workflow`, which omits `hashes`.
 """
 
 
@@ -1264,8 +1062,24 @@ two cannot drift apart. The columns mirror the hand-maintained roster of
 # Registry queries.
 # ---------------------------------------------------------------------------
 
-ALL_COMPONENTS: dict[str, str] = {c.name: c.description for c in COMPONENTS}
-"""All available init components."""
+BARE_INIT_COMPONENTS: frozenset[str] = frozenset(
+    c.name for c in COMPONENTS if c.init_default.in_bare_init
+)
+"""Components a bare `repomatic init` considers, before any exclusion."""
+
+DEFAULT_EXCLUDED_COMPONENTS: frozenset[str] = frozenset(
+    c.name for c in COMPONENTS if c.init_default is InitDefault.EXCLUDE
+)
+"""Components a bare `repomatic init` excludes unless the user includes them."""
+
+EPHEMERAL_COMPONENTS: frozenset[str] = frozenset(
+    c.name for c in COMPONENTS if c.ephemeral
+)
+"""Components whose files are regenerated on demand (see {attr}`Component.ephemeral`).
+
+A bare `repomatic init` excludes them, and `[tool.repomatic] include` cannot
+bring them back: only naming one on the CLI writes its files out.
+"""
 
 EPHEMERAL_TARGETS: frozenset[str] = frozenset(
     entry.target
@@ -1292,12 +1106,13 @@ BUNDLED_VERBATIM_TARGETS: frozenset[str] = frozenset(
 Every {class}`BundledComponent` copies its bundled source byte-for-byte to the
 target, so downstream the file's content (including any SHA-pinned `uses:` ref) is
 owned by `repomatic init`. `sync-action-pins` and `sync-workflow-pins` skip these
-paths for the same reason they skip {data}`UPSTREAM_REPO_SLUGS`: a pin the next
-`sync-repomatic` overwrites turns the two pull requests into a ping-pong, the bump
-PR and the init-revert PR chasing each other. The skip lifts inside the source
-repo, where each bundled source is a symlink to its in-tree target and the pin is
-a normal source-of-truth ref (see `repomatic.deps.sync._pinnable_files`). Generated
-workflows ({class}`WorkflowComponent`) are deliberately absent: they carry only
+paths for the same reason they skip {data}`~repomatic.upstream.UPSTREAM_REPO_SLUGS`:
+a pin the next `sync-repomatic` overwrites turns the two pull requests into a
+ping-pong, the bump PR and the init-revert PR chasing each other. The skip lifts
+inside the source repo, where each bundled source is a symlink to its in-tree
+target and the pin is a normal source-of-truth ref (see
+`repomatic.deps.sync._pinnable_files`). Generated workflows
+({class}`WorkflowComponent`) are deliberately absent: they carry only
 upstream-slug refs (already skipped) and may host downstream-authored extra jobs
 whose third-party pins the bumpers should keep current.
 """
@@ -1313,7 +1128,7 @@ NON_REUSABLE_WORKFLOWS: frozenset[str] = frozenset(
 """Workflows without `workflow_call` that cannot be used as thin callers."""
 
 ALL_WORKFLOW_FILES: tuple[str, ...] = tuple(
-    sorted(f.file_id for f in COMPONENTS_BY_NAME["workflows"].files)
+    sorted(COMPONENTS_BY_NAME["workflows"].file_ids)
 )
 """All workflow filenames (reusable and non-reusable)."""
 
@@ -1369,110 +1184,8 @@ repository (`repomatic/tooling/registry.py` and friends). A workflow that merely
 runtime guard.
 """
 
-SKILL_PHASES: dict[str, str] = {
-    f.file_id: f.phase for f in COMPONENTS_BY_NAME["skills"].files if f.phase
-}
-"""Maps skill names to lifecycle phases for display grouping."""
-
-
-def skill_catalog() -> list[tuple[str, str, str]]:
-    """Read every bundled skill's display metadata off its frontmatter.
-
-    :return: One `(phase, name, description)` tuple per bundled skill, in
-        registry order, with the description's trailing period stripped for
-        table display. Phases are keyed by the registry `file_id`, not the
-        frontmatter name, so a skill renamed in frontmatter still lands in
-        its phase.
-    """
-    skills = []
-    for entry in COMPONENTS_BY_NAME["skills"].files:
-        # Each skill is a bundled folder, so reach past it for the entry point.
-        content = get_data_content(f"{entry.source}/{SKILL_FILENAME}")
-        meta, _body = split_frontmatter(content)
-        name = str(meta.get("name", entry.file_id))
-        description = str(meta.get("description", "")).removesuffix(".")
-        skills.append((SKILL_PHASES[entry.file_id], name, description))
-    return skills
-
-
-AUDIT_SKILL: str = "repomatic-audit"
-"""The bundled skill auditing a repository against the release it pins."""
-
-UPGRADE_SKILL: str = "repomatic-upgrade"
-"""The bundled skill reviewing what a newer upstream release lets a repo adopt."""
-
-RECOMMENDED_MODEL_RE = re.compile(r"Recommended model: (?P<model>\w+)\.")
-"""The model recommendation a skill's `compatibility` field carries.
-
-The Agent Skills spec has no `model:` field, so the recommendation rides in
-`compatibility` as prose, and this is the one shape every bundled skill
-writes it in. `tests/test_skills.py` holds each skill to it.
-"""
-
-
-def skill_launcher(skill_id: str, *arguments: str) -> str:
-    """The shell command launching one bundled skill in a fresh Claude Code session.
-
-    Rendered wherever the toolkit hands a maintainer a next step to run
-    (`init`'s closing hint, a sync pull request body), so the invocation is
-    spelled once. The model comes off the skill's own `compatibility` field,
-    so a changed recommendation never leaves a stale `--model` behind.
-
-    ```{note}
-    Claude Code is the only agent the launcher targets today. The skill folder
-    itself follows the Agent Skills spec and loads in any agent honouring it;
-    only this one line is agent-specific, which keeps a second launcher a
-    config key away rather than a rewrite.
-    ```
-
-    :param skill_id: The registry `file_id` of a bundled skill.
-    :param arguments: Extra words passed to the skill as `$ARGUMENTS`.
-    :return: The command line, ready to paste into a shell.
-    """
-    content = get_data_content(f"{_skill_source(skill_id)}/{SKILL_FILENAME}")
-    meta, _body = split_frontmatter(content)
-    match = RECOMMENDED_MODEL_RE.search(str(meta.get("compatibility", "")))
-    model = f" --model {match['model'].lower()}" if match else ""
-    prompt = " ".join((f"/{skill_id}", *arguments))
-    return f"claude{model} '{prompt}'"
-
-
 FILE_SELECTOR_COMPONENTS: tuple[str, ...] = tuple(c.name for c in COMPONENTS if c.files)
 """Components that support file-level `component/file` selectors."""
-
-_MAX_NAME = max(len(c.name) for c in COMPONENTS)
-COMPONENT_HELP_TABLE: str = "\n".join(
-    f"    {c.name:<{_MAX_NAME + 4}s}{c.description}" for c in COMPONENTS
-)
-"""Formatted component table for CLI help text."""
-
-
-def valid_file_ids(component: str) -> frozenset[str]:
-    """Return valid file identifiers for a component.
-
-    Components with file entries report their declared `file_id` values.
-    Returns an empty set for components without file-level selection
-    (e.g., changelog, tool configs).
-    """
-    comp = COMPONENTS_BY_NAME.get(component)
-    if comp is None:
-        return frozenset()
-    return frozenset(entry.file_id for entry in comp.files)
-
-
-def excluded_rel_path(component: str, file_id: str) -> str | None:
-    """Map a component and file identifier to its relative output path.
-
-    Returns `None` when the identifier cannot be resolved (e.g., for tool
-    config components that have no file-level exclusion support).
-    """
-    comp = COMPONENTS_BY_NAME.get(component)
-    if comp is None:
-        return None
-    for entry in comp.files:
-        if entry.file_id == file_id:
-            return entry.target
-    return None
 
 
 def parse_component_entries(
@@ -1483,13 +1196,13 @@ def parse_component_entries(
     """Parse component entries into full-component and file-level sets.
 
     Bare names (no `/`) must be component names from
-    {data}`ALL_COMPONENTS`. Qualified `component/identifier` entries
+    {data}`COMPONENTS_BY_NAME`. Qualified `component/identifier` entries
     target individual files. Raises `ValueError` on unknown entries.
 
     Used by both the `exclude` config path and the CLI positional
     selection, with *context* controlling error message wording.
 
-    :param context: Label for error messages (e.g., `"exclude"`,
+    :param context: Label for error messages (like `"exclude"` or
         `"selection"`).
     :return: `(full_components, file_selections)` where
         `file_selections` maps component names to sets of file
@@ -1497,18 +1210,19 @@ def parse_component_entries(
     """
     full_components: set[str] = set()
     file_selections: dict[str, set[str]] = {}
+    names = ", ".join(sorted(COMPONENTS_BY_NAME))
 
     for entry in entries:
         if "/" in entry:
             component, file_id = entry.split("/", 1)
-            if component not in ALL_COMPONENTS:
+            comp = COMPONENTS_BY_NAME.get(component)
+            if comp is None:
                 msg = (
                     f"Unknown component {component!r} in {context}"
-                    f" {entry!r}. Valid components:"
-                    f" {', '.join(sorted(ALL_COMPONENTS))}"
+                    f" {entry!r}. Valid components: {names}"
                 )
                 raise ValueError(msg)
-            valid = valid_file_ids(component)
+            valid = comp.file_ids
             if not valid:
                 msg = (
                     f"Component {component!r} does not support"
@@ -1526,14 +1240,14 @@ def parse_component_entries(
                 )
                 raise ValueError(msg)
             file_selections.setdefault(component, set()).add(file_id)
-        elif entry in ALL_COMPONENTS:
+        elif entry in COMPONENTS_BY_NAME:
             full_components.add(entry)
         else:
             msg = (
                 f"Unknown {context} {entry!r}. Use a component name"
-                f" ({', '.join(sorted(ALL_COMPONENTS))}) or a"
+                f" ({names}) or a"
                 " qualified component/file entry"
-                " (e.g., 'workflows/autolock.yaml')."
+                " (like 'workflows/autolock.yaml')."
             )
             raise ValueError(msg)
 

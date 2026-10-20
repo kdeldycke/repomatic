@@ -102,10 +102,12 @@ of this code *and* adding a new dependency — more complexity, not less.
 Related modules
 ^^^^^^^^^^^^^^^
 
-- `prepare_release.py` orchestrates the full release preparation
-  across changelog, citation, and workflow files, delegating
+- {mod}`repomatic.release.prepare_release` orchestrates the full release
+  preparation across changelog, citation, and workflow files, delegating
   changelog operations to this module.
-- `metadata.py` handles version bump eligibility checks and
+- {mod}`repomatic.lint_changelog` checks the release dates and the
+  availability notes of every section against PyPI, GitHub and git tags.
+- {mod}`repomatic.metadata` handles version bump eligibility checks and
   release commit identification.
 - `changelog.yaml` workflow drives the two-commit release PR.
 """
@@ -115,30 +117,17 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import asdict, dataclass, replace
-from functools import cache, cached_property
+from functools import cache
 from pathlib import Path
 from textwrap import indent
-from typing import NamedTuple
 
 from packaging.version import Version
 
 from .file_ops import write_if_changed
-from .git_ops import get_all_version_tags
-from .github.actions import AnnotationLevel, emit_annotation
 from .github.pr_body import render_template
-from .github.releases import (
-    GitHubRelease,
-    GitHubReleasesUnavailable,
-    get_github_releases,
-)
 from .humanize import today_utc
-from .pypi import (
-    PYPI_LABEL,
-    PYPI_PROJECT_URL,
-    PyPIRelease,
-    get_release_dates as get_pypi_release_dates,
-)
-from .pyproject import get_project_name
+from .pypi import PYPI_LABEL
+from .versions import safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -188,32 +177,6 @@ AVAILABLE_VERB = "is available on"
 CHANGELOG_HEADER = "# Changelog\n"
 """Default changelog header for empty changelogs."""
 
-EMPTY_PYPI_SANITY_THRESHOLD = 3
-"""Minimum number of existing PyPI links in the changelog above which an
-empty PyPI lookup is treated as a transient failure rather than a genuine
-"package has no releases" state.
-
-```{note}
-Two layers of ambiguity make this threshold necessary:
-
-1. `repomatic.pypi._fetch_json` returns `None` on every failure mode
-   (HTTP 4xx/5xx, network error, timeout, JSON parse error), collapsing
-   "package not on PyPI" and "transient API failure" into the same empty
-   result.
-2. Even when the HTTP status is preserved, a `404` from
-   `/pypi/<name>/json` is not authoritative: Warehouse 404s registered
-   projects that have no published releases, and registered packages can
-   appear in the `simple` / `list_packages` indexes while still 404'ing
-   on the JSON endpoint. See
-   [pypi/warehouse#1388](https://github.com/pypi/warehouse/issues/1388)
-   and [pypi/warehouse#9536](https://github.com/pypi/warehouse/issues/9536).
-```
-
-The threshold guards against a transient failure silently stripping every
-PyPI link from the changelog. Re-runs of `lint-changelog --fix` against
-a healthy API restore the file.
-"""
-
 FIRST_AVAILABLE_VERB = "is the *first version* available on"
 """Verb phrase for the inaugural release on a platform."""
 
@@ -222,14 +185,6 @@ GITHUB_LABEL = "🐙 GitHub"
 
 GITHUB_RELEASE_URL = "{repo_url}/releases/tag/v{version}"
 """GitHub release page URL for a specific version."""
-
-LINT_DOCS_URL = "https://repomatic.net/workflows#fix-changelog-fix-changelog"
-"""Section of the published documentation on the two lint warnings.
-
-{func}`warn_on_long_bullets` and {func}`warn_on_empty_sections` end their
-annotation on it. An annotation is read in a downstream repository, which
-holds no copy of this project's `claude.md`, so the link aims at the site.
-"""
 
 NOT_AVAILABLE_VERB = "is **not available** on"
 """Verb phrase for versions missing from a platform."""
@@ -319,8 +274,8 @@ def _heading_fragment(version: str | None = None) -> str:
 def _heading_re(version: str | None = None) -> re.Pattern[str]:
     """Compile {func}`_heading_fragment` on its own, to locate headings.
 
-    Memoized like {func}`repomatic.deps.pins._upstream_ref_re`: the lint
-    loop asks for the same versions' patterns over and over.
+    Memoized: the lint loop asks for the same versions' patterns over and
+    over.
 
     :param version: Match this exact version, or any version when `None`.
     :return: A compiled pattern whose `version` group holds the version, for
@@ -330,7 +285,7 @@ def _heading_re(version: str | None = None) -> re.Pattern[str]:
 
 
 @cache
-def _section_re(version: str) -> re.Pattern[str]:
+def _section_re(version: str | None = None) -> re.Pattern[str]:
     """Compile a pattern spanning a whole version section.
 
     Matches from the heading line of *version* down to the next `##` heading
@@ -338,7 +293,8 @@ def _section_re(version: str) -> re.Pattern[str]:
     heading line is captured as the `body` group. Memoized like
     {func}`_heading_re`.
 
-    :param version: The version whose section to match.
+    :param version: The version whose section to match, or `None` to match
+        every section, its version captured as the `version` group.
     :return: A compiled pattern.
     """
     return re.compile(
@@ -391,23 +347,78 @@ class VersionElements:
     yanked_admonition: str = ""
     """`[!CAUTION]` block for releases yanked from PyPI."""
 
+    @property
+    def has_body(self) -> bool:
+        """Whether the section carries anything below its heading."""
+        return any((
+            self.changes,
+            self.availability_admonition,
+            self.development_warning,
+            self.editorial_admonition,
+            self.yanked_admonition,
+        ))
+
+    @property
+    def tag_range(self) -> str:
+        """The tag range the comparison URL names, like `v1.1.0...v2.0.0`.
+
+        Empty when the heading carries no comparison URL.
+        """
+        return self.compare_url.rsplit("/compare/", 1)[-1] if self.compare_url else ""
+
 
 class Changelog:
-    """Helpers to manipulate changelog files written in Markdown."""
+    """Helpers to manipulate changelog files written in Markdown.
+
+    Every lookup of a section goes through an index of the sections, built in
+    one scan of {attr}`content` and dropped whenever the content changes. The
+    lint loop reads each section several times: a scan of the whole changelog
+    per read would make it quadratic in the number of releases.
+    """
+
+    _content: str
+    _sections: dict[str, re.Match[str]] | None
+    _elements: dict[str, VersionElements]
 
     def __init__(
         self,
         initial_changelog: str | None = None,
         current_version: str | None = None,
     ) -> None:
-        if not initial_changelog:
-            self.content = CHANGELOG_HEADER
-        else:
-            self.content = initial_changelog
+        self.content = initial_changelog or CHANGELOG_HEADER
         self.current_version = current_version
-        logging.debug(f"Initial content set to:\n{self.content}")
 
-    def update(self, default_branch: str = "main") -> str:
+    @property
+    def content(self) -> str:
+        """The Markdown source of the changelog."""
+        return self._content
+
+    @content.setter
+    def content(self, value: str) -> None:
+        self._content = value
+        self._sections = None
+        self._elements = {}
+
+    def _section(self, version: str) -> re.Match[str] | None:
+        """Return the match spanning the section of *version*.
+
+        Read from the section index, built on the first lookup after a change
+        of {attr}`content`. A version the index cannot hold, because its shape
+        falls outside {data}`VERSION_TOKEN`, is searched for directly.
+
+        :param version: Version string (like `1.2.3`).
+        :return: The first section carrying *version*, or `None`.
+        """
+        if self._sections is None:
+            self._sections = {}
+            for section in _section_re().finditer(self._content):
+                self._sections.setdefault(section["version"], section)
+        match = self._sections.get(version)
+        if match is None:
+            match = _section_re(version).search(self._content)
+        return match
+
+    def update(self, default_branch: str = "main") -> bool:
         """Add a new unreleased entry at the top of the changelog.
 
         Decomposes the current version section, transforms it into an
@@ -415,28 +426,29 @@ class Changelog:
         retargeted to the default branch, body replaced with the
         development warning), and prepends it to the changelog.
 
-        Idempotent: returns the current content unchanged if an
-        unreleased entry already exists.
+        Idempotent: the content stays unchanged when an unreleased entry
+        already exists, and when there is no current version or no section
+        to clone.
 
         :param default_branch: Branch name for the comparison URL. Must match
             what {meth}`freeze` is later given, since the two halves of a
             release cycle retarget the same URL in opposite directions: a
             mismatch leaves the released section pointing at a branch that
             does not exist.
-        :return: The updated changelog content.
+        :return: `True` if an entry was added to {attr}`content`.
         """
         if not self.current_version:
-            return self.content.rstrip()
+            return False
 
         elements = self.decompose_version(self.current_version)
 
         # Idempotent: skip if an unreleased section already exists.
         if elements.date == "unreleased":
-            return self.content.rstrip()
+            return False
 
         if not elements.version:
-            # No existing section to clone. Return header only.
-            return self.content.rstrip()
+            # No existing section to clone.
+            return False
 
         # Transform frozen entry into an unreleased entry.
         elements.date = "unreleased"
@@ -453,12 +465,10 @@ class Changelog:
         new_entry = render_template("release-notes", **asdict(elements))
         logging.info("New generated section:\n" + indent(new_entry, " " * 2))
 
-        # Split header from sections.
-        sections = self.content.split(SECTION_START, 1)
-        changelog_header = sections[0] if sections else f"{CHANGELOG_HEADER}\n"
-        history = f"{SECTION_START}{sections[1]}" if len(sections) > 1 else ""
-
-        return (changelog_header + new_entry + "\n\n" + history).rstrip()
+        # A section exists, so the content holds a heading to split on.
+        header, heading_mark, history = self.content.partition(SECTION_START)
+        self.content = header + new_entry + "\n\n" + heading_mark + history
+        return True
 
     def freeze(
         self,
@@ -607,10 +617,11 @@ class Changelog:
 
         Idempotent: returns False if the version heading already exists.
 
-        :param version: Version string (e.g. `1.2.3`).
+        :param version: Version string (like `1.2.3`).
         :param date: Release date in `YYYY-MM-DD` format.
         :param repo_url: Repository URL for comparison links.
-        :param all_versions: All known versions sorted descending.
+        :param all_versions: All known versions, in any order. A version that
+            does not parse as PEP 440 takes no part in the ordering.
         :return: True if the content was modified.
         """
         # Idempotent: skip if already present.
@@ -618,14 +629,17 @@ class Changelog:
             return False
 
         parsed = Version(version)
+        known = sorted(
+            (parsed_other, other)
+            for other in all_versions
+            if (parsed_other := safe_version(other)) is not None
+        )
 
-        # Find the next-lower version for the comparison URL base.
-        lower_version = None
-        for v in sorted(all_versions, key=Version, reverse=True):
-            if Version(v) < parsed:
-                lower_version = v
-                break
-
+        # The next-lower version is the comparison URL base.
+        lower_version = next(
+            (other for parsed_other, other in reversed(known) if parsed_other < parsed),
+            None,
+        )
         compare_base = f"v{lower_version}" if lower_version else "v0.0.0"
         elements = VersionElements(
             compare_url=f"{repo_url}/compare/{compare_base}...v{version}",
@@ -640,8 +654,8 @@ class Changelog:
         # instead of falling through to the append-at-end branch.
         insert_pos = None
         for match in _heading_re().finditer(self.content):
-            existing = Version(match["version"])
-            if existing < parsed:
+            existing = safe_version(match["version"])
+            if existing is not None and existing < parsed:
                 insert_pos = match.start()
                 break
 
@@ -655,11 +669,9 @@ class Changelog:
 
         # Update the next-higher version's comparison URL to point to
         # this newly inserted version.
-        higher_version = None
-        for v in sorted(all_versions, key=Version):
-            if Version(v) > parsed:
-                higher_version = v
-                break
+        higher_version = next(
+            (other for parsed_other, other in known if parsed_other > parsed), None
+        )
         if higher_version:
             self.update_comparison_base(higher_version, version)
 
@@ -696,17 +708,28 @@ class Changelog:
         of the auto-generated element types. Everything not classified
         as auto-generated is preserved as `changes`.
 
-        :param version: Version string (e.g. `1.2.3`).
+        The decomposition is cached until {attr}`content` changes. Each call
+        returns its own copy, which the caller is free to modify.
+
+        :param version: Version string (like `1.2.3`).
         :return: A {class}`VersionElements` with each field populated.
         """
-        section_match = _section_re(version).search(self.content)
+        elements = self._elements.get(version)
+        if elements is None:
+            elements = self._elements[version] = self._decompose(version)
+        return replace(elements)
+
+    def _decompose(self, version: str) -> VersionElements:
+        """Decompose a version section, without caching.
+
+        See {meth}`decompose_version`.
+        """
+        section_match = self._section(version)
         if not section_match:
             return VersionElements()
 
         # Extract heading fields.
-        heading_match = HEADING_PARTS_PATTERN.search(
-            self.content[section_match.start() : section_match.end()]
-        )
+        heading_match = HEADING_PARTS_PATTERN.search(section_match.group(0))
         elements = VersionElements()
         if heading_match:
             elements.compare_url = heading_match.group("url")
@@ -760,11 +783,11 @@ class Changelog:
         Locates the version heading and replaces everything up to the
         next `##` heading (or EOF) with `new_section`.
 
-        :param version: Version string (e.g. `1.2.3`).
+        :param version: Version string (like `1.2.3`).
         :param new_section: New section content including heading.
         :return: True if the content was modified.
         """
-        match = _section_re(version).search(self.content)
+        match = self._section(version)
         if not match:
             return False
         old_section = match.group(0)
@@ -776,78 +799,6 @@ class Changelog:
             self.content[: match.start()] + formatted + self.content[match.end() :]
         )
         return True
-
-
-def _load_pypi_releases(
-    package: str | None, history: Sequence[str], *, force_refresh: bool = False
-) -> dict[str, PyPIRelease]:
-    """Load a package's PyPI releases, merged with its former names.
-
-    A renamed project keeps its old releases under the old name, so the
-    changelog's early versions resolve only through
-    `[tool.repomatic] pypi.package-history`. The current package wins on
-    version collisions.
-
-    :param package: Current PyPI package name; empty or `None` skips PyPI.
-    :param history: Former package names, oldest-first.
-    :param force_refresh: Ignore cached responses and re-fetch.
-    :return: Dict mapping version strings to {class}`PyPIRelease` tuples.
-    """
-    releases: dict[str, PyPIRelease] = {}
-    if package:
-        releases = get_pypi_release_dates(package, force_refresh=force_refresh)
-    for former_package in history:
-        former_data = get_pypi_release_dates(
-            former_package, force_refresh=force_refresh
-        )
-        if former_data:
-            logging.info(
-                f"Using PyPI history for {former_package!r}"
-                f" ({len(former_data)} releases found)."
-            )
-        for version, release in former_data.items():
-            releases.setdefault(version, release)
-    return releases
-
-
-def _is_platform_gap(
-    parsed: Version,
-    on_platform: bool,
-    platform_known: bool,
-    first_version: Version | None,
-) -> bool:
-    """Whether *parsed* is missing from a platform it should appear on.
-
-    A gap is an absence *after* the platform's first release: versions
-    predating it were never expected there, so they are not warned about.
-
-    :param parsed: The version under test.
-    :param on_platform: Whether the lookup found it on the platform.
-    :param platform_known: Whether the platform is addressable at all (a
-        package name for PyPI, a repository URL for GitHub).
-    :param first_version: Earliest version seen on that platform.
-    :return: `True` when the version is a genuine gap.
-    """
-    return (
-        not on_platform
-        and platform_known
-        and first_version is not None
-        and parsed >= first_version
-    )
-
-
-def _records_absence(admonition: str, label: str) -> bool:
-    """Whether an availability admonition already marks a platform missing.
-
-    An available platform renders as a markdown link and a missing one as a
-    bare label, so the `[` prefix is what separates a claim of presence from a
-    record of absence.
-
-    :param admonition: A section's availability admonition, possibly empty.
-    :param label: The platform's display label, like {data}`PYPI_LABEL`.
-    :return: `True` when the admonition names the platform without a link.
-    """
-    return label in admonition and f"[{label}](" not in admonition
 
 
 def _platform_admonition(
@@ -932,862 +883,3 @@ def build_unavailable_admonition(
     return _platform_admonition(
         "unavailable-admonition", version, NOT_AVAILABLE_VERB, names
     )
-
-
-def split_changelog_bullets(changes: str) -> list[str]:
-    """Split a version section's change body into top-level bullet entries.
-
-    Each returned item is one entry: its `-` marker line plus any wrapped
-    continuation lines and indented sub-bullets, joined with newlines.
-    Blank lines and prose outside a bullet are dropped.
-
-    :param changes: The hand-written body of a version section, as captured
-        in {attr}`VersionElements.changes`.
-    :return: One string per top-level bullet, in document order.
-    """
-    bullets: list[str] = []
-    current: list[str] = []
-    for line in changes.splitlines():
-        if re.match(r"^- ", line):
-            if current:
-                bullets.append("\n".join(current))
-            current = [line]
-        elif current and (not line.strip() or line[:1] in {" ", "\t"}):
-            # Wrapped continuation, indented sub-bullet, or interior blank line.
-            current.append(line)
-        elif current:
-            # A non-indented, non-bullet line closes the current entry.
-            bullets.append("\n".join(current))
-            current = []
-    if current:
-        bullets.append("\n".join(current))
-    return bullets
-
-
-def count_bullet_words(bullet: str) -> int:
-    """Count the words in a changelog bullet, ignoring list markers.
-
-    Leading `-`/`*` markers (on the entry and any nested sub-bullets) are
-    stripped so they do not inflate the count; everything else, including
-    inline code and link text, counts as written.
-    """
-    return len(re.sub(r"(?m)^\s*[-*]\s+", "", bullet).split())
-
-
-def warn_on_long_bullets(changelog: Changelog, threshold: int) -> None:
-    """Warn about over-long bullets in the unreleased section, non-fatally.
-
-    A changelog entry is a release note, not a commit message: one short
-    sentence of 10 to 25 words stating what changed. Each unreleased bullet
-    longer than `threshold` words emits a {data}`logging.WARNING` and a GitHub
-    Actions warning annotation, without affecting the lint exit code.
-
-    Only the unreleased section is inspected. Released sections are immutable,
-    so re-flagging historical entries on every run would be noise.
-
-    :param changelog: The parsed changelog to inspect.
-    :param threshold: Word ceiling per bullet. `0` (or less) disables the check.
-    """
-    if threshold <= 0:
-        return
-    released = {version for version, _date in changelog.extract_all_releases()}
-    unreleased = changelog.extract_all_version_headings() - released
-    for version in sorted(unreleased, key=Version, reverse=True):
-        elements = changelog.decompose_version(version)
-        for index, bullet in enumerate(split_changelog_bullets(elements.changes), 1):
-            words = count_bullet_words(bullet)
-            if words > threshold:
-                logging.warning(
-                    f"⚠ {version}: changelog entry {index} runs {words} words "
-                    f"(over {threshold}). Tighten it to a one-sentence release "
-                    f"note; move mechanism and rationale to the commit or PR."
-                )
-                emit_annotation(
-                    AnnotationLevel.WARNING,
-                    f"Changelog entry {index} for {version} runs {words} words, "
-                    f"over the {threshold}-word guideline. A changelog entry is "
-                    f"a release note, not a commit message: keep it to one short "
-                    f"sentence, and move mechanism and rationale to the commit "
-                    f"or the pull request. See {LINT_DOCS_URL}",
-                )
-
-
-def warn_on_empty_sections(changelog: Changelog) -> None:
-    """Warn about released sections holding no entry, non-fatally.
-
-    A published heading with nothing under it reads as broken to anyone
-    scanning release notes, and it is not merely cosmetic: the GitHub
-    release body is rebuilt from this section, so an empty one publishes an
-    empty release. The fix is to name what actually moved rather than to
-    leave the section blank.
-
-    Only *released* sections are inspected. The unreleased section is
-    legitimately empty for most of a cycle, since the post-release bump
-    creates it with no entries, so flagging it would fire on every push in
-    the hours after a release and train the reader to ignore the check.
-    That is the mirror of {func}`warn_on_long_bullets`, which inspects the
-    unreleased section alone because re-flagging immutable history is the
-    noise there.
-
-    Availability, editorial and yanked admonitions live in their own
-    {class}`VersionElements` fields, so a section carrying nothing but a
-    `[!WARNING]` about missing binaries still counts as empty: an
-    admonition explains a caveat, it does not say what changed.
-
-    :param changelog: The parsed changelog to inspect.
-    """
-    for version, _date in sorted(
-        changelog.extract_all_releases(), key=lambda r: Version(r[0]), reverse=True
-    ):
-        elements = changelog.decompose_version(version)
-        if split_changelog_bullets(elements.changes):
-            continue
-        logging.warning(
-            f"⚠ {version}: released section holds no entry. Add one naming what "
-            f"moved, even on a purely mechanical cycle."
-        )
-        emit_annotation(
-            AnnotationLevel.WARNING,
-            f"Changelog section for {version} is empty. A published release "
-            f"heading with no entries reads as broken, and the GitHub release "
-            f"body is rebuilt from it. Name what moved, even on a purely "
-            f"mechanical cycle. See {LINT_DOCS_URL}",
-        )
-
-
-@dataclass(frozen=True)
-class ReleaseSources:
-    """The external lookups a changelog's dates and availability are checked against.
-
-    Both lookups are TTL-cached, and the boundary versions derived from them
-    used to be recomputed by hand after a forced refresh: deriving them here
-    means a refresh cannot leave a stale boundary behind. Frozen so the
-    boundary properties can be cached: a refreshed half swaps in through
-    `dataclasses.replace`, which is what actually guarantees the derivations
-    can never go stale against an in-place edit.
-    """
-
-    package: str | None
-    """PyPI package name, `None` when the project publishes nothing."""
-
-    pypi_data: dict[str, PyPIRelease]
-    """Released versions on PyPI, keyed by version string."""
-
-    repo_url: str
-    """Repository URL read out of the changelog's own comparison links."""
-
-    github_releases: dict[str, GitHubRelease]
-    """Published GitHub releases, keyed by version string."""
-
-    github_fetch_failed: bool = False
-    """Whether the GitHub lookup errored, as opposed to answering empty."""
-
-    @property
-    def use_pypi(self) -> bool:
-        """Whether PyPI is the reference source, rather than git tags."""
-        return bool(self.pypi_data)
-
-    @cached_property
-    def first_pypi_version(self) -> Version | None:
-        """Oldest version on PyPI, for the predates-the-index boundary.
-
-        Cached: the fix loop reads the boundary several times per version, and
-        each uncached read parsed a `Version` per PyPI release all over again.
-        """
-        return min(map(Version, self.pypi_data), default=None)
-
-    @cached_property
-    def first_github_version(self) -> Version | None:
-        """Oldest GitHub release, for the predates-the-releases boundary.
-
-        Cached, like {attr}`first_pypi_version`.
-        """
-        return min(map(Version, self.github_releases), default=None)
-
-    @classmethod
-    def load(
-        cls,
-        changelog: Changelog,
-        package: str | None,
-        pypi_package_history: Sequence[str] | None,
-        *,
-        force_refresh: bool = False,
-    ) -> ReleaseSources:
-        """Fetch both release sources, reporting what each answered.
-
-        :param changelog: Parsed changelog, read for its repository URL.
-        :param package: PyPI package name, auto-detected when `None`.
-        :param pypi_package_history: Former package names to merge in.
-        :param force_refresh: Bypass the caches, for a live re-confirmation.
-        """
-        if package is None:
-            package = get_project_name()
-        pypi_data = _load_pypi_releases(
-            package, pypi_package_history or (), force_refresh=force_refresh
-        )
-        if not package:
-            logging.info("No package name detected, falling back to git tags.")
-        elif pypi_data:
-            logging.info(
-                f"Using PyPI as reference for {package!r}"
-                f" ({len(pypi_data)} releases found)."
-            )
-        else:
-            logging.info(
-                f"Package {package!r} not found on PyPI, falling back to git tags."
-            )
-
-        repo_url = changelog.extract_repo_url()
-        github_releases: dict[str, GitHubRelease] = {}
-        github_fetch_failed = False
-        if repo_url:
-            try:
-                github_releases = get_github_releases(
-                    repo_url, force_refresh=force_refresh
-                )
-            except GitHubReleasesUnavailable as exc:
-                github_fetch_failed = True
-                logging.warning(f"GitHub releases lookup failed: {exc}")
-                emit_annotation(
-                    AnnotationLevel.WARNING,
-                    f"GitHub releases lookup failed: {exc}",
-                )
-            if github_releases:
-                logging.info(f"GitHub releases: {len(github_releases)} found.")
-
-        sources = cls(
-            package=package,
-            pypi_data=pypi_data,
-            repo_url=repo_url or "",
-            github_releases=github_releases,
-            github_fetch_failed=github_fetch_failed,
-        )
-        if sources.first_pypi_version:
-            logging.info(f"First PyPI version: {sources.first_pypi_version}")
-        if sources.first_github_version:
-            logging.info(f"First GitHub version: {sources.first_github_version}")
-        return sources
-
-    def platform_gaps(self, version: str) -> tuple[bool, bool]:
-        """Whether *version* is a gap on PyPI and on GitHub, in that order.
-
-        See `_is_platform_gap` for what counts as a gap.
-        """
-        parsed = Version(version)
-        return (
-            _is_platform_gap(
-                parsed,
-                version in self.pypi_data,
-                bool(self.package),
-                self.first_pypi_version,
-            ),
-            _is_platform_gap(
-                parsed,
-                version in self.github_releases,
-                bool(self.repo_url),
-                self.first_github_version,
-            ),
-        )
-
-    def unrecorded_gaps(
-        self,
-        changelog: Changelog,
-        releases: Sequence[tuple[str, str]],
-        *,
-        github_only: bool = False,
-    ) -> set[str]:
-        """Versions these lookups miss where their section records no absence.
-
-        A section claiming the platform is one a stale snapshot would retract,
-        and a section recording nothing yet belongs to a release that may
-        postdate the snapshot: both need a live answer. A gap the section
-        already records is left to the cache, so a permanent one costs no
-        request per run.
-
-        :param github_only: Report only the versions whose unrecorded gap is on
-            GitHub. A PyPI-only gap needs no GitHub answer, so a failed GitHub
-            lookup still leaves it settled.
-        """
-        found = set()
-        for candidate, _candidate_date in releases:
-            pypi_gap, github_gap = self.platform_gaps(candidate)
-            if not (pypi_gap or github_gap):
-                continue
-            existing = changelog.decompose_version(candidate).availability_admonition
-            unrecorded_pypi = pypi_gap and not _records_absence(existing, PYPI_LABEL)
-            unrecorded_github = github_gap and not _records_absence(
-                existing, GITHUB_LABEL
-            )
-            if unrecorded_github or (unrecorded_pypi and not github_only):
-                found.add(candidate)
-        return found
-
-
-class DateCheck(NamedTuple):
-    """What comparing every changelog date against its reference source found."""
-
-    corrections: dict[str, str]
-    """Version to the date it should carry, for the versions `--fix` repairs."""
-
-    mismatched: bool
-    """Whether any version's date disagreed with its reference source."""
-
-    unfixed: bool
-    """Whether a mismatch was left standing (no `--fix` to apply)."""
-
-
-def _check_release_dates(
-    releases: Sequence[tuple[str, str]],
-    sources: ReleaseSources,
-    *,
-    fix: bool,
-    abandoned_versions: Sequence[str],
-) -> DateCheck:
-    """Compare each documented release date against its reference source.
-
-    PyPI upload dates are canonical when the project publishes there, since
-    they are immutable; a project without a PyPI presence falls back to git
-    tag dates, which can be recreated. A version absent from the reference is
-    reported rather than corrected: it may predate the source, be
-    deliberately abandoned, or be a genuine gap.
-
-    :param releases: `(version, date)` pairs read from the changelog.
-    :param sources: The loaded release lookups.
-    :param fix: Whether a mismatch is collected for repair or left standing.
-    :param abandoned_versions: Versions never published, reported as skipped.
-    :return: The collected corrections and the two problem flags.
-    """
-    corrections: dict[str, str] = {}
-    mismatched = False
-    unfixed = False
-    abandoned = frozenset(abandoned_versions)
-    # Point maintainers at the remedy: a version that is intentionally absent
-    # from the reference source is declared once in config, not re-flagged.
-    abandoned_hint = (
-        "list under [tool.repomatic] abandoned-versions if intentionally unpublished"
-    )
-    # One `git tag` call answers every version on the fallback path, instead
-    # of one subprocess per documented release.
-    tag_dates = {} if sources.use_pypi else get_all_version_tags()
-
-    for version, changelog_date in releases:
-        if sources.use_pypi:
-            release = sources.pypi_data.get(version)
-            if release is None:
-                if version in abandoned:
-                    logging.info(f"  {version}: abandoned (skipped per config)")
-                    continue
-                first = sources.first_pypi_version
-                if first and Version(version) < first:
-                    logging.info(f"  {version}: predates PyPI (first: {first})")
-                    continue
-                logging.warning(f"⚠ {version}: not found on PyPI ({abandoned_hint})")
-                emit_annotation(
-                    AnnotationLevel.WARNING,
-                    f"Version {version} not found on PyPI ({abandoned_hint})",
-                )
-                continue
-            ref_date = release.date
-            source = "PyPI"
-        else:
-            tag_date = tag_dates.get(version)
-            source = "tag"
-            if tag_date is None:
-                if version in abandoned:
-                    logging.info(f"  {version}: abandoned (skipped per config)")
-                    continue
-                logging.warning(
-                    f"⚠ {version}: not found on {source} ({abandoned_hint})"
-                )
-                emit_annotation(
-                    AnnotationLevel.WARNING,
-                    f"Version {version} not found on {source} ({abandoned_hint})",
-                )
-                continue
-            ref_date = tag_date
-
-        if changelog_date == ref_date:
-            logging.info(f"✓ {version}: {changelog_date} ({source})")
-            continue
-
-        logging.error(f"✗ {version}: changelog={changelog_date}, {source}={ref_date}")
-        emit_annotation(
-            AnnotationLevel.ERROR,
-            (
-                f"Date mismatch for {version}:"
-                f" changelog={changelog_date}, {source}={ref_date}"
-            ),
-        )
-        mismatched = True
-        if fix:
-            corrections[version] = ref_date
-        else:
-            unfixed = True
-
-    return DateCheck(corrections, mismatched, unfixed)
-
-
-class OrphanReconciliation(NamedTuple):
-    """What reconciling versions missing from the changelog produced."""
-
-    releases: list[tuple[str, str]]
-    """Documented releases, re-read when insertions changed the file."""
-
-    found: bool
-    """Whether any orphan was detected at all."""
-
-    modified: bool
-    """Whether a section was actually inserted."""
-
-    unfixed: bool
-    """Whether an orphan was left in place, unrepaired."""
-
-
-def _reconcile_orphans(
-    changelog: Changelog,
-    releases: list[tuple[str, str]],
-    sources: ReleaseSources,
-    *,
-    fix: bool,
-    archive_path: Path | None,
-) -> OrphanReconciliation:
-    """Report versions published somewhere but absent from the changelog.
-
-    An orphan is a version the outside world knows (a git tag, a GitHub
-    release, a PyPI upload) that the changelog never documents. With *fix*
-    they are inserted oldest-first, so each insertion updates the adjacent
-    section's comparison URL correctly.
-
-    :param changelog: Parsed changelog, mutated in place when inserting.
-    :param releases: Documented `(version, date)` pairs.
-    :param sources: The loaded release lookups.
-    :param fix: Whether to insert the missing sections.
-    :param archive_path: Frozen changelog whose versions count as documented.
-    :return: The (possibly re-read) releases and the three outcome flags.
-    """
-    tag_versions = get_all_version_tags()
-    changelog_headings = changelog.extract_all_version_headings()
-    # Versions documented in the frozen archive count as present, so entries
-    # split out of the live changelog are neither flagged nor re-inserted as
-    # orphans.
-    archive_headings: set[str] = set()
-    if archive_path and archive_path.exists():
-        archive_headings = Changelog(
-            archive_path.read_text(encoding="UTF-8")
-        ).extract_all_version_headings()
-    # The changelog documents only final releases. Exclude pre-releases
-    # (dev/alpha/beta/rc) so a published `X.Y.Z.dev0` tag, PyPI upload, or
-    # GitHub prerelease is never mistaken for a missing changelog entry: an
-    # orphan insertion would both drop a spurious pre-release section and
-    # rewrite the adjacent release's comparison-URL base to point at it.
-    all_known = {
-        v
-        for v in (
-            set(sources.pypi_data) | set(sources.github_releases) | set(tag_versions)
-        )
-        if not Version(v).is_prerelease
-    }
-    orphans = all_known - changelog_headings - archive_headings
-    if not orphans:
-        return OrphanReconciliation(releases, False, False, False)
-
-    for orphan in sorted(orphans, key=Version):
-        logging.warning(
-            f"⚠ {orphan}: found in external sources but missing from changelog"
-        )
-        emit_annotation(
-            AnnotationLevel.WARNING,
-            (
-                f"Version {orphan} exists as a tag, GitHub release,"
-                " or PyPI package but has no changelog entry"
-            ),
-        )
-
-    if not (fix and sources.repo_url):
-        # Without `--fix`, or without a repository URL to build comparison
-        # links from, the orphans stay orphaned.
-        return OrphanReconciliation(releases, True, False, True)
-
-    modified = False
-    unfixed = False
-    # Insert orphans oldest-first so each insertion correctly updates the
-    # adjacent section's comparison URL.
-    all_versions = sorted(changelog_headings | orphans, key=Version, reverse=True)
-    for orphan in sorted(orphans, key=Version):
-        # Determine date: prefer PyPI, then GitHub, then git tag.
-        orphan_date = ""
-        if orphan in sources.pypi_data:
-            orphan_date = sources.pypi_data[orphan].date
-        elif orphan in sources.github_releases:
-            orphan_date = sources.github_releases[orphan].date
-        elif orphan in tag_versions:
-            orphan_date = tag_versions[orphan]
-        if not orphan_date:
-            # No source agrees on a date, so there is nothing truthful to
-            # write. A placeholder would satisfy the heading pattern and then
-            # mismatch its reference date on every later run, which is worse
-            # than leaving the orphan reported.
-            logging.warning(
-                f"⚠ {orphan}: no release date found in any source, skipping insertion"
-            )
-            unfixed = True
-            continue
-        if changelog.insert_version_section(
-            orphan, orphan_date, sources.repo_url, list(all_versions)
-        ):
-            modified = True
-        else:
-            unfixed = True
-
-    # Re-extract releases so the admonition phase processes the newly
-    # inserted sections.
-    return OrphanReconciliation(
-        changelog.extract_all_releases(), True, modified, unfixed
-    )
-
-
-def lint_changelog_dates(
-    changelog_path: Path,
-    package: str | None = None,
-    *,
-    archive_path: Path | None = None,
-    fix: bool = False,
-    pypi_package_history: Sequence[str] = (),
-    abandoned_versions: Sequence[str] = (),
-    bullet_word_threshold: int = 0,
-) -> int:
-    """Verify that changelog release dates match canonical release dates.
-
-    Uses PyPI upload dates as the canonical reference when the project
-    is published to PyPI. Falls back to git tag dates for projects not
-    on PyPI.
-
-    Versions older than the first PyPI release are expected to be absent
-    and logged at info level. Versions newer than the first PyPI release
-    but missing from PyPI are unexpected and logged as warnings.
-
-    Also detects **orphaned versions**: versions that exist as git tags,
-    GitHub releases, or PyPI packages but have no corresponding changelog
-    entry. Orphans are logged as warnings and cause a non-zero exit code.
-
-    Two non-fatal content checks run first and never affect the exit code:
-    {func}`warn_on_long_bullets` over the unreleased section, and
-    {func}`warn_on_empty_sections` over the released ones.
-
-    When `fix` is enabled, date mismatches are corrected in-place and
-    admonitions are added to the changelog:
-
-    - A `[!NOTE]` admonition listing available distribution links
-      (PyPI, GitHub) for each version. Links are conditional: only
-      sources where the version exists are included.
-    - A `[!WARNING]` admonition listing platforms where the version
-      is *not* available (missing from PyPI, GitHub, or both).
-    - A `[!CAUTION]` admonition for yanked releases.
-
-    ```{caution}
-
-    The `fix-changelog` workflow job skips this function during the
-    release cycle (when `release_commits_matrix` is non-empty). At that
-    point the release pipeline hasn't published to PyPI or created a
-    GitHub release yet, so this function would incorrectly add "not
-    available" admonitions to the freshly-released version.
-    ```
-    - Placeholder sections for orphaned versions, with comparison URLs
-      linking to adjacent versions.
-
-    :param changelog_path: Path to the changelog file.
-    :param archive_path: Optional path to a frozen changelog archive. Versions
-        documented there are treated as present, suppressing false-positive
-        orphan detection (and re-insertion under `fix`) for entries split out
-        of the live changelog. Archived dates are not re-validated.
-    :param package: PyPI package name. If `None`, auto-detected from
-        `pyproject.toml`. If detection fails, falls back to git tags.
-    :param fix: If True, fix dates and add admonitions to the file.
-    :param pypi_package_history: Former PyPI package names for renamed
-        projects. Releases from each former name are merged into the
-        lookup table so versions published under old names are recognized.
-        The current package name wins on version collisions.
-    :param abandoned_versions: Versions documented in the changelog but
-        never published. Each listed version is reported as skipped (info
-        log) instead of triggering the `not found on PyPI` warning, for
-        both the PyPI lookup and the git-tag fallback. Use for releases
-        that were frozen but skipped per the "skip and move forward"
-        practice (botched build, broken artifact).
-    :param bullet_word_threshold: Word count above which an unreleased-section
-        bullet triggers a non-fatal length warning (see
-        {func}`warn_on_long_bullets`). `0` disables the check. Never affects
-        the exit code.
-    :return: `0` if all dates match or references were corrected in-place,
-        `1` if any date mismatch or orphan is found without a fix being
-        applied, `2` if the sanity gate refused a destructive rewrite
-        because an upstream data source (GitHub Releases or PyPI) appeared
-        to be returning incomplete or empty results while the existing
-        changelog has substantial coverage on that platform.
-    """
-    content = changelog_path.read_text(encoding="UTF-8")
-    changelog = Changelog(content)
-    warn_on_long_bullets(changelog, bullet_word_threshold)
-    warn_on_empty_sections(changelog)
-    releases = changelog.extract_all_releases()
-
-    if not releases:
-        logging.info("No released versions found in changelog.")
-        return 0
-
-    sources = ReleaseSources.load(changelog, package, pypi_package_history)
-
-    has_mismatch = False
-    modified = False
-    # Set whenever a flagged problem is left standing: no `--fix`, a fix that
-    # could not run, or one that ran without landing. Kept apart from
-    # `has_mismatch` so a partial repair still fails, where counting any single
-    # file write as success would report green on a changelog still wrong.
-    unfixed_problem = False
-
-    # Live re-check: never report or record a release as missing on cached
-    # data alone. Both lookups are TTL-cached for a day, so a snapshot taken
-    # before a release landed reports that release as missing, which is
-    # indistinguishable here from one that was never published. The sanity
-    # gates further down catch only a *wholly* empty result; a
-    # stale-but-populated snapshot walks past them, and the window where it
-    # lies is exactly the hours after a release, when this command is most
-    # likely to run. The section of a fresh release usually records nothing
-    # yet, so a gap is re-checked unless its section already records it.
-    # Running before the date loop means the spurious "not found on PyPI"
-    # warning goes away with it.
-    unconfirmed = sources.unrecorded_gaps(changelog, releases)
-    if unconfirmed:
-        logging.info(
-            f"Lookups miss {', '.join(sorted(unconfirmed))}, which the"
-            " changelog does not mark missing; re-confirming live."
-        )
-        confirmed = ReleaseSources.load(
-            changelog, sources.package, pypi_package_history, force_refresh=True
-        )
-        if fix and confirmed.github_fetch_failed:
-            msg = (
-                f"Refusing to rewrite changelog: cached data would mark"
-                f" {', '.join(sorted(unconfirmed))} as unpublished,"
-                f" and the confirming GitHub lookup failed."
-                f" Re-run when the GitHub API is reachable."
-            )
-            logging.error(msg)
-            emit_annotation(AnnotationLevel.ERROR, msg)
-            return 2
-        if not confirmed.github_fetch_failed:
-            sources = confirmed
-        else:
-            # Keep the fresh PyPI half; the GitHub half stays as fetched.
-            sources = replace(sources, pypi_data=confirmed.pypi_data)
-        still_missing = sources.unrecorded_gaps(changelog, releases)
-        # Only reachable without `--fix`, which refuses above: the GitHub half
-        # is still the cached answer, so a gap needing it stays unconfirmed. A
-        # PyPI-only gap was just confirmed against the fresh PyPI answer.
-        unconfirmable = (
-            sources.unrecorded_gaps(changelog, releases, github_only=True)
-            if confirmed.github_fetch_failed
-            else set()
-        )
-        if unconfirmable:
-            logging.warning(
-                f"Could not confirm {', '.join(sorted(unconfirmable))} live:"
-                " the GitHub releases lookup failed."
-            )
-        still_missing -= unconfirmable
-        if still_missing:
-            # Confirmed against the live APIs: the release really is missing
-            # (a failed upload, a deleted GitHub release, a removed PyPI file).
-            # Recording the absence is then the correct repair, not a
-            # stale-cache artifact.
-            logging.warning(
-                f"Confirmed live: {', '.join(sorted(still_missing))} missing"
-                " from a platform the changelog does not mark."
-            )
-        elif not unconfirmable:
-            logging.info(
-                "Live lookups list every release the cache missed; the cache was stale."
-            )
-
-    orphan_result = _reconcile_orphans(
-        changelog, releases, sources, fix=fix, archive_path=archive_path
-    )
-    releases = orphan_result.releases
-    has_mismatch = has_mismatch or orphan_result.found
-    modified = modified or orphan_result.modified
-    unfixed_problem = unfixed_problem or orphan_result.unfixed
-
-    date_check = _check_release_dates(
-        releases, sources, fix=fix, abandoned_versions=abandoned_versions
-    )
-    date_corrections = date_check.corrections
-    has_mismatch = has_mismatch or date_check.mismatched
-    unfixed_problem = unfixed_problem or date_check.unfixed
-
-    # Sanity gate: refuse to rewrite admonitions when an upstream data
-    # source returned empty (or failed) while the existing changelog has
-    # substantial coverage on that platform. This protects against the
-    # `kdeldycke/click-extra#1702` failure mode, where a transient API
-    # call returned `{}` and the subsequent rewrite stripped every
-    # GitHub (or PyPI) link from the changelog without ever flagging
-    # the gap as a warning.
-    if fix:
-        existing_github_links = 0
-        existing_pypi_links = 0
-        for version, _date in releases:
-            existing_admonition = changelog.decompose_version(
-                version
-            ).availability_admonition
-            if GITHUB_LABEL in existing_admonition:
-                existing_github_links += 1
-            if PYPI_LABEL in existing_admonition:
-                existing_pypi_links += 1
-
-        # GitHub side: an explicit `GitHubReleasesUnavailable` is an
-        # unambiguous signal that the data is unreliable. Refuse to
-        # rewrite as soon as the existing changelog has any GitHub
-        # coverage, since the rewrite would silently strip it.
-        if sources.github_fetch_failed and existing_github_links > 0:
-            msg = (
-                f"Refusing to rewrite changelog: GitHub releases lookup "
-                f"failed but {existing_github_links} existing version"
-                f" section(s) reference a GitHub release. Rewriting now "
-                f"would silently strip every GitHub link from the file. "
-                f"Re-run when the GitHub API is reachable."
-            )
-            logging.error(msg)
-            emit_annotation(AnnotationLevel.ERROR, msg)
-            return 2
-
-        # PyPI side: `sources.pypi_data == {}` cannot distinguish "sources.package not
-        # on PyPI" from "transient failure" — see the
-        # `EMPTY_PYPI_SANITY_THRESHOLD` docstring for the two layers of
-        # ambiguity (client-side catch-all in `_fetch_json`, plus
-        # Warehouse's own 404 semantics, pypi/warehouse#1388). Use a
-        # coverage threshold to gate: a substantial number of existing
-        # PyPI links combined with an empty fetch is the fingerprint of
-        # a transient failure rather than a genuine non-PyPI project.
-        if (
-            sources.package
-            and not sources.pypi_data
-            and existing_pypi_links >= EMPTY_PYPI_SANITY_THRESHOLD
-        ):
-            msg = (
-                f"Refusing to rewrite changelog: PyPI lookup for "
-                f"{sources.package!r} returned no data but {existing_pypi_links} "
-                f"existing version section(s) reference a PyPI release. "
-                f"Likely a transient API failure. Re-run when PyPI is "
-                f"reachable. If the project genuinely no longer publishes to "
-                f"PyPI, run with an empty package name (`--package ''`) to "
-                f"check dates against git tags instead."
-            )
-            logging.error(msg)
-            emit_annotation(AnnotationLevel.ERROR, msg)
-            return 2
-
-    # In fix mode, decompose each version section into elements,
-    # apply date corrections, compute updated admonitions, and
-    # reassemble via the release-notes template. This is idempotent:
-    # decomposing and re-rendering an already-correct section is a
-    # no-op.
-    if fix:
-        for version, _date in releases:
-            elements = changelog.decompose_version(version)
-
-            # Apply corrected date if the check loop found a mismatch.
-            if version in date_corrections:
-                elements.date = date_corrections[version]
-
-            on_pypi = version in sources.pypi_data
-            on_github = version in sources.github_releases
-            is_yanked = on_pypi and sources.pypi_data[version].yanked
-
-            # Build the NOTE admonition for platforms where available.
-            # Use the sources.package name embedded in the PyPIRelease entry so
-            # renamed projects point to the correct PyPI page.
-            # Yanked releases are excluded from the NOTE — the CAUTION
-            # admonition below links to the specific PyPI page instead.
-            pypi_url = (
-                PYPI_PROJECT_URL.format(
-                    package=sources.pypi_data[version].package, version=version
-                )
-                if on_pypi and not is_yanked
-                else ""
-            )
-            github_url = (
-                GITHUB_RELEASE_URL.format(repo_url=sources.repo_url, version=version)
-                if on_github and sources.repo_url
-                else ""
-            )
-
-            # "First version" wording applies when every listed platform
-            # is a first appearance for that platform.
-            parsed = Version(version)
-            is_first_pypi = (
-                on_pypi
-                and sources.first_pypi_version is not None
-                and parsed == sources.first_pypi_version
-            )
-            is_first_github = (
-                on_github
-                and sources.first_github_version is not None
-                and parsed == sources.first_github_version
-            )
-            first_on_all = (
-                (is_first_pypi or not on_pypi)
-                and (is_first_github or not on_github)
-                and (is_first_pypi or is_first_github)
-            )
-
-            note = build_release_admonition(
-                version,
-                pypi_url=pypi_url,
-                github_url=github_url,
-                first_on_all=first_on_all,
-            )
-
-            # Build the WARNING admonition for platforms where missing.
-            # Only warn about gaps: versions that postdate the first
-            # release on that platform but are absent from it.
-            pypi_gap, github_gap = sources.platform_gaps(version)
-            warning = build_unavailable_admonition(
-                version,
-                missing_pypi=pypi_gap,
-                missing_github=github_gap,
-            )
-            # Combine NOTE and WARNING admonitions. Both can appear
-            # when a version is on one platform but not the other.
-            admonitions = [a for a in (note, warning) if a]
-            elements.availability_admonition = "\n\n".join(admonitions)
-
-            if is_yanked:
-                # PyPI accepts a yank with no reason, so the clause carrying
-                # it is rendered only when there is one. Its own trailing
-                # period is dropped: the template supplies the sentence's.
-                reason = sources.pypi_data[version].yanked_reason.strip().rstrip(".")
-                elements.yanked_admonition = render_template(
-                    "yanked-admonition",
-                    version=version,
-                    package=sources.pypi_data[version].package,
-                    reason=f": {reason}" if reason else "",
-                )
-
-            new_section = render_template("release-notes", **asdict(elements))
-            modified |= changelog.replace_section(version, new_section)
-
-        # A correction only counts as applied once the rendered section carries
-        # it. `replace_section` cannot answer that on its own: it reports "no
-        # change" both for a section it failed to touch and for one that was
-        # already correct, so the date itself is the evidence.
-        for corrected_version, corrected_date in date_corrections.items():
-            if changelog.decompose_version(corrected_version).date != corrected_date:
-                unfixed_problem = True
-
-    if fix and modified:
-        changelog_path.write_text(changelog.content.rstrip() + "\n", encoding="UTF-8")
-        logging.info(f"Updated {changelog_path}")
-
-    # Success needs every flagged problem repaired, not merely some file write
-    # having happened: a run that inserts one orphan but leaves another without
-    # a comparison URL to link it from has not fixed the changelog, and letting
-    # downstream steps proceed on that would publish the gap.
-    return 1 if has_mismatch and unfixed_problem else 0

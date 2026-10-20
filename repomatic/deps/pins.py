@@ -24,8 +24,8 @@ minimum-release-age` cooldown (the GitHub/PyPI/npm counterpart to uv's
 in place.
 
 The datasource adapters and version selection live here; the file I/O and
-checksum recompute that the commands drive stay in {mod}`repomatic.cli.deps`. The
-string-level helpers (`set_tool_version`, `find_action_pins`,
+checksum recompute that the commands drive stay in {mod}`repomatic.deps.sync`.
+The string-level helpers (`set_tool_version`, `find_action_pins`,
 `find_workflow_literals`, and the `apply_*` rewriters) are pure so they can be
 unit-tested without network access.
 """
@@ -35,7 +35,9 @@ from __future__ import annotations
 import logging
 import math
 import re
+from dataclasses import dataclass, field
 from datetime import date, timedelta
+from enum import StrEnum
 from functools import cache
 from typing import NamedTuple
 
@@ -49,14 +51,17 @@ from ..github.releases import (
 )
 from ..http import FetchError, get_text
 from ..humanize import SECONDS_PER_DAY
-from ..npm import get_release_dates as npm_release_dates
-from ..pypi import get_release_dates as pypi_release_dates
+from ..npm import NPM_PACKAGE_URL, npm_release_dates
+from ..pypi import PYPI_PACKAGE_URL, pypi_release_dates
 from ..tooling.registry import ToolBackend
 from ..versions import is_newer, safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Mapping
+
+    # An alias, because `Candidate` names one of its own fields `date`.
+    from datetime import date as Day
 
     from packaging.version import Version
 
@@ -116,16 +121,12 @@ SETUP_UV_PACKAGE = "uv"
 SETUP_UV_SLUG = "astral-sh/setup-uv"
 """Action slug provisioning uv, whose own pin decides what CI can verify."""
 
-SETUP_UV_CHECKSUMS_PATHS = (
-    "src/download/checksum/known-checksums.json",
-    "src/download/checksum/known-checksums.ts",
-)
-"""Paths of the checksum table inside the {data}`SETUP_UV_SLUG` repository.
+SETUP_UV_CHECKSUMS_PATH = "src/download/checksum/known-checksums.json"
+"""Path of the checksum table inside the {data}`SETUP_UV_SLUG` repository.
 
-Tried in order, newest layout first. `v10.1.0` moved the table into the JSON
-file and reduced the TypeScript one to an `import` of it, while every earlier
-release holds the table inline in the TypeScript file. A pin on either side of
-that move must stay readable, since a repository mid-bump intersects both.
+The layout of every release since `v10.1.0`. An older pin holds the table
+inline in a TypeScript file instead, which reads as an unknown table: the uv
+pin then holds until `sync-action-pins` moves the action past it.
 """
 
 GITHUB_API_CONTENTS_URL = (
@@ -145,8 +146,6 @@ Keys are ``{target-triple}-{version}`` (`aarch64-apple-darwin-0.12.4`). The
 triple has no fixed segment count (`arm-unknown-linux-musleabihf` against
 `x86_64-apple-darwin`), so the version anchors the match instead: the leading
 character class holds no dot, which is what stops it eating into the version.
-Both layouts in {data}`SETUP_UV_CHECKSUMS_PATHS` quote the key the same way, so
-one pattern reads either.
 """
 
 # The uv build `astral-sh/setup-uv` installs, as a `version:` input on the step.
@@ -175,11 +174,16 @@ step missing one would otherwise borrow the next step's.
 """
 
 
-class Candidate(NamedTuple):
-    """A single release version offered by a datasource."""
+@dataclass(frozen=True)
+class Candidate:
+    """A single release version offered by a datasource.
+
+    Its date and version are parsed once, at construction, since every
+    selection sweep over a datasource's releases compares both.
+    """
 
     version: str
-    """Comparable, display version (e.g. `1.7.12`)."""
+    """Comparable, display version (like `1.7.12`)."""
 
     date: str
     """Publication date in `YYYY-MM-DD` format."""
@@ -190,6 +194,20 @@ class Candidate(NamedTuple):
     The raw git tag for GitHub releases (needed to resolve the commit SHA and
     write the pin comment); identical to `version` for PyPI and npm.
     """
+
+    released: Day | None = field(init=False, repr=False, compare=False)
+    """{attr}`date`, parsed. `None` when it is no `YYYY-MM-DD` date."""
+
+    parsed: Version | None = field(init=False, repr=False, compare=False)
+    """{attr}`version`, parsed. `None` when it is no PEP 440 version."""
+
+    def __post_init__(self) -> None:
+        try:
+            released: Day | None = date.fromisoformat(self.date)
+        except ValueError:
+            released = None
+        object.__setattr__(self, "released", released)
+        object.__setattr__(self, "parsed", safe_version(self.version))
 
 
 class ActionPin(NamedTuple):
@@ -221,11 +239,29 @@ class UpstreamRefPin(NamedTuple):
     """The pinned 40-character commit SHA, or `None` for a bare tag pin."""
 
 
+class Ecosystem(StrEnum):
+    """The registry a workflow version literal resolves from."""
+
+    NPM = "npm"
+    PYPI = "pypi"
+
+    def candidates(self, package: str) -> list[Candidate]:
+        """The releases the registry offers for *package*."""
+        if self is Ecosystem.NPM:
+            return npm_candidates(package)
+        return pypi_candidates(package)
+
+    def package_url(self, package: str) -> str:
+        """The registry's page for *package*."""
+        url = NPM_PACKAGE_URL if self is Ecosystem.NPM else PYPI_PACKAGE_URL
+        return url.format(package=package)
+
+
 class WorkflowLiteral(NamedTuple):
     """A version literal embedded in a workflow command."""
 
-    ecosystem: str
-    """Datasource: `npm` or `pypi`."""
+    ecosystem: Ecosystem
+    """The registry the literal resolves from."""
 
     package: str
     """The package name."""
@@ -319,28 +355,20 @@ def format_cooldown_note(age_label: str, cutoff: date) -> str:
 
 def _best_candidate(
     candidates: list[Candidate],
-    *,
-    allow_prerelease: bool,
     keep: Callable[[Candidate, date], bool],
 ) -> Candidate | None:
     """Return the highest-versioned candidate passing the *keep* predicate.
 
     Shared sweep for {func}`select_latest` and {func}`select_held_back`:
-    candidates with an unparsable date or version are skipped, prereleases obey
-    *allow_prerelease*, then *keep* (receiving the candidate and its parsed
-    release date) decides eligibility and the highest PEP 440 version wins.
+    candidates with an unparsable date or version are skipped, and so are
+    prereleases. Then *keep* (receiving the candidate and its release date)
+    decides eligibility and the highest PEP 440 version wins.
     """
     best: Candidate | None = None
     best_version: Version | None = None
     for candidate in candidates:
-        try:
-            released = date.fromisoformat(candidate.date)
-        except ValueError:
-            continue
-        parsed = safe_version(candidate.version)
-        if parsed is None:
-            continue
-        if parsed.is_prerelease and not allow_prerelease:
+        released, parsed = candidate.released, candidate.parsed
+        if released is None or parsed is None or parsed.is_prerelease:
             continue
         if not keep(candidate, released):
             continue
@@ -380,8 +408,6 @@ def select_latest(
     candidates: list[Candidate],
     min_age: timedelta,
     today: date,
-    *,
-    allow_prerelease: bool = False,
 ) -> Candidate | None:
     """Return the highest version old enough to clear the cooldown.
 
@@ -392,13 +418,11 @@ def select_latest(
     :param candidates: Versions offered by a datasource.
     :param min_age: The stabilization window from `minimum-release-age`.
     :param today: Reference date for the cooldown computation.
-    :param allow_prerelease: Keep prerelease versions when `True`.
     :return: The winning {class}`Candidate`, or `None` when none qualify.
     """
     cutoff = today - min_age
     return _best_candidate(
         candidates,
-        allow_prerelease=allow_prerelease,
         keep=lambda _candidate, released: cleared_cooldown(released, cutoff),
     )
 
@@ -408,8 +432,6 @@ def select_held_back(
     pinned: str,
     min_age: timedelta,
     today: date,
-    *,
-    allow_prerelease: bool = False,
 ) -> Candidate | None:
     """Return the highest release withheld from *pinned* only by the cooldown.
 
@@ -425,14 +447,12 @@ def select_held_back(
         candidates can be held back.
     :param min_age: The stabilization window from `minimum-release-age`.
     :param today: Reference date for the cooldown computation.
-    :param allow_prerelease: Keep prerelease versions when `True`.
     :return: The withheld {class}`Candidate`, or `None` when nothing newer is
         inside the cooldown.
     """
     cutoff = today - min_age
     return _best_candidate(
         candidates,
-        allow_prerelease=allow_prerelease,
         # Negated against the same predicate select_latest adopts on, so the two
         # sets stay an exact partition: anything this keeps is a release
         # select_latest declined, never one it would already have taken.
@@ -451,14 +471,7 @@ def pinned_release_date(candidates: list[Candidate], pinned: str) -> date | None
     :return: The release date, or `None` when *pinned* is not among
         *candidates* or carries an unparsable date.
     """
-    for candidate in candidates:
-        if candidate.version != pinned:
-            continue
-        try:
-            return date.fromisoformat(candidate.date)
-        except ValueError:
-            return None
-    return None
+    return next((c.released for c in candidates if c.version == pinned), None)
 
 
 def pin_inside_cooldown(
@@ -573,30 +586,28 @@ def _checksum_table(sha: str) -> frozenset[str] | None:
     half-megabyte file.
 
     :param sha: The pinned {data}`SETUP_UV_SLUG` commit.
-    :return: Every uv version the table names, or `None` when no path in
-        {data}`SETUP_UV_CHECKSUMS_PATHS` could be read or yielded a key (a
-        format change upstream), which callers treat as "unknown" rather than
-        as "verifies nothing".
+    :return: Every uv version the table names, or `None` when the table could
+        not be read or yielded no key (a format change upstream), which callers
+        treat as "unknown" rather than as "verifies nothing".
     """
     headers = {**api_headers(), "Accept": "application/vnd.github.raw"}
-    failures = []
-    for path in SETUP_UV_CHECKSUMS_PATHS:
-        url = GITHUB_API_CONTENTS_URL.format(slug=SETUP_UV_SLUG, path=path, ref=sha)
-        try:
-            table = get_text(url, headers=headers)
-        except FetchError as exc:
-            failures.append(f"{path}: {exc}")
-            continue
+    url = GITHUB_API_CONTENTS_URL.format(
+        slug=SETUP_UV_SLUG, path=SETUP_UV_CHECKSUMS_PATH, ref=sha
+    )
+    try:
+        table = get_text(url, headers=headers)
+    except FetchError as exc:
+        failure = str(exc)
+    else:
         versions = frozenset(
             match.group("version")
             for match in _SETUP_UV_CHECKSUM_KEY_RE.finditer(table)
         )
         if versions:
             return versions
-        failures.append(f"{path}: no checksum key parsed")
+        failure = "no checksum key parsed"
     logging.warning(
-        f"Could not read the {SETUP_UV_SLUG} checksum table at {sha}"
-        f" ({'; '.join(failures)})."
+        f"Could not read the {SETUP_UV_SLUG} checksum table at {sha} ({failure})."
     )
     return None
 
@@ -712,15 +723,15 @@ def apply_action_pins(
 def find_workflow_literals(content: str) -> list[WorkflowLiteral]:
     """Find npm and PyPI version literals embedded in a workflow file."""
     literals = [
-        WorkflowLiteral("npm", m.group("package"), m.group("version"))
+        WorkflowLiteral(Ecosystem.NPM, m.group("package"), m.group("version"))
         for m in _NPM_LITERAL_RE.finditer(content)
     ]
     literals.extend(
-        WorkflowLiteral("pypi", m.group("package"), m.group("version"))
+        WorkflowLiteral(Ecosystem.PYPI, m.group("package"), m.group("version"))
         for m in _PYPI_LITERAL_RE.finditer(content)
     )
     literals.extend(
-        WorkflowLiteral("pypi", SETUP_UV_PACKAGE, m.group("version"))
+        WorkflowLiteral(Ecosystem.PYPI, SETUP_UV_PACKAGE, m.group("version"))
         for m in _SETUP_UV_VERSION_RE.finditer(content)
     )
     return literals
@@ -785,7 +796,7 @@ def apply_self_pin_exemption(content: str, package: str, exemption: str) -> str:
 
 def apply_workflow_literals(
     content: str,
-    resolved: dict[tuple[str, str], str],
+    resolved: Mapping[tuple[str, str], str],
     self_pin: tuple[str, str] | None = None,
 ) -> tuple[str, list[tuple[str, str, str]]]:
     """Rewrite npm/PyPI version literals to their resolved version.
@@ -809,7 +820,7 @@ def apply_workflow_literals(
     """
     changes: list[tuple[str, str, str]] = []
 
-    def replace(ecosystem: str, sep: str):
+    def replace(ecosystem: Ecosystem, sep: str):
         def inner(match: re.Match[str]) -> str:
             package = match.group("package")
             new_version = resolved.get((ecosystem, package))
@@ -828,15 +839,15 @@ def apply_workflow_literals(
         step rather than captured from the text, and the version is delimited by
         `version: "…"` instead of a `pkg==version` separator.
         """
-        new_version = resolved.get(("pypi", SETUP_UV_PACKAGE))
+        new_version = resolved.get((Ecosystem.PYPI, SETUP_UV_PACKAGE))
         old_version = match.group("version")
         if not new_version or new_version == old_version:
             return match.group(0)
         changes.append((SETUP_UV_PACKAGE, old_version, new_version))
         return match.group(0).replace(f'"{old_version}"', f'"{new_version}"')
 
-    content = _NPM_LITERAL_RE.sub(replace("npm", "@"), content)
-    content = _PYPI_LITERAL_RE.sub(replace("pypi", "=="), content)
+    content = _NPM_LITERAL_RE.sub(replace(Ecosystem.NPM, "@"), content)
+    content = _PYPI_LITERAL_RE.sub(replace(Ecosystem.PYPI, "=="), content)
     content = _SETUP_UV_VERSION_RE.sub(replace_setup_uv, content)
     # After the pin itself moved, so the exemption lands on the new version and a
     # file the rewrite left alone still gets a missing flag backfilled.

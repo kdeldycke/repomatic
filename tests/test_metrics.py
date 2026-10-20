@@ -18,19 +18,20 @@
 
 from __future__ import annotations
 
-import json
 import re
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 
 from repomatic.config import Config, load_repomatic_config
+from repomatic.github.gh import GhCommandError, GhOutputError
 from repomatic.metrics.chart import (
-    CHART_MODES,
-    CHART_SCALES,
     SERIES_PALETTE,
+    ChartMode,
+    ChartScale,
     ChartSpec,
     assign_colors,
     build_chart_data,
@@ -45,18 +46,21 @@ from repomatic.metrics.store import (
     METRICS,
     METRICS_BY_ID,
     PREDECESSOR_SUFFIX,
-    SOURCE_RANK,
-    SOURCES,
     STAR_HISTORY_MAX_PAGES,
     MetricRecord,
+    MetricStore,
     Retention,
+    SampleOutcome,
+    SamplePhase,
+    Source,
+    chartable_metric,
     collected_subjects,
-    load_metrics,
+    is_predecessor,
+    predecessor_key,
     reconstruct_from_github,
     sample_subject,
-    save_metrics,
     series,
-    upsert,
+    subject_of,
 )
 from repomatic.pyproject import read_pyproject_toml
 from repomatic.tabular import read_csv
@@ -89,21 +93,18 @@ def repo_config() -> Config:
 @pytest.fixture
 def history():
     """Two subjects, one of them carrying a retired forerunner."""
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    for record in (
-        MetricRecord(APRICOT, "stars", "2019-01-01", "0", "created"),
-        MetricRecord(APRICOT, "stars", "2021-06-01", "120", "github"),
-        MetricRecord(APRICOT, "stars", "2026-08-16", "300", "sample"),
-        MetricRecord(APRICOT, "commit", "2026-08-16", "2026-08-15", "sample"),
-        MetricRecord(PAPAYA, "stars", "2022-01-01", "0", "created"),
-        MetricRecord(PAPAYA, "stars", "2026-08-16", "90", "sample"),
-        MetricRecord(OLD_PAPAYA, "stars", "2015-01-01", "0", "created"),
-        MetricRecord(OLD_PAPAYA, "stars", "2021-01-01", "40", "wayback"),
+    return MetricStore((
+        MetricRecord(APRICOT, "stars", "2019-01-01", "0", Source.CREATED),
+        MetricRecord(APRICOT, "stars", "2021-06-01", "120", Source.GITHUB),
+        MetricRecord(APRICOT, "stars", "2026-08-16", "300", Source.SAMPLE),
+        MetricRecord(APRICOT, "commit", "2026-08-16", "2026-08-15", Source.SAMPLE),
+        MetricRecord(PAPAYA, "stars", "2022-01-01", "0", Source.CREATED),
+        MetricRecord(PAPAYA, "stars", "2026-08-16", "90", Source.SAMPLE),
+        MetricRecord(OLD_PAPAYA, "stars", "2015-01-01", "0", Source.CREATED),
+        MetricRecord(OLD_PAPAYA, "stars", "2021-01-01", "40", Source.WAYBACK),
         # Past the handover, so the chart must clip it.
-        MetricRecord(OLD_PAPAYA, "stars", "2026-08-16", "45", "sample"),
-    ):
-        records[record.key] = record
-    return records
+        MetricRecord(OLD_PAPAYA, "stars", "2026-08-16", "45", Source.SAMPLE),
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +121,6 @@ def test_registry_is_coherent():
     for metric in METRICS:
         assert metric.id == metric.id.lower()
         assert metric.label
-        assert metric.description.endswith(".")
 
 
 def test_chartable_metrics_are_exactly_the_accruing_ones():
@@ -138,14 +138,29 @@ def test_chartable_metrics_are_exactly_the_accruing_ones():
 
 
 def test_every_source_is_ranked():
-    """Check the provenance vocabulary and its precedence stay in step.
+    """Check every provenance has a rank, so `upsert` can compare any two.
 
-    An unranked source raises a `KeyError` inside `upsert`, mid-collection, on
-    the one code path nobody watches.
+    An unranked source fails inside `upsert`, mid-collection, on the one code
+    path nobody watches.
     """
-    assert set(SOURCES) == set(SOURCE_RANK)
-    for description in SOURCES.values():
-        assert description.endswith(".")
+    for source in Source:
+        assert isinstance(source.rank, int)
+    # The anchor is the weakest claim, and a reconstruction the strongest.
+    assert min(Source, key=lambda source: source.rank) is Source.CREATED
+    assert max(Source, key=lambda source: source.rank) is Source.GITHUB
+
+
+@pytest.mark.parametrize(
+    ("metric", "chartable"),
+    (("stars", True), ("commit", False), ("nonesuch", False)),
+)
+def test_chartable_metric_names_what_a_chart_can_plot(metric, chartable):
+    """Check one lookup serves the chart spec and the series alike."""
+    if chartable:
+        assert chartable_metric(metric) is METRICS_BY_ID[metric]
+    else:
+        with pytest.raises(ValueError, match="Pick one of: stars"):
+            chartable_metric(metric)
 
 
 # ---------------------------------------------------------------------------
@@ -155,21 +170,33 @@ def test_every_source_is_ranked():
 
 def test_record_round_trips_through_a_csv_row():
     """Check a record survives the shape it is committed in."""
-    record = MetricRecord(PAPAYA, "stars", "2026-08-16", "42", "sample")
+    record = MetricRecord(PAPAYA, "stars", "2026-08-16", "42", Source.SAMPLE)
     row = dict(zip(METRIC_HEADERS, record.as_row()))
+    assert row["source"] == "sample"
     assert MetricRecord.from_row(row) == record
     assert record.count == 42
 
 
+def test_record_refuses_an_unknown_source():
+    """Check a provenance outside the vocabulary fails the load, loudly."""
+    row = dict(zip(METRIC_HEADERS, (PAPAYA, "stars", "2026-08-16", "42", "rumor")))
+    with pytest.raises(ValueError, match="rumor"):
+        MetricRecord.from_row(row)
+
+
 def test_upsert_is_idempotent_within_a_day():
     """Check re-running on the same day overwrites rather than appends."""
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    assert upsert(records, MetricRecord(PAPAYA, "stars", "2026-08-16", "42", "sample"))
-    assert not upsert(
-        records, MetricRecord(PAPAYA, "stars", "2026-08-16", "42", "sample")
+    store = MetricStore()
+    assert store.upsert(
+        MetricRecord(PAPAYA, "stars", "2026-08-16", "42", Source.SAMPLE)
     )
-    assert upsert(records, MetricRecord(PAPAYA, "stars", "2026-08-16", "43", "sample"))
-    assert len(records) == 1
+    assert not store.upsert(
+        MetricRecord(PAPAYA, "stars", "2026-08-16", "42", Source.SAMPLE)
+    )
+    assert store.upsert(
+        MetricRecord(PAPAYA, "stars", "2026-08-16", "43", Source.SAMPLE)
+    )
+    assert len(store) == 1
 
 
 @pytest.mark.parametrize(
@@ -193,18 +220,19 @@ def test_upsert_is_idempotent_within_a_day():
 )
 def test_upsert_honors_source_precedence(stored, incoming, wins):
     """Check a weaker provenance cannot overwrite a stronger one for a day."""
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    upsert(records, MetricRecord(PAPAYA, "stars", "2026-08-16", "10", stored))
-    upsert(records, MetricRecord(PAPAYA, "stars", "2026-08-16", "99", incoming))
-    assert records[(PAPAYA, "stars", "2026-08-16")].value == ("99" if wins else "10")
+    store = MetricStore()
+    store.upsert(MetricRecord(PAPAYA, "stars", "2026-08-16", "10", Source(stored)))
+    store.upsert(MetricRecord(PAPAYA, "stars", "2026-08-16", "99", Source(incoming)))
+    stored_value = store.records[(PAPAYA, "stars", "2026-08-16")].value
+    assert stored_value == ("99" if wins else "10")
 
 
 def test_an_accruing_metric_keeps_every_day():
     """Check a counter's past readings are all retained."""
-    records: dict[tuple[str, str, str], MetricRecord] = {}
+    store = MetricStore()
     for day, value in (("2026-08-01", "10"), ("2026-08-08", "20")):
-        upsert(records, MetricRecord(PAPAYA, "stars", day, value, "sample"))
-    assert len(records) == 2
+        store.upsert(MetricRecord(PAPAYA, "stars", day, value, Source.SAMPLE))
+    assert len(store) == 2
 
 
 def test_an_attribute_keeps_one_row_and_dates_the_change():
@@ -214,33 +242,53 @@ def test_an_attribute_keeps_one_row_and_dates_the_change():
     row, and the surviving date is when the value last *changed*, which is what
     dates a dead project's row honestly.
     """
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    assert upsert(
-        records, MetricRecord(PAPAYA, "commit", "2026-08-01", "2026-07-30", "sample")
+    store = MetricStore()
+    assert store.upsert(
+        MetricRecord(PAPAYA, "commit", "2026-08-01", "2026-07-30", Source.SAMPLE)
     )
     # Same value a week later: nothing moves, and the old date stands.
-    assert not upsert(
-        records, MetricRecord(PAPAYA, "commit", "2026-08-08", "2026-07-30", "sample")
+    assert not store.upsert(
+        MetricRecord(PAPAYA, "commit", "2026-08-08", "2026-07-30", Source.SAMPLE)
     )
-    assert list(records) == [(PAPAYA, "commit", "2026-08-01")]
+    assert list(store.records) == [(PAPAYA, "commit", "2026-08-01")]
     # A moved value replaces the row and takes the new date.
-    assert upsert(
-        records, MetricRecord(PAPAYA, "commit", "2026-08-15", "2026-08-14", "sample")
+    assert store.upsert(
+        MetricRecord(PAPAYA, "commit", "2026-08-15", "2026-08-14", Source.SAMPLE)
     )
-    assert list(records) == [(PAPAYA, "commit", "2026-08-15")]
+    assert list(store.records) == [(PAPAYA, "commit", "2026-08-15")]
+
+
+def test_an_attribute_loaded_twice_collapses_to_the_newest_reading():
+    """Check a file holding two rows of an attribute heals on the next change.
+
+    The index built at load sees every row of the subject, so the moved value
+    replaces all of them, not only the one it happened to find first.
+    """
+    store = MetricStore((
+        MetricRecord(PAPAYA, "commit", "2026-08-01", "2026-07-30", Source.SAMPLE),
+        MetricRecord(PAPAYA, "commit", "2026-08-08", "2026-08-07", Source.SAMPLE),
+    ))
+    assert not store.upsert(
+        MetricRecord(PAPAYA, "commit", "2026-08-15", "2026-08-07", Source.SAMPLE)
+    )
+    assert store.upsert(
+        MetricRecord(PAPAYA, "commit", "2026-08-22", "2026-08-21", Source.SAMPLE)
+    )
+    assert list(store.records) == [(PAPAYA, "commit", "2026-08-22")]
 
 
 def test_upsert_rejects_an_unregistered_metric():
     """Check a typo in a metric ID fails loudly rather than storing a stray row."""
-    records: dict[tuple[str, str, str], MetricRecord] = {}
     with pytest.raises(KeyError):
-        upsert(records, MetricRecord(PAPAYA, "starz", "2026-08-16", "1", "sample"))
+        MetricStore().upsert(
+            MetricRecord(PAPAYA, "starz", "2026-08-16", "1", Source.SAMPLE)
+        )
 
 
-def test_save_metrics_writes_a_sorted_csv(tmp_path, history):
+def test_save_writes_a_sorted_csv(tmp_path, history):
     """Check the store is one row per reading, sorted for a readable diff."""
     store = tmp_path / "nested" / "metrics.csv"
-    assert save_metrics(store, history) is True
+    assert history.save(store) is True
     text = store.read_text(encoding="UTF-8")
     assert text.startswith("repo,metric,date,value,source\n")
     assert text.endswith("\n")
@@ -251,24 +299,24 @@ def test_save_metrics_writes_a_sorted_csv(tmp_path, history):
     keys = [(row["repo"], row["metric"], row["date"]) for row in rows]
     assert keys == sorted(keys)
 
-    assert save_metrics(store, history) is False
+    assert history.save(store) is False
 
 
-def test_save_metrics_writes_exactly_what_it_is_given(tmp_path):
-    """Check the file becomes the caller's records, deletions included.
+def test_save_writes_exactly_what_the_store_holds(tmp_path):
+    """Check the file becomes what the store holds, deletions included.
 
     A collector re-deriving a whole curve has to be able to retire a reading it
     no longer dates, so the write cannot merge the file back under itself.
     """
     store = tmp_path / "metrics.csv"
-    first = MetricRecord(PAPAYA, "stars", "2026-08-01", "10", "sample")
-    save_metrics(store, {first.key: first})
-    second = MetricRecord(APRICOT, "stars", "2026-08-02", "20", "sample")
-    save_metrics(store, {second.key: second})
-    assert list(load_metrics(store)) == [second.key]
+    first = MetricRecord(PAPAYA, "stars", "2026-08-01", "10", Source.SAMPLE)
+    MetricStore((first,)).save(store)
+    second = MetricRecord(APRICOT, "stars", "2026-08-02", "20", Source.SAMPLE)
+    MetricStore((second,)).save(store)
+    assert list(MetricStore.load(store).records) == [second.key]
 
 
-def test_save_metrics_cannot_resurrect_a_pruned_attribute(tmp_path):
+def test_save_cannot_resurrect_a_pruned_attribute(tmp_path):
     """Check a round trip through the file leaves an attribute one reading.
 
     Loading, upserting and writing is what every collector does, and a
@@ -276,33 +324,33 @@ def test_save_metrics_cannot_resurrect_a_pruned_attribute(tmp_path):
     keeps one.
     """
     store = tmp_path / "metrics.csv"
-    records = load_metrics(store)
-    upsert(
-        records, MetricRecord(PAPAYA, "commit", "2026-08-01", "2026-07-30", "sample")
+    readings = MetricStore.load(store)
+    readings.upsert(
+        MetricRecord(PAPAYA, "commit", "2026-08-01", "2026-07-30", Source.SAMPLE)
     )
-    save_metrics(store, records)
+    readings.save(store)
 
-    records = load_metrics(store)
-    upsert(
-        records, MetricRecord(PAPAYA, "commit", "2026-08-15", "2026-08-14", "sample")
+    readings = MetricStore.load(store)
+    readings.upsert(
+        MetricRecord(PAPAYA, "commit", "2026-08-15", "2026-08-14", Source.SAMPLE)
     )
-    save_metrics(store, records)
+    readings.save(store)
 
-    stored = load_metrics(store)
-    assert list(stored) == [(PAPAYA, "commit", "2026-08-15")]
+    stored = MetricStore.load(store)
+    assert list(stored.records) == [(PAPAYA, "commit", "2026-08-15")]
 
 
-def test_load_metrics_is_loud_on_a_corrupt_store(tmp_path):
+def test_load_is_loud_on_a_corrupt_store(tmp_path):
     """Check a malformed store raises instead of being silently clobbered."""
     store = tmp_path / "metrics.csv"
     store.write_text("repo,metric\nx,y\n", encoding="UTF-8")
     with pytest.raises(ValueError, match="Malformed metric store"):
-        load_metrics(store)
+        MetricStore.load(store)
 
 
-def test_load_metrics_tolerates_a_missing_store(tmp_path):
+def test_load_tolerates_a_missing_store(tmp_path):
     """Check a first run reads an empty store rather than failing."""
-    assert load_metrics(tmp_path / "absent.csv") == {}
+    assert len(MetricStore.load(tmp_path / "absent.csv")) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +370,23 @@ def test_collected_subjects_canonicalizes_and_marks_a_forerunner():
     }
 
 
+@pytest.mark.parametrize(
+    ("key", "forerunner"),
+    (
+        ("papaya", False),
+        ("papaya" + PREDECESSOR_SUFFIX, True),
+        # The suffix marks a forerunner only at the end of the key.
+        ("papaya" + PREDECESSOR_SUFFIX + "-2", False),
+    ),
+)
+def test_predecessor_keys_name_their_subject(key, forerunner):
+    """Check a series key says whether it is a forerunner's, and whose."""
+    assert is_predecessor(key) is forerunner
+    assert subject_of(key) == ("papaya" if forerunner else key)
+    if forerunner:
+        assert predecessor_key(subject_of(key)) == key
+
+
 def test_series_clips_a_forerunner_at_the_handover(history):
     """Check a forerunner's line stops where its successor's begins.
 
@@ -335,7 +400,7 @@ def test_series_clips_a_forerunner_at_the_handover(history):
     assert prior
     assert max(day for day, _value in prior) <= handover
     # The store keeps the discarded row: only the chart drops it.
-    assert (OLD_PAPAYA, "stars", "2026-08-16") in history
+    assert (OLD_PAPAYA, "stars", "2026-08-16") in history.records
 
 
 def test_series_refuses_a_metric_with_no_history(history):
@@ -348,7 +413,7 @@ def test_series_refuses_a_metric_with_no_history(history):
 
 def test_series_skips_a_subject_with_no_reading():
     """Check an unsampled subject is absent rather than an empty curve."""
-    assert series({}, SUBJECTS) == {}
+    assert series(MetricStore(), SUBJECTS) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -368,12 +433,13 @@ def test_sample_subject_records_every_metric_and_the_origin(monkeypatch):
             commit="2026-08-15",
         ),
     )
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    outcome = sample_subject(records, "papaya", PAPAYA, day="2026-08-16")
+    store = MetricStore()
+    outcome = sample_subject(store, "papaya", PAPAYA, day="2026-08-16")
 
     assert outcome.stars == 57
     assert outcome.rows == 5
-    stored = {(key[1], record.value) for key, record in records.items()}
+    assert outcome.phase is SamplePhase.FORWARD
+    stored = {(key[1], record.value) for key, record in store.records.items()}
     assert stored == {
         ("stars", "57"),
         ("stars", "0"),
@@ -381,7 +447,7 @@ def test_sample_subject_records_every_metric_and_the_origin(monkeypatch):
         ("release", "2026-08-01"),
         ("release_source", "tag"),
     }
-    assert records[(PAPAYA, "stars", "2021-12-09")].source == "created"
+    assert store.records[(PAPAYA, "stars", "2021-12-09")].source is Source.CREATED
 
 
 def test_sample_subject_adds_no_row_for_what_a_forge_did_not_answer(monkeypatch):
@@ -390,9 +456,9 @@ def test_sample_subject_adds_no_row_for_what_a_forge_did_not_answer(monkeypatch)
         "repomatic.metrics.store.repo_metrics",
         lambda url, extra=None: ForgeMetrics(stars=3, created="2020-01-01"),
     )
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    sample_subject(records, "papaya", PAPAYA, day="2026-08-16")
-    assert {key[1] for key in records} == {"stars"}
+    store = MetricStore()
+    sample_subject(store, "papaya", PAPAYA, day="2026-08-16")
+    assert {key[1] for key in store.records} == {"stars"}
 
 
 def test_sample_subject_survives_an_unreadable_forge(monkeypatch):
@@ -400,10 +466,10 @@ def test_sample_subject_survives_an_unreadable_forge(monkeypatch):
     monkeypatch.setattr(
         "repomatic.metrics.store.repo_metrics", lambda url, extra=None: None
     )
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    outcome = sample_subject(records, "papaya", PAPAYA, day="2026-08-16")
+    store = MetricStore()
+    outcome = sample_subject(store, "papaya", PAPAYA, day="2026-08-16")
     assert outcome.note == "unreadable"
-    assert not records
+    assert not store
 
 
 def star_week(sunday: str, days: list[int]) -> dict[str, object]:
@@ -420,26 +486,25 @@ def test_reconstruct_accumulates_one_row_per_week_that_moved(monkeypatch):
     """Check the daily buckets collapse into a cumulative weekly curve."""
     pages = [
         # Newest first, as the endpoint serves them.
-        json.dumps([
+        [
             star_week("2022-02-27", [0, 1, 0, 0, 0, 0, 0]),
             star_week("2022-01-30", [0, 0, 0, 0, 0, 0, 0]),
             star_week("2021-12-05", [0, 0, 0, 0, 2, 0, 0]),
-        ]),
-        json.dumps([]),
+        ],
+        [],
     ]
-    monkeypatch.setattr(
-        "repomatic.metrics.store.run_gh_command", lambda args: pages.pop(0)
-    )
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    outcome = reconstruct_from_github(records, "papaya", PAPAYA)
+    monkeypatch.setattr("repomatic.metrics.store.gh_json", lambda args: pages.pop(0))
+    store = MetricStore()
+    outcome = reconstruct_from_github(store, "papaya", PAPAYA)
 
     assert outcome.stars == 3
+    assert outcome.phase is SamplePhase.RECONSTRUCT
     # Dated on the last day of the week that gained a star, not the week start.
-    assert records[(PAPAYA, "stars", "2021-12-09")].value == "2"
-    assert records[(PAPAYA, "stars", "2022-02-28")].value == "3"
+    assert store.records[(PAPAYA, "stars", "2021-12-09")].value == "2"
+    assert store.records[(PAPAYA, "stars", "2022-02-28")].value == "3"
     # The quiet week in between earns no row at all.
-    assert len(records) == 2
-    assert all(record.source == "github" for record in records.values())
+    assert len(store) == 2
+    assert all(record.source is Source.GITHUB for record in store.records.values())
 
 
 def test_reconstruct_dates_a_day_without_converting_the_timezone(monkeypatch):
@@ -450,16 +515,11 @@ def test_reconstruct_dates_a_day_without_converting_the_timezone(monkeypatch):
     that instant already carries the local day: converting it into a zone would
     shift every reading.
     """
-    pages = [
-        json.dumps([star_week("2024-11-10", [0, 1, 0, 0, 0, 0, 0])]),
-        json.dumps([]),
-    ]
-    monkeypatch.setattr(
-        "repomatic.metrics.store.run_gh_command", lambda args: pages.pop(0)
-    )
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    reconstruct_from_github(records, "papaya", PAPAYA)
-    assert (PAPAYA, "stars", "2024-11-11") in records
+    pages = [[star_week("2024-11-10", [0, 1, 0, 0, 0, 0, 0])], []]
+    monkeypatch.setattr("repomatic.metrics.store.gh_json", lambda args: pages.pop(0))
+    store = MetricStore()
+    reconstruct_from_github(store, "papaya", PAPAYA)
+    assert (PAPAYA, "stars", "2024-11-11") in store.records
 
 
 def test_reconstruct_replaces_the_rows_it_wrote_before(monkeypatch):
@@ -469,24 +529,21 @@ def test_reconstruct_replaces_the_rows_it_wrote_before(monkeypatch):
     reading must disappear rather than linger stating a total the rest of the
     curve contradicts. Rows from every other source are left alone.
     """
-    stale = MetricRecord(PAPAYA, "stars", "2019-06-01", "99", "github")
-    kept = MetricRecord(PAPAYA, "stars", "2019-06-02", "98", "wayback")
-    elsewhere = MetricRecord(APRICOT, "stars", "2019-06-01", "97", "github")
-    records = {r.key: r for r in (stale, kept, elsewhere)}
+    stale = MetricRecord(PAPAYA, "stars", "2019-06-01", "99", Source.GITHUB)
+    kept = MetricRecord(PAPAYA, "stars", "2019-06-02", "98", Source.WAYBACK)
+    elsewhere = MetricRecord(APRICOT, "stars", "2019-06-01", "97", Source.GITHUB)
+    store = MetricStore((stale, kept, elsewhere))
 
-    pages = [
-        json.dumps([star_week("2021-12-05", [0, 0, 0, 0, 2, 0, 0])]),
-        json.dumps([]),
-    ]
-    monkeypatch.setattr(
-        "repomatic.metrics.store.run_gh_command", lambda args: pages.pop(0)
-    )
-    reconstruct_from_github(records, "papaya", PAPAYA)
+    pages = [[star_week("2021-12-05", [0, 0, 0, 0, 2, 0, 0])], []]
+    monkeypatch.setattr("repomatic.metrics.store.gh_json", lambda args: pages.pop(0))
+    outcome = reconstruct_from_github(store, "papaya", PAPAYA)
 
-    assert stale.key not in records
-    assert records[kept.key] == kept
-    assert records[elsewhere.key] == elsewhere
-    assert records[(PAPAYA, "stars", "2021-12-09")].value == "2"
+    assert stale.key not in store.records
+    assert store.records[kept.key] == kept
+    assert store.records[elsewhere.key] == elsewhere
+    assert store.records[(PAPAYA, "stars", "2021-12-09")].value == "2"
+    # One row written, one retired.
+    assert outcome.rows == 2
 
 
 def test_reconstruct_skips_a_subject_off_github():
@@ -495,12 +552,12 @@ def test_reconstruct_skips_a_subject_off_github():
     The star history is a GitHub endpoint; every other forge simply has nothing
     to reconstruct from.
     """
-    records: dict[tuple[str, str, str], MetricRecord] = {}
+    store = MetricStore()
     outcome = reconstruct_from_github(
-        records, "papaya", "https://gitlab.com/fruits/papaya"
+        store, "papaya", "https://gitlab.com/fruits/papaya"
     )
     assert "gitlab.com" in outcome.note
-    assert not records
+    assert not store
 
 
 def test_reconstruct_reports_a_repository_that_is_gone(monkeypatch):
@@ -508,24 +565,22 @@ def test_reconstruct_reports_a_repository_that_is_gone(monkeypatch):
 
     def refuse(args):
         msg = "gh: Not Found (HTTP 404)"
-        raise RuntimeError(msg)
+        raise GhCommandError(msg)
 
-    monkeypatch.setattr("repomatic.metrics.store.run_gh_command", refuse)
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    outcome = reconstruct_from_github(records, "papaya", PAPAYA)
+    monkeypatch.setattr("repomatic.metrics.store.gh_json", refuse)
+    store = MetricStore()
+    outcome = reconstruct_from_github(store, "papaya", PAPAYA)
     assert outcome.note == "no such repository"
-    assert not records
+    assert not store
 
 
 def test_reconstruct_reports_a_repository_with_no_star(monkeypatch):
     """Check an unstarred repository is a note, not an empty curve."""
-    monkeypatch.setattr(
-        "repomatic.metrics.store.run_gh_command", lambda args: json.dumps([])
-    )
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    outcome = reconstruct_from_github(records, "papaya", PAPAYA)
+    monkeypatch.setattr("repomatic.metrics.store.gh_json", lambda args: [])
+    store = MetricStore()
+    outcome = reconstruct_from_github(store, "papaya", PAPAYA)
     assert outcome.note == "no star on record"
-    assert not records
+    assert not store
 
 
 def test_reconstruct_writes_nothing_when_pagination_breaks_midway(monkeypatch):
@@ -540,24 +595,29 @@ def test_reconstruct_writes_nothing_when_pagination_breaks_midway(monkeypatch):
     def flaky(args):
         calls["count"] += 1
         if calls["count"] == 1:
-            return json.dumps([star_week("2026-08-30", [1, 0, 0, 0, 0, 0, 0])])
+            return [star_week("2026-08-30", [1, 0, 0, 0, 0, 0, 0])]
         msg = "gh: Bad gateway (HTTP 502)"
-        raise RuntimeError(msg)
+        raise GhCommandError(msg)
 
-    monkeypatch.setattr("repomatic.metrics.store.run_gh_command", flaky)
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    outcome = reconstruct_from_github(records, "papaya", PAPAYA)
-    assert "abandoned on page 2" in outcome.note
-    assert not records
+    monkeypatch.setattr("repomatic.metrics.store.gh_json", flaky)
+    store = MetricStore()
+    outcome = reconstruct_from_github(store, "papaya", PAPAYA)
+    assert outcome.note == "abandoned on page 2: gh: Bad gateway (HTTP 502)"
+    assert not store
 
 
 def test_reconstruct_gives_up_on_an_unparsable_page(monkeypatch):
     """Check a payload that is not JSON abandons the subject."""
-    monkeypatch.setattr("repomatic.metrics.store.run_gh_command", lambda args: "<html>")
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    outcome = reconstruct_from_github(records, "papaya", PAPAYA)
+
+    def garbled(args):
+        msg = "gh api returned unparsable JSON"
+        raise GhOutputError(msg)
+
+    monkeypatch.setattr("repomatic.metrics.store.gh_json", garbled)
+    store = MetricStore()
+    outcome = reconstruct_from_github(store, "papaya", PAPAYA)
     assert outcome.note == "unparsable page 1"
-    assert not records
+    assert not store
 
 
 def test_reconstruct_walk_is_bounded(monkeypatch):
@@ -571,12 +631,30 @@ def test_reconstruct_walk_is_bounded(monkeypatch):
 
     def endless(args):
         calls["count"] += 1
-        return json.dumps([star_week("2021-12-05", [1, 0, 0, 0, 0, 0, 0])])
+        return [star_week("2021-12-05", [1, 0, 0, 0, 0, 0, 0])]
 
-    monkeypatch.setattr("repomatic.metrics.store.run_gh_command", endless)
-    records: dict[tuple[str, str, str], MetricRecord] = {}
-    reconstruct_from_github(records, "papaya", PAPAYA)
+    monkeypatch.setattr("repomatic.metrics.store.gh_json", endless)
+    store = MetricStore()
+    reconstruct_from_github(store, "papaya", PAPAYA)
     assert calls["count"] == STAR_HISTORY_MAX_PAGES
+
+
+@pytest.mark.parametrize(
+    ("outcome", "row"),
+    (
+        (
+            SampleOutcome("papaya", PAPAYA, SamplePhase.FORWARD, stars=57, rows=5),
+            ("papaya", "forward", PAPAYA, "57", "5", "—"),
+        ),
+        (
+            SampleOutcome("papaya", PAPAYA, SamplePhase.RECONSTRUCT, note="gone"),
+            ("papaya", "reconstruct", PAPAYA, "—", "0", "gone"),
+        ),
+    ),
+)
+def test_sample_outcome_row_fills_every_column(outcome, row):
+    """Check the table row an outcome renders, one cell per column."""
+    assert outcome.row() == row
 
 
 # ---------------------------------------------------------------------------
@@ -650,35 +728,45 @@ def test_build_chart_data_is_loud_when_a_chart_plots_nothing():
 
 def test_chart_spec_rejects_an_unknown_mode():
     """Check a typo in `mode` raises instead of silently drawing a calendar."""
-    with pytest.raises(ValueError, match="Unsupported chart mode"):
-        ChartSpec(output=Path("chart.svg"), mode="sideways")
-    assert set(CHART_MODES) == {"absolute", "relative"}
+    with pytest.raises(
+        ValueError, match=r"Unsupported chart mode 'sideways' for chart\.svg"
+    ):
+        ChartSpec.from_mapping({"output": "chart.svg", "mode": "sideways"})
+    assert set(ChartMode) == {"absolute", "relative"}
     # The two axes are separate settings, so the vertical one is not reachable
     # by naming it here: a `mode` that silently fell back would draw a chart
     # misreading every series on it by orders of magnitude.
     with pytest.raises(ValueError, match="Unsupported chart mode"):
-        ChartSpec(output=Path("chart.svg"), mode="logarithmic")
+        ChartSpec.from_mapping({"output": "chart.svg", "mode": "logarithmic"})
 
 
 def test_chart_spec_rejects_an_unknown_scale():
     """Check a typo in `scale` raises instead of silently drawing a linear axis."""
     with pytest.raises(ValueError, match="Unsupported chart scale"):
-        ChartSpec(output=Path("chart.svg"), scale="log10")
-    assert set(CHART_SCALES) == {"linear", "logarithmic"}
+        ChartSpec.from_mapping({"output": "chart.svg", "scale": "log10"})
+    assert set(ChartScale) == {"linear", "logarithmic"}
 
 
 def test_chart_spec_axes_are_independent():
     """Check a comparison chart can slide the origins and compress the counts."""
-    spec = ChartSpec(output=Path("chart.svg"), mode="relative", scale="logarithmic")
+    spec = ChartSpec(
+        output=Path("chart.svg"),
+        mode=ChartMode.RELATIVE,
+        scale=ChartScale.LOGARITHMIC,
+    )
     assert spec.relative
     assert spec.logarithmic
     assert not ChartSpec(output=Path("chart.svg")).logarithmic
 
 
 def test_chart_spec_rejects_a_metric_with_no_history():
-    """Check a chart pointed at an attribute is refused at configuration time."""
-    with pytest.raises(ValueError, match="no history of"):
+    """Check a chart pointed at an attribute is refused when it is declared."""
+    with pytest.raises(
+        ValueError, match=r"Chart c\.svg: Metric 'commit' has no history"
+    ):
         ChartSpec.from_mapping({"output": "c.svg", "metric": "commit"})
+    with pytest.raises(ValueError, match="has no history to chart"):
+        ChartSpec(output=Path("c.svg"), metric="commit")
 
 
 def test_chart_spec_from_mapping():
@@ -694,16 +782,16 @@ def test_chart_spec_from_mapping():
     assert spec == ChartSpec(
         output=Path("docs/assets/chart.svg"),
         metric="stars",
-        mode="relative",
+        mode=ChartMode.RELATIVE,
         only=("papaya",),
-        scale="logarithmic",
+        scale=ChartScale.LOGARITHMIC,
         title="Papaya stars",
     )
-    assert ChartSpec.from_mapping({"output": "c.svg"}).scale == "linear"
+    assert ChartSpec.from_mapping({"output": "c.svg"}).scale is ChartScale.LINEAR
     assert ChartSpec.from_mapping({"output": "c.svg", "only": "papaya"}).only == (
         "papaya",
     )
-    assert ChartSpec.from_mapping({"output": "c.svg"}).mode == "absolute"
+    assert ChartSpec.from_mapping({"output": "c.svg"}).mode is ChartMode.ABSOLUTE
     assert ChartSpec.from_mapping({"output": "c.svg"}).metric == "stars"
 
 
@@ -724,7 +812,7 @@ def test_render_chart_labels_every_series(history):
     """Check the generator draws, labels and colours each plotted curve."""
     grouped = series(history, SUBJECTS, "stars", PREDECESSORS)
     data = build_chart_data(grouped, ChartSpec(output=Path("chart.svg")))
-    svg = render_chart(data, stamp="2026-08-16")
+    svg = render_chart(data, label="Stars", stamp="2026-08-16")
 
     assert svg.startswith("<svg ")
     assert svg.rstrip().endswith("</svg>")
@@ -756,7 +844,9 @@ def test_render_chart_honors_a_series_subset(history):
     """Check `only` drops the peers, their forerunners included."""
     grouped = series(history, SUBJECTS, "stars", PREDECESSORS)
     spec = ChartSpec(output=Path("chart.svg"), only=("apricot",))
-    svg = render_chart(build_chart_data(grouped, spec), stamp="2026-08-16")
+    svg = render_chart(
+        build_chart_data(grouped, spec), label="Stars", stamp="2026-08-16"
+    )
     assert 'class="lbl s-apricot"' in svg
     assert "s-papaya" not in svg
 
@@ -764,9 +854,12 @@ def test_render_chart_honors_a_series_subset(history):
 def test_render_chart_relative_swaps_the_calendar_for_project_age(history):
     """Check the by-age axis carries no calendar year among its ticks."""
     grouped = series(history, SUBJECTS, "stars", PREDECESSORS)
-    spec = ChartSpec(output=Path("chart.svg"), mode="relative")
+    spec = ChartSpec(output=Path("chart.svg"), mode=ChartMode.RELATIVE)
     svg = render_chart(
-        build_chart_data(grouped, spec), relative=True, stamp="2026-08-16"
+        build_chart_data(grouped, spec),
+        relative=True,
+        label="Stars",
+        stamp="2026-08-16",
     )
     assert "years</text>" in svg
     years = {str(year) for year in range(2000, 2100)}
@@ -791,7 +884,7 @@ def _final_y(svg: str, name: str) -> float:
 def test_render_chart_logarithmic_axis_is_labelled_in_decades():
     """Check the gridlines are powers of ten, and the caption says so."""
     data = build_chart_data(LOPSIDED, ChartSpec(output=Path("chart.svg")))
-    svg = render_chart(data, logarithmic=True, stamp="2026-08-16")
+    svg = render_chart(data, logarithmic=True, label="Stars", stamp="2026-08-16")
     ticks = re.findall(r'<text class="tick"[^>]*>([^<]+)</text>', svg)
     assert ["0", "1", "10", "100", "1,000", "10,000"] == [
         tick for tick in ticks if not tick.isalpha() and "20" not in tick
@@ -804,16 +897,20 @@ def test_render_chart_logarithmic_axis_is_labelled_in_decades():
 def test_render_chart_logarithmic_lifts_a_series_off_the_axis():
     """Check the smaller curve stays readable beside one 440 times its size."""
     data = build_chart_data(LOPSIDED, ChartSpec(output=Path("chart.svg")))
-    linear = _final_y(render_chart(data, stamp="2026-08-16"), "apricot")
+    linear = _final_y(render_chart(data, label="Stars", stamp="2026-08-16"), "apricot")
     logarithmic = _final_y(
-        render_chart(data, logarithmic=True, stamp="2026-08-16"), "apricot"
+        render_chart(data, logarithmic=True, label="Stars", stamp="2026-08-16"),
+        "apricot",
     )
     # The plot floor is 414 and its ceiling 28, so a smaller y sits higher.
     assert linear > 400, "a linear axis should pin the small series to the floor"
     assert logarithmic < 300, "a logarithmic axis should lift it clear"
     # The larger series still tops out at the ceiling, so the gap is compressed
     # rather than the whole chart being slid upwards.
-    peak = _final_y(render_chart(data, logarithmic=True, stamp="2026-08-16"), "papaya")
+    peak = _final_y(
+        render_chart(data, logarithmic=True, label="Stars", stamp="2026-08-16"),
+        "papaya",
+    )
     assert peak == pytest.approx(28, abs=1)
 
 
@@ -825,10 +922,10 @@ def test_render_chart_logarithmic_keeps_a_zero_on_the_floor():
     at its first star, which is a different and unstated claim. Not every
     series carries one: a repository starred on its creation day loses the
     anchor to that day's measurement, per
-    {data}`repomatic.metrics.store.SOURCE_RANK`.
+    {attr}`repomatic.metrics.store.Source.rank`.
     """
     data = build_chart_data(LOPSIDED, ChartSpec(output=Path("chart.svg")))
-    svg = render_chart(data, logarithmic=True, stamp="2026-08-16")
+    svg = render_chart(data, logarithmic=True, label="Stars", stamp="2026-08-16")
     first = re.search(r'<polyline class="s-apricot" points="([^"]+)"', svg)
     assert first
     assert float(first.group(1).split()[0].split(",")[1]) == pytest.approx(414, abs=1)
@@ -838,7 +935,7 @@ def test_render_chart_escapes_a_series_name():
     """Check a name carrying markup cannot break out of the SVG text node."""
     grouped = {"a & b": [(date(2020, 1, 1), 1), (date(2021, 1, 1), 5)]}
     data = build_chart_data(grouped, ChartSpec(output=Path("chart.svg")))
-    svg = render_chart(data, stamp="2026-08-16")
+    svg = render_chart(data, label="Stars", stamp="2026-08-16")
     assert "a &amp; b" in svg
     assert ">a & b" not in svg
 
@@ -849,12 +946,13 @@ def test_render_chart_survives_a_flat_or_single_star_history(peak, logarithmic):
     """Check a peak of 0 or 1 renders instead of dividing by zero.
 
     A brand-new repository's history is exactly this: the zero-star creation
-    row alone, or that row plus its first star. Halving the axis step used to
-    floor it to 0, and the ceiling division then crashed on both scales.
+    row alone, or that row plus its first star. Halving the axis step without
+    a floor would bring it to 0, and the ceiling division would then crash on
+    both scales.
     """
     grouped = {"papaya": [(date(2026, 1, 1), 0), (date(2026, 2, 1), peak)]}
     data = build_chart_data(grouped, ChartSpec(output=Path("chart.svg")))
-    svg = render_chart(data, logarithmic=logarithmic, stamp="2026-08-16")
+    svg = render_chart(data, logarithmic=logarithmic, label="Stars", stamp="2026-08-16")
     assert '<polyline class="s-papaya"' in svg
 
 
@@ -862,8 +960,10 @@ def test_write_chart_is_convergent(tmp_path, history):
     """Check redrawing an unmoved history rewrites nothing."""
     grouped = series(history, SUBJECTS, "stars", PREDECESSORS)
     spec = ChartSpec(output=tmp_path / "nested" / "chart.svg")
-    assert write_chart(grouped, spec, stamp="2026-08-16") is True
-    assert write_chart(grouped, spec, stamp="2026-08-16") is False
+    assert write_chart(grouped, spec) is True
+    assert write_chart(grouped, spec) is False
+    # Stamped with the newest reading, not with the day the chart was drawn.
+    assert "sampled on 2026-08-16" in spec.output.read_text(encoding="UTF-8")
 
 
 # ---------------------------------------------------------------------------
@@ -895,10 +995,10 @@ def test_committed_store_is_well_formed():
 
     for row in rows:
         assert set(row) == set(METRIC_HEADERS)
+        # A provenance outside the vocabulary fails the parse here.
         record = MetricRecord.from_row(row)
         assert record.repo in tracked, f"{record.repo} left the configuration"
         assert record.metric in METRICS_BY_ID
-        assert record.source in SOURCES
         # Dates are plain ISO days, never timestamps: a chart plots daily.
         assert GITHUB_EPOCH <= date.fromisoformat(record.day) <= today
         assert record.key not in seen, f"duplicate reading for {record.key}"
@@ -915,22 +1015,29 @@ def test_committed_store_is_well_formed():
     assert keys == sorted(keys)
 
 
-def test_committed_charts_are_redrawable():
-    """Check every configured chart still renders from the committed store."""
+def test_committed_charts_match_the_committed_store(tmp_path):
+    """Check every configured chart is what the renderer draws from the store.
+
+    The scheduled job writes the store and the charts in one commit, so a
+    difference here is a renderer change that skipped re-rendering them.
+    """
     if not STORE.exists():
         pytest.skip("no reading recorded yet")
     config = repo_config()
-    records = load_metrics(STORE)
+    readings = MetricStore.load(STORE)
     assert config.metrics.charts, "no chart declared to draw"
     for entry in config.metrics.charts:
         spec = ChartSpec.from_mapping(entry)
+        committed = REPO_ROOT / spec.output
+        assert committed.exists(), f"{spec.output} was never written"
         grouped = series(
-            records, config.metrics.subjects, spec.metric, config.metrics.predecessors
+            readings, config.metrics.subjects, spec.metric, config.metrics.predecessors
         )
-        data = build_chart_data(grouped, spec, config.metrics.colors)
-        svg = render_chart(data, relative=spec.relative, title=spec.title)
-        assert svg.startswith("<svg ")
-        assert (REPO_ROOT / spec.output).exists(), f"{spec.output} was never written"
+        drawn = replace(spec, output=tmp_path / spec.output.name)
+        write_chart(grouped, drawn, config.metrics.colors)
+        assert drawn.output.read_text(encoding="UTF-8") == committed.read_text(
+            encoding="UTF-8"
+        ), f"{spec.output} is stale: run `repomatic sample-metrics --no-forward`"
 
 
 def test_tracked_subjects_are_reachable():

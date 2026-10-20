@@ -1,6 +1,6 @@
 ---
 args: [repo_url, repo_slug]
-footer: 'false'
+footer: false
 ---
 
 Trigger a workflow re-run:

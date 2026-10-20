@@ -39,60 +39,21 @@ from __future__ import annotations
 import json
 import logging
 import re
-import subprocess
 from dataclasses import dataclass
-from enum import Enum
-from functools import lru_cache
+from enum import StrEnum
 from pathlib import Path
 
 from ..pypi import PYPI_PACKAGE_URL
-from ..pyproject import read_pyproject_toml
-from .uv import load_lock_data, parse_lock_specifiers, uv_cmd
+from ..pyproject import dependency_group_names, extra_names
+from .lockfile import LockFile
+from .uv import run_uv, uv_cmd
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
     from typing import Any
 
-    from .uv import LockSpecifiers
-
-
-@lru_cache(maxsize=16)
-def _get_cyclonedx_sbom_cached(
-    package: str | None = None,
-    groups: tuple[str, ...] | None = None,
-    extras: tuple[str, ...] | None = None,
-    frozen: bool = True,
-) -> str:
-    """Cached wrapper around uv export command.
-
-    Returns the raw JSON string to allow caching (dicts are not hashable).
-    """
-    cmd = uv_cmd("export", frozen=frozen)
-    cmd.extend([
-        "--format",
-        "cyclonedx1.5",
-        "--no-hashes",
-        "--preview-features",
-        "sbom-export",
-    ])
-    if package:
-        cmd.extend(["--package", package])
-    if groups:
-        for group in groups:
-            cmd.extend(["--group", group])
-    if extras:
-        for extra in extras:
-            cmd.extend(["--extra", extra])
-
-    logging.debug(f"Running: {' '.join(cmd)}")
-    # The SBOM carries package descriptions and author names, so the decoding
-    # is pinned: `text=True` alone would fall back to the platform default and
-    # raise UnicodeDecodeError on Windows.
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, encoding="UTF-8", check=True
-    )
-    return result.stdout
+    from .lockfile import LockSpecifiers
 
 
 STYLE_PRIMARY_DEPS_SUBGRAPH: str = "fill:#1565C020,stroke:#42A5F5"
@@ -129,7 +90,7 @@ dependencies of their box.
 """
 
 
-class SubgraphKind(Enum):
+class SubgraphKind(StrEnum):
     """Kind of dependency selector a subgraph box represents."""
 
     GROUP = "group"
@@ -150,12 +111,9 @@ class SubgraphKind(Enum):
             the current working directory.
         :return: Sorted tuple of group or extra names.
         """
-        data = read_pyproject_toml(project_root)
         if self is SubgraphKind.GROUP:
-            table = data.get("dependency-groups", {})
-        else:
-            table = data.get("project", {}).get("optional-dependencies", {})
-        return tuple(sorted(table))
+            return dependency_group_names(project_root)
+        return extra_names(project_root)
 
     @property
     def mermaid_prefix(self) -> str:
@@ -297,27 +255,32 @@ def resolve_subgraph_selection(
 
 
 def get_cyclonedx_sbom(
-    package: str | None = None,
     groups: tuple[str, ...] | None = None,
     extras: tuple[str, ...] | None = None,
     frozen: bool = True,
 ) -> dict[str, Any]:
-    """Run uv export and return the CycloneDX SBOM as a dictionary.
+    """Run `uv export` and return the CycloneDX SBOM as a dictionary.
 
-    Results are cached to avoid redundant subprocess calls within the same process.
-
-    :param package: Optional package name to focus the export on.
-    :param groups: Optional dependency groups to include (e.g., "test", "typing").
-    :param extras: Optional extras to include (e.g., "xml", "json5").
+    :param groups: Optional dependency groups to include (like `test`).
+    :param extras: Optional extras to include (like `xml`).
     :param frozen: If True, use --frozen to skip lock file updates.
     :return: Parsed CycloneDX SBOM dictionary.
-    :raises subprocess.CalledProcessError: If uv command fails.
+    :raises repomatic.deps.uv.UvError: If uv command fails.
     :raises json.JSONDecodeError: If output is not valid JSON.
     """
-    raw_json = _get_cyclonedx_sbom_cached(
-        package=package, groups=groups, extras=extras, frozen=frozen
-    )
-    sbom: dict[str, Any] = json.loads(raw_json)
+    cmd = [
+        *uv_cmd("export", frozen=frozen),
+        "--format",
+        "cyclonedx1.5",
+        "--no-hashes",
+        "--preview-features",
+        "sbom-export",
+    ]
+    for group in groups or ():
+        cmd.extend(["--group", group])
+    for extra in extras or ():
+        cmd.extend(["--extra", extra])
+    sbom: dict[str, Any] = json.loads(run_uv(cmd).stdout)
     return sbom
 
 
@@ -410,7 +373,7 @@ def filter_root_edges(
     :param root_name: The root package name.
     :param edges: List of (from_name, to_name) edge tuples.
     :param main_deps: Names the root declares as main dependencies, from
-        {attr}`~repomatic.deps.uv.LockSpecifiers.by_main`. `None` when the lockfile
+        {attr}`~repomatic.deps.lockfile.LockSpecifiers.by_main`. `None` when the lockfile
         describes no such package, in which case every edge is kept: missing
         data is not evidence that an edge is spurious.
     :param subgraphs: Boxes whose owned packages legitimately hang off the root.
@@ -428,6 +391,52 @@ def filter_root_edges(
     ]
 
 
+def _bfs_depths(
+    root: str,
+    edges: Iterable[tuple[str, str]],
+    max_depth: int | None = None,
+) -> dict[str, int]:
+    """Walk the graph breadth-first from *root*.
+
+    The one traversal behind the package focus, the depth trim and the
+    declaration order: each reaches a node once, at its shortest distance, so
+    a dependency cycle cannot loop it.
+
+    :param root: The node to start from.
+    :param edges: `(from_name, to_name)` edge tuples.
+    :param max_depth: Stop expanding past this many hops. `None` walks the
+        whole reachable graph.
+    :return: Each reachable node, *root* included, mapped to its distance.
+    """
+    adjacency: dict[str, list[str]] = {}
+    for from_name, to_name in edges:
+        adjacency.setdefault(from_name, []).append(to_name)
+    depths = {root: 0}
+    frontier = [root]
+    hops = 0
+    while frontier and (max_depth is None or hops < max_depth):
+        hops += 1
+        next_frontier: list[str] = []
+        for node in frontier:
+            for neighbor in adjacency.get(node, []):
+                if neighbor not in depths:
+                    depths[neighbor] = hops
+                    next_frontier.append(neighbor)
+        frontier = next_frontier
+    return depths
+
+
+def _induced_edges(
+    edges: Iterable[tuple[str, str]], nodes: set[str]
+) -> list[tuple[str, str]]:
+    """Keep the edges whose two ends are both in *nodes*, in their order."""
+    return [
+        (from_name, to_name)
+        for from_name, to_name in edges
+        if from_name in nodes and to_name in nodes
+    ]
+
+
 def filter_graph_to_package(
     packages: set[str],
     edges: list[tuple[str, str]],
@@ -440,30 +449,8 @@ def filter_graph_to_package(
     :param package: Package name to filter to.
     :return: Filtered (packages, edges) tuple.
     """
-    # Find all packages reachable from the target package.
-    reachable: set[str] = {package}
-    changed = True
-    while changed:
-        changed = False
-        for from_name, to_name in edges:
-            if from_name in reachable and to_name not in reachable:
-                reachable.add(to_name)
-                changed = True
-
-    # Filter edges.
-    filtered_edges = [
-        (from_name, to_name)
-        for from_name, to_name in edges
-        if from_name in reachable and to_name in reachable
-    ]
-
-    # Keep only the target and the packages that appear in surviving edges.
-    used_names = {package}
-    for from_name, to_name in filtered_edges:
-        used_names.add(from_name)
-        used_names.add(to_name)
-
-    return packages & used_names, filtered_edges
+    reachable = set(_bfs_depths(package, edges))
+    return packages & reachable, _induced_edges(edges, reachable)
 
 
 def trim_graph_to_depth(
@@ -474,42 +461,14 @@ def trim_graph_to_depth(
 ) -> tuple[set[str], list[tuple[str, str]]]:
     """Trim the graph to only include nodes within a given depth from the root.
 
-    Performs a breadth-first traversal from the root, keeping only nodes
-    reachable within `depth` hops and edges between those nodes.
-
     :param root_name: The root package name.
     :param packages: Set of all package names.
     :param edges: List of (from_name, to_name) edge tuples.
     :param depth: Maximum depth from root. 0 = root only, 1 = root + primary deps, etc.
     :return: Filtered (packages, edges) tuple.
     """
-    # Build adjacency list for BFS.
-    adjacency: dict[str, list[str]] = {}
-    for from_name, to_name in edges:
-        adjacency.setdefault(from_name, []).append(to_name)
-
-    # BFS traversal.
-    reachable: set[str] = {root_name}
-    frontier: set[str] = {root_name}
-    for _ in range(depth):
-        next_frontier: set[str] = set()
-        for name in frontier:
-            for neighbor in adjacency.get(name, []):
-                if neighbor not in reachable:
-                    reachable.add(neighbor)
-                    next_frontier.add(neighbor)
-        frontier = next_frontier
-        if not frontier:
-            break
-
-    # Filter edges to only those between reachable nodes.
-    filtered_edges = [
-        (from_name, to_name)
-        for from_name, to_name in edges
-        if from_name in reachable and to_name in reachable
-    ]
-
-    return packages & reachable, filtered_edges
+    reachable = set(_bfs_depths(root_name, edges, max_depth=depth))
+    return packages & reachable, _induced_edges(edges, reachable)
 
 
 def _compute_node_degrees(edges: list[tuple[str, str]]) -> dict[str, int]:
@@ -576,21 +535,7 @@ def _compute_node_depths(
     :param edges: List of (from_name, to_name) edge tuples.
     :return: Dict mapping node name to BFS depth from root.
     """
-    adjacency: dict[str, list[str]] = {}
-    for from_name, to_name in edges:
-        adjacency.setdefault(from_name, []).append(to_name)
-
-    depths: dict[str, int] = {root_name: 0}
-    frontier = [root_name]
-    while frontier:
-        next_frontier: list[str] = []
-        for node in frontier:
-            for neighbor in adjacency.get(node, []):
-                if neighbor not in depths:
-                    depths[neighbor] = depths[node] + 1
-                    next_frontier.append(neighbor)
-        frontier = next_frontier
-    return depths
+    return _bfs_depths(root_name, edges)
 
 
 def render_mermaid(
@@ -904,16 +849,30 @@ def generate_dependency_graph(
         `--only-group` and `--only-extra`.
     :return: The graph in Mermaid format.
     """
-    # Get the full SBOM with all requested groups and extras.
-    sbom = get_cyclonedx_sbom(groups=groups, extras=extras, frozen=frozen)
-    root_name, packages, edges = build_dependency_graph(sbom)
+    # One export per selection, reused when two selections are the same: with
+    # nothing requested the full SBOM is the base one, and with a single group
+    # it is that group's closure.
+    sboms: dict[tuple[tuple[str, ...], tuple[str, ...]], dict[str, Any]] = {}
 
-    # Parse specifiers from uv.lock for edge labels and subgraph node labels.
-    lock_specs = parse_lock_specifiers(lock_data=load_lock_data())
+    def sbom_of(
+        selected_groups: tuple[str, ...] = (), selected_extras: tuple[str, ...] = ()
+    ) -> dict[str, Any]:
+        key = (selected_groups, selected_extras)
+        if key not in sboms:
+            sboms[key] = get_cyclonedx_sbom(
+                groups=selected_groups, extras=selected_extras, frozen=frozen
+            )
+        return sboms[key]
 
-    # Get base packages (without any groups or extras) for comparison.
-    base_sbom = get_cyclonedx_sbom(frozen=frozen)
-    base_packages = get_package_names_from_sbom(base_sbom)
+    root_name, packages, edges = build_dependency_graph(
+        sbom_of(groups or (), extras or ())
+    )
+
+    # Specifiers from uv.lock, for edge labels and subgraph node labels.
+    lock_specs = LockFile.load(Path("uv.lock")).specifiers
+
+    # The base packages (without any groups or extras), for comparison.
+    base_packages = get_package_names_from_sbom(sbom_of())
 
     # Closure and directly-declared packages for every requested subgraph.
     # Groups precede extras so a package both declare lands in the group's box
@@ -922,15 +881,11 @@ def generate_dependency_graph(
     subgraph_closures: list[tuple[str, set[str]]] = []
     direct_packages: dict[str, set[str]] = {}
     for group in groups or ():
-        closure = get_package_names_from_sbom(
-            get_cyclonedx_sbom(groups=(group,), frozen=frozen)
-        )
+        closure = get_package_names_from_sbom(sbom_of(selected_groups=(group,)))
         subgraph_closures.append((group, closure))
         direct_packages[group] = set(lock_specs.by_subgraph.get(group, {}))
     for extra in extras or ():
-        closure = get_package_names_from_sbom(
-            get_cyclonedx_sbom(extras=(extra,), frozen=frozen)
-        )
+        closure = get_package_names_from_sbom(sbom_of(selected_extras=(extra,)))
         subgraph_closures.append((extra, closure))
         direct_packages[extra] = set(lock_specs.by_subgraph.get(extra, {}))
 
@@ -979,11 +934,7 @@ def generate_dependency_graph(
             subgraph_union |= closure
         allowed = (subgraph_union - base_packages) | {root_name}
         packages &= allowed
-        edges = [
-            (from_name, to_name)
-            for from_name, to_name in edges
-            if from_name in allowed and to_name in allowed
-        ]
+        edges = _induced_edges(edges, allowed)
 
     # Filter to specific package if requested.
     if package:

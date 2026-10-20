@@ -1,6 +1,6 @@
 ---
 args: [repo_url, repo_slug]
-footer: 'false'
+footer: false
 ---
 
 Have GitHub refuse to run a workflow that references an action by tag or branch instead of a full commit SHA:

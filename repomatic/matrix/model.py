@@ -32,25 +32,24 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
 
 
+GITHUB_MATRIX_JOB_LIMIT = 256
+"""Most jobs GitHub expands one `strategy.matrix` into.
+
+GitHub refuses a matrix past this size, so {meth}`Matrix.solve` reports one
+before a workflow meets the refusal.
+"""
+
 JOB_STATE_KEY = "state"
 """Job key carrying whether a cell runs as `stable` or `unstable`.
 
-{meth}`Matrix.pivot` reads it into each cell, absent a caller's choice.
+{meth}`Matrix.pivot_counts` tallies it in each cell, absent a caller's choice.
 """
 
 OS_AXIS = "os"
-"""Job key naming the runner image, laid out as {meth}`Matrix.pivot` columns."""
+"""Job key naming the runner image: the default grid column."""
 
 PYTHON_VERSION_AXIS = "python-version"
-"""Job key naming the interpreter version, laid out as {meth}`Matrix.pivot` rows."""
-
-PIVOT_CELL_SEPARATOR = ", "
-"""Joins the distinct states {meth}`Matrix.pivot` finds at one intersection.
-
-Exposed so a caller rendering the grid can split a cell back into its states
-and decorate each one, instead of hard-coding the separator on its side and
-letting the two drift.
-"""
+"""Job key naming the interpreter version: the default grid row."""
 
 RESERVED_MATRIX_KEYWORDS = ("include", "exclude")
 """Keys GitHub reserves inside a `strategy.matrix` block.
@@ -122,20 +121,15 @@ class Matrix:
         self.include: tuple[dict[str, str], ...] = ()
         self.exclude: tuple[dict[str, str], ...] = ()
 
-        self._job_counter: int = 0
+    def matrix(self) -> FrozenDict[str, tuple[str, ...] | tuple[dict[str, str], ...]]:
+        """Returns a copy of the matrix, with its `include` and `exclude` directives.
 
-    def matrix(
-        self, ignore_includes: bool = False, ignore_excludes: bool = False
-    ) -> FrozenDict[str, tuple[str, ...] | tuple[dict[str, str], ...]]:
-        """Returns a copy of the matrix.
-
-        The special `include` and `excludes` directives will be added by default.
-        You can selectively ignore them by passing the corresponding boolean parameters.
+        A directive list that holds nothing is left out, as GitHub expects.
         """
         dict_copy = self.variations.copy()
-        if not ignore_includes and self.include:
+        if self.include:
             dict_copy["include"] = self.include  # type: ignore[assignment]
-        if not ignore_excludes and self.exclude:
+        if self.exclude:
             dict_copy["exclude"] = self.exclude  # type: ignore[assignment]
         return FrozenDict(dict_copy)
 
@@ -159,14 +153,21 @@ class Matrix:
                 raise ValueError(f"{var_id} cannot be used as a variation ID")
 
     def add_variation(self, variation_id: str, values: Iterable[str]) -> None:
+        """Extend the axis *variation_id* with *values*, dropping duplicates.
+
+        :raises ValueError: When *values* holds nothing, or holds something
+            other than a string.
+        """
         self._check_ids(variation_id)
-        if not values:
+        # Read a generator once: the checks below would otherwise consume it.
+        new_values = tuple(values or ())
+        if not new_values:
             raise ValueError(f"No variation values provided: {values}")
-        if any(type(v) is not str for v in values):
-            raise ValueError(f"Only strings are accepted in {values}")
-        # Extend variation with values, and deduplicate them along the way.
-        var_values = list(self.variations.get(variation_id, [])) + list(values)
-        self.variations[variation_id] = tuple(unique(var_values))
+        if any(type(v) is not str for v in new_values):
+            raise ValueError(f"Only strings are accepted in {new_values}")
+        self.variations[variation_id] = tuple(
+            unique((*self.variations.get(variation_id, ()), *new_values))
+        )
 
     def replace_variation_value(self, variation_id: str, old: str, new: str) -> None:
         """Replace a single value within a variation axis.
@@ -249,67 +250,38 @@ class Matrix:
             )
         self.exclude = tuple(effective)
 
-    def all_variations(
-        self,
-        with_matrix: bool = True,
-        with_includes: bool = False,
-        with_excludes: bool = False,
-    ) -> dict[str, tuple[str, ...]]:
-        """Collect all variations encountered in the matrix.
+    def all_variations(self, with_includes: bool = False) -> dict[str, tuple[str, ...]]:
+        """Collect every axis of the matrix, with its values.
 
-        Extra variations mentioned in the special `include` and `exclude`
-        directives will be ignored by default.
-
-        You can selectively expand or restrict the resulting inventory of variations by
-        passing the corresponding `with_matrix`, `with_includes` and
-        `with_excludes` boolean filter parameters.
+        :param with_includes: Also collect the keys and values the `include`
+            directives name, after the declared axes.
+        :return: Each key mapped to its distinct values, in first-seen order.
         """
-        all_variations = {}
-        if with_matrix:
-            all_variations = {k: list(v) for k, v in self.variations.items()}
+        collected = {key: list(values) for key, values in self.variations.items()}
+        if with_includes:
+            for directive in self.include:
+                for key, value in directive.items():
+                    collected.setdefault(key, []).append(value)
+        return {key: tuple(unique(values)) for key, values in collected.items()}
 
-        for expand, directives in (
-            (with_includes, self.include),
-            (with_excludes, self.exclude),
-        ):
-            if expand:
-                for value in directives:
-                    for k, v in value.items():
-                        all_variations.setdefault(k, []).append(v)
+    def product(self) -> Iterator[dict[str, str]]:
+        """Yield every combination of the declared axes, before any directive.
 
-        return {k: tuple(unique(v)) for k, v in all_variations.items()}
-
-    def product(
-        self, with_includes: bool = False, with_excludes: bool = False
-    ) -> Iterator[dict[str, str]]:
-        """Only returns the combinations of the base matrix by default.
-
-        You can optionally add any variation referenced in the `include` and
-        `exclude` special directives.
-
-        Respects the order of variations and their values.
+        Respects the order of the axes and of their values.
         """
-        all_variations = self.all_variations(
-            with_includes=with_includes, with_excludes=with_excludes
-        )
-        if not all_variations:
+        if not self.variations:
             return
         yield from map(
             dict,
             itertools.product(
                 *(
                     tuple((variant_id, v) for v in variations)
-                    for variant_id, variations in all_variations.items()
+                    for variant_id, variations in self.variations.items()
                 )
             ),
         )
 
-    def _count_job(self) -> None:
-        self._job_counter += 1
-        if self._job_counter > 256:
-            logging.critical("GitHub job matrix limit of 256 jobs reached")
-
-    def solve(self, strict: bool = False) -> Iterator[dict[str, str]]:
+    def solve(self) -> Iterator[dict[str, str]]:
         """Expand the matrix to explicit jobs, applying `exclude` then `include`.
 
         Reproduces [GitHub's documented matrix
@@ -334,31 +306,13 @@ class Matrix:
         rules so downstream `full-include` job lists (which {meth}`matrix`
         serializes verbatim) match what GitHub would run.
         ```
+
+        A matrix expanding past {data}`GITHUB_MATRIX_JOB_LIMIT` jobs is logged
+        as critical, since GitHub refuses to run it.
         """
-        # GitHub jobs fails with the following message if the exclude directive is
-        # referencing keys that are not present in the original base matrix:
-        #   Invalid workflow file: .github/workflows/tests.yaml#L48
-        #   The workflow is not valid.
-        #   .github/workflows/tests.yaml (Line: 48, Col: 13): Matrix exclude key 'state'
-        #   does not match any key within the matrix
-        if strict:
-            unreferenced_keys = set(
-                self.all_variations(
-                    with_matrix=False, with_includes=True, with_excludes=True
-                )
-            ).difference(self.variations)
-            if unreferenced_keys:
-                raise ValueError(
-                    f"Matrix exclude keys {list(unreferenced_keys)} does not match any "
-                    f"{self.variations.keys()} key within the matrix"
-                )
-
-        # Reset the number of combinations.
-        self._job_counter = 0
-
         # Keys that come from the base cross-product. An include may not
         # overwrite these on a combination, but may freely set any other key.
-        original_keys = set(self.all_variations())
+        original_keys = set(self.variations)
 
         # Step 1 & 2: base cross-product minus every excluded combination. A
         # combination is excluded when it fully matches at least one directive
@@ -393,9 +347,23 @@ class Matrix:
             if not merged:
                 appended.append(dict(include))
 
-        for job in (*jobs, *appended):
-            self._count_job()
-            yield job
+        solved = (*jobs, *appended)
+        if len(solved) > GITHUB_MATRIX_JOB_LIMIT:
+            logging.critical(
+                f"The matrix expands to {len(solved)} jobs, past the GitHub limit"
+                f" of {GITHUB_MATRIX_JOB_LIMIT}."
+            )
+        yield from solved
+
+    def job_keys(self) -> tuple[str, ...]:
+        """Every key a job of the solved matrix carries, sorted.
+
+        Read off the solved jobs rather than off the declared axes, so a key
+        only an `include` directive sets is listed, and a key whose directive
+        an `exclude` cancelled is not. That makes it the set of keys
+        {meth}`pivot_counts` can lay a grid out on.
+        """
+        return tuple(sorted({key for job in self.solve() for key in job}))
 
     def pivot_counts(
         self,
@@ -405,11 +373,10 @@ class Matrix:
     ) -> dict[tuple[str, str], Counter[str]]:
         """Tally, per grid intersection, the jobs carrying each `cell_key` value.
 
-        The grouping {meth}`pivot` renders, kept as counts rather than
-        collapsed into a string. A caller cannot recover them from the
-        rendered grid, where a cell holding five identical states and one
-        holding a single job read alike, which is the whole reason a matrix
-        varying on a third axis needs this.
+        A grid has two axes, so a matrix varying on a third lands several jobs
+        on one intersection. The counts keep them apart: a cell standing for
+        five jobs of one state and a cell standing for one job are told apart
+        by their count.
 
         :param row_axis: Job key whose values become grid rows.
         :param col_axis: Job key whose values become grid columns.
@@ -426,54 +393,3 @@ class Matrix:
             cell = tallies.setdefault((job[row_axis], job[col_axis]), Counter())
             cell[job.get(cell_key, "")] += 1
         return tallies
-
-    def pivot(
-        self,
-        row_axis: str = PYTHON_VERSION_AXIS,
-        col_axis: str = OS_AXIS,
-        cell_key: str = JOB_STATE_KEY,
-        missing: str = "—",
-    ) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
-        """Pivot the solved matrix into a 2D grid keyed by two axes.
-
-        Expands the matrix with {meth}`solve`, then arranges the resulting jobs
-        into a grid: one row per distinct `row_axis` value, one column per
-        distinct `col_axis` value. Each cell holds the job's `cell_key` value at
-        that intersection (its `state`, by default), or `missing` when no job
-        occupies it (an excluded combination).
-
-        :param row_axis: Job key whose values become grid rows.
-        :param col_axis: Job key whose values become grid columns.
-        :param cell_key: Job key whose value fills each cell.
-        :param missing: Placeholder for an empty (row, col) intersection.
-        :return: A `(col_values, rows)` pair. `col_values` is the ordered tuple
-            of column values (distinct `col_axis` values). Each entry in `rows`
-            is `(row_value, cell, …)`, with one cell per `col_values` entry.
-
-        ```{note}
-        Axis values keep first-seen order in the solved job stream. That matches
-        the declared axis order for a base cross-product matrix, and the emitted
-        job order for a flattened `full-include` matrix.
-
-        When several jobs share one (row, col) intersection (a matrix carrying
-        extra axes, such as a `click-version` variation), their distinct
-        `cell_key` values are joined with {data}`PIVOT_CELL_SEPARATOR`. A matrix
-        with only the `os` and `python-version` axes has exactly one job per
-        cell.
-        ```
-        """
-        tallies = self.pivot_counts(row_axis, col_axis, cell_key)
-        col_values = tuple(unique(col for _, col in tallies))
-        row_values = tuple(unique(row for row, _ in tallies))
-
-        rows: list[tuple[str, ...]] = []
-        for row in row_values:
-            cells_in_row = []
-            for col in col_values:
-                states = tallies.get((row, col))
-                cells_in_row.append(
-                    PIVOT_CELL_SEPARATOR.join(states) if states else missing
-                )
-            rows.append((row, *cells_in_row))
-
-        return col_values, tuple(rows)

@@ -20,101 +20,49 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from unittest.mock import MagicMock, patch
 
 import pytest
 from packaging.version import Version
 
 from repomatic.git_ops import (
-    COMMIT_IDENTITY_NAME,
+    GitError,
     checkout,
-    commit_and_push_files,
+    commit_exists,
     commit_staged,
     count_commits_between,
     create_and_push_tag,
     create_branch,
-    create_tag,
     current_branch,
+    deepen_until_related,
     delete_branch,
     delete_remote_branch,
+    fetch_commit,
     fetch_remote_branch,
     force_push_branch,
+    get_all_version_tags,
+    get_commit,
     get_latest_tag_version,
     get_release_version_from_commits,
     head_sha,
     is_ancestor,
+    is_shallow,
+    list_commits,
     merge_base,
-    push_tag,
     rebase_onto,
     restore_paths,
+    show_file,
     stage_all,
-    tag_exists,
     tree_sha,
 )
 from repomatic.metadata.core import Metadata
 from repomatic.metadata.project import is_version_bump_allowed
 
-
-@pytest.mark.parametrize(
-    ("call", "expected_argv"),
-    (
-        pytest.param(
-            lambda: tag_exists("v1.0.0"),
-            ["git", "show-ref", "--tags", "v1.0.0", "--quiet"],
-            id="tag-exists",
-        ),
-        pytest.param(
-            lambda: create_tag("v1.0.0"), ["git", "tag", "v1.0.0"], id="create-at-head"
-        ),
-        pytest.param(
-            lambda: create_tag("v1.0.0", "abc123"),
-            ["git", "tag", "v1.0.0", "abc123"],
-            id="create-at-commit",
-        ),
-        pytest.param(
-            lambda: push_tag("v1.0.0"),
-            ["git", "push", "origin", "v1.0.0"],
-            id="push-default-remote",
-        ),
-        pytest.param(
-            lambda: push_tag("v1.0.0", remote="upstream"),
-            ["git", "push", "upstream", "v1.0.0"],
-            id="push-custom-remote",
-        ),
-    ),
-)
-def test_tag_command_argv(call, expected_argv):
-    """Each tag helper shells out to exactly the git command it names."""
-    with patch("repomatic.git_ops.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0)
-        call()
-        mock_run.assert_called_once()
-        assert mock_run.call_args.args[0] == expected_argv
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
-def test_tag_exists_false():
-    """A non-zero exit from `git show-ref` reads as a missing tag."""
-    with patch("repomatic.git_ops.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=1)
-        assert tag_exists("v1.0.0") is False
-
-
-@pytest.mark.parametrize(
-    "call",
-    (
-        pytest.param(lambda: create_tag("v1.0.0"), id="create"),
-        pytest.param(lambda: push_tag("v1.0.0"), id="push"),
-    ),
-)
-def test_tag_command_propagates_git_failure(call):
-    """A failed git invocation surfaces rather than being swallowed."""
-    with patch("repomatic.git_ops.subprocess.run") as mock_run:
-        mock_run.side_effect = subprocess.CalledProcessError(1, "git")
-        with pytest.raises(subprocess.CalledProcessError):
-            call()
-
-
-# --- commit_and_push_files ---
+# --- Repository fixtures ---
 
 
 def _run_git(*args: str, cwd) -> str:
@@ -160,104 +108,162 @@ def git_workdir(tmp_path, monkeypatch, hermetic_git):
     return work
 
 
-def test_commit_and_push_files_no_changes(git_workdir):
-    """Unchanged files produce no commit and report False."""
-    assert commit_and_push_files(["seed.txt"], "No-op") is False
-    assert "No-op" not in _run_git("log", "--format=%s", cwd=git_workdir)
+SHALLOW_HISTORY = ("apple", "banana", "cherry", "date", "elderberry")
+"""Content of the successive commits {func}`make_shallow_clone` pushes."""
 
 
-def test_commit_and_push_files_pushes(git_workdir, tmp_path):
-    """A changed file is committed with the bot identity and pushed."""
-    (git_workdir / "seed.txt").write_text("updated\n", encoding="UTF-8")
-    assert commit_and_push_files(["seed.txt"], "Record update") is True
-    remote_log = _run_git("log", "--format=%s|%an", "main", cwd=tmp_path / "remote.git")
-    assert f"Record update|{COMMIT_IDENTITY_NAME}" in remote_log
+def make_shallow_clone(tmp_path: Path) -> tuple[Path, list[str]]:
+    """Clone a remote holding one commit per {data}`SHALLOW_HISTORY` entry.
+
+    The clone is one commit deep. The remote serves any commit it can reach by
+    SHA, as GitHub does, so a commit outside the clone can be fetched alone.
+
+    :return: The clone, and the SHAs of the remote's commits, oldest first.
+    """
+    remote = tmp_path / "remote.git"
+    _run_git("init", "--bare", "--initial-branch=main", str(remote), cwd=tmp_path)
+    _run_git("config", "uploadpack.allowReachableSHA1InWant", "true", cwd=remote)
+    seed = tmp_path / "seed"
+    _run_git("clone", str(remote), str(seed), cwd=tmp_path)
+    _run_git("checkout", "-B", "main", cwd=seed)
+    shas = []
+    for fruit in SHALLOW_HISTORY:
+        _seed_commit(seed, "fruits.txt", f"{fruit}\n", f"Add {fruit}")
+        shas.append(_run_git("rev-parse", "HEAD", cwd=seed).strip())
+    _run_git("push", "origin", "main", cwd=seed)
+    clone = tmp_path / "clone"
+    _run_git("clone", "--depth=1", remote.as_uri(), str(clone), cwd=tmp_path)
+    return clone, shas
 
 
-def test_commit_and_push_files_rebases_on_rejection(git_workdir, tmp_path):
-    """A concurrent push to another file is absorbed by fetch and rebase."""
-    other = tmp_path / "other"
-    _run_git("clone", str(tmp_path / "remote.git"), str(other), cwd=tmp_path)
-    _seed_commit(other, "other.txt", "other\n", "Concurrent commit")
-    _run_git("push", "origin", "main", cwd=other)
-
-    (git_workdir / "seed.txt").write_text("updated\n", encoding="UTF-8")
-    assert commit_and_push_files(["seed.txt"], "Record update") is True
-    remote_log = _run_git("log", "--format=%s", "main", cwd=tmp_path / "remote.git")
-    assert "Record update" in remote_log
-    assert "Concurrent commit" in remote_log
+@pytest.fixture
+def shallow_clone(tmp_path, monkeypatch, hermetic_git):
+    """The SHAs of a depth-1 clone's remote history, the clone being the cwd."""
+    clone, shas = make_shallow_clone(tmp_path)
+    monkeypatch.chdir(clone)
+    return shas
 
 
-def test_commit_and_push_files_conflict_raises(git_workdir, tmp_path):
-    """A concurrent push touching the same lines aborts with a clear error."""
-    other = tmp_path / "other"
-    _run_git("clone", str(tmp_path / "remote.git"), str(other), cwd=tmp_path)
-    _seed_commit(other, "seed.txt", "theirs\n", "Concurrent conflicting commit")
-    _run_git("push", "origin", "main", cwd=other)
-
-    (git_workdir / "seed.txt").write_text("ours\n", encoding="UTF-8")
-    with pytest.raises(RuntimeError, match="conflicted"):
-        commit_and_push_files(["seed.txt"], "Record update")
+# --- Errors and reads ---
 
 
-def test_create_new_tag():
-    """Create and push new tag."""
-    with (
-        patch("repomatic.git_ops.tag_exists", return_value=False),
-        patch("repomatic.git_ops.create_tag") as mock_create,
-        patch("repomatic.git_ops.push_tag") as mock_push,
-    ):
-        result = create_and_push_tag("v1.0.0")
-        assert result is True
-        mock_create.assert_called_once_with("v1.0.0", None)
-        mock_push.assert_called_once_with("v1.0.0")
+def test_git_error_carries_stderr(git_workdir):
+    """A failure names the command and carries git's own error output."""
+    with pytest.raises(GitError) as excinfo:
+        get_commit("no-such-papaya")
+    error = excinfo.value
+    assert error.returncode == 128
+    assert str(error).startswith("git log ")
+    assert "no-such-papaya" in error.stderr
+    assert error.stderr.strip() in str(error)
+    # Callers handling any failed external command catch it too.
+    assert isinstance(error, subprocess.CalledProcessError)
+    assert isinstance(error, RuntimeError)
 
 
-def test_create_and_push_tag_at_commit():
-    """Create and push tag at specific commit."""
-    with (
-        patch("repomatic.git_ops.tag_exists", return_value=False),
-        patch("repomatic.git_ops.create_tag") as mock_create,
-        patch("repomatic.git_ops.push_tag"),
-    ):
-        result = create_and_push_tag("v1.0.0", commit="abc123")
-        assert result is True
-        mock_create.assert_called_once_with("v1.0.0", "abc123")
+def test_show_file_reads_a_past_commit_in_place(git_workdir):
+    """A past version of a file is read without moving `HEAD`."""
+    first = head_sha()
+    _seed_commit(git_workdir, "seed.txt", "changed\n", "Change the seed")
+    tip = head_sha()
+
+    assert show_file(first, "seed.txt") == "seed\n"
+    assert show_file(tip, "seed.txt") == "changed\n"
+    assert show_file(first, "missing.txt") is None
+    assert head_sha() == tip
 
 
-def test_skip_existing_tag():
-    """Skip when tag exists and skip_existing is True."""
-    with (
-        patch("repomatic.git_ops.tag_exists", return_value=True),
-        patch("repomatic.git_ops.create_tag") as mock_create,
-        patch("repomatic.git_ops.push_tag") as mock_push,
-    ):
-        result = create_and_push_tag("v1.0.0", skip_existing=True)
-        assert result is False
-        mock_create.assert_not_called()
-        mock_push.assert_not_called()
+# --- Tags ---
 
 
-def test_error_existing_tag():
-    """Raise ValueError when tag exists and skip_existing is False."""
-    with (
-        patch("repomatic.git_ops.tag_exists", return_value=True),
-        pytest.raises(ValueError, match="already exists"),
-    ):
-        create_and_push_tag("v1.0.0", skip_existing=False)
+def test_create_and_push_tag_publishes_the_tag(git_workdir, tmp_path):
+    """The tag lands on the remote, at `HEAD` by default."""
+    assert create_and_push_tag("v1.0.0") is True
+    remote_tags = _run_git("tag", "--list", cwd=tmp_path / "remote.git")
+    assert remote_tags.split() == ["v1.0.0"]
+    tagged = _run_git("rev-list", "-n", "1", "v1.0.0", cwd=git_workdir)
+    assert tagged.strip() == head_sha()
 
 
-def test_create_without_push():
-    """Create tag without pushing."""
-    with (
-        patch("repomatic.git_ops.tag_exists", return_value=False),
-        patch("repomatic.git_ops.create_tag") as mock_create,
-        patch("repomatic.git_ops.push_tag") as mock_push,
-    ):
-        result = create_and_push_tag("v1.0.0", push=False)
-        assert result is True
-        mock_create.assert_called_once()
-        mock_push.assert_not_called()
+def test_create_and_push_tag_at_commit_without_push(git_workdir, tmp_path):
+    """A tag can point at an older commit, and stay local."""
+    base = head_sha()
+    _seed_commit(git_workdir, "fruits.txt", "papaya\n", "Add fruits")
+
+    assert create_and_push_tag("v1.0.0", commit=base, push=False) is True
+    tagged = _run_git("rev-list", "-n", "1", "v1.0.0", cwd=git_workdir)
+    assert tagged.strip() == base
+    assert not _run_git("tag", "--list", cwd=tmp_path / "remote.git").strip()
+
+
+def test_create_and_push_tag_skips_an_existing_tag(git_workdir):
+    """Re-running the tag step is a no-op, unless asked to fail."""
+    assert create_and_push_tag("v1.0.0", push=False) is True
+    assert create_and_push_tag("v1.0.0", push=False) is False
+    with pytest.raises(ValueError, match="already exists"):
+        create_and_push_tag("v1.0.0", push=False, skip_existing=False)
+
+
+def test_create_and_push_tag_matches_the_exact_tag(git_workdir):
+    """A tag whose name only ends like the one asked for is not a match."""
+    _run_git("tag", "release/v1.0.0", cwd=git_workdir)
+    assert create_and_push_tag("v1.0.0", push=False) is True
+
+
+def test_version_tags_skip_names_that_do_not_parse(git_workdir):
+    """A tag the glob selects but PEP 440 refuses is left out of every reader."""
+    for tag in ("v1.2.3", "v1.2.3_hotfix", "v1.10.0", "nightly"):
+        _run_git("tag", tag, cwd=git_workdir)
+
+    assert get_latest_tag_version() == Version("1.10.0")
+    assert set(get_all_version_tags()) == {"1.2.3", "1.10.0"}
+
+
+# --- Shallow clones ---
+
+
+def test_fetch_commit_brings_a_commit_without_its_history(shallow_clone):
+    """A commit fetched on its own is a boundary of its own."""
+    oldest, tip = shallow_clone[0], shallow_clone[-1]
+    assert is_shallow()
+    assert not commit_exists(oldest)
+
+    assert fetch_commit(oldest) is True
+    assert commit_exists(oldest)
+    assert merge_base(oldest, tip) is None
+    # Already present: nothing to fetch.
+    assert fetch_commit(oldest) is True
+
+
+def test_fetch_commit_reports_a_commit_the_remote_does_not_serve(shallow_clone):
+    assert fetch_commit("f" * 40) is False
+
+
+def test_deepening_relates_a_commit_fetched_on_its_own(shallow_clone):
+    """Presence of both ends is not enough to walk the range between them.
+
+    The order `metadata` resolves its keys in can fetch the start of the range
+    before the range itself is resolved. A range walked from there would stop
+    at the boundary of the clone, and miss every commit below the tip.
+    """
+    start, end = shallow_clone[1], shallow_clone[-1]
+    assert fetch_commit(start)
+
+    assert deepen_until_related(start, end, depth=1) is True
+    assert [commit.hash for commit in list_commits(start, end)] == shallow_clone[2:]
+
+
+def test_deepening_gives_up_after_its_attempts(shallow_clone):
+    start, end = shallow_clone[0], shallow_clone[-1]
+    assert fetch_commit(start)
+
+    assert deepen_until_related(start, end, attempts=1, depth=1) is False
+
+
+def test_deepening_stops_on_a_complete_clone(git_workdir):
+    """A complete clone has no boundary to deepen: unrelated commits stay so."""
+    assert not is_shallow()
+    assert deepen_until_related("f" * 40, head_sha()) is False
 
 
 @pytest.mark.repo_maintenance
@@ -379,7 +385,7 @@ def test_is_version_bump_allowed_uses_commit_fallback(
     the fallback the check fails open and allows a double increment.
     """
     monkeypatch.setattr(
-        "repomatic.metadata.project.ProjectMetadata.get_current_version",
+        "repomatic.metadata.project.get_current_version",
         lambda: current,
     )
     monkeypatch.setattr(
@@ -395,7 +401,7 @@ def test_is_version_bump_allowed_uses_commit_fallback(
 def test_is_version_bump_allowed_without_tags_or_commits(monkeypatch):
     """Nothing to compare against fails open, so a release is never blocked."""
     monkeypatch.setattr(
-        "repomatic.metadata.project.ProjectMetadata.get_current_version",
+        "repomatic.metadata.project.get_current_version",
         lambda: "5.0.2",
     )
     monkeypatch.setattr(
@@ -533,8 +539,8 @@ def test_force_push_refuses_an_outdated_lease(git_workdir):
         force_push_branch("tmp-late", "sync-fruits", expected_sha=observed)
 
 
-def test_force_push_rejection_logs_stderr(git_workdir, caplog):
-    """A rejected push logs git's stderr, which `CalledProcessError` itself drops."""
+def test_force_push_rejection_carries_stderr(git_workdir, caplog):
+    """A rejected push raises with git's stderr, and logs nothing on its own."""
     caplog.set_level(logging.ERROR)
 
     def publish(content: str, branch: str, expected_sha: str | None) -> str:
@@ -553,13 +559,13 @@ def test_force_push_rejection_logs_stderr(git_workdir, caplog):
     stage_all()
     create_branch("tmp-late")
     commit_staged("Sync fruits")
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(GitError) as excinfo:
         force_push_branch("tmp-late", "sync-fruits", expected_sha=observed)
 
-    [record] = caplog.records
-    assert record.levelname == "ERROR"
-    assert "git push" in record.message
-    assert "sync-fruits" in record.message
+    assert str(excinfo.value).startswith("git push ")
+    assert "sync-fruits" in str(excinfo.value)
+    assert excinfo.value.stderr.strip() in str(excinfo.value)
+    assert not caplog.records
 
 
 def test_branch_deletion_is_idempotent(git_workdir):

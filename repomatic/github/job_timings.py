@@ -16,18 +16,11 @@
 
 """Measure how long each runner image actually takes, from finished runs.
 
-Runner selection is supposed to rest on measurement rather than on architecture
-folklore, and this repository has already paid for the alternative: the lean
-`ubuntu-slim` image held every mechanical job for years on a benchmark that
-timed only the tool pass, where it looked near-parity. Timed end to end it was
-20-56% *slower*, because most of the difference sat in checkout and install,
-which that measurement could not see.
-
-The counter-measure was a prose warning plus a two-command `gh` recipe and a
-median taken by hand. This module is that recipe, which makes the rule
-mechanical rather than advisory: the jobs API reports `startedAt` and
-`completedAt`, so a duration read from it is *whole-job by construction* and
-the mistake above is not expressible.
+Runner selection rests on measurement, and the measurement that matters is the
+whole job. A benchmark that times only the tool pass misses checkout and
+install, which is where most of the difference between two images sits. The
+jobs API reports `startedAt` and `completedAt`, so a duration read from it is
+*whole-job by construction*, and that mistake cannot be made here.
 
 ```{note} Why the job name, and not a second API call
 Attributing a duration to an image needs no extra request, because the matrix
@@ -57,8 +50,7 @@ from click_extra import ColumnSpec
 from ..humanize import parse_iso_datetime
 from ..matrix.axes import KNOWN_RUNNERS
 from ..tabular import render_markdown_table
-from .actions import workflow_runs
-from .gh import gh_api_json
+from .runs import read_run, workflow_runs
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -96,8 +88,7 @@ class JobTiming:
     """Whole-job wall-clock: the `completedAt` minus `startedAt` delta.
 
     Deliberately not the compute time. This is what the run costs in billed
-    minutes and in wall-clock waiting, and it is the figure that settled the
-    `ubuntu-slim` question when the tool-pass figure could not.
+    minutes and in wall-clock waiting.
     """
 
 
@@ -153,7 +144,7 @@ def fetch_job_timings(
     durations measure where the failure landed rather than what the image
     costs, and a cancelled matrix reports whatever fraction ran before the
     cancellation swept it. The runs come from
-    {func}`~repomatic.github.actions.workflow_runs`, whose `created` filter keeps
+    {func}`~repomatic.github.runs.workflow_runs`, whose `created` filter keeps
     a stale snapshot of old runs out of the sample.
 
     :param workflow: Workflow filename, like `tests.yaml`.
@@ -164,8 +155,8 @@ def fetch_job_timings(
     """
     timings: list[JobTiming] = []
     for run in workflow_runs(workflow, branch, status="success", limit=limit):
-        detail = gh_api_json(["run", "view", str(run["id"]), "--json", "jobs"])
-        if not isinstance(detail, dict):
+        detail = read_run(run["id"], ("jobs",), soft=True)
+        if detail is None:
             continue
         for job in detail.get("jobs") or []:
             seconds = _duration(job)
@@ -181,10 +172,29 @@ class RunnerReport:
     """Aggregated timings for one runner image."""
 
     runner: str
+    """The runner image, or {data}`UNATTRIBUTED`."""
+
     job_count: int
+    """How many finished jobs the image ran across the sample."""
+
     median_seconds: float
+    """Median whole-job wall-clock of those jobs."""
+
     slowest_job: str
+    """Name of the slowest of those jobs."""
+
     slowest_seconds: float
+    """Whole-job wall-clock of the slowest job."""
+
+    def cells(self) -> tuple[str, str, str, str, str]:
+        """The row of the report, in {data}`JOB_TIMINGS_HEADER_DEFS` order."""
+        return (
+            self.runner,
+            str(self.job_count),
+            format_duration(self.median_seconds),
+            self.slowest_job,
+            format_duration(self.slowest_seconds),
+        )
 
 
 def summarize(timings: Iterable[JobTiming]) -> list[RunnerReport]:
@@ -245,16 +255,7 @@ def render_markdown(reports: Sequence[RunnerReport], workflow: str, runs: int) -
     """
     table = render_markdown_table(
         tuple(col.label for col in JOB_TIMINGS_HEADER_DEFS),
-        (
-            (
-                f"`{report.runner}`",
-                report.job_count,
-                format_duration(report.median_seconds),
-                report.slowest_job,
-                format_duration(report.slowest_seconds),
-            )
-            for report in reports
-        ),
+        ((f"`{runner}`", *rest) for runner, *rest in map(RunnerReport.cells, reports)),
         align=("left", "right", "right", "left", "right"),
     )
     lines = [

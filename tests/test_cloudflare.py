@@ -14,35 +14,53 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the Cloudflare Pages drift reconciliation.
+"""Tests for the Cloudflare API client and the Pages drift reconciliation.
 
-Everything runs against a mocked `_call`: the module's value is the diffing,
-merging and credential-resolution logic, none of which needs a live account to
-prove.
+Everything runs against a stand-in for `api.call`, the one seam of the REST
+API: the value is in the diffing, merging and credential-resolution logic, none
+of which needs a live account to prove. The transport tests stub one layer
+lower, at the `urlopen` that {func}`repomatic.http.request` calls.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
+from email.message import Message
+from http.client import RemoteDisconnected
+from io import BytesIO
+from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 import pytest
+from click.testing import CliRunner
 
-from repomatic.cloudflare import pages as cloudflare
-from repomatic.cloudflare.pages import (
+from repomatic.cli.main import repomatic
+from repomatic.cloudflare import api
+from repomatic.cloudflare.api import (
+    WRANGLER_CONFIG_FILE,
     CloudflareError,
     CloudflareHTTPError,
+    Status,
+    account,
+    api_token,
+    print_status,
+    resolve_project,
+    token_expiry_warning,
+    wrangler_config_paths,
+)
+from repomatic.cloudflare.pages import (
+    PagesMode,
     Setting,
-    _account,
     _diff,
-    _merge,
-    _nest,
+    _patch_body,
     _redact,
-    _token,
-    _token_expiry_warning,
     desired_settings,
     run_cloudflare_pages,
 )
+from repomatic.config import Config
+from tests.conftest import FakeResponse
 
 PROJECT = "papaya-site"
 
@@ -77,7 +95,7 @@ credential resolves its target without any project probing."""
 
 
 def _api(project_state, calls=None):
-    """A `_call` stand-in serving *project_state* and recording writes.
+    """An `api.call` stand-in serving *project_state* and recording writes.
 
     Token-verify endpoints answer like an account credential with no expiry
     recorded, which keeps the expiry warning out of tests not about it.
@@ -211,14 +229,17 @@ def test_diff_reports_live_value_next_to_wanted_one():
     assert drifted == [(setting, "2023-03-01")]
 
 
-def test_nest_and_merge_build_one_patch_body():
-    body: dict = {}
-    _merge(body, _nest(("deployment_configs", "production", "compatibility_date"), "d"))
-    _merge(
-        body, _nest(("deployment_configs", "production", "placement", "mode"), "smart")
+def test_patch_body_nests_every_setting_into_one_body():
+    settings = (
+        Setting(
+            ("deployment_configs", "production", "compatibility_date"), "d", "", ""
+        ),
+        Setting(
+            ("deployment_configs", "production", "placement", "mode"), "smart", "", ""
+        ),
+        Setting(("deployment_configs", "preview", "compatibility_date"), "d", "", ""),
     )
-    _merge(body, _nest(("deployment_configs", "preview", "compatibility_date"), "d"))
-    assert body == {
+    assert _patch_body(settings) == {
         "deployment_configs": {
             "production": {
                 "compatibility_date": "d",
@@ -227,6 +248,11 @@ def test_nest_and_merge_build_one_patch_body():
             "preview": {"compatibility_date": "d"},
         }
     }
+
+
+def test_setting_describes_its_scope_and_how_sure_its_default_is():
+    setting = Setting(("source",), None, "x", "", verified=True, managed=False)
+    assert setting.describe() == "source  [read-only, stock default 'x': documented]"
 
 
 def test_redact_scrubs_every_secret_key():
@@ -242,15 +268,15 @@ def test_redact_scrubs_every_secret_key():
 
 def test_token_prefers_the_environment(monkeypatch):
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "from-env")
-    assert _token() == "from-env"
+    assert api_token() == "from-env"
 
 
 def test_token_falls_back_to_wrangler_login(monkeypatch, tmp_path):
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
     config = tmp_path / "default.toml"
     config.write_text('oauth_token = "from-wrangler"\n', encoding="UTF-8")
-    monkeypatch.setattr(cloudflare, "WRANGLER_CONFIG_PATHS", (config,))
-    assert _token() == "from-wrangler"
+    monkeypatch.setattr(api, "wrangler_config_paths", lambda: (config,))
+    assert api_token() == "from-wrangler"
 
 
 def test_token_refuses_an_expired_wrangler_session(monkeypatch, tmp_path):
@@ -268,9 +294,9 @@ def test_token_refuses_an_expired_wrangler_session(monkeypatch, tmp_path):
     config.write_text(
         f'oauth_token = "stale"\nexpiration_time = "{stale}"\n', encoding="UTF-8"
     )
-    monkeypatch.setattr(cloudflare, "WRANGLER_CONFIG_PATHS", (config,))
+    monkeypatch.setattr(api, "wrangler_config_paths", lambda: (config,))
     with pytest.raises(CloudflareError, match="expired on"):
-        _token()
+        api_token()
 
 
 def test_token_accepts_a_live_wrangler_session(monkeypatch, tmp_path):
@@ -280,8 +306,8 @@ def test_token_accepts_a_live_wrangler_session(monkeypatch, tmp_path):
     config.write_text(
         f'oauth_token = "live"\nexpiration_time = "{fresh}"\n', encoding="UTF-8"
     )
-    monkeypatch.setattr(cloudflare, "WRANGLER_CONFIG_PATHS", (config,))
-    assert _token() == "live"
+    monkeypatch.setattr(api, "wrangler_config_paths", lambda: (config,))
+    assert api_token() == "live"
 
 
 def test_token_tolerates_a_session_with_no_recorded_expiry(monkeypatch, tmp_path):
@@ -291,27 +317,27 @@ def test_token_tolerates_a_session_with_no_recorded_expiry(monkeypatch, tmp_path
     config.write_text(
         'oauth_token = "undated"\nexpiration_time = "whenever"\n', encoding="UTF-8"
     )
-    monkeypatch.setattr(cloudflare, "WRANGLER_CONFIG_PATHS", (config,))
-    assert _token() == "undated"
+    monkeypatch.setattr(api, "wrangler_config_paths", lambda: (config,))
+    assert api_token() == "undated"
 
 
 def test_token_absence_names_both_remedies(monkeypatch, tmp_path):
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
     monkeypatch.setattr(
-        cloudflare, "WRANGLER_CONFIG_PATHS", (tmp_path / "missing.toml",)
+        api, "wrangler_config_paths", lambda: (tmp_path / "missing.toml",)
     )
     with pytest.raises(CloudflareError, match="wrangler login"):
-        _token()
+        api_token()
 
 
-def test_account_resolves_a_lone_account_from_the_token():
+def test_account_resolves_a_lone_account_from_theapi_token():
     """The ordinary case: one account, so nothing needs configuring.
 
     A token scoped to nothing but `Cloudflare Pages: Edit` still enumerates
     the account it belongs to, which is what lets CI carry the token alone.
     """
-    with patch.object(cloudflare, "_call", return_value=[{"id": "solo", "name": "P"}]):
-        assert _account("token", PROJECT) == "solo"
+    with patch.object(api, "call", return_value=[{"id": "solo", "name": "P"}]):
+        assert account("token", PROJECT) == "solo"
 
 
 def _multi_account_api(owners):
@@ -336,10 +362,10 @@ def test_account_picks_the_one_owner_among_several_accounts():
     """A multi-account credential resolves by project ownership.
 
     The project name is always known to the caller, so asking which account
-    holds it settles what an identifier used to be stored for.
+    holds it picks the account without a stored identifier.
     """
-    with patch.object(cloudflare, "_call", side_effect=_multi_account_api({"work"})):
-        assert _account("token", PROJECT) == "work"
+    with patch.object(api, "call", side_effect=_multi_account_api({"work"})):
+        assert account("token", PROJECT) == "work"
 
 
 def test_account_lookup_skips_no_probing_for_a_lone_account():
@@ -350,18 +376,18 @@ def test_account_lookup_skips_no_probing_for_a_lone_account():
         calls.append(path)
         return SOLO_ACCOUNT
 
-    with patch.object(cloudflare, "_call", side_effect=call):
-        assert _account("token", PROJECT) == "account-under-test"
+    with patch.object(api, "call", side_effect=call):
+        assert account("token", PROJECT) == "account-under-test"
     assert calls == ["/accounts"]
 
 
 def test_account_refuses_when_no_account_is_visible():
     """An empty answer points at a token made under the wrong account."""
     with (
-        patch.object(cloudflare, "_call", return_value=[]),
+        patch.object(api, "call", return_value=[]),
         pytest.raises(CloudflareError, match="sees no account at all"),
     ):
-        _account("token", PROJECT)
+        account("token", PROJECT)
 
 
 @pytest.mark.parametrize(
@@ -379,17 +405,17 @@ def test_account_refuses_to_guess_among_several_accounts(owners, fragment):
     the project belongs to.
     """
     with (
-        patch.object(cloudflare, "_call", side_effect=_multi_account_api(owners)),
+        patch.object(api, "call", side_effect=_multi_account_api(owners)),
         pytest.raises(CloudflareError, match=fragment),
     ):
-        _account("token", PROJECT)
+        account("token", PROJECT)
 
 
 def test_check_clean_project_exits_zero(credentials, capsys):
-    with patch.object(cloudflare, "_call", side_effect=_api(CLEAN_PROJECT)):
+    with patch.object(api, "call", side_effect=_api(CLEAN_PROJECT)):
         exit_code = run_cloudflare_pages(
             PROJECT,
-            check=True,
+            PagesMode.CHECK,
             compatibility_date="2026-06-16",
             placement="smart",
         )
@@ -413,10 +439,10 @@ def test_check_drifted_project_exits_one_and_explains(credentials, capsys):
             },
         },
     }
-    with patch.object(cloudflare, "_call", side_effect=_api(stale)):
+    with patch.object(api, "call", side_effect=_api(stale)):
         exit_code = run_cloudflare_pages(
             PROJECT,
-            check=True,
+            PagesMode.CHECK,
             compatibility_date="2026-06-16",
             placement="smart",
         )
@@ -431,8 +457,8 @@ def test_check_flags_a_reattached_git_source_as_read_only(credentials, capsys):
     """The one drift `--apply` must not touch: a source block means a second
     publisher, and unpicking that belongs in the dashboard, deliberately."""
     reattached = {**CLEAN_PROJECT, "source": {"type": "github"}}
-    with patch.object(cloudflare, "_call", side_effect=_api(reattached)):
-        exit_code = run_cloudflare_pages(PROJECT, apply=True)
+    with patch.object(api, "call", side_effect=_api(reattached)):
+        exit_code = run_cloudflare_pages(PROJECT, PagesMode.APPLY)
     assert exit_code == 1
     output = capsys.readouterr().out
     assert "read-only" in output
@@ -456,10 +482,10 @@ def test_apply_patches_only_the_managed_drift(credentials, capsys):
             },
         },
     }
-    with patch.object(cloudflare, "_call", side_effect=_api(stale, calls)):
+    with patch.object(api, "call", side_effect=_api(stale, calls)):
         exit_code = run_cloudflare_pages(
             PROJECT,
-            apply=True,
+            PagesMode.APPLY,
             compatibility_date="2026-06-16",
             placement="smart",
         )
@@ -478,7 +504,7 @@ def test_apply_patches_only_the_managed_drift(credentials, capsys):
 
 
 def _domain_api(attached, records, zones=None, calls=None, dns_write_fails=False):
-    """A `_call` stand-in for the attach-domain paths, recording writes."""
+    """An `api.call` stand-in for the attach-domain paths, recording writes."""
     zones = [{"id": "zone-id", "name": "example.com"}] if zones is None else zones
 
     def call(path, token, method="GET", body=None):
@@ -516,9 +542,11 @@ def test_attach_domain_registers_the_hostname_and_its_dns(credentials, capsys):
     records: list = []
     calls: list = []
     with patch.object(
-        cloudflare, "_call", side_effect=_domain_api(attached, records, calls=calls)
+        api, "call", side_effect=_domain_api(attached, records, calls=calls)
     ):
-        exit_code = run_cloudflare_pages(PROJECT, attach_domain="example.com")
+        exit_code = run_cloudflare_pages(
+            PROJECT, PagesMode.ATTACH_DOMAIN, domain="example.com"
+        )
     assert exit_code == 0
     assert [entry["name"] for entry in attached] == ["example.com"]
     created = [call for call in calls if call[0] == "POST" and "dns_records" in call[1]]
@@ -541,9 +569,11 @@ def test_attach_domain_is_idempotent(credentials, capsys):
     records = [{"type": "CNAME", "name": "example.com", "content": "x.pages.dev"}]
     calls: list = []
     with patch.object(
-        cloudflare, "_call", side_effect=_domain_api(attached, records, calls=calls)
+        api, "call", side_effect=_domain_api(attached, records, calls=calls)
     ):
-        exit_code = run_cloudflare_pages(PROJECT, attach_domain="example.com")
+        exit_code = run_cloudflare_pages(
+            PROJECT, PagesMode.ATTACH_DOMAIN, domain="example.com"
+        )
     assert exit_code == 0
     assert not [call for call in calls if call[0] == "POST"]
     output = capsys.readouterr().out
@@ -558,11 +588,13 @@ def test_attach_domain_reports_dns_it_cannot_write(credentials, capsys):
     reporting success would describe a site that does not load.
     """
     with patch.object(
-        cloudflare,
-        "_call",
+        api,
+        "call",
         side_effect=_domain_api([], [], calls=None, dns_write_fails=True),
     ):
-        exit_code = run_cloudflare_pages(PROJECT, attach_domain="example.com")
+        exit_code = run_cloudflare_pages(
+            PROJECT, PagesMode.ATTACH_DOMAIN, domain="example.com"
+        )
     assert exit_code == 1
     output = capsys.readouterr().out
     assert "cannot write DNS" in output
@@ -572,8 +604,10 @@ def test_attach_domain_reports_dns_it_cannot_write(credentials, capsys):
 def test_attach_domain_finds_the_zone_above_a_subdomain(credentials, capsys):
     """`docs.example.com` lives in `example.com`, so labels get stripped."""
     records: list = []
-    with patch.object(cloudflare, "_call", side_effect=_domain_api([], records)):
-        exit_code = run_cloudflare_pages(PROJECT, attach_domain="docs.example.com")
+    with patch.object(api, "call", side_effect=_domain_api([], records)):
+        exit_code = run_cloudflare_pages(
+            PROJECT, PagesMode.ATTACH_DOMAIN, domain="docs.example.com"
+        )
     assert exit_code == 0
     assert records[0]["name"] == "docs.example.com"
 
@@ -582,16 +616,18 @@ def test_attach_domain_survives_a_credential_that_cannot_read_zones(
     credentials, capsys
 ):
     """A deploy token scoped to Pages alone carries no `Zone → Read`."""
-    with patch.object(cloudflare, "_call", side_effect=_domain_api([], [], zones=[])):
-        exit_code = run_cloudflare_pages(PROJECT, attach_domain="example.com")
+    with patch.object(api, "call", side_effect=_domain_api([], [], zones=[])):
+        exit_code = run_cloudflare_pages(
+            PROJECT, PagesMode.ATTACH_DOMAIN, domain="example.com"
+        )
     assert exit_code == 1
     assert "could not read the zone" in capsys.readouterr().out
 
 
 def test_dump_redacts_and_exits_zero(credentials, capsys):
     leaky = {**CLEAN_PROJECT, "oauth_token": "leaked"}
-    with patch.object(cloudflare, "_call", side_effect=_api(leaky)):
-        exit_code = run_cloudflare_pages(PROJECT, dump=True)
+    with patch.object(api, "call", side_effect=_api(leaky)):
+        exit_code = run_cloudflare_pages(PROJECT, PagesMode.DUMP)
     assert exit_code == 0
     output = capsys.readouterr().out
     assert "<redacted>" in output
@@ -617,8 +653,8 @@ def test_create_posts_the_project_when_missing(credentials, capsys):
             return {"id": "token-id", "status": "active"}
         raise AssertionError(f"unexpected call: {path}")
 
-    with patch.object(cloudflare, "_call", side_effect=call):
-        exit_code = run_cloudflare_pages(PROJECT, create=True)
+    with patch.object(api, "call", side_effect=call):
+        exit_code = run_cloudflare_pages(PROJECT, PagesMode.CREATE)
     assert exit_code == 0
     posts = [call for call in calls if call[0] == "POST"]
     assert posts[0] == (
@@ -626,7 +662,7 @@ def test_create_posts_the_project_when_missing(credentials, capsys):
         "/accounts/account-under-test/pages/projects",
         {"name": PROJECT, "production_branch": "main"},
     )
-    assert f"Created Direct Upload project {PROJECT!r}." in capsys.readouterr().out
+    assert f"created Direct Upload project {PROJECT!r}." in capsys.readouterr().out
 
 
 def test_create_reuses_an_existing_project(credentials, capsys):
@@ -636,8 +672,8 @@ def test_create_reuses_an_existing_project(credentials, capsys):
     fresh one takes, instead of an error.
     """
     calls: list = []
-    with patch.object(cloudflare, "_call", side_effect=_api(CLEAN_PROJECT, calls)):
-        exit_code = run_cloudflare_pages(PROJECT, create=True)
+    with patch.object(api, "call", side_effect=_api(CLEAN_PROJECT, calls)):
+        exit_code = run_cloudflare_pages(PROJECT, PagesMode.CREATE)
     assert exit_code == 0
     assert not [call for call in calls if call[0] == "POST"]
     output = capsys.readouterr().out
@@ -656,10 +692,10 @@ def test_create_still_fails_on_a_non_404_refusal(credentials, capsys):
         raise CloudflareHTTPError(f"GET {path} failed: HTTP 403", 403)
 
     with (
-        patch.object(cloudflare, "_call", side_effect=call),
+        patch.object(api, "call", side_effect=call),
         pytest.raises(CloudflareHTTPError, match="HTTP 403"),
     ):
-        run_cloudflare_pages(PROJECT, create=True)
+        run_cloudflare_pages(PROJECT, PagesMode.CREATE)
     assert not [call for call in calls if call[0] == "POST"]
 
 
@@ -683,8 +719,8 @@ def test_token_expiry_warning_counts_down(days_away, warns):
             raise CloudflareError("HTTP 401")
         return {"id": "token-id", "expires_on": expires}
 
-    with patch.object(cloudflare, "_call", side_effect=call):
-        warning = _token_expiry_warning("token", "orchard")
+    with patch.object(api, "call", side_effect=call):
+        warning = token_expiry_warning("token", "orchard")
     if warns:
         assert warning is not None
         assert "Rotate now" in warning
@@ -703,8 +739,8 @@ def test_token_expiry_warning_counts_the_hours_of_a_last_day():
     def call(path, token, method="GET", body=None):
         return {"id": "token-id", "expires_on": expires}
 
-    with patch.object(cloudflare, "_call", side_effect=call):
-        warning = _token_expiry_warning("token", "orchard")
+    with patch.object(api, "call", side_effect=call):
+        warning = token_expiry_warning("token", "orchard")
     assert warning is not None
     assert "expires" in warning
     assert "in 5 hours" in warning
@@ -716,5 +752,234 @@ def test_token_expiry_warning_never_fails_the_run():
     def call(path, token, method="GET", body=None):
         raise CloudflareError("HTTP 401")
 
-    with patch.object(cloudflare, "_call", side_effect=call):
-        assert _token_expiry_warning("token", "orchard") is None
+    with patch.object(api, "call", side_effect=call):
+        assert token_expiry_warning("token", "orchard") is None
+
+
+# ----- The transport
+
+
+def _http_error(code: int, body: bytes) -> HTTPError:
+    """An `HTTPError` carrying *body*, as `urlopen` raises it."""
+    return HTTPError(
+        "https://api.example.test", code, "Error", Message(), BytesIO(body)
+    )
+
+
+def _envelope(**fields: object) -> FakeResponse:
+    """An answer of the REST API, wrapped the way Cloudflare wraps them all."""
+    return FakeResponse(json.dumps(fields).encode())
+
+
+def test_call_returns_the_result_of_the_envelope():
+    answer = _envelope(success=True, result=[{"id": "orchard"}])
+    with patch("repomatic.http.urlopen", return_value=answer) as mock_open:
+        assert api.call("/accounts", "token-under-test") == [{"id": "orchard"}]
+    sent = mock_open.call_args.args[0]
+    assert sent.get_header("Authorization") == "Bearer token-under-test"
+    assert sent.get_header("User-agent").startswith("repomatic/")
+
+
+def test_call_sends_a_write_as_json():
+    with patch(
+        "repomatic.http.urlopen", return_value=_envelope(success=True, result={})
+    ) as mock_open:
+        api.call("/zones", "token", method="POST", body={"name": "example.com"})
+    sent = mock_open.call_args.args[0]
+    assert sent.get_method() == "POST"
+    assert json.loads(sent.data) == {"name": "example.com"}
+    assert sent.get_header("Content-type") == "application/json"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    (
+        pytest.param(TimeoutError("timed out"), id="timeout"),
+        pytest.param(ConnectionResetError("reset by peer"), id="reset"),
+        pytest.param(RemoteDisconnected("Remote end closed connection"), id="dropped"),
+    ),
+)
+def test_call_turns_a_broken_connection_into_a_cloudflare_error(failure):
+    """A stalled or dropped connection reaches the command as the error it
+    catches, not as a traceback."""
+    with (
+        patch("repomatic.http.urlopen", side_effect=failure),
+        pytest.raises(CloudflareError, match="GET /accounts failed") as excinfo,
+    ):
+        api.call("/accounts", "token")
+    assert not isinstance(excinfo.value, CloudflareHTTPError)
+
+
+def test_call_keeps_the_status_and_body_of_a_refusal():
+    refused = _http_error(404, b'{"errors": [{"code": 8000007}]}')
+    with (
+        patch("repomatic.http.urlopen", side_effect=refused),
+        pytest.raises(CloudflareHTTPError, match="HTTP 404") as excinfo,
+    ):
+        api.call("/accounts/orchard/pages/projects/papaya", "token")
+    assert excinfo.value.status == 404
+    assert "8000007" in str(excinfo.value)
+
+
+def test_call_names_the_likely_cause_of_a_403_on_accounts():
+    with (
+        patch("repomatic.http.urlopen", side_effect=_http_error(403, b"")),
+        pytest.raises(CloudflareHTTPError, match="expired credential"),
+    ):
+        api.call("/accounts", "token")
+
+
+@pytest.mark.parametrize(
+    ("answer", "fragment"),
+    (
+        pytest.param(
+            _envelope(success=False, errors=[{"code": 7003}]),
+            "returned errors",
+            id="errors",
+        ),
+        pytest.param(FakeResponse(b"<html>"), "not JSON", id="not-json"),
+    ),
+)
+def test_call_refuses_an_answer_it_cannot_use(answer, fragment):
+    with (
+        patch("repomatic.http.urlopen", return_value=answer),
+        pytest.raises(CloudflareError, match=fragment),
+    ):
+        api.call("/accounts", "token")
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    (
+        (Status.OK, "ok    fig\n"),
+        (Status.DRIFT, "DRIFT fig\n"),
+        (None, "      fig\n"),
+    ),
+)
+def test_print_status_aligns_every_message(capsys, label, expected):
+    print_status(label, "fig")
+    assert capsys.readouterr().out == expected
+
+
+# ----- Credentials and the project
+
+
+@pytest.mark.parametrize(
+    ("macos", "expected"),
+    (
+        pytest.param(True, ("home/Library/Preferences", "xdg"), id="macos"),
+        pytest.param(False, ("xdg",), id="elsewhere"),
+    ),
+)
+def test_wrangler_config_paths_resolve_when_called(
+    monkeypatch, tmp_path, macos, expected
+):
+    """The paths follow the home and XDG directories of the moment.
+
+    Read at import, they would keep whatever the process saw then, and a
+    caller that moves either directory would probe stale paths.
+    """
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr(api, "is_macos", lambda: macos)
+    assert wrangler_config_paths() == tuple(
+        tmp_path / parent / WRANGLER_CONFIG_FILE for parent in expected
+    )
+
+
+def test_wrangler_config_paths_default_to_the_xdg_home(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setattr(api, "is_macos", lambda: False)
+    assert wrangler_config_paths() == (tmp_path / ".config" / WRANGLER_CONFIG_FILE,)
+
+
+@pytest.mark.parametrize(
+    ("given", "declared", "expected"),
+    (
+        ("papaya-site", "kiwi-site", "papaya-site"),
+        (None, "kiwi-site", "kiwi-site"),
+    ),
+)
+def test_resolve_project_prefers_the_named_project(given, declared, expected):
+    config = Config(site_cloudflare_project=declared)
+    assert resolve_project(config, given) == expected
+
+
+def test_resolve_project_falls_back_to_the_repository_name(monkeypatch):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "orchard/papaya")
+    assert resolve_project(Config()) == "papaya"
+
+
+# ----- The command line
+
+
+@pytest.mark.parametrize(
+    "args",
+    (
+        pytest.param([], id="none"),
+        pytest.param(["--check", "--dump"], id="two"),
+    ),
+)
+def test_cli_wants_exactly_one_mode(args):
+    result = CliRunner().invoke(repomatic, ["cloudflare-pages", *args])
+    assert result.exit_code == 2
+    assert (
+        "Pick exactly one of --apply, --attach-domain, --check, --create, --dump."
+        in result.output
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "writes"),
+    (
+        (PagesMode.APPLY, True),
+        (PagesMode.ATTACH_DOMAIN, False),
+        (PagesMode.CHECK, False),
+        (PagesMode.CREATE, True),
+        (PagesMode.DUMP, False),
+    ),
+)
+def test_pages_mode_says_whether_it_writes_the_settings(mode, writes):
+    assert mode.writes is writes
+
+
+def test_cli_needs_a_project_name(monkeypatch):
+    monkeypatch.setattr(
+        "repomatic.cli.site.resolve_project", lambda config, project: ""
+    )
+    result = CliRunner().invoke(repomatic, ["cloudflare-pages", "--check"])
+    assert result.exit_code == 2
+    assert "No project name: pass --project" in result.output
+
+
+def test_cli_passes_the_mode_and_the_project(monkeypatch):
+    seen: dict = {}
+
+    def run(project, mode, **kwargs):
+        seen.update(project=project, mode=mode, **kwargs)
+        return 0
+
+    monkeypatch.setattr("repomatic.cli.site.run_cloudflare_pages", run)
+    result = CliRunner().invoke(
+        repomatic,
+        ["cloudflare-pages", "--attach-domain", "example.com", "--project", "fig"],
+    )
+    assert result.exit_code == 0, result.output
+    assert seen["project"] == "fig"
+    assert seen["mode"] is PagesMode.ATTACH_DOMAIN
+    assert seen["domain"] == "example.com"
+
+
+def test_cli_reports_a_cloudflare_error_without_a_traceback(monkeypatch):
+    def refuse(project, mode, **kwargs):
+        msg = "GET /accounts failed: timed out"
+        raise CloudflareError(msg)
+
+    monkeypatch.setattr("repomatic.cli.site.run_cloudflare_pages", refuse)
+    result = CliRunner().invoke(
+        repomatic, ["cloudflare-pages", "--check", "--project", "fig"]
+    )
+    assert result.exit_code == 1
+    assert "GET /accounts failed: timed out" in result.output
+    assert "Traceback" not in result.output

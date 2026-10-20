@@ -39,7 +39,7 @@ from repomatic.deps.graph import (
     resolve_subgraph_selection,
     trim_graph_to_depth,
 )
-from repomatic.deps.uv import LockSpecifiers
+from repomatic.deps.lockfile import LockSpecifiers
 
 # Sample CycloneDX SBOM data for testing.
 SAMPLE_SBOM = {

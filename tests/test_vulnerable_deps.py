@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -26,16 +27,17 @@ import pytest
 
 from repomatic.config import VulnerableDepsConfig
 from repomatic.deps.audit import (
+    AUDIT_HEADER_DEFS,
     AdvisorySource,
     VulnerablePackage,
     _run_uv_audit,
-    _uv_version,
     collect_vulnerable_packages,
     fetch_dependabot_alerts,
     fix_vulnerable_deps,
     format_vulnerability_table,
     parse_uv_audit_json,
 )
+from repomatic.github.gh import GhCommandError, GhOutputError
 
 ALERTS_FIXTURE = [
     {
@@ -87,7 +89,7 @@ def test_config_default_sources_mirror_advisory_source_enum():
     The default is spelled out as a literal in {mod}`repomatic.config` rather
     than derived from {class}`~repomatic.deps.audit.AdvisorySource`,
     because the module boundary forbids the derivation: `config` is a low-level
-    module that `vulnerable_deps` imports, so `config` cannot import the enum
+    module that `repomatic.deps.audit` imports, so `config` cannot import the enum
     back without a circular dependency. This test is the enforcement that keeps
     the literal in step with the enum's members and their declaration order.
     """
@@ -97,8 +99,8 @@ def test_config_default_sources_mirror_advisory_source_enum():
 def test_fetch_dependabot_alerts_parses_each_entry():
     """Each alert maps to one VulnerablePackage tagged with GHSA source."""
     with patch(
-        "repomatic.deps.audit.run_gh_command",
-        return_value=json.dumps(ALERTS_FIXTURE),
+        "repomatic.deps.audit.gh_json",
+        return_value=ALERTS_FIXTURE,
     ):
         result = fetch_dependabot_alerts("orchard/raspberry")
 
@@ -123,22 +125,22 @@ def test_fetch_dependabot_alerts_skips_entries_without_fix():
         },
     ]
     with patch(
-        "repomatic.deps.audit.run_gh_command",
-        return_value=json.dumps(no_fix),
+        "repomatic.deps.audit.gh_json",
+        return_value=no_fix,
     ):
         assert fetch_dependabot_alerts("orchard/raspberry") == []
 
 
 @pytest.mark.parametrize(
-    "patch_kwargs",
+    "error",
     [
-        pytest.param({"side_effect": RuntimeError("HTTP 403")}, id="api-error"),
-        pytest.param({"return_value": "<<not json>>"}, id="invalid-json"),
+        pytest.param(GhCommandError("HTTP 403"), id="api-error"),
+        pytest.param(GhOutputError("not json"), id="invalid-json"),
     ],
 )
-def test_fetch_dependabot_alerts_degrades_to_empty(patch_kwargs):
+def test_fetch_dependabot_alerts_degrades_to_empty(error):
     """Network/auth failures and unparsable responses degrade to an empty list."""
-    with patch("repomatic.deps.audit.run_gh_command", **patch_kwargs):
+    with patch("repomatic.deps.audit.gh_json", side_effect=error):
         assert fetch_dependabot_alerts("orchard/raspberry") == []
 
 
@@ -167,8 +169,8 @@ def test_collect_unions_uv_audit_and_ghsa(lock_with_raspberry):
     with (
         patch("repomatic.deps.audit._run_uv_audit", return_value=[audit_only]),
         patch(
-            "repomatic.deps.audit.run_gh_command",
-            return_value=json.dumps(ALERTS_FIXTURE),
+            "repomatic.deps.audit.gh_json",
+            return_value=ALERTS_FIXTURE,
         ),
     ):
         merged = collect_vulnerable_packages(
@@ -203,8 +205,8 @@ def test_collect_dedupes_when_advisory_id_matches(lock_with_raspberry):
             return_value=[same_advisory_audit],
         ),
         patch(
-            "repomatic.deps.audit.run_gh_command",
-            return_value=json.dumps(ALERTS_FIXTURE[:1]),
+            "repomatic.deps.audit.gh_json",
+            return_value=ALERTS_FIXTURE[:1],
         ),
     ):
         merged = collect_vulnerable_packages(
@@ -226,7 +228,7 @@ def test_collect_skips_ghsa_when_repo_missing(lock_with_raspberry):
     """No repo argument means the GHSA source is skipped entirely."""
     with (
         patch("repomatic.deps.audit._run_uv_audit", return_value=[]),
-        patch("repomatic.deps.audit.run_gh_command") as gh,
+        patch("repomatic.deps.audit.gh_json") as gh,
     ):
         result = collect_vulnerable_packages(lock_with_raspberry, repo=None)
 
@@ -239,8 +241,8 @@ def test_collect_respects_sources_filter(lock_with_raspberry):
     with (
         patch("repomatic.deps.audit._run_uv_audit") as audit,
         patch(
-            "repomatic.deps.audit.run_gh_command",
-            return_value=json.dumps(ALERTS_FIXTURE),
+            "repomatic.deps.audit.gh_json",
+            return_value=ALERTS_FIXTURE,
         ),
     ):
         result = collect_vulnerable_packages(
@@ -273,8 +275,8 @@ def test_collect_backfills_current_version_across_case_difference(tmp_path):
     with (
         patch("repomatic.deps.audit._run_uv_audit", return_value=[]),
         patch(
-            "repomatic.deps.audit.run_gh_command",
-            return_value=json.dumps(alert),
+            "repomatic.deps.audit.gh_json",
+            return_value=alert,
         ),
     ):
         result = collect_vulnerable_packages(lock, repo="orchard/gitpython")
@@ -345,8 +347,8 @@ def test_collect_keeps_distinct_per_source_urls(lock_with_raspberry):
     with (
         patch("repomatic.deps.audit._run_uv_audit", return_value=[audit]),
         patch(
-            "repomatic.deps.audit.run_gh_command",
-            return_value=json.dumps(ALERTS_FIXTURE[:1]),
+            "repomatic.deps.audit.gh_json",
+            return_value=ALERTS_FIXTURE[:1],
         ),
     ):
         merged = collect_vulnerable_packages(
@@ -439,8 +441,8 @@ def test_collect_dedupes_across_sources_via_alias(lock_with_raspberry):
     with (
         patch("repomatic.deps.audit._run_uv_audit", return_value=[audit]),
         patch(
-            "repomatic.deps.audit.run_gh_command",
-            return_value=json.dumps(ALERTS_FIXTURE[:1]),  # GHSA-fruit-1111-aaaa
+            "repomatic.deps.audit.gh_json",
+            return_value=ALERTS_FIXTURE[:1],  # GHSA-fruit-1111-aaaa
         ),
     ):
         merged = collect_vulnerable_packages(
@@ -505,6 +507,7 @@ def test_fix_restores_the_lock_when_the_upgrade_moves_nothing(tmp_path):
             ),
             encoding="UTF-8",
         )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     with (
         patch(
@@ -512,30 +515,76 @@ def test_fix_restores_the_lock_when_the_upgrade_moves_nothing(tmp_path):
             return_value=[vuln],
         ),
         patch(
-            "repomatic.deps.audit.subprocess.run",
+            "repomatic.deps.uv.subprocess.run",
             side_effect=record_the_override,
         ),
     ):
-        has_fixes, report = fix_vulnerable_deps(lock)
+        result = fix_vulnerable_deps(lock)
 
-    assert has_fixes is False
-    assert report == ""
+    assert not result.has_fixes
+    assert result.vulnerabilities == [vuln]
     assert lock.read_text(encoding="UTF-8") == original
 
 
-@pytest.mark.parametrize(
-    ("stdout", "expected"),
-    (
-        pytest.param("uv 0.11.15 (abc1234 2026-05-18)\n", "0.11.15", id="with-hash"),
-        pytest.param("uv 0.12.0\n", "0.12.0", id="bare"),
-        pytest.param("uv 1.0.0 (deadbeef 2027-01-01)", "1.0.0", id="major"),
-    ),
-)
-def test_uv_version_parses(stdout, expected):
-    """`uv --version` output is parsed into a comparable Version."""
-    completed = SimpleNamespace(stdout=stdout, stderr="")
-    with patch("repomatic.deps.uv.subprocess.run", return_value=completed):
-        assert str(_uv_version()) == expected
+def test_fix_freezes_a_fix_still_inside_the_window(tmp_path):
+    """A patched release younger than the window gets an exemption that holds it.
+
+    Reads and writes `pyproject.toml` once, and the report links the move to
+    its comparison URL once the release notes name a tag.
+    """
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        "[options]\n"
+        'exclude-newer-span = "P1W"\n'
+        "\n"
+        "[[package]]\n"
+        'name = "raspberry"\n'
+        'version = "3.1.46"\n'
+        'sdist = { upload-time = "2026-01-01T00:00:00Z" }\n',
+        encoding="UTF-8",
+    )
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[tool.uv]\nexclude-newer = "1 week"\n', encoding="UTF-8")
+    fresh = (datetime.now(UTC) - timedelta(days=1)).replace(microsecond=0)
+    vuln = VulnerablePackage(
+        name="raspberry",
+        current_version="3.1.46",
+        advisory_id="GHSA-fruit-1111-aaaa",
+        advisory_title="Raspberry juice leak under concurrent picking",
+        fixed_version="3.1.47",
+        advisory_url="https://github.com/advisories/GHSA-fruit-1111-aaaa",
+        sources={AdvisorySource.UV_AUDIT},
+    )
+
+    def upgrade(cmd, **kwargs):
+        """Stand in for `uv lock`: adopt the patched release."""
+        lock.write_text(
+            lock
+            .read_text(encoding="UTF-8")
+            .replace('"3.1.46"', '"3.1.470"')
+            .replace("2026-01-01T00:00:00Z", fresh.strftime("%Y-%m-%dT%H:%M:%SZ")),
+            encoding="UTF-8",
+        )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    notes = {
+        "raspberry": ("https://github.com/orchard/raspberry", [("v3.1.470", "Fix")])
+    }
+    with (
+        patch("repomatic.deps.audit.collect_vulnerable_packages", return_value=[vuln]),
+        patch("repomatic.deps.uv.subprocess.run", side_effect=upgrade) as run,
+        patch("repomatic.deps.audit.fetch_release_notes", return_value=notes),
+    ):
+        result = fix_vulnerable_deps(lock)
+
+    assert result.changes == [("raspberry", "3.1.46", "3.1.470")]
+    cmd = run.call_args.args[0]
+    assert cmd[cmd.index("--exclude-newer-package") + 1] == "raspberry=0 day"
+    assert cmd[-2:] == ["--exclude-newer", "1 week"]
+    expected = (fresh + timedelta(days=2)).strftime("%Y-%m-%dT00:00:00Z")
+    assert f'raspberry = "{expected}"' in pyproject.read_text(encoding="UTF-8")
+    report = result.render(fresh.date())
+    assert "https://github.com/orchard/raspberry/compare/v3.1.46...v3.1.470" in report
 
 
 def test_run_uv_audit_parses_json(lock_with_raspberry):
@@ -553,34 +602,69 @@ def test_run_uv_audit_parses_json(lock_with_raspberry):
             },
         ],
     }
-    version = SimpleNamespace(stdout="uv 0.11.15 (abc1234 2026-05-18)\n", stderr="")
-    audit = SimpleNamespace(stdout=json.dumps(report), stderr="")
-    with patch("repomatic.deps.uv.subprocess.run", side_effect=[version, audit]):
+    # `uv audit` exits non-zero when it finds something.
+    audit = SimpleNamespace(returncode=1, stdout=json.dumps(report), stderr="")
+    with patch("repomatic.deps.uv.subprocess.run", return_value=audit):
         vulns = _run_uv_audit(lock_with_raspberry)
 
     assert [v.advisory_id for v in vulns] == ["PYSEC-2026-1"]
     assert vulns[0].fixed_version == "3.1.47"
 
 
-def test_run_uv_audit_rejects_old_uv(lock_with_raspberry):
-    """An older uv (no JSON audit output) fails loud rather than scanning nothing."""
-    version = SimpleNamespace(stdout="uv 0.11.14 (abc1234 2026-05-10)\n", stderr="")
+def test_run_uv_audit_surfaces_why_uv_printed_nothing(lock_with_raspberry):
+    """A uv too old to know the JSON flag dies before printing: say why."""
+    died = SimpleNamespace(
+        returncode=2, stdout="", stderr="error: unexpected argument '--output-format'"
+    )
     with (
-        patch("repomatic.deps.uv.subprocess.run", return_value=version) as run,
-        pytest.raises(RuntimeError, match=r"0\.11\.15"),
+        patch("repomatic.deps.uv.subprocess.run", return_value=died),
+        pytest.raises(RuntimeError, match="unexpected argument"),
     ):
         _run_uv_audit(lock_with_raspberry)
-
-    # Bails after the version check, never invoking `uv audit`.
-    assert run.call_count == 1
 
 
 def test_run_uv_audit_raises_on_unknown_schema(lock_with_raspberry):
     """A recent uv emitting an unrecognized schema version fails loud."""
-    version = SimpleNamespace(stdout="uv 0.12.0 (abc1234 2026-06-01)\n", stderr="")
-    audit = SimpleNamespace(stdout=json.dumps({"schema": {"version": "v2"}}), stderr="")
+    audit = SimpleNamespace(
+        returncode=0, stdout=json.dumps({"schema": {"version": "v2"}}), stderr=""
+    )
     with (
-        patch("repomatic.deps.uv.subprocess.run", side_effect=[version, audit]),
+        patch("repomatic.deps.uv.subprocess.run", return_value=audit),
         pytest.raises(RuntimeError, match="schema version"),
     ):
         _run_uv_audit(lock_with_raspberry)
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    (
+        (["uv-audit", "github-advisories"], list(AdvisorySource)),
+        (["github-advisories"], [AdvisorySource.GITHUB_ADVISORIES]),
+        (["kiwi", "uv-audit"], [AdvisorySource.UV_AUDIT]),
+        ([], []),
+    ),
+)
+def test_advisory_sources_from_config(values, expected):
+    """Unknown names drop out, and an empty list stays empty, not "every"."""
+    assert AdvisorySource.from_config(values) == expected
+
+
+def test_vulnerable_package_row_follows_the_columns():
+    """The terminal row fills the `audit` columns in their declared order."""
+    vuln = VulnerablePackage(
+        name="apricot",
+        current_version="1.0",
+        advisory_id="GHSA-orchard-9999-yyyy",
+        advisory_title="Apricot pit cracking",
+        fixed_version="",
+        advisory_url="",
+        sources={AdvisorySource.UV_AUDIT, AdvisorySource.GITHUB_ADVISORIES},
+    )
+    assert len(vuln.row) == len(AUDIT_HEADER_DEFS)
+    assert vuln.row == (
+        "apricot",
+        "1.0",
+        "GHSA-orchard-9999-yyyy",
+        "unknown",
+        "github-advisories, uv-audit",
+    )

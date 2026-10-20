@@ -16,13 +16,15 @@
 """Dependency commands of the `repomatic` CLI: audit, lint, graph and updates.
 
 {data}`repomatic.cli.main.COMMANDS` registers each command here, and files it
-under its help section.
+under its help section. The terminal output of the dependency updaters lives
+here too: {mod}`repomatic.deps.sync` resolves and applies, and renders only the
+markdown report the CI jobs read.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+import sys
 from pathlib import Path
 
 from click_extra import (
@@ -37,6 +39,7 @@ from click_extra import (
     option,
     option_group,
     pass_context,
+    resolve_jobs,
 )
 
 from ..deps.audit import (
@@ -52,7 +55,13 @@ from ..deps.graph import (
     resolve_subgraph_selection,
 )
 from ..deps.policy import scan_policy
-from ..deps.sources import (
+from ..deps.report import (
+    BYPASS_COLUMNS,
+    HELD_BACK_COLUMNS,
+    format_released,
+    format_upload_date,
+)
+from ..deps.shippable import (
     LINT_DEPS_HEADER_DEFS,
     format_blocker_section,
     scan_project,
@@ -60,12 +69,8 @@ from ..deps.sources import (
 from ..deps.sync import (
     OPERATIONS_BY_NAME,
     ResolveContext,
-    emit_lockfile_sync_report,
-    print_plan_tables,
     render_plan_markdown,
-    resolve_lockfile_plan,
     run_sync_operations,
-    run_version_sync,
     selected_operations,
 )
 from ..github.actions import (
@@ -73,6 +78,7 @@ from ..github.actions import (
     emit_annotation,
     emit_report,
 )
+from ..humanize import today_utc
 from ..pyproject import (
     dependency_group_names,
     extra_names,
@@ -93,6 +99,9 @@ from .main import (
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from click_extra import Context
+
+    from ..config import Config
+    from ..deps.sync import SyncOperation, SyncPlan
 
 
 class DependencyGroup(LazyChoice):
@@ -151,6 +160,178 @@ sync_table_option = option(
     default=True,
     help="Print a summary table of updated packages.",
 )
+
+
+def _resolve_context(
+    ctx: Context,
+    config: Config,
+    *,
+    release_notes: bool,
+    held_back: bool,
+    dry_run: bool = False,
+    lockfile: Path | None = None,
+) -> ResolveContext:
+    """Build the inputs every resolve of one run shares.
+
+    The `--jobs` width is resolved here, on the command's own thread: a worker
+    thread running a resolve has no Click context to read it from. The count
+    passed is uncapped, since each fan-out caps it at its own number of items.
+    """
+    rc = ResolveContext(
+        config=config,
+        today=today_utc(),
+        release_notes=release_notes,
+        held_back=held_back,
+        dry_run=dry_run,
+        jobs=resolve_jobs(ctx, sys.maxsize, serial_at_debug=True),
+    )
+    if lockfile is not None:
+        rc.lockfile = lockfile
+    return rc
+
+
+def print_plan_tables(ctx: Context, plan: SyncPlan) -> None:
+    """Print a resolved plan's diff, bypass and held-back tables.
+
+    The terminal counterpart of {func}`~repomatic.deps.sync.render_plan_markdown`,
+    in the same order, so a run's terminal output and its PR body read the same
+    way. Every dependency updater goes through here: the two lockfile commands,
+    the three version-sync commands, and the aggregate `sync-deps`.
+
+    The diff table keeps Old and New as two columns, not the merged `Change`
+    cell of the markdown PR body, so `--table-format json` or `csv` output
+    stays parseable. Each table respects the global `--table-format`.
+    """
+    show_released = bool(plan.dates)
+    headers: tuple[str, ...] = (plan.subject, "Old", "New")
+    if show_released:
+        headers = (*headers, "Released")
+    rows: list[tuple[str, ...]] = []
+    for name, old, new in plan.changes:
+        row: tuple[str, ...] = (name, old or "(new)", new or "(removed)")
+        if show_released:
+            released = format_released(plan.dates.get(name, ""), plan.reference_date)
+            row = (*row, released)
+        rows.append(row)
+    ctx.print_table(rows, headers)
+
+    if plan.uv_project.bypass_forecasts:
+        echo("Cooldown bypasses:")
+        ctx.print_table(
+            [forecast.row for forecast in plan.uv_project.bypass_forecasts],
+            BYPASS_COLUMNS,
+        )
+    if plan.held_back:
+        echo("Held back by cooldown:")
+        ctx.print_table(
+            [pkg.row for pkg in plan.held_back], (plan.subject, *HELD_BACK_COLUMNS)
+        )
+
+
+def emit_plan_report(
+    ctx: Context,
+    plan: SyncPlan,
+    *,
+    output: Path | None,
+    output_format: str,
+    table: bool = True,
+) -> None:
+    """Print a plan's cutoff, tables and release notes, then write its report.
+
+    The shared tail of every updater command. A plan names one cooldown: uv's
+    `exclude-newer` cutoff for the lockfile pair, the `minimum-release-age`
+    cutoff for the version-sync trio.
+
+    :param table: Print the cutoff and the tables. The lockfile pair turns
+        them off in CI, where only the markdown report is read.
+    """
+    if table:
+        if plan.uv_project.exclude_newer:
+            cutoff = format_upload_date(plan.uv_project.exclude_newer)
+            echo(f"exclude-newer cutoff: {cutoff}")
+        if plan.cutoff is not None:
+            echo(f"minimum-release-age cutoff: {plan.cutoff:%Y-%m-%d}")
+        print_plan_tables(ctx, plan)
+    if plan.notes_section:
+        echo("")
+        echo(plan.notes_section)
+    if output:
+        emit_report(render_plan_markdown(plan), output, output_format)
+
+
+def _enabled_operation(ctx: Context, name: str) -> tuple[SyncOperation, Config]:
+    """Look an updater up, exiting when its `[tool.repomatic]` flag is off."""
+    op = OPERATIONS_BY_NAME[name]
+    config = get_tool_config(ctx)
+    exit_if_disabled(ctx, op.is_enabled(config), op.config_key)
+    return op, config
+
+
+def _run_version_sync(
+    ctx: Context,
+    name: str,
+    *,
+    output: Path | None,
+    output_format: str,
+    release_notes: bool,
+    held_back: bool,
+    up_to_date: str,
+) -> None:
+    """Shared body of the three version-sync commands.
+
+    `sync-tool-versions`, `sync-action-pins`, and `sync-workflow-pins` differ
+    only in their operation and messages: the resolve, apply, and report
+    sequence is identical.
+
+    :param up_to_date: Message printed when nothing needs updating.
+    """
+    op, config = _enabled_operation(ctx, name)
+    rc = _resolve_context(ctx, config, release_notes=release_notes, held_back=held_back)
+    plan = op.resolve(rc)
+    if not plan.has_changes:
+        echo(up_to_date)
+        ctx.exit(0)
+
+    op.apply(plan)
+
+    echo(f"{len(plan.changes)} {plan.subject.lower()}(s) updated.")
+    if plan.self_pin_exemptions:
+        echo(
+            "Backfilled the cooldown exemption on the self-pin in: "
+            + ", ".join(sorted(plan.self_pin_exemptions))
+        )
+    emit_plan_report(ctx, plan, output=output, output_format=output_format)
+
+
+def _resolve_lockfile_plan(
+    ctx: Context,
+    name: str,
+    *,
+    lockfile: Path,
+    table: bool,
+    output: Path | None,
+    release_notes: bool,
+    held_back: bool,
+) -> tuple[SyncOperation, SyncPlan]:
+    """Resolve one of the two lockfile-mutating operations.
+
+    `sync-uv-lock` and `sync-dep-sources` gate the held-back probe on a consumer
+    being present, unlike the version-sync trio: that probe costs a second full
+    uv resolution, so a run that prints no table and writes no report must not
+    pay for it.
+
+    The apply and the narration stay with each command, whose "what happened"
+    lines differ (adopted releases for one, bypass lifecycle for the other).
+    """
+    op, config = _enabled_operation(ctx, name)
+    rc = _resolve_context(
+        ctx,
+        config,
+        release_notes=release_notes,
+        held_back=held_back and (table or output is not None),
+        lockfile=lockfile,
+    )
+    return op, op.resolve(rc)
 
 
 @subcommand(
@@ -221,33 +402,23 @@ def audit(
 
     # The parsed list goes to the library as is, even when empty: the library
     # skips a source it cannot query, and only `None` means "every source".
-    sources: list[AdvisorySource] = []
-    for raw in config.vulnerable_deps.sources:
-        try:
-            sources.append(AdvisorySource(raw))
-        except ValueError:
-            logging.warning(
-                f"Unknown vulnerable-deps source {raw!r};"
-                f" expected one of {[s.value for s in AdvisorySource]}."
-            )
+    sources = AdvisorySource.from_config(config.vulnerable_deps.sources)
 
     if fix:
         # vulnerable-deps.sync gates the autofix (mutation), not reporting.
         exit_if_disabled(ctx, config.vulnerable_deps.sync, "vulnerable-deps.sync")
 
-        has_fixes, diff_table = fix_vulnerable_deps(
-            lockfile, repo=repo, sources=sources
-        )
-        if not has_fixes:
+        result = fix_vulnerable_deps(lockfile, repo=repo, sources=sources)
+        if not result.has_fixes:
             echo("No fixable vulnerabilities found.")
             ctx.exit(0)
 
         echo("Upgraded vulnerable packages.")
-        if diff_table:
-            echo(diff_table)
+        report = result.render(today_utc())
+        echo(report)
         # Keep the github-actions key as `diff_table`: the autofix
         # workflow's pr-metadata step reads steps.fix.outputs.diff_table_file.
-        emit_report(diff_table, output, output_format)
+        emit_report(report, output, output_format)
         ctx.exit(0)
 
     # Report mode (default, read-only).
@@ -256,17 +427,7 @@ def audit(
         echo("No known vulnerabilities found.")
         ctx.exit(0)
 
-    rows = [
-        (
-            v.name,
-            v.current_version,
-            v.advisory_id,
-            v.fixed_version or "unknown",
-            ", ".join(sorted(s.value for s in v.sources)) or "—",
-        )
-        for v in vulns
-    ]
-    ctx.print_table(rows, AUDIT_HEADER_DEFS)
+    ctx.print_table([v.row for v in vulns], AUDIT_HEADER_DEFS)
 
     if output:
         emit_report(
@@ -379,16 +540,7 @@ def lint_deps(
         if not policy_findings:
             ctx.exit(0)
     else:
-        rows = [
-            (
-                finding.package,
-                str(finding.kind),
-                finding.location,
-                finding.verdict,
-            )
-            for finding in findings
-        ]
-        ctx.print_table(rows, LINT_DEPS_HEADER_DEFS)
+        ctx.print_table([finding.row for finding in findings], LINT_DEPS_HEADER_DEFS)
 
     blocking = [finding for finding in findings if finding.blocking]
     for finding in findings:
@@ -681,12 +833,8 @@ def sync_deps(
             echo("No dependency updaters are enabled for this repository.")
         ctx.exit(0)
 
-    rc = ResolveContext(
-        config=config,
-        today=datetime.now(UTC).date(),
-        release_notes=release_notes,
-        held_back=held_back,
-        dry_run=dry_run,
+    rc = _resolve_context(
+        ctx, config, release_notes=release_notes, held_back=held_back, dry_run=dry_run
     )
     results = run_sync_operations(
         selected, rc, spinner_label="Resolving dependency updates"
@@ -702,7 +850,7 @@ def sync_deps(
     verb = "Would update" if dry_run else "Updated"
     for op, plan in changed:
         echo(f"{verb} {len(plan.changes)} via {op.name}:")
-        print_plan_tables(ctx, plan, rc.today)
+        print_plan_tables(ctx, plan)
 
     if output:
         sections = [
@@ -769,12 +917,9 @@ def sync_uv_lock(
     The table respects the global --table-format option (github, json,
     csv, etc.). Release notes are always rendered as markdown.
     """
-    config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.uv_lock_sync, "uv-lock.sync")
-
-    op, rc, plan = resolve_lockfile_plan(
+    op, plan = _resolve_lockfile_plan(
+        ctx,
         "sync-uv-lock",
-        config,
         lockfile=lockfile,
         table=table,
         output=output,
@@ -804,14 +949,7 @@ def sync_uv_lock(
             + ", ".join(plan.uv_project.frozen_bypasses)
         )
 
-    emit_lockfile_sync_report(
-        ctx,
-        plan,
-        reference_date=rc.today,
-        table=table,
-        output=output,
-        output_format=output_format,
-    )
+    emit_plan_report(ctx, plan, output=output, output_format=output_format, table=table)
 
 
 @subcommand(
@@ -858,12 +996,9 @@ def sync_dep_sources(
     floor-less branch tracks) are never touched. A resolution conflict or a
     lock landing on an unexpected version restores the project untouched.
     """
-    config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.dep_sources_sync, "dep-sources.sync")
-
-    op, rc, plan = resolve_lockfile_plan(
+    op, plan = _resolve_lockfile_plan(
+        ctx,
         "sync-dep-sources",
-        config,
         lockfile=lockfile,
         table=table,
         output=output,
@@ -885,14 +1020,7 @@ def sync_dep_sources(
     if plan.changes:
         echo(f"{len(plan.changes)} package(s) updated.")
 
-    emit_lockfile_sync_report(
-        ctx,
-        plan,
-        reference_date=rc.today,
-        table=table,
-        output=output,
-        output_format=output_format,
-    )
+    emit_plan_report(ctx, plan, output=output, output_format=output_format, table=table)
 
 
 @subcommand(
@@ -929,15 +1057,14 @@ def sync_tool_versions(
     Upstream-only: it rewrites repomatic's own package source, so invoke it with
     `uv run` (editable), never `uvx` (whose isolated wheel is discarded).
     """
-    exit_if_disabled(ctx, get_tool_config(ctx).tool_versions_sync, "tool-versions.sync")
-    run_version_sync(
+    _run_version_sync(
         ctx,
         "sync-tool-versions",
-        output,
-        output_format,
-        release_notes,
-        held_back,
-        "All tools are up to date.",
+        output=output,
+        output_format=output_format,
+        release_notes=release_notes,
+        held_back=held_back,
+        up_to_date="All tools are up to date.",
     )
 
 
@@ -970,15 +1097,14 @@ def sync_action_pins(
     commit SHA, and rewrites the SHA and version comment. repomatic's own
     reusable-workflow refs are left to `repomatic init`.
     """
-    exit_if_disabled(ctx, get_tool_config(ctx).action_pins_sync, "action-pins.sync")
-    run_version_sync(
+    _run_version_sync(
         ctx,
         "sync-action-pins",
-        output,
-        output_format,
-        release_notes,
-        held_back,
-        "All action pins are up to date.",
+        output=output,
+        output_format=output_format,
+        release_notes=release_notes,
+        held_back=held_back,
+        up_to_date="All action pins are up to date.",
     )
 
 
@@ -1009,13 +1135,12 @@ def sync_workflow_pins(
     `uvx '<pkg>==x'` pins, resolves each to its latest release passing the
     [tool.repomatic] minimum-release-age cooldown, and rewrites the literal.
     """
-    exit_if_disabled(ctx, get_tool_config(ctx).workflow_pins_sync, "workflow-pins.sync")
-    run_version_sync(
+    _run_version_sync(
         ctx,
         "sync-workflow-pins",
-        output,
-        output_format,
-        release_notes,
-        held_back,
-        "All workflow pins are up to date.",
+        output=output,
+        output_format=output_format,
+        release_notes=release_notes,
+        held_back=held_back,
+        up_to_date="All workflow pins are up to date.",
     )

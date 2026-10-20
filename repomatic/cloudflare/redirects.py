@@ -98,6 +98,15 @@ INDEX_DESTINATION_REGEX = re.compile(r"/index(.html)?$")
 ESCAPE_REGEX_CHARACTERS = re.compile(r"[-/\\^$*+?.()|[\]{}]")
 
 
+def _is_dynamic(source: str) -> bool:
+    """Whether *source* holds a splat or a placeholder.
+
+    The engine charges such a source, and every rule below it, against the
+    dynamic budget.
+    """
+    return bool(SOURCE_TOKEN_REGEX.search(source))
+
+
 @dataclass(frozen=True)
 class Rule:
     source: str
@@ -107,9 +116,7 @@ class Rule:
 
     @property
     def is_dynamic(self) -> bool:
-        return bool(SPLAT_REGEX.search(self.source)) or bool(
-            PLACEHOLDER_REGEX.search(self.source)
-        )
+        return _is_dynamic(self.source)
 
     @property
     def compiles(self) -> bool:
@@ -152,7 +159,6 @@ class Rule:
 @dataclass(frozen=True)
 class Invalid:
     message: str
-    line: str | None = None
     line_number: int | None = None
 
 
@@ -187,6 +193,7 @@ def _extract_pathname(path: str, include_search: bool, include_hash: bool) -> st
 
 def _validate_url(
     token: str,
+    *,
     only_relative: bool = False,
     disallow_ports: bool = False,
     include_search: bool = False,
@@ -250,7 +257,6 @@ def parse_redirects(text: str) -> ParseResult:
                 Invalid(
                     f"Expected exactly 2 or 3 whitespace-separated tokens. "
                     f"Got {len(tokens)}.",
-                    line,
                     index + 1,
                 )
             )
@@ -259,17 +265,13 @@ def parse_redirects(text: str) -> ParseResult:
         str_from, str_to = tokens[0], tokens[1]
         str_status = tokens[2] if len(tokens) == 3 else "302"
 
-        source, error = _validate_url(str_from, True, True, False, False)
+        source, error = _validate_url(str_from, only_relative=True, disallow_ports=True)
         if source is None:
-            result.invalid.append(Invalid(error or "", line, index + 1))
+            result.invalid.append(Invalid(error or "", index + 1))
             continue
 
         # The accounting. This is the part that decides which rules exist at all.
-        if (
-            can_create_static_rule
-            and not SPLAT_REGEX.search(source)
-            and not PLACEHOLDER_REGEX.search(source)
-        ):
+        if can_create_static_rule and not _is_dynamic(source):
             static_rules += 1
             if static_rules > MAX_STATIC_RULES:
                 result.invalid.append(
@@ -293,9 +295,11 @@ def parse_redirects(text: str) -> ParseResult:
                 result.aborted_at_line = index + 1
                 break
 
-        destination, error = _validate_url(str_to, False, False, True, True)
+        destination, error = _validate_url(
+            str_to, include_search=True, include_hash=True
+        )
         if destination is None:
-            result.invalid.append(Invalid(error or "", line, index + 1))
+            result.invalid.append(Invalid(error or "", index + 1))
             continue
 
         # The reference reads the status with JavaScript's `Number()`, which
@@ -310,7 +314,6 @@ def parse_redirects(text: str) -> ParseResult:
                 Invalid(
                     f"Valid status codes are 200, 301, 302 (default), 303, 307, "
                     f"or 308. Got {str_status}.",
-                    line,
                     index + 1,
                 )
             )
@@ -324,13 +327,13 @@ def parse_redirects(text: str) -> ParseResult:
         root_to_index = source.endswith("/") and to_index
         if has_relative_path and (wildcard_to_index or root_to_index):
             result.invalid.append(
-                Invalid("Infinite loop detected in this rule.", line, index + 1)
+                Invalid("Infinite loop detected in this rule.", index + 1)
             )
             continue
 
         if source in seen_sources:
             result.invalid.append(
-                Invalid(f"Ignoring duplicate rule for path {source}.", line, index + 1)
+                Invalid(f"Ignoring duplicate rule for path {source}.", index + 1)
             )
             continue
         seen_sources.add(source)
@@ -340,7 +343,6 @@ def parse_redirects(text: str) -> ParseResult:
                 Invalid(
                     f"Proxy (200) redirects can only point to relative paths. "
                     f"Got {destination}",
-                    line,
                     index + 1,
                 )
             )

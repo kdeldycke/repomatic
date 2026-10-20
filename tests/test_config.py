@@ -22,6 +22,11 @@ from dataclasses import MISSING, fields as dc_fields
 
 import pytest
 
+from repomatic.cli.repo import (
+    config_reference_rows,
+    format_config_default,
+    format_config_type,
+)
 from repomatic.config import (
     SITE_DEPLOY_TARGETS,
     Config,
@@ -425,3 +430,42 @@ def test_config_reference():
     # Every row has a non-empty description.
     for option, ftype, default, desc in rows:
         assert desc, f"Empty description for {option}"
+
+
+@pytest.mark.parametrize(
+    ("annotation", "expected"),
+    [
+        ("str", "str"),
+        ("str | None", "str"),
+        ("list[str]", "list[str]"),
+        ("list[dict[str, str]]", "list\\[dict[str, str]\\]"),
+        ("dict[str, list[str]] | None", "dict\\[str, list[str]\\]"),
+    ],
+)
+def test_show_config_type_cell(annotation, expected):
+    """A nested generic escapes its outer brackets, and `| None` is dropped."""
+    assert format_config_type(annotation) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, "*(none)*"),
+        (True, "`true`"),
+        (3, "`3`"),
+        ("1 week", '`"1 week"`'),
+        ("apple\nkiwi", "*(see example)*"),
+        ([], "`[]`"),
+        (["apple"], "`['apple']`"),
+    ],
+)
+def test_show_config_default_cell(value, expected):
+    """Each default type renders in the cell form the reference table uses."""
+    assert format_config_default(value) == expected
+
+
+def test_show_config_rows_cover_every_key():
+    """The rendered table quotes every key the gate map knows, once."""
+    options = [row[0] for row in config_reference_rows()]
+    assert all(option.startswith("`") and option.endswith("`") for option in options)
+    assert sorted(option.strip("`") for option in options) == sorted(config_key_paths())

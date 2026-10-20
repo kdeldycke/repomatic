@@ -26,7 +26,7 @@ for target_id, target in NUITKA_BUILD_TARGETS.items():
     )
 ```
 
-Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so every binary carries a stable, measured OS floor instead of inheriting whatever the runner image ships. The floors, and what they open execution to, are documented in [](binaries.md#minimum-os-requirements); {py:func}`repomatic.release.binary.verify_binary_floor` fails the build when a linked floor exceeds the declared one.
+Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so every binary carries a stable, measured OS floor instead of inheriting whatever the runner image ships. The floors, and what they open execution to, are documented in [](binaries.md#minimum-os-requirements); {py:func}`repomatic.release.verify.verify_binary_floor` fails the build when a linked floor exceeds the declared one.
 
 ## Build cadence
 

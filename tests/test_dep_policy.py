@@ -76,6 +76,53 @@ def test_upper_bound_on_a_runtime_dependency(tmp_path):
     assert "Drop the upper bound" in finding.remedy
 
 
+def test_a_file_under_another_name_is_scanned(tmp_path):
+    """`lint-deps --pyproject` can name any file, and that file is the one read.
+
+    The scan once read the `pyproject.toml` beside the named file, and so
+    reported nothing at all for a file named anything else.
+    """
+    path = tmp_path / "orchard.toml"
+    path.write_text(
+        dedent(
+            """\
+            [project]
+            name = "orchard"
+            dependencies = [
+              # Pinned during the melon migration.
+              "requests<3",
+            ]
+            """
+        ),
+        encoding="UTF-8",
+    )
+    (finding,) = scan_policy(path)
+    assert finding.package == "requests"
+    assert finding.location == "project.dependencies"
+
+
+def test_an_array_of_tables_ends_the_table_above_it(tmp_path):
+    """A `[[...]]` header closes the table before it, like a `[...]` one.
+
+    The comment scan once read on past it, and took an array further down for
+    the runtime list, which it found written inline.
+    """
+    path = write_pyproject(
+        tmp_path,
+        """\
+        [project]
+        name = "orchard"
+        dependencies = ["requests>=2"]
+
+        [[tool.mango.index]]
+        dependencies = [
+          "kiwi>=1",
+        ]
+        """,
+    )
+    assert scan_policy(path) == []
+
+
 @pytest.mark.parametrize("specifier", ("<3", "<=2.9", "==2.31", "~=2.31", "!=2.30"))
 def test_every_capping_operator_is_caught(tmp_path, specifier):
     """`~=` counts: it implies a ceiling even without a `<` in it."""

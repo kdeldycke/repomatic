@@ -16,6 +16,6 @@
 
 """The release lane.
 
-Release preparation and version sync, binary building and
-verification, the binaries page, checksums, attestation, and the
-VirusTotal scan history."""
+Release preparation, the release-commit protocol, the binary build roster and
+its verification, the binaries page, attestation, and the VirusTotal scan
+history."""
