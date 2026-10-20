@@ -23,6 +23,10 @@ repomatic lints awesome lists with it:
 - [`#102` - Allow `.github` directory to contain contribution guidelines](https://github.com/sindresorhus/awesome-lint/pull/102)
 - [`#101` - Check and enforce quotes with punctuations](https://github.com/sindresorhus/awesome-lint/pull/101)
 
+### [`coveragepy`](https://github.com/coveragepy/coveragepy)
+
+- [`#2330` - feat: name the data file in the `Can't combine` error](https://github.com/coveragepy/coveragepy/pull/2330)
+
 ### [`gitignore.io`](https://github.com/toptal/gitignore.io)
 
 - [`#17` - Ignore rope files](https://github.com/toptal/gitignore.io/pull/17)
@@ -235,8 +239,6 @@ Pull requests and issues still pending upstream.
 - [`awesome-lint#229` - Fix false positives in `balanced-punctuation`](https://github.com/sindresorhus/awesome-lint/pull/229)
 
 - [`bump-my-version#146` - Non-matching glob patterns don't raise `FileNotFoundError`](https://github.com/callowayproject/bump-my-version/issues/146)
-
-- [`coveragepy#2330` - feat: name the data file in the `Can't combine` error](https://github.com/coveragepy/coveragepy/pull/2330): `coverage combine` stops on a mix of branch and statement data, and its error names no data file. The `lowest-direct` cell of `tests.yaml` hit it: pytest-cov `4.0.0` measured a child interpreter that a test started in another directory. That test now removes the `COV_CORE_*` and `COVERAGE_*` variables from the environment of its child.
 
 - [`lychee#2249` - Recognize `{#id}` heading anchors in `--include-fragments`](https://github.com/lycheeverse/lychee/issues/2249): closed by [`lychee#2250`](https://github.com/lycheeverse/lychee/pull/2250), which no stable release carries yet.
 
