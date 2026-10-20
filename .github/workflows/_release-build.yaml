@@ -68,7 +68,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - name: Extract PR reference
         id: extract
         env:
@@ -126,7 +126,7 @@ jobs:
         run: git log --decorate=full --oneline
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - name: Run repomatic show-metadata
         id: metadata
         run: >
@@ -163,7 +163,7 @@ jobs:
             || github.sha }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - name: Check dependency sources
         run: >
           uv --no-progress run --frozen -- repomatic lint-deps
@@ -195,7 +195,7 @@ jobs:
           ref: ${{ matrix.commit }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       # Bakes the tag SHA into the CLI module so a built artifact can report the
       # commit it came from. Gated on `cli_scripts` because click-extra locates that
       # module through `[project.scripts]`, and hard-errors with "No __init__.py

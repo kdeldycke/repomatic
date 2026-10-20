@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - name: Manage setup guide issue
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
@@ -102,7 +102,7 @@ jobs:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       # The proposal feeds the pull request body and is not repository content,
       # so it is written outside the work tree rather than written in and then
       # excluded from the commit by a pathspec.
@@ -144,7 +144,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - name: Run repomatic show-metadata
         id: metadata
         run: >
@@ -172,7 +172,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - name: Run autopep8
         if: fromJSON(needs.metadata.outputs.metadata).python_files
         # Ruff is not wrapping comments: https://github.com/astral-sh/ruff/issues/7414
@@ -214,7 +214,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - name: Run pyproject-fmt
         # pyproject-fmt returns exit code 1 when it reformats the file, which is
         # the expected outcome in an autofix workflow. Tolerating it is only safe
@@ -254,7 +254,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       # Shares the `format-shell` job's shfmt cache: mdformat pulls the same
       # pinned binary through its `path_tools`, keyed off the registry file that
       # pins it.
@@ -297,7 +297,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
@@ -332,7 +332,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
@@ -374,7 +374,7 @@ jobs:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
@@ -406,7 +406,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - id: fix
         name: Fix vulnerable dependencies
         # GH_TOKEN lets repomatic query the GitHub Advisory Database via the
@@ -447,7 +447,7 @@ jobs:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       # `--upgrade` moves the repository to the newest repomatic release past the
       # cooldown, if any. See repomatic/init_project.py for rationale.
       - name: Sync repomatic-managed files
@@ -491,7 +491,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       # oxipng is no longer installed here: `format-images` pulls it from the
       # `repomatic run` registry, pinned and checksum-verified, where this step
       # used to `dpkg --install` an unverified .deb fetched by hand. jpegoptim
@@ -541,7 +541,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - name: Sync .gitignore
         run: uv --no-progress run --frozen -- repomatic sync-gitignore
       - name: Sync pull request
@@ -566,7 +566,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - name: Sync bumpversion config
         run: uv --no-progress run --frozen -- repomatic sync-bumpversion
       - name: Sync pull request
@@ -592,7 +592,7 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - name: Sync .mailmap
         run: uv --no-progress run --frozen -- repomatic sync-mailmap --skip-if-missing
       - name: Sync pull request
@@ -649,7 +649,7 @@ jobs:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       # Persist repomatic's HTTP cache (PyPI/GitHub/npm release metadata) across
       # runs; this mainly speeds up bursts of pushes. TTL-gating bounds staleness
       # at a day rather than preventing it, so a restored cache can miss a
@@ -787,7 +787,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - name: Generate graph
         # Package name and output path are auto-detected from pyproject.toml.
         run: uv --no-progress run --frozen -- repomatic update-dep-graph
@@ -816,7 +816,7 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: "0.12.17"
+          version: "0.13.0"
       - name: Update docs
         # Runs sphinx-apidoc, converts RST stubs to MyST if applicable, runs docs/docs_update.py, then
         # refreshes self-updating directive blocks with click-extra refresh-directives.
