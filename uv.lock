@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -1671,7 +1671,7 @@ wheels = [
 
 [[package]]
 name = "repomatic"
-version = "7.18.1.dev0"
+version = "7.19.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "arrow" },
@@ -1725,6 +1725,9 @@ typing = [
     { name = "types-docutils" },
     { name = "types-pyyaml" },
 ]
+
+[package.group-requires-python]
+docs = ">=3.14"
 
 [package.metadata]
 requires-dist = [
