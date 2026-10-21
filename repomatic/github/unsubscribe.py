@@ -42,10 +42,8 @@ from datetime import UTC, datetime
 from functools import partial
 from urllib.parse import urlencode
 
-import arrow
-
 from ..config import Config
-from ..humanize import format_elapsed, parse_iso_datetime
+from ..humanize import format_elapsed, parse_iso_datetime, shift_months
 from ..tabular import ReportAction, render_markdown_table
 from ..templating import render_template
 from .gh import gh_api_pages, gh_graphql, gh_json, iter_graphql_nodes, run_gh_command
@@ -291,15 +289,13 @@ class UnsubscribeResult:
 def _compute_cutoff(months: int) -> datetime:
     """Compute a cutoff datetime by subtracting `months` from now.
 
-    arrow's `shift` clamps the day for us (subtracting 1 month from March 31
-    yields February 28/29), and the library is already loaded for the report's
-    `.humanize()` phrasing.
+    {func}`~repomatic.humanize.shift_months` clamps the day: one month before
+    March 31 is February 28, or 29 in a leap year.
 
     :param months: Number of months to subtract.
     :return: Timezone-aware UTC datetime.
     """
-    now = datetime.now(UTC)
-    return arrow.Arrow.fromdatetime(now).shift(months=-months).datetime
+    return shift_months(datetime.now(UTC), -months)
 
 
 def _format_link(row: DetailRow) -> str:

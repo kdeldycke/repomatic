@@ -81,12 +81,6 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  # arrow 1.0 stopped .humanize() rounding up early: 0.17 says "a minute ago" for
-  # 45 seconds. It phrases the relative times in sync-uv-lock tables (humanize.py)
-  # and the unsubscribe report.
-  # XXX Switch back to whenever once it grows a humanizer:
-  # https://github.com/ariebovenberg/whenever/discussions/277
-  "arrow>=1",
   # click-extra 9.3 added region_markers() to click_extra.blocks and the visible=
   # argument of OperationTrail. release/binaries_page.py imports the first and
   # deps/sync.py passes the second: on 9.2 no command starts.

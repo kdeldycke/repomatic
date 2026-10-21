@@ -733,8 +733,8 @@ def test_token_expiry_warning_counts_down(days_away, warns):
 
 def test_token_expiry_warning_counts_the_hours_of_a_last_day():
     """A token dying today is hours away: whole days would floor that to zero."""
-    # A minute of slack: arrow truncates, so a bare 5 hours renders as 4 by
-    # the time the warning is built.
+    # A minute of slack: the hour count is truncated, so a bare 5 hours renders
+    # as 4 by the time the warning is built.
     expires = (datetime.now(UTC) + timedelta(hours=5, minutes=1)).strftime(
         "%Y-%m-%dT%H:%M:%SZ"
     )

@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import time
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -29,7 +29,9 @@ from repomatic.humanize import (
     format_countdown,
     format_elapsed,
     format_file_size,
+    format_relative,
     parse_iso_datetime,
+    shift_months,
     today_utc,
     utc_midnight,
 )
@@ -78,6 +80,51 @@ def _utc(year, month, day, hour=0, minute=0):
 def test_utc_midnight_starts_the_day() -> None:
     """A date carries no time of day, so it enters a countdown at midnight."""
     assert utc_midnight(date(2026, 6, 21)) == _utc(2026, 6, 21)
+
+
+@pytest.mark.parametrize(
+    ("instant", "months", "expected"),
+    [
+        (_utc(2026, 3, 31, 12), -1, _utc(2026, 2, 28, 12)),
+        (_utc(2024, 3, 31, 12), -1, _utc(2024, 2, 29, 12)),
+        (_utc(2026, 3, 31, 12), 1, _utc(2026, 4, 30, 12)),
+        (_utc(2026, 1, 15, 6), -13, _utc(2024, 12, 15, 6)),
+        (_utc(2026, 1, 15, 6), 0, _utc(2026, 1, 15, 6)),
+    ],
+)
+def test_shift_months_clamps_the_day(instant, months, expected) -> None:
+    """A month shift lands on the last day of a shorter target month."""
+    assert shift_months(instant, months) == expected
+
+
+@pytest.mark.parametrize(
+    ("offset", "ahead", "behind"),
+    [
+        (timedelta(seconds=9), "just now", "just now"),
+        (timedelta(seconds=44), "in 44 seconds", "44 seconds ago"),
+        (timedelta(seconds=119), "in a minute", "a minute ago"),
+        (timedelta(minutes=2, seconds=59), "in 2 minutes", "2 minutes ago"),
+        (timedelta(minutes=59), "in 59 minutes", "59 minutes ago"),
+        (timedelta(hours=1, minutes=59), "in an hour", "an hour ago"),
+        # Truncated, never rounded: 4:59 is still 4 hours.
+        (timedelta(hours=4, minutes=59), "in 4 hours", "4 hours ago"),
+        (timedelta(hours=23, minutes=59), "in 23 hours", "23 hours ago"),
+        (timedelta(days=1, hours=23), "in a day", "a day ago"),
+        (timedelta(days=6, hours=23), "in 6 days", "6 days ago"),
+        (timedelta(days=13), "in a week", "a week ago"),
+        (timedelta(days=14), "in 2 weeks", "2 weeks ago"),
+        # Past a week, a remainder over 14 days counts as a calendar month.
+        (timedelta(days=21), "in a month", "a month ago"),
+        (timedelta(days=100), "in 3 months", "3 months ago"),
+        (timedelta(days=400), "in a year", "a year ago"),
+        (timedelta(days=800), "in 2 years", "2 years ago"),
+    ],
+)
+def test_format_relative_buckets(offset, ahead, behind) -> None:
+    """Each gap falls in one bucket, phrased ahead of or behind the reference."""
+    reference = _utc(2026, 6, 21, 9)
+    assert format_relative(reference + offset, reference) == ahead
+    assert format_relative(reference - offset, reference) == behind
 
 
 @pytest.mark.parametrize(

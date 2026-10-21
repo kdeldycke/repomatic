@@ -218,9 +218,9 @@ repomatic post-processes the output of `mdformat` to undo two `mdformat-myst` re
 
 ### Dependency choices
 
-Two dependencies stand in for a feature that a preferred library lacks:
+A dependency can stand in for a feature that a preferred library lacks:
 
-- [`whenever#277`](https://github.com/ariebovenberg/whenever/discussions/277) (discussion): `whenever` has no humanizer, so repomatic uses `arrow` for its human-readable times.
+- [`whenever#277`](https://github.com/ariebovenberg/whenever/discussions/277) (discussion): `whenever` has no humanizer, so repomatic phrased its relative times with `arrow` until `8.0.0`, where `repomatic.humanize` phrases them itself.
 - [`wcmatch#226` - Possibly add a gitignore parser](https://github.com/facelessuser/wcmatch/issues/226): `wcmatch` cannot read `.gitignore` files, so repomatic also depends on `py-walk`.
 
 ### Issue reporting

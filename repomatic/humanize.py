@@ -26,30 +26,40 @@ start from.
 
 A leaf module with no project-internal imports, so any module can import it
 without risking a cycle.
-
-```{todo}
-Replace arrow with whenever once it grows a humanizer. arrow stays for the
-relative-time phrase behind {func}`format_countdown` and
-{func}`format_elapsed`, and for the calendar-month shift in
-{mod}`repomatic.github.unsubscribe`:
-[whenever#277](https://github.com/ariebovenberg/whenever/discussions/277).
-```
 """
 
 from __future__ import annotations
 
+import calendar
 import time
 from datetime import UTC, datetime
 
-import arrow
 from click_extra import format_size
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from datetime import date
 
-SECONDS_PER_DAY = 86400
-"""Divisor turning an mtime delta into whole days."""
+MONTHS_PER_YEAR = 12
+"""Months in a year."""
+
+SECONDS_PER_MINUTE = 60
+"""Seconds in a minute."""
+
+SECONDS_PER_HOUR = 60 * SECONDS_PER_MINUTE
+"""Seconds in an hour."""
+
+SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR
+"""Seconds in a day: what turns an mtime delta into whole days."""
+
+SECONDS_PER_WEEK = 7 * SECONDS_PER_DAY
+"""Seconds in a week."""
+
+SECONDS_PER_MONTH = 30.5 * SECONDS_PER_DAY
+"""Seconds in a mean month: past it, {func}`format_relative` counts no weeks."""
+
+SECONDS_PER_YEAR = 365 * SECONDS_PER_DAY
+"""Seconds in a common year."""
 
 
 def parse_iso_datetime(value: str | None) -> datetime | None:
@@ -102,15 +112,95 @@ def utc_midnight(day: date) -> datetime:
     return datetime(day.year, day.month, day.day, tzinfo=UTC)
 
 
+def shift_months(instant: datetime, months: int) -> datetime:
+    """Move *instant* by *months* calendar months.
+
+    The day is clamped to the target month, so one month before March 31 is
+    February 28, or 29 in a leap year. The time of day is kept.
+
+    :param instant: The instant to move.
+    :param months: Calendar months to add, negative to subtract.
+    :return: The moved instant.
+    """
+    index = instant.year * MONTHS_PER_YEAR + instant.month - 1 + months
+    year, month = divmod(index, MONTHS_PER_YEAR)
+    month += 1
+    day = min(instant.day, calendar.monthrange(year, month)[1])
+    return instant.replace(year=year, month=month, day=day)
+
+
+def _calendar_months(later: datetime, earlier: datetime) -> int:
+    """Whole calendar months from *earlier* to *later*, capped at a year.
+
+    A remainder past 14 days counts as one more month.
+    """
+    months = (later.year - earlier.year) * MONTHS_PER_YEAR
+    months += later.month - earlier.month
+    while shift_months(earlier, months) > later:
+        months -= 1
+    if (later - shift_months(earlier, months)).days > 14:
+        months += 1
+    return min(months, MONTHS_PER_YEAR)
+
+
+def format_relative(instant: datetime, reference: datetime) -> str:
+    """Phrase the gap from *reference* to *instant*: `in 5 hours`, `2 days ago`.
+
+    The buckets and their wording are those of arrow `1.x`, kept so every
+    report reads as before. Under ten seconds the gap is `just now`. Then come
+    seconds, `a minute` under two, minutes, `an hour` under two, hours, `a day`
+    under two, days under a week, calendar months under a year (a remainder
+    past 14 days counts as a month, so three weeks across a month boundary read
+    as `a month`), `a week` under two, weeks under a mean month, `a year` under
+    two, then years. A count is truncated, never rounded, and starts at two: a
+    single unit has its own phrase.
+
+    :param instant: The instant phrased.
+    :param reference: The instant the gap is measured from, usually now.
+    :return: `in {gap}` for an *instant* after *reference*, `{gap} ago` for one
+        before it, or `just now`.
+    """
+    delta = round((instant - reference).total_seconds())
+    distance = abs(delta)
+    if distance < 10:
+        return "just now"
+    if distance < SECONDS_PER_MINUTE:
+        phrase = f"{distance} seconds"
+    elif distance < 2 * SECONDS_PER_MINUTE:
+        phrase = "a minute"
+    elif distance < SECONDS_PER_HOUR:
+        phrase = f"{max(distance // SECONDS_PER_MINUTE, 2)} minutes"
+    elif distance < 2 * SECONDS_PER_HOUR:
+        phrase = "an hour"
+    elif distance < SECONDS_PER_DAY:
+        phrase = f"{max(distance // SECONDS_PER_HOUR, 2)} hours"
+    elif distance < 2 * SECONDS_PER_DAY:
+        phrase = "a day"
+    elif distance < SECONDS_PER_WEEK:
+        phrase = f"{max(distance // SECONDS_PER_DAY, 2)} days"
+    else:
+        months = _calendar_months(max(instant, reference), min(instant, reference))
+        if months >= 1 and distance < SECONDS_PER_YEAR:
+            phrase = "a month" if months == 1 else f"{months} months"
+        elif distance < 2 * SECONDS_PER_WEEK:
+            phrase = "a week"
+        elif distance < SECONDS_PER_MONTH:
+            phrase = f"{max(distance // SECONDS_PER_WEEK, 2)} weeks"
+        elif distance < 2 * SECONDS_PER_YEAR:
+            phrase = "a year"
+        else:
+            phrase = f"{max(distance // SECONDS_PER_YEAR, 2)} years"
+    return f"in {phrase}" if delta > 0 else f"{phrase} ago"
+
+
 def _dated_delta(instant: datetime, reference: datetime) -> str:
-    """*instant* as a date, with arrow's phrase for the gap to *reference*.
+    """*instant* as a date, with the phrase for the gap to *reference*.
 
     The half {func}`format_countdown` and {func}`format_elapsed` share. Both
     read the same gap, and differ only in which direction they refuse to
     phrase.
     """
-    phrase = arrow.get(instant).humanize(arrow.get(reference))
-    return f"{instant.strftime('%Y-%m-%d')} ({phrase})"
+    return f"{instant.strftime('%Y-%m-%d')} ({format_relative(instant, reference)})"
 
 
 def format_countdown(deadline: datetime, reference: datetime) -> str:
