@@ -100,7 +100,20 @@ The install into the virtualenv removes the first two causes, 20 builds of the 2
 
 A frame type description is a short string that lists the kinds of the local variables of one function. Nuitka `4.3` declared every distinct description of the whole program in `__constants.h`, which every generated C file includes, so a commit that added or removed one description invalidated every object. The canary build of [`1db4858b3`](https://github.com/kdeldycke/repomatic/commit/1db4858b3ce0984085e33480d9d061aa3c4cd6a0) missed all 512 files that way, and a second build of the same commit hit 511. Nuitka `4.3.1` fixed it ([Nuitka#4087](https://github.com/Nuitka/Nuitka/issues/4087)): a new description no longer changes the C code of the other modules.
 
-The three targets that only the weekly run builds did not stay warm in that period. In the four weekly runs, `linux-x64`, `windows-x64` and `windows-arm64` found no compile cache to restore in 7 builds of 12. Each of the 12 builds saved its own. GitHub evicts an entry that no run used for 7 days, and the weekly run comes back after 7 days. Of the 5 builds that restored a cache, 4 hit nothing. `linux-x64` started all four builds under a new `setup-uv` key. The cause of the Windows misses is not identified. The one build with hits was `windows-x64`, with 472 files of 530.
+The three targets that only the weekly run builds did not stay warm in that period. In the four weekly runs, `linux-x64`, `windows-x64` and `windows-arm64` found no compile cache to restore in 7 builds of 12. Each of the 12 builds saved its own. GitHub evicts an entry that no run used for 7 days, and the weekly run comes back after 7 days. Of the 5 builds that restored a cache, 4 hit nothing. `linux-x64` started all four builds under a new `setup-uv` key. The one build with hits was `windows-x64`, with 472 files of 530.
+
+The install into the virtualenv did not warm the Windows builds. The weekly run of 2026-10-19 restored on each target the snapshot that a [build of `0e8de9f1e`](https://github.com/kdeldycke/repomatic/actions/runs/38368399116) saved after the install. [`linux-x64`](https://github.com/kdeldycke/repomatic/actions/runs/39203782017/job/117902398572) hit 506 of 512 files, and both Windows targets hit none of 531. The runner image of each Windows target changed between the two builds:
+
+| Target                                                                                              | Image                     | Snapshot build, 2026-10-13 | Weekly build, 2026-10-19 |
+| :-------------------------------------------------------------------------------------------------- | :------------------------ | :------------------------- | :----------------------- |
+| [`windows-x64`](https://github.com/kdeldycke/repomatic/actions/runs/39203782017/job/117902398454)   | `windows-2025-vs2026`     | `20260925.250.1`           | `20261007.264.1`         |
+| [`windows-arm64`](https://github.com/kdeldycke/repomatic/actions/runs/39203782017/job/117902398462) | `windows-11-vs2026-arm64` | `20261004.176.1`           | `20261013.183.4`         |
+
+This is the likely cause. Nuitka's clcache hashes the modification time and the size of the compiler binary into every key ([`getCompilerHash`](https://github.com/Nuitka/Nuitka/blob/8ba9ccdf78268aba8bb21b79ed72fc9a4d44887d/nuitka/build/inline_copy/clcache/clcache/caching.py#L1105-L1116)), so a compiler that a new image installs again misses every file, even at the same version. The Linux builds compile in the `manylinux_2_28` container, whose compiler does not change with the runner image, and ccache hashes the content of that compiler.
+
+```{todo}
+Read the Windows builds of the weekly run of 2026-10-26: the image version and the clcache hits of each target. A target that restores a snapshot saved on the same image, and hits, confirms the cause above: then state it as a finding. A changed image that misses again is consistent but proves nothing, and a target that restores nothing gives no answer, because GitHub evicts an entry that no run used for 7 days.
+```
 
 To inspect a cache, the compile job logs Nuitka's own hit/miss summary (`Cached C files (using ccache) with result …`) plus a per-subdirectory size report. To reset one, delete its entries: `gh cache list --key nuitka-` then `gh cache delete {key}`; the next build re-seeds it.
 
