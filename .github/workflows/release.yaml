@@ -7,8 +7,9 @@
 #
 # publish-pypi depends only on the build lane, so the wheel ships to PyPI right
 # after it is built instead of waiting for binary compilation. The engine lane
-# also depends on build so its create-release/sync-dev-release jobs can download
-# the run-scoped wheel the build lane produced.
+# also depends on build: it reads the build lane's metadata as its `metadata`
+# input, and its create-release/sync-dev-release jobs download the run-scoped
+# wheel the build lane produced.
 #
 # publish-pypi lives in THIS file (not the engine) so the OIDC `job_workflow_ref`
 # claim resolves to release.yaml: the workflow filename repomatic and every
@@ -54,7 +55,6 @@ concurrency:
         (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         && github.run_id
       )
-      || github.event.pull_request.number
       || (
         (startsWith(github.event.head_commit.message, '[changelog] Release')
         || startsWith(github.event.head_commit.message, '[changelog] Post-release'))
@@ -142,6 +142,9 @@ jobs:
     needs:
       - build
       - pack-plugin
+    # The engine reads the build lane's metadata rather than computing it again.
+    with:
+      metadata: ${{ needs.build.outputs.metadata }}
     # Union of the engine jobs' scopes (the top-level `{}` grants nothing on its
     # own): compile-binaries needs id-token + attestations (plus contents:read),
     # create-tag / create-release / manpages / publish-release /
@@ -162,36 +165,35 @@ jobs:
   # purpose: repomatic-local jobs belong below the managed lanes, which is also
   # where `repomatic init` keeps a downstream repo's own jobs.
   #
-  # Unconditional, with no `if:` and no matrix, because `release` needs this job:
-  # a skip here would cascade into skipping the whole engine on regular pushes,
-  # taking sync-dev-release with it. The artifact is only ever consumed on a
-  # release commit, so a non-release run just packs a throwaway archive.
+  # The job itself is unconditional, with no `if:` and no matrix, because `release`
+  # needs it: a skip here would cascade into skipping the whole engine on regular
+  # pushes, taking sync-dev-release with it. The artifact is only consumed on a
+  # release push, so its steps are gated on one instead.
   pack-plugin:
     name: 🧩 Pack Claude Code plugin
-    # Only for `release_commits_matrix`, which the checkout below resolves the freeze commit from.
     needs: build
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: fromJSON(needs.build.outputs.metadata).is_release_push
         with:
           # A release push carries the freeze commit *and* the post-release `.devN` bump, so `main` HEAD declares the
           # version after the one being released. `pack-plugin` stamps `__version__` into the manifest it archives, so
           # it has to run on the freeze commit or the published plugin advertises a `.devN` that was never released.
-          # Most recent release commit first, matching the version the marketplace URL is frozen to.
-          ref: >-
-            ${{ needs.build.outputs.release_commits_matrix
-            && fromJSON(needs.build.outputs.release_commits_matrix).commit[0]
-            || github.sha }}
+          ref: ${{ fromJSON(needs.build.outputs.metadata).release_commit }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        if: fromJSON(needs.build.outputs.metadata).is_release_push
         with:
           version: "0.13.0"
       # No --output: its default is the same filename `release-assets` declares,
       # and spelling it here would push the line past yamllint's cap once the
       # release freeze splices the pinned invocation in.
       - name: Pack plugin
+        if: fromJSON(needs.build.outputs.metadata).is_release_push
         run: uv --no-progress run --frozen -- repomatic pack-plugin
       - name: Upload plugin artifact
+        if: fromJSON(needs.build.outputs.metadata).is_release_push
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-asset-repomatic-claude-plugin.zip

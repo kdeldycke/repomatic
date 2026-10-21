@@ -15,6 +15,7 @@
 
    repomatic.tooling.binaries
    repomatic.tooling.checksums
+   repomatic.tooling.nuitka
    repomatic.tooling.registry
    repomatic.tooling.runner
 ```

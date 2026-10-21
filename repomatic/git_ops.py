@@ -239,6 +239,14 @@ def checkout(ref: str) -> None:
     _git("checkout", ref)
 
 
+def discard_changes() -> None:
+    """Put every tracked file of the working tree back to its `HEAD` content.
+
+    Untracked files stay where they are.
+    """
+    _git("checkout", "--", ".")
+
+
 def show_file(ref: str, path: str) -> str | None:
     """Return the content of *path* at *ref*, read from the object store.
 
@@ -507,6 +515,21 @@ def commit_staged(message: str) -> str:
     """
     _git(*_BOT_IDENTITY_ARGS, "commit", "--message", message)
     return head_sha()
+
+
+def commit_tracked(message: str) -> str:
+    """Commit every change to a tracked file as the CI bot.
+
+    Stages what `git commit --all` takes: modified and deleted tracked files.
+    An untracked file stays out of the commit, so nothing a tool leaves behind
+    in the checkout can ride along.
+
+    :param message: The commit message.
+    :return: The SHA of the new commit.
+    :raises GitError: When no tracked file changed, or when git cannot commit.
+    """
+    _git("add", "--update")
+    return commit_staged(message)
 
 
 def fetch_remote_branch(branch: str, remote: str = "origin") -> str | None:

@@ -43,35 +43,70 @@ from click_extra import (
 
 from ..changelog import Changelog, load_changelog_repo
 from ..claude_plugin import ARCHIVE_NAME, pack_plugin
+from ..deps.uv import UvError, relock
 from ..file_ops import write_if_changed
-from ..git_ops import GitError, create_and_push_tag
+from ..git_ops import (
+    SHORT_SHA_LENGTH,
+    GitError,
+    commit_tracked,
+    create_and_push_tag,
+    head_sha,
+)
 from ..github.dev_release import (
     cleanup_dev_releases,
     sync_dev_release,
 )
-from ..github.pr import carry_pr_branch_paths
+from ..github.gh import GhCommandError
+from ..github.issue import manage_issue_lifecycle
+from ..github.outputs import AnnotationLevel, report_finding
+from ..github.pr import carry_pr_branch_paths, close_stale_bump_prs, upsert_pr
+from ..github.pr_body import TemplateArgumentError, render_pr
 from ..github.release_sync import (
+    build_draft_body,
     render_sync_report,
     sync_github_releases,
 )
 from ..github.releases import (
     GitHubReleasesUnavailable,
+    create_release,
     get_releases_with_assets,
+    release_exists,
+    upload_release_files,
 )
 from ..github.urls import parse_github_repo
 from ..github.workflow_files import WORKFLOW_DIR
 from ..init.tool_config import init_config
 from ..lint_changelog import lint_changelog_dates
 from ..metadata.core import Metadata
+from ..metadata.git import version_at
+from ..metadata.project import is_version_bump_allowed
+from ..pypi import (
+    PROPAGATION_ATTEMPTS,
+    PROPAGATION_DELAY,
+    sdist_name_version,
+    wait_for_release,
+)
 from ..pyproject import get_current_version
-from ..release.attestation import pack_attestation
+from ..release.attestation import (
+    bundle_subjects,
+    missing_subjects,
+    pack_attestation,
+    verify_attestation,
+)
 from ..release.binaries_page import update_catalog
 from ..release.binary import (
     BINARY_ASSET_SUFFIXES,
     NUITKA_BUILD_TARGETS,
     pack_binary_assets,
 )
+from ..release.manpages import MANPAGES_ARCHIVE_SUFFIX, pack_manpages
 from ..release.prepare_release import CITATION_PATH, PrepareRelease
+from ..release.protocol import (
+    bump_branch,
+    post_release_commit_message,
+    release_commit_message,
+    squashed_release_pr,
+)
 from ..release.verify import verify_binary_arch, verify_binary_floor
 from ..release.virustotal import (
     FREE_TIER_RATE_LIMIT,
@@ -83,7 +118,11 @@ from ..release.virustotal import (
     scan_files,
     upsert_scan_records,
 )
+from ..templating import PrTemplate
+from ..tooling.registry import ToolInstallError
+from ..tooling.runner import run_tool
 from ..upstream import DEFAULT_REPO
+from ..versions import BUMP_PARTS
 from .main import (
     changelog_option,
     dry_run_option,
@@ -96,7 +135,12 @@ from .main import (
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any, TypeVar
+
     from click_extra import Context
+
+    FC = TypeVar("FC", bound="Callable[..., Any]")
 
 
 @subcommand(
@@ -242,12 +286,88 @@ def lint_changelog(
 
 
 @subcommand(
+    short_help="Bump a version part and sync its pull request",
+    examples=(
+        (
+            "Bump the minor version, or retire a stale minor bump",
+            "repomatic bump-version --part minor",
+        ),
+    ),
+)
+@option(
+    "--part",
+    type=Choice(BUMP_PARTS, case_sensitive=False),
+    required=True,
+    help="The version part to bump.",
+)
+@pass_context
+def bump_version_cmd(ctx: Context, part: str) -> None:
+    """Bump a version part and converge its draft pull request.
+
+    When the bump is allowed, bumps the part with bump-my-version, re-locks
+    uv.lock, then opens or refreshes the draft pull request on the
+    <part>-version-increment branch, rendered from the bump-version template.
+
+    When it is not, because the version already moved past that part since the
+    last release, closes the pull request an earlier run left open, and deletes
+    its branch.
+
+    Requires the gh CLI to be authenticated.
+    """
+    if not is_version_bump_allowed(part):  # type: ignore[arg-type]
+        closed = close_stale_bump_prs(part)
+        echo(f"{part} bump not allowed. Closed stale PR(s): {closed or 'none'}.")
+        return
+
+    try:
+        exit_code = run_tool("bump-my-version", ["bump", "--verbose", part])
+    except ToolInstallError as error:
+        raise ClickException(str(error)) from error
+    if exit_code:
+        raise ClickException(f"bump-my-version exited with code {exit_code}.")
+    try:
+        relock()
+    except UvError as error:
+        raise ClickException(str(error)) from error
+
+    template = PrTemplate.load("bump-version")
+    try:
+        content = render_pr(
+            Metadata(), get_tool_config(ctx), template=template, part=part
+        )
+    except TemplateArgumentError as error:
+        raise UsageError(str(error)) from error
+    actor = Metadata().event_actor
+    result = upsert_pr(
+        branch=bump_branch(part),
+        title=content.title,
+        body=content.body,
+        commit_message=content.commit_message,
+        labels=template.labels,
+        assignees=(actor,) if actor else (),
+        draft=template.draft,
+    )
+    if result.number:
+        echo(f"{result.operation}: PR #{result.number} on {result.branch}")
+    else:
+        echo(f"{result.operation}: {result.branch}")
+
+
+@subcommand(
     short_help="Freeze version, changelog and pins for a release",
     examples=(
         ("Prepare release (changelog + citation)", "repomatic prepare-release"),
         (
             "Post-release: retarget workflows to main branch",
             "repomatic prepare-release --post-release",
+        ),
+        (
+            "Commit the freeze, and hand its version to a later step",
+            'repomatic prepare-release --commit --output "$GITHUB_OUTPUT"',
+        ),
+        (
+            "Commit the post-release bump",
+            "repomatic prepare-release --post-release --commit",
         ),
     ),
 )
@@ -282,6 +402,18 @@ def lint_changelog(
     default=False,
     help="Run post-release steps (retarget workflow URLs to default branch).",
 )
+@option(
+    "--commit",
+    "commit",
+    is_flag=True,
+    default=False,
+    help="Commit every tracked change once the files are prepared, as the "
+    "release commit, or with --post-release as the post-release commit.",
+)
+@output_option(
+    "Write version=X.Y.Z, the version being released, to this file, like "
+    "$GITHUB_OUTPUT."
+)
 def prepare_release(
     changelog_path: Path,
     citation_path: Path,
@@ -289,6 +421,8 @@ def prepare_release(
     default_branch: str,
     update_workflows: bool | None,
     post_release: bool,
+    commit: bool,
+    output: Path | None,
 ) -> None:
     """Prepare files for a release or post-release version bump.
 
@@ -308,6 +442,12 @@ def prepare_release(
 
     For post-release (after the release commit), use --post-release to retarget
     workflow URLs back to the default branch.
+
+    With --commit, the changes to tracked files are then committed by the CI
+    bot. The release commit is named after the version to release. The
+    post-release commit, made on top of it once the next version is bumped,
+    names both versions. The edits are idempotent, so committing after running
+    them once already changes nothing more.
     """
     # Auto-detect --update-workflows from CI context.
     if update_workflows is None:
@@ -337,8 +477,31 @@ def prepare_release(
         logging.info(f"{action} complete. Modified {len(modified)} file(s):")
         for path in modified:
             echo(f"  {path}")
-    else:
+    elif post_release and not update_workflows:
+        # Only the canonical workflows repository retargets anything.
+        logging.info(f"{action}: no workflow URL to retarget in this repository.")
+    elif not commit:
         logging.warning(f"{action}: no files were modified.")
+
+    if not (commit or output):
+        return
+    # The release commit carries the version it releases. The post-release
+    # commit sits on top of it, so the release version is the one of `HEAD`.
+    released = version_at("HEAD") if post_release else prep.current_version
+    if not released:
+        raise ClickException("Cannot read the released version off HEAD.")
+    if commit:
+        if post_release:
+            message = post_release_commit_message(released, prep.current_version)
+        else:
+            message = release_commit_message(released)
+        try:
+            sha = commit_tracked(message)
+        except GitError as error:
+            raise ClickException(f"Cannot commit {message!r}: {error}") from error
+        echo(f"Committed {sha[:SHORT_SHA_LENGTH]}: {message}")
+    if output:
+        write_output("release version", f"version={released}", output)
 
 
 @subcommand(
@@ -410,6 +573,180 @@ def git_tag(
 
 
 @subcommand(
+    short_help="Report a release pull request merged by squashing",
+    examples=(
+        (
+            "Check the head commit of the current push event",
+            "repomatic detect-squash-merge",
+        ),
+        (
+            "Check an explicit commit message",
+            "repomatic detect-squash-merge --message 'Release `v1.2.3` (#42)'",
+        ),
+    ),
+)
+@option(
+    "--message",
+    "commit_message",
+    default=None,
+    help="Commit message to check. Defaults to the head commit message of the "
+    "event in $GITHUB_EVENT_PATH.",
+)
+@repo_option("Repository to open the issue in.")
+@pass_context
+def detect_squash_merge(ctx: Context, commit_message: str | None, repo: str) -> None:
+    """Open an issue when a release pull request was squash-merged, then fail.
+
+    A release needs its freeze and unfreeze commits to land separately, through
+    "Rebase and merge". Squashing them leaves no release commit to tag, so no
+    tag, package or GitHub release is published. This reports that to the
+    maintainer in one issue, rendered from the detect-squash-merge template and
+    assigned to the workflow actor, and exits with code 1.
+
+    A re-run updates the open issue instead of opening a second one, and a
+    later squash merge reopens it.
+
+    Exits with code 0, opening nothing, when the message is not the one of a
+    squash-merged release pull request.
+    """
+    metadata = Metadata()
+    message = metadata.head_commit_message if commit_message is None else commit_message
+    pr_ref = squashed_release_pr(message)
+    if pr_ref is None:
+        echo("No squash-merged release pull request.")
+        return
+
+    template = PrTemplate.load("detect-squash-merge")
+    try:
+        content = render_pr(
+            metadata, get_tool_config(ctx), template=template, pr_ref=pr_ref
+        )
+    except TemplateArgumentError as error:
+        raise UsageError(str(error)) from error
+    actor = metadata.event_actor
+    number = manage_issue_lifecycle(
+        has_issues=True,
+        body=content.body,
+        labels=(),
+        title=content.title,
+        repository=repo,
+        assignees=(actor,) if actor else (),
+    )
+    report_finding(
+        AnnotationLevel.ERROR,
+        "Squash merge detected. Release was skipped. "
+        f"See {metadata.server_url}/{repo}/issues/{number}",
+    )
+    ctx.exit(1)
+
+
+@subcommand(
+    short_help="Create the GitHub release draft of a version",
+    examples=(
+        (
+            "Create the draft of the release commit, attaching the built package",
+            (
+                "repomatic create-release --version 1.2.3 --commit 6f27db4"
+                " --assets release_artifact"
+            ),
+        ),
+    ),
+)
+@option(
+    "--version",
+    "version_str",
+    required=True,
+    help="Version to release, like 1.2.3. The release takes the tag v1.2.3.",
+)
+@option(
+    "--commit",
+    default=None,
+    help="Commit the release tag points at. Defaults to HEAD.",
+)
+@option(
+    "--assets",
+    "asset_dir",
+    type=dir_path(resolve_path=True),
+    default=None,
+    help="Directory of files to attach to the draft. A directory that does not "
+    "exist attaches nothing.",
+)
+@option(
+    "--skip-existing/--error-existing",
+    default=True,
+    help="Skip silently if a release carries the tag, or fail with an error.",
+)
+@changelog_option
+@repo_option()
+def create_release_cmd(
+    version_str: str,
+    commit: str | None,
+    asset_dir: Path | None,
+    skip_existing: bool,
+    changelog_path: Path,
+    repo: str,
+) -> None:
+    """Create the release draft of a version, with its notes and assets.
+
+    The notes are the changelog section of the version. A project published on
+    PyPI gets them with the availability admonition linking to PyPI and
+    GitHub, which lint-changelog later writes into the changelog itself.
+
+    The release stays a draft: the release workflow attaches the binaries and
+    other assets to it, then publishes it last, since a published immutable
+    release accepts no new asset.
+
+    Idempotent: with --skip-existing, the default, a release that already
+    carries the tag is left as it is, so a re-run of the workflow passes.
+    """
+    tag = f"v{version_str}"
+    changelog = Changelog(changelog_path.read_text(encoding="UTF-8"))
+    notes = build_draft_body(changelog, version_str, Metadata().package_name)
+    if not notes:
+        logging.warning(f"{changelog_path} holds no notes for {version_str}.")
+    files = (
+        sorted(path for path in asset_dir.iterdir() if path.is_file())
+        if asset_dir and asset_dir.is_dir()
+        else []
+    )
+    try:
+        if not skip_existing and release_exists(tag, repo):
+            raise ClickException(f"Release {tag} already exists.")
+        created = create_release(
+            tag, repo, target=commit or head_sha(), notes=notes, files=files
+        )
+    except (GhCommandError, GitError) as error:
+        raise ClickException(str(error)) from error
+    if created:
+        echo(f"Created release draft {tag} with {len(files)} asset(s).")
+    else:
+        echo(f"Release {tag} already exists, skipped.")
+
+
+def upload_option(func: FC) -> FC:
+    """`--upload-to TAG`: attach what a `pack-*` command packed to a release."""
+    return option(
+        "--upload-to",
+        "upload_to",
+        metavar="TAG",
+        default=None,
+        help="Attach the packed files to the release of this tag, replacing "
+        "same-named assets. Needs --repo.",
+    )(func)
+
+
+def _release_repo(repo: str | None, *flags: str) -> str:
+    """Return *repo*, or refuse the *flags* that need one.
+
+    :raises click.UsageError: When *repo* is empty.
+    """
+    if not repo:
+        msg = f"{' and '.join(flags)} need --repo, or $GITHUB_REPOSITORY."
+        raise UsageError(msg)
+    return repo
+
+
+@subcommand(
     short_help="Name an attestation bundle after the asset it attests",
     examples=(
         (
@@ -419,6 +756,13 @@ def git_tag(
         (
             "A glob's worth of assets, all covered by one bundle",
             "repomatic pack-attestation --bundle b.json --dir dist --name papaya-set",
+        ),
+        (
+            "Check the provenance, then attach to a release draft",
+            (
+                'repomatic pack-attestation --bundle "${BUNDLE_PATH}" --verify'
+                " --upload-to v1.2.3"
+            ),
         ),
     ),
 )
@@ -442,8 +786,30 @@ def git_tag(
     "set_name",
     help="Stem naming the set, for a bundle attesting more than one asset.",
 )
+@option(
+    "--require-declared/--no-require-declared",
+    default=False,
+    help="Fail unless the bundle attests every file the release-assets "
+    "setting of [tool.repomatic] declares.",
+)
+@option(
+    "--verify/--no-verify",
+    default=False,
+    help="Check the provenance of every attested asset with gh attestation "
+    "verify. Needs --repo.",
+)
+@upload_option
+@repo_option("Repository the release belongs to.", detect=False)
+@pass_context
 def pack_attestation_cmd(
-    bundle_path: Path, asset_dir: Path, set_name: str | None
+    ctx: Context,
+    bundle_path: Path,
+    asset_dir: Path,
+    set_name: str | None,
+    require_declared: bool,
+    verify: bool,
+    upload_to: str | None,
+    repo: str | None,
 ) -> None:
     """Rename an attestation bundle after its subject, print the upload list.
 
@@ -456,9 +822,37 @@ def pack_attestation_cmd(
     A bundle covering several assets has no single name to take, so pass
     --name to name the set instead.
 
-    Idempotent: re-running copies the same bytes over the same name.
+    With --require-declared, a file the project declares as an extra release
+    asset but whose artifact never landed fails the command, before anything
+    is attached: an immutable release could never gain it afterwards.
+
+    Idempotent: re-running copies the same bytes over the same name, and an
+    upload replaces the assets of the same name.
     """
-    for path in pack_attestation(bundle_path, asset_dir, set_name):
+    if verify:
+        repo = _release_repo(repo, "--verify")
+    if upload_to:
+        repo = _release_repo(repo, "--upload-to")
+    try:
+        if require_declared:
+            declared = get_tool_config(ctx).release_assets
+            missing = missing_subjects(bundle_path, declared)
+            for name in missing:
+                report_finding(
+                    AnnotationLevel.ERROR,
+                    f"Declared release asset {name} has no release-asset-* artifact.",
+                )
+            if missing:
+                ctx.exit(1)
+        paths = pack_attestation(bundle_path, asset_dir, set_name)
+        if verify and repo:
+            for subject in bundle_subjects(bundle_path):
+                verify_attestation(asset_dir / subject, repo)
+        if upload_to and repo:
+            upload_release_files(upload_to, repo, paths)
+    except (ValueError, GhCommandError) as error:
+        raise ClickException(str(error)) from error
+    for path in paths:
         echo(path)
 
 
@@ -468,6 +862,13 @@ def pack_attestation_cmd(
         (
             "Pack the binaries a build run downloaded",
             "repomatic pack-binaries --version 1.2.3 --dir ./compile-assets",
+        ),
+        (
+            "Pack them and attach them to the release draft",
+            (
+                "repomatic pack-binaries --version 1.2.3 --dir ./compile-assets"
+                " --upload-to v1.2.3"
+            ),
         ),
     ),
 )
@@ -484,7 +885,11 @@ def pack_attestation_cmd(
     required=True,
     help="Directory holding the compiled binaries and attestation bundles.",
 )
-def pack_binaries(version_str: str, dist_dir: Path) -> None:
+@upload_option
+@repo_option("Repository the release belongs to.", detect=False)
+def pack_binaries(
+    version_str: str, dist_dir: Path, upload_to: str | None, repo: str | None
+) -> None:
     """Materialize versionless binary aliases and print the upload list.
 
     Copies each versioned binary (`repomatic-1.2.3-linux-arm64.bin`) to its
@@ -494,10 +899,76 @@ def pack_binaries(version_str: str, dist_dir: Path) -> None:
     distributions (.tar.gz, .whl) are skipped: create-release already
     uploaded them.
 
-    Idempotent: re-running overwrites the same aliases with the same bytes.
+    Idempotent: re-running overwrites the same aliases with the same bytes,
+    and an upload replaces the assets of the same name.
     """
-    for path in pack_binary_assets(dist_dir, version_str):
+    paths = pack_binary_assets(dist_dir, version_str)
+    if upload_to:
+        repo = _release_repo(repo, "--upload-to")
+        try:
+            upload_release_files(upload_to, repo, paths)
+        except GhCommandError as error:
+            raise ClickException(str(error)) from error
+    for path in paths:
         echo(path)
+
+
+@subcommand(
+    short_help="Pack the rendered man pages as a release tarball",
+    examples=(
+        (
+            "Pack ./man into <manpages_asset_name>.tar.gz",
+            "repomatic pack-manpages",
+        ),
+        (
+            "Pack another directory into an explicit file",
+            "repomatic pack-manpages --dir build/man --output papaya-manpages.tar.gz",
+        ),
+    ),
+)
+@option(
+    "--dir",
+    "man_dir",
+    type=dir_path(exists=True, resolve_path=True),
+    default="man",
+    show_default=True,
+    help="Directory holding the rendered roff pages.",
+)
+@output_option(
+    "Write the tarball to this file. Defaults to the manpages_asset_name "
+    "metadata key with a .tar.gz extension, in the working directory."
+)
+def pack_manpages_cmd(man_dir: Path, output: Path | None) -> None:
+    """Bundle the rendered man pages into the tarball a release attaches.
+
+    The tarball holds the pages under the name of their directory, like
+    `tar --create man/` stores them. It is byte-deterministic: re-packing an
+    unchanged tree gives an identical file, with the same attestation digest.
+
+    Prints the path of the tarball.
+    """
+    if output is None:
+        name = Metadata().manpages_asset_name
+        if not name:
+            raise UsageError(
+                "No asset name: pass --output, or set manpages.asset-name in "
+                "[tool.repomatic]."
+            )
+        output = Path(f"{name}{MANPAGES_ARCHIVE_SUFFIX}")
+    try:
+        if is_stdout(output):
+            # The packer writes to a path, so the archive goes through a
+            # scratch file on its way to stdout.
+            with tempfile.TemporaryDirectory(prefix="repomatic-manpages-") as tmp:
+                archive = Path(tmp) / f"manpages{MANPAGES_ARCHIVE_SUFFIX}"
+                pack_manpages(man_dir, archive)
+                sys.stdout.buffer.write(archive.read_bytes())
+            return
+        members = pack_manpages(man_dir, output)
+    except ValueError as error:
+        raise ClickException(str(error)) from error
+    logging.info(f"Packed {len(members)} page(s) into {output}.")
+    echo(output)
 
 
 @subcommand(
@@ -536,6 +1007,66 @@ def pack_plugin_cmd(output: Path) -> None:
         return
     members = pack_plugin(Path.cwd(), output)
     echo(f"Packed {len(members)} files into {output}")
+
+
+@subcommand(
+    short_help="Wait until PyPI serves a release just published",
+    examples=(
+        (
+            "Wait for the release of the distributions in dist/",
+            "repomatic wait-pypi --dir dist",
+        ),
+    ),
+)
+@option(
+    "--dir",
+    "dist_dir",
+    type=dir_path(exists=True, resolve_path=True),
+    required=True,
+    help="Directory holding the distributions just published. The project "
+    "name and version are read off its sdist.",
+)
+@option(
+    "--attempts",
+    type=IntRange(1),
+    default=PROPAGATION_ATTEMPTS,
+    show_default=True,
+    help="Lookups to make before giving up.",
+)
+@option(
+    "--delay",
+    type=IntRange(0),
+    default=PROPAGATION_DELAY,
+    show_default=True,
+    help="Seconds to wait between two lookups.",
+)
+@pass_context
+def wait_pypi(ctx: Context, dist_dir: Path, attempts: int, delay: int) -> None:
+    """Block until the PyPI JSON API serves the release of DIR's sdist.
+
+    uv publish returns once PyPI accepts the upload, but its index and CDN can
+    take minutes to serve the release everywhere. Automation reacting to the
+    release at once, like a downstream repository bumping its pin, would race
+    that window and fail to resolve the version.
+
+    Exits with code 1 when the release is still not served after the last
+    lookup.
+    """
+    try:
+        package, version = sdist_name_version(dist_dir)
+    except ValueError as error:
+        raise ClickException(str(error)) from error
+    echo(f"Waiting for {package} {version} to become visible on PyPI...")
+    attempt = wait_for_release(package, version, attempts=attempts, delay=delay)
+    if attempt is None:
+        report_finding(
+            AnnotationLevel.ERROR,
+            f"{package} {version} was not visible on PyPI after {attempts} "
+            "lookups. Downstream automation pinning to this version may fail "
+            "transiently until propagation catches up.",
+        )
+        ctx.exit(1)
+    echo(f"Visible after {attempt} attempt(s) (~{(attempt - 1) * delay}s).")
 
 
 @subcommand(

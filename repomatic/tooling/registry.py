@@ -94,6 +94,7 @@ from ..file_ops import generated_header
 from ..github.urls import parse_github_repo
 from ..npm import NPM_PACKAGE_URL
 from ..pypi import PYPI_PACKAGE_URL
+from .nuitka import nuitka_params, prepare_nuitka_build
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -588,8 +589,17 @@ NPM_MIN_VERSION_FOR_COOLDOWN = "11.10.0"
 
 Older npm silently ignores the `--min-release-age` flag, so `_install_npm`
 warns when it cannot enforce the cooldown. This is a fixed floor (the release that
-introduced the option), distinct from the auto-bumped `npm@X` bootstrap pin in
-`lint.yaml`, which tracks the latest npm.
+introduced the option), distinct from the pinned {data}`NPM_BOOTSTRAP_TOOL`,
+which `sync-tool-versions` keeps on the latest npm past the cooldown.
+"""
+
+NPM_BOOTSTRAP_TOOL = "npm"
+"""Registry name of the npm that installs every npm-backed tool.
+
+The npm on `PATH` is whatever the machine carries: unpinned, and too old to
+honor the cooldown on many images. It only installs this pinned npm, which then
+installs the tool. The npm package bundles its own dependencies, so that first
+install resolves nothing an old npm could leave outside the cooldown.
 """
 
 
@@ -825,6 +835,18 @@ class ToolSpec:
     `requires-python`). `None` if no computed params.
     """
 
+    prepare: Callable[[Metadata], dict[str, str]] | None = None
+    """Callable readying the machine for a run, before the tool is installed.
+
+    Receives a `Metadata` instance, does what the run needs beyond its
+    arguments, and returns the environment variables to set for the tool on
+    top of the inherited ones. Called once per `repomatic run`, never by a
+    documentation or a check that only reads the spec. `None` if the tool
+    needs no preparation.
+
+    Nuitka is the one user: see {func}`~repomatic.tooling.nuitka.prepare_nuitka_build`.
+    """
+
     config_after_subcommand: bool = False
     """Insert `config_flag` after the first token of `extra_args`.
 
@@ -862,8 +884,19 @@ class ToolSpec:
     `run_tool` pre-creates the parent directory of the path following this
     flag (both `--flag path` and `--flag=path` forms), so a workflow can point
     the tool into a scratch subdirectory without a separate `mkdir` step.
-    lychee is the motivating case: `docs.yaml` collects its report from a
-    dedicated subdirectory, and lychee errors out rather than creating it.
+    lychee is the motivating case: a report path in a scratch subdirectory,
+    which lychee errors out on rather than creating it.
+    """
+
+    problem_matcher: str | None = None
+    """Filename in `repomatic/data/` of a GitHub Actions problem matcher.
+
+    When the tool runs in GitHub Actions, `run_tool` registers the matcher
+    before the tool starts and removes it once the tool exits, so each finding
+    the tool prints becomes an annotation on the file and the line it names.
+    Bundled rather than fetched from the upstream repository at run time: the
+    matcher then travels with the pinned release, and no workflow step has to
+    download it.
     """
 
     check_flags: tuple[str, ...] = ()
@@ -892,9 +925,11 @@ class ToolSpec:
     apart from the status alone.
 
     Declaring the code here gives `run_tool` the second signal it needs: the
-    files themselves. A run exiting with this code and leaving every target
-    byte-identical contradicts what the code claims, so it is reported as a
-    failure instead of being waved through. See
+    files themselves. A run exiting with this code after rewriting a target
+    reports `0`, the success the caller asked for, so no caller has to tolerate
+    the code. A run exiting with it and leaving every target byte-identical
+    contradicts what the code claims, so it is reported as a failure instead of
+    being waved through. See
     {data}`repomatic.tooling.runner.TOOL_CRASH_EXIT_CODE`.
 
     `None` for tools with no such convention, which is most of them: a
@@ -1395,6 +1430,28 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
             X86_64,
         ): "7e940f83ee46874b73f53031f96a15834cb70b220af27391fb06fe7b4dd798e1",
     },
+    "shellcheck": {
+        (
+            LINUX,
+            AARCH64,
+        ): "12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588",
+        (
+            LINUX,
+            X86_64,
+        ): "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
+        (
+            MACOS,
+            AARCH64,
+        ): "56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79",
+        (
+            MACOS,
+            X86_64,
+        ): "3c89db4edcab7cf1c27bff178882e0f6f27f7afdf54e859fa041fca10febe4c6",
+        (
+            WINDOWS,
+            X86_64,
+        ): "8a4e35ab0b331c85d73567b12f2a444df187f483e5079ceffa6bda1faa2e740e",
+    },
     "shfmt": {
         (
             LINUX,
@@ -1456,6 +1513,7 @@ VERSIONS: dict[str, str] = {
     "labelmaker": "0.6.4",
     "lychee": "0.24.2",
     "oxipng": "10.2.1",
+    "shellcheck": "0.11.0",
     "shfmt": "3.14.1",
     "typos": "1.51.1",
 }
@@ -1480,6 +1538,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         native_format=NativeFormat.YAML,
         default_config="actionlint.yaml",
         default_flags=("-color",),
+        # actionlint lints the `run:` scripts with the shellcheck it finds on
+        # PATH, and skips them when there is none.
+        path_tools=("shellcheck",),
+        # A copy of `.github/actionlint-matcher.json` from the actionlint
+        # repository, at the tag of the pinned version.
+        problem_matcher="actionlint-matcher.json",
         source_url="https://github.com/rhysd/actionlint",
         config_docs_url="https://github.com/rhysd/actionlint/blob/main/docs/config.md",
         cli_docs_url="https://github.com/rhysd/actionlint/blob/main/docs/usage.md",
@@ -1531,6 +1595,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             ```
 
             With no arguments actionlint lints every workflow under `.github/workflows`. The `[tool.actionlint]` section is bridged to a temporary YAML config: declaring self-hosted runner labels stops custom `runs-on:` values being flagged as unknown.
+
+            The pinned ShellCheck goes on `PATH` for the run, which is what lints the shell scripts of the `run:` steps. In GitHub Actions, repomatic also registers actionlint's problem matcher, so each finding annotates the line it names.
             """),
     ),
     "autopep8": ToolSpec(
@@ -1827,6 +1893,16 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "lychee": ToolSpec(
         name="lychee",
+        # The crawl the `check-broken-links` job runs through `repomatic
+        # broken-links`, which adds the flags of its markdown report.
+        default_args=(
+            "--hidden",
+            "--suggest",
+            "--no-progress",
+            "--include-fragments",
+            "--exclude-all-private",
+        ),
+        default_paths="doc_files",
         display_name="Lychee",
         version="0.24.2",
         source_url="https://github.com/lycheeverse/lychee",
@@ -1871,7 +1947,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             **Try it:**
 
             ```shell-session
-            $ repomatic run lychee -- .
+            $ repomatic run lychee
             ```
 
             **Minimal `[tool.lychee]`:**
@@ -1881,7 +1957,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             max_redirects = 5
             ```
 
-            lychee checks links found in the given path. Since v0.24 it reads `[tool.lychee]` from `pyproject.toml` natively, so repomatic does not translate it.
+            With no arguments, lychee checks the links of every documentation file, as the `check-broken-links` job does through `repomatic broken-links`. Pass paths after `--` to check other files. Since v0.24 it reads `[tool.lychee]` from `pyproject.toml` natively, so repomatic does not translate it.
             """),
     ),
     "mdformat": ToolSpec(
@@ -1984,6 +2060,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             ```
             """),
     ),
+    "npm": ToolSpec(
+        name="npm",
+        version="12.2.0",
+        npm=NpmSpec(),
+        source_url="https://github.com/npm/cli",
+        cli_docs_url="https://docs.npmjs.com/cli/",
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run npm -- --version
+            ```
+
+            The npm every npm-backed tool installs through, like awesome-lint. The npm on `PATH` only installs this pinned one into the scratch prefix of the run, which then installs the tool: an npm older than 11.10.0 ignores the `minimum-release-age` cooldown, and the one a runner image carries is not pinned at all. Node.js still comes from `PATH`.
+            """),
+    ),
     "nuitka": ToolSpec(
         name="nuitka",
         display_name="Nuitka",
@@ -2006,13 +2098,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             "--assume-yes-for-downloads",
             "--update-check=never",
         ),
-        # Modules listed in [tool.repomatic] nuitka.nofollow-imports are kept
-        # out of the binary ("tkinter" by default, else boltons.ecoutils'
-        # guarded probe drags the whole Tcl/Tk stack into every CLI).
-        computed_params=lambda metadata: [
-            f"--nofollow-import-to={module}"
-            for module in metadata.config.nuitka_nofollow_imports
-        ],
+        computed_params=nuitka_params,
+        prepare=prepare_nuitka_build,
         docs_notes=cleandoc(r"""
             **Try it:**
 
@@ -2148,6 +2235,55 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             `ruff check .` lints; `ruff format .` reformats. Both read `[tool.ruff]` natively. With no project config, repomatic falls back to its bundled `ruff.toml` baseline.
 
             The default `--config=force-exclude=true` applies `exclude` and `extend-exclude` to a path named on the command line too, as in `repomatic run ruff -- check {path}`. ruff alone honours those lists only while it walks a directory, and lints or reformats an excluded file handed to it by name. To process such a file once, pass `--no-force-exclude` after the subcommand.
+            """),
+    ),
+    "shellcheck": ToolSpec(
+        name="shellcheck",
+        display_name="ShellCheck",
+        version="0.11.0",
+        source_url="https://github.com/koalaman/shellcheck",
+        config_docs_url="https://github.com/koalaman/shellcheck/wiki/Directive",
+        cli_docs_url="https://github.com/koalaman/shellcheck/blob/master/shellcheck.1.md",
+        binary=BinarySpec(
+            urls={
+                (
+                    LINUX,
+                    AARCH64,
+                ): "https://github.com/koalaman/shellcheck/releases/download/v{version}/shellcheck-v{version}.linux.aarch64.tar.xz",
+                (
+                    LINUX,
+                    X86_64,
+                ): "https://github.com/koalaman/shellcheck/releases/download/v{version}/shellcheck-v{version}.linux.x86_64.tar.xz",
+                (
+                    MACOS,
+                    AARCH64,
+                ): "https://github.com/koalaman/shellcheck/releases/download/v{version}/shellcheck-v{version}.darwin.aarch64.tar.xz",
+                (
+                    MACOS,
+                    X86_64,
+                ): "https://github.com/koalaman/shellcheck/releases/download/v{version}/shellcheck-v{version}.darwin.x86_64.tar.xz",
+                (
+                    WINDOWS,
+                    X86_64,
+                ): "https://github.com/koalaman/shellcheck/releases/download/v{version}/shellcheck-v{version}.zip",
+            },
+            checksums=CHECKSUMS["shellcheck"],
+            archive_format={
+                ALL_PLATFORMS: ArchiveFormat.TAR_XZ,
+                WINDOWS: ArchiveFormat.ZIP,
+            },
+            # The tarballs nest the executable under a `shellcheck-v{version}/`
+            # directory; the Windows zip puts `shellcheck.exe` at the root.
+            strip_components={ALL_PLATFORMS: 1, WINDOWS: 0},
+        ),
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run shellcheck -- script.sh
+            ```
+
+            ShellCheck lints shell scripts. repomatic puts it on `PATH` for `repomatic run actionlint`, which lints the `run:` scripts of the workflows with it. It reads its own `.shellcheckrc` and the `# shellcheck` directives of each script, so there is no `[tool.shellcheck]` section.
             """),
     ),
     "shfmt": ToolSpec(

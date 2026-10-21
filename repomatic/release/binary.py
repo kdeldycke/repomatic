@@ -30,7 +30,17 @@ import struct
 from dataclasses import dataclass
 from enum import Enum
 
-from extra_platforms import AARCH64, LINUX, MACOS, WINDOWS, X86_64
+from extra_platforms import (
+    AARCH64,
+    LINUX,
+    MACOS,
+    UNKNOWN_PLATFORM,
+    WINDOWS,
+    X86_64,
+    Group,
+    current_architecture,
+    current_platform,
+)
 
 from ..matrix.axes import (
     LINUX_ARM64_RUNNER,
@@ -46,7 +56,7 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import Final
 
-    from extra_platforms import Architecture, Group, Platform
+    from extra_platforms import Architecture, Platform
 
 
 BINARY_ASSET_SUFFIXES = (".bin", ".exe")
@@ -80,6 +90,9 @@ _MANYLINUX_2_28_AARCH64 = (
     "@sha256:e7035406e58d96b7407246af1f6514a3cbd753a0025b42b9adfbeadd3b29ba80"
 )
 
+
+NUITKA_DISABLE_CCACHE_FLAG: Final[str] = "--disable-ccache"
+"""The Nuitka option that keeps its ccache wrapper out of a build."""
 
 MACHO_MAGIC_64: Final[int] = 0xFEEDFACF
 """Magic of a 64-bit Mach-O header, in the file's own (little) endianness."""
@@ -242,9 +255,8 @@ class BuildTarget:
     {func}`~repomatic.release.verify.verify_binary_floor`; the third is
     documentation, since PE version headers record nothing to measure.
 
-    On macOS the release workflow also exports it as
-    `MACOSX_DEPLOYMENT_TARGET` at compile time. Without it, compiled objects
-    and processed dylibs inherit the build runner's own macOS version.
+    On macOS, {attr}`build_env` also exports it as `MACOSX_DEPLOYMENT_TARGET`
+    for the compile.
     """
 
     container: str | None = None
@@ -278,6 +290,40 @@ class BuildTarget:
     def enforced_floor(self) -> str | None:
         """{attr}`floor`, or `None` when the format records nothing to measure."""
         return self.floor if self.binary_format.floor_label else None
+
+    @property
+    def nuitka_flags(self) -> tuple[str, ...]:
+        """Nuitka options the compile of this target adds to the shared ones.
+
+        macOS turns ccache off. Nuitka downloads its own ccache binary there,
+        with no checksum at the call site
+        ([Nuitka#3997](https://github.com/Nuitka/Nuitka/issues/3997)), and runs
+        it under Rosetta on arm at a measured cost. The download is
+        supply-chain surface for no gain: see {attr}`compile_cache`.
+        `docs/nuitka.md` says what re-enabling it would take.
+        """
+        return (NUITKA_DISABLE_CCACHE_FLAG,) if self.platform is MACOS else ()
+
+    @property
+    def compile_cache(self) -> bool:
+        """Whether a persisted Nuitka compile cache speeds up this target.
+
+        A target compiling with ccache off writes no object a later run could
+        reuse, so the release workflow neither restores nor saves its cache.
+        """
+        return NUITKA_DISABLE_CCACHE_FLAG not in self.nuitka_flags
+
+    @property
+    def build_env(self) -> dict[str, str]:
+        """Environment variables the compile of this target needs.
+
+        macOS pins `MACOSX_DEPLOYMENT_TARGET` to {attr}`floor`. Without it,
+        compiled objects and processed dylibs inherit the build runner's own
+        macOS version as their minimum.
+        """
+        if self.platform is MACOS:
+            return {"MACOSX_DEPLOYMENT_TARGET": self.floor}
+        return {}
 
     def as_matrix_entry(self) -> dict[str, str]:
         """Flat, JSON-safe mapping of this target, for GitHub matrix inclusion.
@@ -381,6 +427,29 @@ FLAT_BUILD_TARGETS: Final[list[dict[str, str]]] = [
     target.as_matrix_entry() for target in NUITKA_BUILD_TARGETS.values()
 ]
 """List of build targets in a flat format, suitable for matrix inclusion."""
+
+
+def current_build_target() -> BuildTarget | None:
+    """The build target of the machine this runs on.
+
+    Matches the running platform and architecture against
+    {data}`NUITKA_BUILD_TARGETS`. A Linux distribution extra-platforms cannot
+    name still matches the Linux targets, as the tool registry treats it.
+
+    :return: The target, or `None` when no target builds on this machine.
+    """
+    platform, architecture = current_platform(), current_architecture()
+    for target in NUITKA_BUILD_TARGETS.values():
+        if target.arch != architecture:
+            continue
+        if platform == target.platform:
+            return target
+        if isinstance(target.platform, Group) and (
+            platform in target.platform
+            or (platform is UNKNOWN_PLATFORM and target.platform is LINUX)
+        ):
+            return target
+    return None
 
 
 def binary_name(package: str, target: str, version: str | None = None) -> str:

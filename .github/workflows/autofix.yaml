@@ -30,9 +30,12 @@ name: 🪄 Autofix
 
 permissions: {}
 
+# A newer run always supersedes an older one: every job skips a release push
+# anyway, through the `[changelog] ` gate of the metadata job and its own copy
+# on the jobs that run without it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.event.head_commit.message, '[changelog] Release') }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 # Supply-chain cooldown: no package published within the window can be resolved by
 # any command in this workflow. Set here, not per command, so it also covers the
@@ -150,10 +153,9 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
-          gitignore_exists python_files pyproject_files json_files doc_files
-          markdown_files is_python_project is_python_package mailmap_exists
-          image_files shfmt_files workflow_files active_autodoc uses_myst
-          release_commits_matrix
+          gitignore_exists python_files json_files doc_files markdown_files
+          is_python_project is_python_package is_awesome mailmap_exists
+          image_files shfmt_files active_autodoc
 
   # --- Formatters: rewrite files to enforce canonical style. ---
 
@@ -216,17 +218,12 @@ jobs:
         with:
           version: "0.13.0"
       - name: Run pyproject-fmt
-        # pyproject-fmt returns exit code 1 when it reformats the file, which is
-        # the expected outcome in an autofix workflow. Tolerating it is only safe
-        # because the tool runner checks the files too: a crash that exits 1
-        # without rewriting anything arrives here as 70 and fails the job. See
-        # `ToolSpec.rewrite_exit_code`. No file list: the tool runner resolves it,
-        # which also drops the xargs that used to translate that 1 into a 123.
-        # See `ToolSpec.default_paths` in repomatic/tooling/registry.py.
-        run: |
-          rc=0
-          uv --no-progress run --frozen -- repomatic run pyproject-fmt || rc=$?
-          [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ] || exit "$rc"
+        # pyproject-fmt exits 1 when it reformats a file. The tool runner checks
+        # the files, and reports 0 for a rewrite it saw and 70 for a crash that
+        # exits 1 with nothing rewritten. See `ToolSpec.rewrite_exit_code`. No
+        # file list: the tool runner resolves it. See `ToolSpec.default_paths`
+        # in repomatic/tooling/registry.py.
+        run: uv --no-progress run --frozen -- repomatic run pyproject-fmt
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
@@ -275,7 +272,7 @@ jobs:
       # so a separate job would fight this one across two PRs. See
       # repomatic/awesome_toc.py for rationale.
       - name: Markdown fixes for Awesome Lists
-        if: startsWith(github.event.repository.name, 'awesome-')
+        if: fromJSON(needs.metadata.outputs.metadata).is_awesome
         run: uv --no-progress run --frozen -- repomatic fix-awesome-toc
       - name: Sync pull request
         env:
@@ -402,6 +399,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # Lets the workflow token list the repository's Dependabot alerts.
+      security-events: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -410,10 +409,11 @@ jobs:
       - id: fix
         name: Fix vulnerable dependencies
         # GH_TOKEN lets repomatic query the GitHub Advisory Database via the
-        # repo's Dependabot alerts. PAT is preferred when present so the
-        # token has the Dependabot alerts permission; falls back to the
-        # workflow token (which carries the same permission scope under
-        # security-events: read).
+        # repo's Dependabot alerts. The PAT is preferred when present, with its
+        # `Dependabot alerts` permission. The workflow token falls back to the
+        # `security-events: read` scope this job grants. Without either, the
+        # command reads `uv audit` alone. See
+        # `repomatic.deps.audit.fetch_dependabot_alerts`.
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
@@ -606,26 +606,14 @@ jobs:
     # Consolidated dependency updater. One runner shares the checkout, the uv
     # install, and repomatic's HTTP cache across all four bumpers, instead of a
     # separate job per bumper each paying that setup. Each bumper still opens its
-    # own PR: the working tree is reset before each one so their diffs never
-    # bleed, keeping review and revert independent. Mirrors the local
-    # `repomatic sync-deps` command; the steps stay per-bumper here only because
-    # each needs its own branch and PR body.
+    # own PR: `sync-deps --pr-sync` puts the tree back to HEAD before each one so
+    # their diffs never bleed, keeping review and revert independent. A failed
+    # bumper leaves its PR alone, and never stops the ones after it: the job
+    # reports every failure instead of the first. See repomatic/cli/deps.py for
+    # rationale.
     #
-    # Sharing a runner also shares a failure, and that is what `!cancelled()` on
-    # every bumper's own steps undoes. A failed step otherwise skips the entire
-    # remainder of the job, so the second bumper dying takes the third and fourth
-    # with it. On kdeldycke/blog the `sync-uv-lock` diff table outgrew what Linux
-    # allows in a single environment string, `execve` refused to start the step
-    # that reads it, and `sync-action-pins` and `sync-workflow-pins` were skipped
-    # on every run for days without ever being the thing that broke: an
-    # `html-validate` bump sat unproposed the whole time. Inside a bumper the
-    # chain still holds, each step gated on the previous one's `outcome`, so a
-    # bumper that failed never opens a PR with an empty body. Nothing is
-    # swallowed either: a failed step still reports red, the job now just reports
-    # every failure instead of the first. The one thing lost is a short-circuit
-    # on the shared setup, which now surfaces as four failing bumpers rather than
-    # one; each dies in seconds, and the earliest entry in the log is still the
-    # real cause.
+    # sync-tool-versions is deliberately absent: it rewrites repomatic's own
+    # tool registry, so it lives in the upstream-only self-maintenance.yaml.
     needs:
       - metadata
     runs-on: ubuntu-26.04
@@ -634,11 +622,10 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      # Full history, not the default shallow clone: this job runs
-      # create-pull-request several times in one checkout, and a shallow clone
-      # trips "shallow file has changed since we read it" on the second call,
-      # corrupting the --force-with-lease push (the four standalone jobs never
-      # hit this, each having its own checkout with a single create-pull-request).
+      # Full history, not the default shallow clone: this job opens several pull
+      # requests from one checkout, and a shallow clone trips "shallow file has
+      # changed since we read it" on the second one, corrupting the
+      # --force-with-lease push.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -662,111 +649,16 @@ jobs:
           key: repomatic-http-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             repomatic-http-${{ runner.os }}-
-
-      # --- sync-dep-sources: adopt released dependencies (Python projects). ---
-      - if: >
-          !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).is_python_project
-        name: Reset tree before sync-dep-sources
-        run: git checkout -- .
-      - id: sync-dep-sources
-        if: >
-          !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).is_python_project
-        name: Sync dependency sources
-        run: >
-          uv --no-progress run --frozen -- repomatic sync-dep-sources
-          --no-table --release-notes
-          --output "$GITHUB_OUTPUT" --output-format github-actions
-      - if: >
-          !cancelled()
-          && steps.sync-dep-sources.outcome == 'success'
-        name: Sync pull request
-        env:
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-          REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-dep-sources.outputs.diff_table_file }}
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-sync --template sync-dep-sources
-      # --- sync-uv-lock: re-lock dependencies (Python projects). ---
-      - if: >
-          !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).is_python_project
-        name: Reset tree before sync-uv-lock
-        run: git checkout -- .
-      - id: sync-uv-lock
-        if: >
-          !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).is_python_project
-        name: Sync uv.lock
-        run: >
-          uv --no-progress run --frozen -- repomatic sync-uv-lock
-          --no-table --release-notes
-          --output "$GITHUB_OUTPUT" --output-format github-actions
-      - if: ${{ !cancelled() && steps.sync-uv-lock.outcome == 'success' }}
-        name: Sync pull request
-        env:
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-          REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-uv-lock.outputs.diff_table_file }}
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-sync --template sync-uv-lock
-      # --- sync-action-pins: bump SHA-pinned actions (repos with workflows). ---
-      - if: >
-          !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).workflow_files
-        name: Reset tree before sync-action-pins
-        run: git checkout -- .
-      - id: sync-action-pins
-        if: >
-          !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).workflow_files
-        name: Sync action pins
-        # GH_TOKEN raises the GitHub releases API rate limit when resolving
-        # the latest tag and its commit SHA for each pinned action.
+      - name: Sync dependencies
+        # GH_TOKEN opens the pull requests, and raises the GitHub API rate limit
+        # of the release lookups. A bumper with nothing to act on in this
+        # repository (no `uv.lock`, no workflow file, no git-tracked source) only
+        # closes a stale pull request.
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic sync-action-pins --release-notes
-          --output "$GITHUB_OUTPUT" --output-format github-actions
-      - if: >
-          !cancelled()
-          && steps.sync-action-pins.outcome == 'success'
-        name: Sync pull request
-        env:
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-          REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-action-pins.outputs.diff_table_file }}
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-sync --template sync-action-pins
-      # --- sync-workflow-pins: bump npm/PyPI literals (repos with workflows). ---
-      - if: >
-          !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).workflow_files
-        name: Reset tree before sync-workflow-pins
-        run: git checkout -- .
-      - id: sync-workflow-pins
-        if: >
-          !cancelled()
-          && fromJSON(needs.metadata.outputs.metadata).workflow_files
-        name: Sync workflow pins
-        env:
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: >
-          uv --no-progress run --frozen -- repomatic sync-workflow-pins --release-notes
-          --output "$GITHUB_OUTPUT" --output-format github-actions
-      - if: >
-          !cancelled()
-          && steps.sync-workflow-pins.outcome == 'success'
-        name: Sync pull request
-        env:
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-          REPOMATIC_DIFF_TABLE_FILE: ${{ steps.sync-workflow-pins.outputs.diff_table_file }}
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-sync --template sync-workflow-pins
-      # sync-tool-versions is deliberately absent: it rewrites repomatic's own
-      # tool registry, so it lives in the upstream-only self-maintenance.yaml.
+          uv --no-progress run --frozen -- repomatic sync-deps --pr-sync --release-notes
+          sync-dep-sources sync-uv-lock sync-action-pins sync-workflow-pins
 
   # The graph shows no package versions, so a lock refresh changes it only when
   # the dependency tree changes shape or a declared version requirement changes.
@@ -818,27 +710,10 @@ jobs:
         with:
           version: "0.13.0"
       - name: Update docs
-        # Runs sphinx-apidoc, converts RST stubs to MyST if applicable, runs docs/docs_update.py, then
-        # refreshes self-updating directive blocks with click-extra refresh-directives.
+        # Runs sphinx-apidoc, converts RST stubs to MyST if applicable, runs docs/docs_update.py,
+        # reformats a pyproject.toml that script changed, then refreshes self-updating directive
+        # blocks with click-extra refresh-directives. See repomatic/docs.py for rationale.
         run: uv --no-progress run --frozen -- repomatic update-docs
-      - name: Format regenerated pyproject.toml
-        # The project's docs.update-script may regenerate pyproject.toml sections (label rules,
-        # keywords). Reformat them only when update-docs actually changed pyproject.toml, so this
-        # job's PR stays a pyproject-fmt fixpoint without ping-ponging with format-pyproject. Guard
-        # against the empty case: with no doc change, an unconditional reformat would open an
-        # update-docs PR carrying only pre-existing formatting drift, a byte-for-byte duplicate of
-        # the format-pyproject PR (which owns that drift). Same exit-code handling as that job:
-        # pyproject-fmt exits 1 when it reformats.
-        env:
-          PYPROJECT_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).pyproject_files }}
-        run: |
-          if echo "${PYPROJECT_FILES}" | xargs git diff --quiet --; then
-            echo "update-docs left pyproject.toml unchanged; leaving any formatting drift to format-pyproject."
-            exit 0
-          fi
-          rc=0
-          uv --no-progress run --frozen -- repomatic run pyproject-fmt || rc=$?
-          [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ] || exit "$rc"
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}

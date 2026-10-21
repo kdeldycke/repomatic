@@ -48,9 +48,11 @@ name: 🧹 Lint
 
 permissions: {}
 
+# A newer run always supersedes an older one: every job skips a release push
+# anyway, through the `[changelog] ` gate of the metadata job.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.event.head_commit.message, '[changelog] Release') }}
+  cancel-in-progress: true
 
 # Supply-chain cooldown: no package published within the window can be resolved by
 # any command in this workflow. Set here, not per command, so it also covers the
@@ -94,9 +96,8 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
-          is_bot is_python_project python_files
-          yaml_changed zsh_changed zsh_files
-          workflows_changed npm_min_release_age_days
+          is_bot is_awesome is_python_project python_files
+          yaml_changed zsh_changed zsh_files workflows_changed
 
   lint-repo:
     name: 🏠 Lint repo
@@ -211,17 +212,11 @@ jobs:
             github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-actionlint-
-      - name: Install shellcheck
-        run: >
-          sudo apt-get update
-          && sudo apt-get install --yes --no-install-recommends shellcheck
-      - name: Setup problem matcher
-        # Source: https://github.com/rhysd/actionlint/blob/main/docs/usage.md#problem-matchers
-        run: |
-          curl -fsSL --output ./.github/actionlint-matcher.json \
-            https://raw.githubusercontent.com/rhysd/actionlint/refs/tags/v1.7.12/.github/actionlint-matcher.json
-          echo "::add-matcher::.github/actionlint-matcher.json"
       - name: Run actionlint
+        # The tool runner puts the pinned shellcheck on PATH for the `run:`
+        # scripts, and registers actionlint's problem matcher for the run. See
+        # `ToolSpec.path_tools` and `ToolSpec.problem_matcher` in
+        # repomatic/tooling/registry.py.
         run: uv --no-progress run --frozen -- repomatic run actionlint
 
   lint-workflow-security:
@@ -246,7 +241,7 @@ jobs:
     name: 🌟 Lint awesome
     needs:
       - metadata
-    if: startsWith(github.event.repository.name, 'awesome-')
+    if: fromJSON(needs.metadata.outputs.metadata).is_awesome
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -257,23 +252,10 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
-      - name: Provision npm for the min-release-age cooldown
-        # `repomatic run awesome-lint` installs awesome-lint with npm's
-        # min-release-age cooldown, which needs npm 11.10.0+; older npm ignores
-        # it, so provision a new-enough npm the way setup-uv provisions uv.
-        # sync-workflow-pins bumps this pin like any npm literal, so `npm@X.Y.Z`
-        # must stay right after `install` (its regex misses it otherwise) and the
-        # flags trail. The flag set mirrors `_install_npm` (tooling/runner.py).
-        # Cooldown flows through an env var (npm's own `npm_config_min-release-age`
-        # has a shell-hostile hyphen) sourced from the metadata job; enforcing it
-        # here is belt-and-suspenders, ready if npm ever live-resolves the tree.
-        env:
-          NPM_MIN_RELEASE_AGE: ${{ fromJSON(needs.metadata.outputs.metadata).npm_min_release_age_days }}
-        run: > # zizmor: ignore[adhoc-packages]
-          npm install npm@12.2.0 --global --ignore-scripts --no-progress
-          --no-update-notifier --no-fund --no-audit
-          --min-release-age="$NPM_MIN_RELEASE_AGE"
       - name: Run awesome-lint
+        # The npm of the runner image only installs the registry's pinned npm,
+        # which enforces the min-release-age cooldown on the awesome-lint
+        # install. See `NPM_BOOTSTRAP_TOOL` in repomatic/tooling/registry.py.
         run: uv --no-progress run --frozen -- repomatic run awesome-lint
 
   lint-secrets:
@@ -300,6 +282,7 @@ jobs:
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-gitleaks-
       - name: Run gitleaks
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          run gitleaks -- detect --source .
+        # No arguments: the tool runner scans the git history of the
+        # repository, through the registry's `gitleaks git .` default. See
+        # `ToolSpec.default_args` in repomatic/tooling/registry.py.
+        run: uv --no-progress run --frozen -- repomatic run gitleaks

@@ -66,19 +66,11 @@ from typing import NamedTuple
 
 from click_extra import ColumnSpec, field_docstrings
 
-from ..changelog import (
-    GITHUB_RELEASE_URL,
-    Changelog,
-    availability_admonition,
-    resolved_changelog_path,
-)
 from ..config import Config
 from ..deps.pins import min_release_age_days
 from ..file_inventory import FileInventory
-from ..github.release_sync import build_expected_body
 from ..github.workflow_files import iter_steps
 from ..mailmap import MAILMAP_PATH
-from ..pypi import PYPI_PROJECT_URL
 from ..pyproject import get_current_version
 from ..release.binary import (
     FLAT_BUILD_TARGETS,
@@ -117,11 +109,8 @@ The inventory answers them with no CI context, no git history and no
 
 METADATA_CONFIG_FIELDS: Final[tuple[str, ...]] = (
     "binaries_sync",
-    "manpages_asset_name",
     "manpages_script",
-    "nuitka_extras",
     "release_assets",
-    "site_cloudflare_project",
     "site_deploy",
     "sphinx_builder",
 )
@@ -136,7 +125,7 @@ workflow condition or step reads it, like the `binaries.sync` toggle a separate
 
 _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "is_bot": "Workflow was triggered by a bot or automated process.",
-    "skip_binary_build": "Binary builds should be skipped for this event.",
+    "is_awesome": "Repository is an awesome list: its name starts with `awesome-`.",
     "yaml_changed": "Current event's commit range touches at least one YAML file.",
     "zsh_changed": "Current event's commit range touches at least one Zsh file.",
     "workflows_changed": (
@@ -157,26 +146,39 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "is_python_project": "Repository is a Python project with pyproject.toml.",
     "is_python_package": "Repository builds a distributable Python package, not a uv virtual project.",
     "package_name": "Package name as published on PyPI.",
+    "manpages_asset_name": (
+        "Filename stem of the man-page tarball attached to a release."
+    ),
     "cli_scripts": "CLI script entry points from pyproject.toml.",
+    "main_cli_script": "First CLI script entry point from pyproject.toml.",
+    "import_name": "Top-level package the `python -m` invocation runs.",
     "project_description": "Project description from pyproject.toml.",
     "mypy_params": "Generated mypy command-line parameters.",
     "current_version": "Current version from pyproject.toml.",
     "released_version": "Version of the release commit, if any.",
     "is_sphinx": "Sphinx configuration file is present.",
+    "builds_sphinx": "Python project with a Sphinx configuration to build.",
     "active_autodoc": "Active Sphinx autodoc extensions detected.",
     "uses_myst": "MyST-Parser is active in Sphinx configuration.",
-    "release_notes": "Release notes for the GitHub release.",
-    "release_notes_with_admonition": "Release notes with PyPI availability admonition.",
     "new_commits_matrix": "Matrix of new commits with long and short SHA values.",
     "release_commits_matrix": "Matrix of release commits with long and short SHA values.",
+    "is_release_push": "Event lands release commits on the release branch.",
+    "release_commit": (
+        "Newest release commit of the event, else the event's own commit."
+    ),
     "build_targets": "List of Nuitka build targets for all platforms.",
-    "nuitka_matrix": "Matrix for Nuitka compilation workflows.",
+    "nuitka_matrix": (
+        "Matrix for Nuitka compilation workflows, empty when the build is skipped."
+    ),
     "runner_arch": "Architecture of each runner image in the full test matrix.",
     "test_matrix": "Full test matrix for non-PR events.",
     "test_matrix_pr": "Reduced test matrix for pull requests.",
-    "minor_bump_allowed": "Minor version bump is allowed by commit history.",
-    "major_bump_allowed": "Major version bump is allowed by commit history.",
+    "latest_stable_python": "Newest released Python version of the full test matrix.",
     "npm_min_release_age_days": "npm min-release-age cooldown, in whole days.",
+    "cloudflare_project": (
+        "Cloudflare Pages project of the site: `site.cloudflare-project`, else"
+        " the repository name."
+    ),
 }
 """One-liner descriptions for each metadata key produced by {meth}`Metadata.dump`."""
 
@@ -447,6 +449,19 @@ class Metadata(
         return MAILMAP_PATH.is_file()
 
     @cached_property
+    def cloudflare_project(self) -> str:
+        """The Cloudflare Pages project the site deploys into.
+
+        `[tool.repomatic] site.cloudflare-project` when it names one, else the
+        repository name. The deploy job reads this key, and the
+        `cloudflare-pages` and `cloudflare-r2` commands fall back to it when
+        `--project` is absent, so all of them address the same project.
+
+        :return: The project name, empty when neither source names one.
+        """
+        return self.config.cloudflare_project(self.repo_name or "")
+
+    @cached_property
     def files(self) -> FileInventory:
         """What this repository holds on disk, `.gitignore` applied.
 
@@ -504,93 +519,6 @@ class Metadata(
                 assert len(details) == 1
                 version = details[0].get("current_version")
         return version
-
-    @cached_property
-    def _release_changelog(self) -> tuple[str, Changelog] | None:
-        """The version to write release notes for, and the parsed changelog.
-
-        Shared by {attr}`release_notes` and
-        {attr}`release_notes_with_admonition`, which need the same two inputs
-        and would otherwise read and parse `changelog.md` twice per run.
-
-        :return: `(version, changelog)`, or `None` when there is no version to
-            release or the changelog file is missing.
-        """
-        version = self.released_version or self.current_version
-        if not version:
-            return None
-        changelog_path = resolved_changelog_path(self.config)
-        if not changelog_path.exists():
-            return None
-        return version, Changelog(changelog_path.read_text(encoding="UTF-8"))
-
-    @cached_property
-    def release_notes(self) -> str | None:
-        """Generate notes to be attached to the GitHub release.
-
-        Renders the `github-releases` template with changelog
-        content for the version. The template is the single place
-        that defines the release body layout.
-        """
-        if self._release_changelog is None:
-            return None
-        version, changelog = self._release_changelog
-        notes = build_expected_body(changelog, version)
-        return notes or None
-
-    @cached_property
-    def release_notes_with_admonition(self) -> str | None:
-        """Generate release notes with a pre-computed availability admonition.
-
-        Builds the same body as {attr}`release_notes`, but injects a
-        `> [!NOTE]` admonition linking to PyPI and GitHub even before
-        `fix-changelog` has a chance to update `changelog.md`. The admonition
-        comes from {func}`~repomatic.changelog.availability_admonition`, the
-        renderer `fix-changelog` writes the section with, so both word it the
-        same way.
-
-        The engine's `create-release` job bakes this body into the GitHub
-        release at draft-creation time, so the admonition is present from the
-        start. Baking it there, rather than editing the release from the
-        caller's fast `publish-pypi` lane, avoids a race between the lanes: that
-        edit can run before `create-release` has created the release, and then
-        drops the admonition under `continue-on-error`. The bake is optimistic:
-        it assumes the parallel PyPI upload succeeds, which it does on the normal
-        path; a failed upload surfaces as a red `publish-pypi` job, not as a
-        wrong admonition the user must catch.
-
-        Returns `None` when the project is not on PyPI, has no changelog, or
-        has no version to release, in which case `create-release` falls back to
-        the plain {attr}`release_notes`.
-        """
-        if self._release_changelog is None or not self.package_name:
-            return None
-        version, changelog = self._release_changelog
-
-        repo_url = changelog.extract_repo_url()
-        if not repo_url:
-            return None
-
-        # The draft cannot ask the platforms which release came first: the PyPI
-        # upload runs beside it, and a failed lookup reads like an empty one.
-        # The changelog answers instead, as `lint-changelog` will once both
-        # platforms carry the release.
-        first = changelog.is_first_release(version)
-        admonition = availability_admonition(
-            version,
-            pypi_url=PYPI_PROJECT_URL.format(
-                package=self.package_name, version=version
-            ),
-            github_url=GITHUB_RELEASE_URL.format(repo_url=repo_url, version=version),
-            first_on_pypi=first,
-            first_on_github=first,
-        )
-        notes = build_expected_body(
-            changelog,
-            version,
-            admonition_override=admonition,
-        )
-        return notes or None
 
     def dump_factories(self) -> dict[str, Callable[[], Any]]:
         """Lazy value factories for every metadata key, in output order.

@@ -81,7 +81,6 @@ jobs:
           # Use github.sha, not workflow_run.head_sha (stale after release cycle).
           # See https://repomatic.net/workflows#workflow-run-checkout-pitfall.
           ref: ${{ github.sha }}
-          fetch-tags: true
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
@@ -90,7 +89,7 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
-          minor_bump_allowed major_bump_allowed release_commits_matrix
+          release_commits_matrix
 
   fix-changelog:
     name: 📋 Fix changelog
@@ -145,69 +144,27 @@ jobs:
         part:
           - minor
           - major
-    # The condition must be repeated on each gated step because:
-    # 1. Job-level `if:` is evaluated before matrix expansion, so `matrix.*` isn't available there
-    # 2. GitHub Actions lacks conditional step groups to skip multiple steps with one condition
-    # Checkout and setup-uv always run so the cleanup step can run the `repomatic` CLI
-    # on the inverse path (when the bump is no longer allowed).
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Use github.sha, not workflow_run.head_sha (stale after release cycle).
           ref: ${{ github.sha }}
-          # Fetch tags so the close-stale-bump-pr step's is_version_bump_allowed
-          # re-check resolves the latest release tag. Without tags it falls back
-          # to "allow" and silently skips closing the orphan PR, leaving the
-          # decision inconsistent with the metadata job (which fetches tags).
+          # Fetch tags so bump-version resolves the latest release tag when it
+          # decides whether the bump is allowed. Without tags it falls back to
+          # "allow" and never closes an orphan PR.
           fetch-tags: true
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
       - name: ${{ matrix.part }} version bump
-        if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          run bump-my-version -- bump --verbose ${{ matrix.part }}
-      - name: Sync uv.lock
-        # Plain `uv lock` (not `--upgrade`, not `uv sync`) is deliberate: a version
-        # bump must refresh only the project's own version entry, never drag
-        # dependencies forward. `uv lock --upgrade` re-resolves everything, so with
-        # a `"0 day"` exclude-newer-package bypass it fast-forwards that dependency
-        # across a release still inside its cooldown, on an unreviewed bump PR.
-        # `uv sync` leaves the lock in a state the autofix `sync-uv-lock` job
-        # rewrites into a redundant follow-up PR. Plain `uv lock` updates the lock
-        # conservatively, avoiding both; genuine dependency upgrades stay the
-        # `sync-uv-lock` job's responsibility, in their own reviewable PR.
-        if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
-        run: uv --no-progress lock
-      - name: Sync pull request
-        if: fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)]
-        # Detached HEAD at `github.sha`; the base falls back to the default
-        # branch from the event payload. The PR stays a draft on every sync
-        # (via the template's frontmatter), not just at creation: its content
-        # is regenerated underneath it and must never look ready to merge.
-        # Runs after the bump, so the body's attribution footer names the bumped version rather
-        # than the code that rendered it: see repomatic/github/pr_body.py::render_template.
+        # Bumps, re-locks with a plain `uv lock` and converges the draft PR when the bump is allowed, or closes the PR
+        # an earlier run left open when it no longer is. See repomatic/deps/uv.py::relock for why the lock is plain.
         # Fail fast instead of hanging when the GitHub API is rate-limit starved.
         timeout-minutes: 10
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-          PR_BRANCH: ${{ matrix.part }}-version-increment
-          PR_PART: ${{ matrix.part }}
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-sync
-          --template bump-version --part "$PR_PART" --branch "$PR_BRANCH"
-      - name: Close stale ${{ matrix.part }} bump PR
-        # Runs on the inverse path: when a bump is no longer allowed, reconcile
-        # any orphan PR left by an earlier run that raced a competing merge.
-        # See repomatic/cli/github.py::close_stale_bump_pr for rationale.
-        if: ${{ !fromJSON(needs.metadata.outputs.metadata)[format('{0}_bump_allowed', matrix.part)] }}
-        env:
-          GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          close-stale-bump-pr --part ${{ matrix.part }}
+          PART: ${{ matrix.part }}
+        run: uv --no-progress run --frozen -- repomatic bump-version --part "${PART}"
 
   prepare-release:
     name: 🎬 Prepare release
@@ -241,41 +198,22 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic
           run bump-my-version -- bump --verbose dev
-      - name: Extract version
-        id: get_version
-        run: >
-          echo "current_version=$(
-          uv --no-progress run --frozen -- repomatic
-          run bump-my-version -- show current_version
-          )" | tee -a "$GITHUB_OUTPUT"
-      - name: Prepare release
-        # Updates changelog and citation dates, comparison URL, and removes warning.
-        # Also hard-codes version in workflow URLs for kdeldycke/repomatic repository.
-        run: uv --no-progress run --frozen -- repomatic prepare-release
       - name: Sync uv.lock
-        # Plain `uv lock`, not `--upgrade`: see the bump-version job above. Every
-        # other version bump in this file re-locks; skipping it here left the tag
-        # with pyproject ahead of uv.lock, and `uv run --frozen` reinstalls the
-        # project on the next sync to close that gap. The release build runs two
-        # nested syncs (the workflow's, then the one `repomatic run` opens for a
-        # needs_venv tool), so the second one deleted the console script the
-        # first had just written, which is a sharing violation on Windows.
+        # Plain `uv lock`, not `--upgrade`: see repomatic/deps/uv.py::relock. Every
+        # version bump in this file re-locks before its commit, so a tag never ships
+        # with pyproject.toml ahead of uv.lock.
         run: uv --no-progress lock
-      - name: Prepare repository
-        env:
-          GIT_AUTHOR: ${{ github.actor }}
-        run: |
-          git config --global user.name "$GIT_AUTHOR"
-          git config --global user.email "$GIT_AUTHOR@users.noreply.github.com"
-          git clean -fd
       - name: Create freeze commit
-        env:
-          CURRENT_VERSION: ${{ steps.get_version.outputs.current_version }}
-        run: git commit --all --message="[changelog] Release v${CURRENT_VERSION}"
+        # Updates changelog and citation dates, comparison URL, and removes warning,
+        # also hard-coding the version in workflow URLs for kdeldycke/repomatic. Then
+        # commits as the CI bot, and hands the release version to the PR step.
+        id: freeze
+        run: >
+          uv --no-progress run --frozen -- repomatic prepare-release --commit
+          --output "$GITHUB_OUTPUT"
       # --- Unfreeze commit: revert to development references. ---
       - name: Re-target main branch in workflows
-        # This step is only used in the original repository to automate remote URL tagging.
-        if: github.repository == 'kdeldycke/repomatic'
+        # Reads the release version, so it runs before the patch bump. A no-op outside kdeldycke/repomatic.
         run: uv --no-progress run --frozen -- repomatic prepare-release --post-release
       - name: Add new changelog entry
         run: uv --no-progress run --frozen -- repomatic changelog
@@ -284,24 +222,21 @@ jobs:
           uv --no-progress run --frozen -- repomatic
           run bump-my-version -- bump --verbose patch
       - name: Sync uv.lock
-        # Plain `uv lock`, not `--upgrade`: see the bump-version job above. A
-        # release-time version bump refreshes only the project's version entry,
-        # never dependencies.
+        # Plain `uv lock`, not `--upgrade`: see repomatic/deps/uv.py::relock.
         run: uv --no-progress lock
       - name: Create unfreeze commit
-        env:
-          CURRENT_VERSION: ${{ steps.get_version.outputs.current_version }}
+        # The retargeting it repeats changes nothing by now. The commit names the
+        # release version and the bumped one.
         run: >
-          git commit --all --message="[changelog] Post-release bump
-          v${CURRENT_VERSION} → v$(uv --no-progress run --frozen -- repomatic
-          run bump-my-version -- show current_version)"
+          uv --no-progress run --frozen -- repomatic prepare-release --post-release
+          --commit
       - name: Sync pull request
         # The freeze and unfreeze commits above are already committed, so this
         # step carries them through as two commits rather than squashing them:
         # the release lane rebase-merges this PR and both must land intact.
         # Runs after the post-release bump, so the body's attribution footer names that bumped
         # version rather than the code that rendered it: see
-        # repomatic/github/pr_body.py::render_template.
+        # repomatic/templating.py::render_template.
         # Fail fast instead of hanging when the GitHub API is rate-limit starved.
         timeout-minutes: 10
         env:
@@ -309,7 +244,7 @@ jobs:
           # (drafts are visible only to maintainers) and resolve the previous tag.
           # We need custom PAT with workflows permission to hard-code version numbers in URLs in
           # .github/workflows/*.yaml files.
-          CURRENT_VERSION: ${{ steps.get_version.outputs.current_version }}
+          CURRENT_VERSION: ${{ steps.freeze.outputs.version }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
           uv --no-progress run --frozen -- repomatic

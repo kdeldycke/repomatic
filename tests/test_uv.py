@@ -56,7 +56,7 @@ from repomatic.deps.cooldown import (
 )
 from repomatic.deps.lockfile import LockFile
 from repomatic.deps.report import BYPASS_NEEDS_RELEASE, BypassForecast
-from repomatic.deps.uv import UvError, run_uv, uv_lock_command
+from repomatic.deps.uv import UvError, relock, run_uv, uv_lock_command
 
 REPO_ROOT = Path(__file__).parent.parent
 
@@ -355,6 +355,18 @@ def test_run_uv_without_check_returns_the_failure():
     completed = SimpleNamespace(returncode=1, stdout="{}", stderr="")
     with patch("repomatic.deps.uv.subprocess.run", return_value=completed):
         assert run_uv(["uv", "audit"], check=False) is completed
+
+
+def test_relock_is_a_plain_lock():
+    """A version bump refreshes the lock, never upgrades a dependency in it.
+
+    No `--upgrade`, and no explicit window: the bump relocks with the project's
+    own settings, exactly as the workflow's `uv lock` steps do.
+    """
+    completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+    with patch("repomatic.deps.uv.subprocess.run", return_value=completed) as run:
+        relock()
+    assert run.call_args.args[0] == ["uv", "--no-progress", "lock"]
 
 
 # ---------------------------------------------------------------------------

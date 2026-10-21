@@ -25,10 +25,13 @@ import pytest
 from packaging.version import Version
 
 from repomatic.git_ops import (
+    COMMIT_IDENTITY_EMAIL,
+    COMMIT_IDENTITY_NAME,
     GitError,
     checkout,
     commit_exists,
     commit_staged,
+    commit_tracked,
     count_commits_between,
     create_and_push_tag,
     create_branch,
@@ -462,6 +465,35 @@ def test_stage_all_pathspec_leaves_everything_else_dirty(git_workdir):
     assert (git_workdir / "package-lock.json").exists()
     assert stage_all(["fruits.txt"]) is False
     assert stage_all() is True
+
+
+def test_commit_tracked_leaves_untracked_files_out(git_workdir):
+    """Only tracked files enter the commit, authored by the CI bot.
+
+    The release commits carry what the freeze edited: a file a tool left in
+    the checkout must not ride along into a published tag.
+    """
+    (git_workdir / "seed.txt").write_text("papaya\n", encoding="UTF-8")
+    (git_workdir / "leftover.txt").write_text("stray\n", encoding="UTF-8")
+
+    sha = commit_tracked("[changelog] Release v1.2.3")
+
+    assert sha == head_sha()
+    log = _run_git("log", "-1", "--format=%an <%ae>%n%s", cwd=git_workdir)
+    assert log.splitlines() == [
+        f"{COMMIT_IDENTITY_NAME} <{COMMIT_IDENTITY_EMAIL}>",
+        "[changelog] Release v1.2.3",
+    ]
+    assert _run_git(
+        "show", "--name-only", "--format=", "HEAD", cwd=git_workdir
+    ).split() == ["seed.txt"]
+    assert (git_workdir / "leftover.txt").exists()
+
+
+def test_commit_tracked_refuses_an_empty_commit(git_workdir):
+    """A freeze that changed nothing is an error, never an empty release commit."""
+    with pytest.raises(GitError):
+        commit_tracked("[changelog] Release v1.2.3")
 
 
 def test_stage_all_pathspec_matching_nothing_reports_no_work(git_workdir):

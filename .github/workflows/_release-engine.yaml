@@ -3,15 +3,24 @@ name: 🚀 Build & release
 # Read https://github.com/actions/runner/issues/491 for insights on complex workflow execution logic.
 "on":
   workflow_call:
+    inputs:
+      metadata:
+        description: >
+          The `metadata` output of the _release-build.yaml lane: one JSON
+          object holding every `repomatic show-metadata` key the jobs here
+          read. The build lane computes it once for both lanes, and the
+          caller passes it on from its `build` job.
+        required: true
+        type: string
     secrets:
       REPOMATIC_PAT:
         required: false
       VIRUSTOTAL_API_KEY:
         required: false
     # No workflow_call outputs: the caller's publish-pypi job sources
-    # package_built, release_commits_matrix, and release_notes_with_admonition
-    # from the _release-build.yaml fast lane instead. This engine only consumes
-    # the wheel artifact (run-scoped) the build lane uploaded. See release.yaml.
+    # package_built and release_commits_matrix from the _release-build.yaml
+    # fast lane instead. This engine only consumes the wheel artifact
+    # (run-scoped) the build lane uploaded. See release.yaml.
 
   # Call-only engine: no push or workflow_dispatch trigger. Every repo (repomatic
   # included) drives this engine from its own release.yaml entry, which owns those
@@ -39,63 +48,24 @@ env:
   NPM_CONFIG_MIN_RELEASE_AGE: 7
   UV_EXCLUDE_NEWER: "1 week"
 
+# One rule for the uv cache: a job holding a write scope sets `enable-cache: false` on setup-uv. A cache entry is
+# writable by any code running in any workflow of the default branch (the cache API is not gated by `permissions:`),
+# so an entry restored into a job that tags, attests, uploads or publishes could reach a release. test-binaries, the
+# one read-only job, keeps the cache.
 jobs:
-
-  metadata:
-    name: 🧬 Project metadata
-    runs-on: ubuntu-26.04
-    timeout-minutes: 15
-    outputs:
-      has_virustotal_key: ${{ steps.check-vt-key.outputs.has_key }}
-      metadata: ${{ steps.metadata.outputs.metadata }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # Checkout pull request HEAD commit to ignore actions/checkout's merge commit. Fallback to push SHA.
-          # See: https://github.com/actions/checkout/issues/504
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          # We're going to browse all new commits.
-          fetch-depth: 0
-      - name: List all branches
-        run: git branch --all
-      - name: List all commits
-        run: git log --decorate=full --oneline
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          version: "0.13.0"
-      - name: Run repomatic show-metadata
-        id: metadata
-        run: >
-          uv --no-progress run --frozen -- repomatic show-metadata
-          --output-format github-json --output "$GITHUB_OUTPUT"
-          new_commits_matrix release_commits_matrix build_targets nuitka_matrix
-          nuitka_extras is_python_project package_name current_version
-          released_version release_notes release_notes_with_admonition
-          skip_binary_build manpages_script manpages_asset_name binaries_sync
-          release_assets
-      - name: Check VirusTotal API key
-        id: check-vt-key
-        env:
-          HAS_KEY: ${{ secrets.VIRUSTOTAL_API_KEY && 'true' || '' }}
-        run: echo "has_key=${HAS_KEY}" >> "$GITHUB_OUTPUT"
 
   compile-binaries:
     name: "${{ matrix.state == 'stable' && '✅' || '⁉️' }} ${{ matrix.os }}, ${{ matrix.short_sha }} build"
-    needs:
-      - metadata
-    # Skip binary compilation for branches that don't affect code (e.g., update-mailmap, format-markdown).
-    if: >-
-      fromJSON(needs.metadata.outputs.metadata).nuitka_matrix
-      && !(fromJSON(needs.metadata.outputs.metadata).skip_binary_build || false)
+    # nuitka_matrix is empty when the project builds no binary, or when the event cannot change one (a branch that
+    # does not affect code, like update-mailmap or format-markdown). See repomatic/metadata/matrix.py.
+    if: fromJSON(inputs.metadata).nuitka_matrix
     strategy:
       # Asset-producing matrix: see docs/workflows.md "Matrix fail-fast strategy".
       fail-fast: false
-      # Fall back to an empty `{"include":[]}` matrix when nuitka_matrix is null
-      # (binary builds disabled via nuitka.enabled = false). GitHub resolves
-      # strategy.matrix during job setup even when `if:` will skip the job, and a
-      # null matrix combined with the matrix-derived `runs-on` below aborts the
-      # whole run. See the publish-pypi job and docs/workflows.md.
-      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).nuitka_matrix || fromJSON('{"include":[]}') }}
+      # Fall back to an empty `{"include":[]}` matrix when nuitka_matrix is null. GitHub resolves strategy.matrix
+      # during job setup even when `if:` will skip the job, and a null matrix combined with the matrix-derived
+      # `runs-on` below aborts the whole run. See the publish-pypi job and docs/workflows.md.
+      matrix: ${{ fromJSON(inputs.metadata).nuitka_matrix || fromJSON('{"include":[]}') }}
     runs-on: ${{ matrix.os }}
     # Linux targets compile inside a manylinux_2_28 container (glibc 2.28), so
     # binaries carry a stable glibc floor instead of inheriting the runner
@@ -119,11 +89,11 @@ jobs:
       NUITKA_CACHE_DIR: ${{ github.workspace }}/.nuitka-cache
       # Name the ccache directory outright. Left to Nuitka, it gains one
       # subdirectory per Python ABI, and ccache then looks for its
-      # `ccache.conf` there, not where the cache-prep step below writes it.
+      # `ccache.conf` there, not where `repomatic run nuitka` writes it.
       CCACHE_DIR: ${{ github.workspace }}/.nuitka-cache/ccache
       # Cross-VM hits depend on hashing the compiler binary's content: the
       # default mtime+size check trips on runner VMs, which do not keep
-      # stable file timestamps. The cache-prep step below also writes the
+      # stable file timestamps. `repomatic run nuitka` also writes the
       # setting into $CCACHE_DIR/ccache.conf, so whichever channel reaches
       # the wrapper carries the same value. Nuitka's internal clcache on MSVC
       # ignores it.
@@ -134,6 +104,7 @@ jobs:
           ref: ${{ matrix.commit }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          enable-cache: false
           version: "0.13.0"
       # Persist the Nuitka compile caches across runs: ccache objects on gcc
       # targets, Nuitka's internal clcache objects on MSVC, plus downloads
@@ -141,62 +112,23 @@ jobs:
       # so every run saves a fresh snapshot and restores the latest previous
       # one via the prefix; ccache/clcache hash compiler, flags and sources
       # themselves, so a stale snapshot degrades to cache misses, never to
-      # wrong objects. Two exclusions:
-      # - Release commits build cold, on purpose: a cache entry is writable
-      #   by any code running in any main-ref workflow (the cache API is not
-      #   gated by `permissions:`), and its restore is a tar extraction into
-      #   the workspace, so a poisoned entry could reach a signed, published,
-      #   immutable binary. Skipping restore AND save on release commits
-      #   keeps every published artifact compiled from source on a fresh VM;
-      #   canary and weekly runs keep the warm-cache speed.
-      # - macOS is excluded entirely: the build step turns ccache off there,
-      #   so the directory would hold no compiled object to bring back. See
-      #   docs/nuitka.md for what re-enabling ccache on macOS would take.
+      # wrong objects. Release commits build cold, and macOS keeps no cache:
+      # see `nuitka_cache` in repomatic/metadata/matrix.py.
       - name: Restore Nuitka compile cache
-        if: >-
-          matrix.platform_id != 'macos'
-          && !fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
+        if: matrix.nuitka_cache == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .nuitka-cache
           key: nuitka-${{ matrix.target }}-${{ matrix.commit }}
           restore-keys: nuitka-${{ matrix.target }}-
-      # Two duties. Trim: Nuitka's clcache prunes by age alone and has no size
-      # cap (ccache self-prunes at 5 GiB), so a restore-then-save cycle can
-      # still grow the cache; reset past 2 GiB and let the next save start a
-      # fresh lineage. Configure: write ccache's settings inside the cache
-      # dir itself, since ccache always reads $CCACHE_DIR/ccache.conf.
-      - name: Prepare Nuitka cache
-        if: >-
-          matrix.platform_id != 'macos'
-          && !fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
-        shell: bash
-        run: |
-          if [[ -d .nuitka-cache ]]; then
-            size_mb=$(du -sm .nuitka-cache | cut -f1)
-            echo "Nuitka cache restored at ${size_mb} MiB."
-            if (( size_mb > 2048 )); then
-              echo "Cache exceeds 2 GiB, resetting."
-              rm -rf .nuitka-cache
-            fi
-          fi
-          mkdir -p .nuitka-cache/ccache
-          printf 'compiler_check = content\n' > .nuitka-cache/ccache/ccache.conf
-          # base_dir makes ccache hash every path below the runner work root
-          # as a relative path, so a work root that moves between machines
-          # keeps its keys. Nuitka sets no base_dir itself:
-          # https://github.com/Nuitka/Nuitka/issues/3996. base_dir cannot hide
-          # a directory name that changes inside a path, which is why the tool
-          # runner installs Nuitka into the project venv: see docs/nuitka.md.
-          printf 'base_dir = %s\n' "$(dirname "${RUNNER_WORKSPACE}")" \
-            >> .nuitka-cache/ccache/ccache.conf
       # The manylinux containers ship no ccache (Nuitka warns and compiles
       # cold), so the canary target pays full C compilation on every push.
-      # EPEL is a distro archive, exempt from the install cooldown (see
+      # A build keeping no cache has no use for it. EPEL is a distro archive,
+      # exempt from the install cooldown (see
       # https://repomatic.net/workflows#install-time-cooldown). Non-fatal on mirror
-      # hiccups: a release build must not die for a missing cache helper.
+      # hiccups: a build must not die for a missing cache helper.
       - name: Install ccache in container
-        if: matrix.container
+        if: matrix.container && matrix.nuitka_cache == 'true'
         shell: bash
         run: >
           (dnf install --assumeyes --quiet epel-release
@@ -212,32 +144,17 @@ jobs:
         # /opt/python inside manylinux containers ships no libpython for
         # Nuitka to link against.
         run: uv --no-progress --managed-python venv --python 3.14
-      - name: Sync optional-dependencies for Nuitka build
-        # Install the [project.optional-dependencies] extras listed in
-        # [tool.repomatic] nuitka.extras into the build venv, so Nuitka can
-        # bundle their packages. See the nuitka_extras docstring in
-        # repomatic/config.py for the full rationale.
-        if: fromJSON(needs.metadata.outputs.metadata).nuitka_extras
-        env:
-          EXTRAS: ${{ fromJSON(needs.metadata.outputs.metadata).nuitka_extras }}
-        shell: bash
-        run: |
-          # EXTRAS is a space-separated list emitted by Metadata.format_github_value.
-          flags=""
-          for extra in ${EXTRAS}; do
-            flags="${flags} --extra ${extra}"
-          done
-          # shellcheck disable=SC2086
-          uv --no-progress sync --frozen ${flags}
+      # The click-extra of the project's own lock, the one the self-test below runs.
       - name: Pre-bake build metadata
         if: contains(matrix.current_version, '.dev')
-        run: uvx --no-progress 'click-extra==9.4.1' prebake all
+        run: uv --no-progress run --frozen -- click-extra prebake all
       - name: Build binary
         id: build-binary
         continue-on-error: true
-        # The onefile build runs through `repomatic run nuitka`: the tool runner
-        # installs the pinned Nuitka into the project venv, translates the
-        # [tool.nuitka] section to CLI flags, and prepends --mode=onefile. The
+        # `repomatic run nuitka` installs the pinned Nuitka into the project
+        # venv with the `nuitka.extras` of [tool.repomatic], prepares the
+        # compile cache, translates the [tool.nuitka] section to CLI flags and
+        # adds what the target needs (see repomatic/tooling/nuitka.py). The
         # matrix supplies the entry point to compile: Nuitka generates the
         # launcher for it, as an installer does for a console script. User flags
         # with spaces belong in [tool.nuitka], which the tool runner passes as a
@@ -246,35 +163,14 @@ jobs:
           MAIN_ENTRY_POINT: ${{ matrix.main_entry_point }}
           # Nuitka names its build folders after the project when no positional
           # main program names them.
-          PROJECT_NAME: ${{ fromJSON(needs.metadata.outputs.metadata).package_name }}
-          # On macOS Nuitka auto-downloads a ccache binary from nuitka.net,
-          # with no checksum at the call site (SconsCaching.py's
-          # getCachedDownload passes none; reported upstream as
-          # https://github.com/Nuitka/Nuitka/issues/3997), and runs it under
-          # Rosetta on arm with measured overhead. Since the macOS cache is
-          # not persisted, ccache brings no benefit there and the
-          # unchecksummed download is pure supply-chain surface: disable it.
-          # Empty (and inert) elsewhere; Linux ccache and MSVC clcache are
-          # unaffected. See docs/nuitka.md for the root cause of the
-          # historical macOS misses and what re-enabling would take (a
-          # native, checksummed ccache via NUITKA_CCACHE_BINARY).
-          NUITKA_CCACHE_FLAG: >-
-            ${{ matrix.platform_id == 'macos' && '--disable-ccache' || '' }}
+          PROJECT_NAME: ${{ fromJSON(inputs.metadata).package_name }}
           BIN_NAME: ${{ matrix.bin_name }}
-          # Pin the macOS floor: without it, compiled objects and processed
-          # dylibs inherit the build runner's own macOS version as their
-          # minimum. Empty (and inert) on the other platforms.
-          MACOSX_DEPLOYMENT_TARGET: >-
-            ${{ matrix.platform_id == 'macos' && matrix.floor || '' }}
         shell: bash
-        run: |
-          # NUITKA_CCACHE_FLAG holds an optional flag, meant to word-split.
-          # shellcheck disable=SC2086
-          uv --no-progress run --frozen -- repomatic run nuitka -- \
-            ${NUITKA_CCACHE_FLAG} \
-            --project-name="${PROJECT_NAME}" \
-            --main-entry-point="${MAIN_ENTRY_POINT}" \
-            --output-filename="${BIN_NAME}"
+        run: >
+          uv --no-progress run --frozen -- repomatic run nuitka --
+          --project-name="${PROJECT_NAME}"
+          --main-entry-point="${MAIN_ENTRY_POINT}"
+          --output-filename="${BIN_NAME}"
       - name: Upload Nuitka crash report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -310,7 +206,7 @@ jobs:
       # a second runner-queue slot. Env mirrors the test-binaries job; see its
       # comments for the UTF-8 and safe.directory rationale.
       - name: Self-test binary
-        if: ${{ !fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
+        if: ${{ !fromJSON(inputs.metadata).release_commits_matrix }}
         env:
           BIN_NAME: ${{ matrix.bin_name }}
           PYTHONIOENCODING: utf8
@@ -333,50 +229,29 @@ jobs:
           path: ${{ matrix.bin_name }}
       - name: Generate binary attestation
         id: attest-binary
-        if: >-
-          github.ref == 'refs/heads/main'
-          && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
+        if: fromJSON(inputs.metadata).is_release_push
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: ${{ matrix.bin_name }}
-      - name: Verify binary attestation
-        # gh comes from the `repomatic run` registry rather than the image: the
-        # manylinux container the Linux targets build in ships none at all, and
-        # the runners that do ship one leave its version to the image. One
-        # pinned, checksum-verified build now serves every target, which also
-        # retires the third-party RPM repo this step used to add to the
-        # container just to reach the attestation check.
-        if: >-
-          github.ref == 'refs/heads/main'
-          && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BIN_NAME: ${{ matrix.bin_name }}
-        shell: bash
-        run: >
-          uv --no-progress run --frozen -- repomatic run gh --
-          attestation verify "${BIN_NAME}"
-          --repo "${{ github.repository }}"
-          --signer-repo kdeldycke/repomatic
-      - name: Name the attestation bundle after its binary
+      - name: Verify the attestation and name its bundle after the binary
         # actions/attest writes every bundle to the same basename, so all matrix targets produce an `attestation.json`
         # and publish-release's `merge-multiple: true` download would keep only the last. See
-        # repomatic/release/attestation.py, which owns the naming rule for every attested asset in this lane.
+        # repomatic/release/attestation.py, which owns the naming rule for every attested asset in this lane. The
+        # verification runs the registry's gh, which the manylinux containers lack.
         if: >-
-          github.ref == 'refs/heads/main'
-          && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
+          fromJSON(inputs.metadata).is_release_push
           && steps.attest-binary.outputs.bundle-path
         env:
+          GH_TOKEN: ${{ github.token }}
           BUNDLE_PATH: ${{ steps.attest-binary.outputs.bundle-path }}
         shell: bash
         run: >
           uv --no-progress run --frozen -- repomatic
-          pack-attestation --bundle "${BUNDLE_PATH}"
+          pack-attestation --bundle "${BUNDLE_PATH}" --verify
       - name: Upload attestation bundle
         # Globbed rather than named, so the filename stays the CLI's to decide.
         if: >-
-          github.ref == 'refs/heads/main'
-          && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
+          fromJSON(inputs.metadata).is_release_push
           && steps.attest-binary.outputs.bundle-path
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -386,32 +261,27 @@ jobs:
   test-binaries:
     name: "${{ matrix.state == 'stable' && '✅' || '⁉️' }} ${{ matrix.os }}, ${{ matrix.short_sha }} test"
     needs:
-      - metadata
       - compile-binaries
     # Release commits only: non-release builds self-test inside compile-binaries
     # instead of paying a second runner-queue slot per target. This standalone
     # job re-validates the artifact on a pristine VM, through the same
-    # upload/download round-trip a user's binary takes. Also skipped for
-    # branches that don't affect code (e.g., update-mailmap, format-markdown).
+    # upload/download round-trip a user's binary takes. Skipped with
+    # compile-binaries when nuitka_matrix is empty.
     # always() keeps it running when a sibling build failed: without it, one
     # red build cell skips this whole job and every healthy binary ships with
     # no runtime test at all (v7.9.0 shipped exactly that way).
     if: >
       always()
-      && fromJSON(needs.metadata.outputs.metadata).nuitka_matrix
-      && !(fromJSON(needs.metadata.outputs.metadata).skip_binary_build || false)
-      && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
+      && fromJSON(inputs.metadata).nuitka_matrix
+      && fromJSON(inputs.metadata).release_commits_matrix
     strategy:
       # Info-gathering matrix: see docs/workflows.md "Matrix fail-fast strategy".
       # fail-fast off so the cell of a target whose build failed (its artifact
       # download errors out) does not cancel the healthy targets' tests.
       fail-fast: false
-      # Fall back to an empty `{"include":[]}` matrix when nuitka_matrix is null
-      # (binary builds disabled via nuitka.enabled = false). GitHub resolves
-      # strategy.matrix during job setup even when `if:` will skip the job, and a
-      # null matrix combined with the matrix-derived `runs-on` below aborts the
-      # whole run. See the publish-pypi job and docs/workflows.md.
-      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).nuitka_matrix || fromJSON('{"include":[]}') }}
+      # Fall back to an empty `{"include":[]}` matrix when nuitka_matrix is null, for the reason compile-binaries
+      # gives.
+      matrix: ${{ fromJSON(inputs.metadata).nuitka_matrix || fromJSON('{"include":[]}') }}
     runs-on: ${{ matrix.os }}
     # Same container as the compile job: running the binary self-test suite
     # on glibc 2.28 proves the published Linux floor at runtime, not just in
@@ -466,12 +336,9 @@ jobs:
 
   create-tag:
     name: 📌 Tag release (${{ matrix.short_sha }})
-    needs:
-      - metadata
-    # Only consider pushes to main branch as triggers for releases.
-    if: github.ref == 'refs/heads/main' && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
+    if: fromJSON(inputs.metadata).is_release_push
     strategy:
-      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
+      matrix: ${{ fromJSON(inputs.metadata).release_commits_matrix }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -485,6 +352,7 @@ jobs:
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          enable-cache: false
           version: "0.13.0"
       - name: Create and push tag
         # Idempotent: skips if tag already exists instead of failing. This allows re-running
@@ -501,14 +369,13 @@ jobs:
   create-release:
     name: 🐙 Create GitHub release draft (${{ matrix.short_sha }})
     needs:
-      - metadata
       - create-tag
     # Make sure this job always starts if create-tag ran and succeeded.
     # The wheel is built by the _release-build.yaml lane; release.yaml gates this
     # engine on `needs: build`, so the artifact is uploaded before this runs.
     if: always() && needs.create-tag.result == 'success'
     strategy:
-      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
+      matrix: ${{ fromJSON(inputs.metadata).release_commits_matrix }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -524,7 +391,7 @@ jobs:
           version: "0.13.0"
       - name: Download Python package
         # Do not fetch build artifacts for non-Python projects (no wheel built).
-        if: fromJSON(needs.metadata.outputs.metadata).is_python_project
+        if: fromJSON(inputs.metadata).is_python_project
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         id: artifacts
         with:
@@ -538,36 +405,17 @@ jobs:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: uv --no-progress run --frozen -- repomatic sync-dev-release --live --delete
       - name: Create GitHub release draft
-        # Idempotent: skips if release already exists (e.g. workflow re-run).
-        # Notes carry the PyPI availability admonition from the start: baking it
-        # here (instead of editing the release from the caller's fast publish-pypi
-        # lane) removes the cross-lane race where that edit ran before this job
-        # had created the release. release_notes_with_admonition is empty for
-        # non-PyPI projects, which then fall back to the plain notes. See
-        # repomatic/metadata/core.py:release_notes_with_admonition for rationale.
+        # Idempotent: skips if release already exists (e.g. workflow re-run). The notes are the changelog section of
+        # the release commit, with the PyPI availability admonition baked in from the start: see build_draft_body in
+        # repomatic/github/release_sync.py.
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
           COMMIT: ${{ matrix.commit }}
-          REPO: ${{ github.repository }}
-          RELEASE_NOTES: >-
-            ${{ fromJSON(needs.metadata.outputs.metadata).release_notes_with_admonition
-            || fromJSON(needs.metadata.outputs.metadata).release_notes }}
-        run: |
-          tag="v${CURRENT_VERSION}"
-          if gh release view "${tag}" --repo "${REPO}" > /dev/null 2>&1; then
-            echo "Release ${tag} already exists, skipping creation."
-          else
-            shopt -s nullglob
-            files=(release_artifact/*)
-            gh release create "${tag}" \
-              --draft \
-              --target "${COMMIT}" \
-              --title "${tag}" \
-              --repo "${REPO}" \
-              --notes-file - \
-              "${files[@]}" <<< "${RELEASE_NOTES}"
-          fi
+        run: >
+          uv --no-progress run --frozen -- repomatic create-release
+          --version "${CURRENT_VERSION}" --commit "${COMMIT}"
+          --assets release_artifact --skip-existing
 
   # Render the Click CLI command tree declared by `[tool.repomatic.manpages]` as roff `.1` files and attach them as a
   # tarball asset to the GitHub release draft. The upload must land before `publish-release` flips the draft to a
@@ -579,14 +427,13 @@ jobs:
   manpages:
     name: 📖 Man pages (${{ matrix.short_sha }})
     needs:
-      - metadata
       - create-release
     if: >-
       always()
       && needs.create-release.result == 'success'
-      && fromJSON(needs.metadata.outputs.metadata).manpages_script != ''
+      && fromJSON(inputs.metadata).manpages_script != ''
     strategy:
-      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
+      matrix: ${{ fromJSON(inputs.metadata).release_commits_matrix }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -605,56 +452,36 @@ jobs:
         run: uv --no-progress sync --frozen
       - name: Generate man pages
         env:
-          SCRIPT: ${{ fromJSON(needs.metadata.outputs.metadata).manpages_script }}
+          SCRIPT: ${{ fromJSON(inputs.metadata).manpages_script }}
         run: >
           uv --no-progress run --frozen --
           click-extra wrap --help-format man --output-dir man "${SCRIPT}"
       - name: Bundle as tarball
-        env:
-          ASSET_NAME: >-
-            ${{
-              fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
-              || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
-            }}
-        run: tar --create --gzip --file "${ASSET_NAME}.tar.gz" man/
+        # Named after the manpages_asset_name metadata key. See repomatic/release/manpages.py.
+        run: uv --no-progress run --frozen -- repomatic pack-manpages
       # Same provenance chain as the compiled binaries and the extra-assets job.
       - name: Generate tarball attestation
         id: attest-manpages
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: >-
-            ${{
-              format(
-                '{0}.tar.gz',
-                fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
-                || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
-              )
-            }}
+          subject-path: ${{ format('{0}.tar.gz', fromJSON(inputs.metadata).manpages_asset_name) }}
       - name: Verify tarball attestation
         env:
           GH_TOKEN: ${{ github.token }}
-          ASSET_NAME: >-
-            ${{
-              fromJSON(needs.metadata.outputs.metadata).manpages_asset_name
-              || format('{0}-manpages', fromJSON(needs.metadata.outputs.metadata).package_name)
-            }}
+          BUNDLE_PATH: ${{ steps.attest-manpages.outputs.bundle-path }}
         run: >
-          gh attestation verify "${ASSET_NAME}.tar.gz"
-          --repo "${{ github.repository }}"
-          --signer-repo kdeldycke/repomatic
+          uv --no-progress run --frozen -- repomatic
+          pack-attestation --bundle "${BUNDLE_PATH}" --verify
       - name: Attach to release draft
-        # pack-attestation names the bundle after the tarball it attests and prints both paths, so neither filename
-        # is spelled here. See repomatic/release/attestation.py.
+        # pack-attestation names the bundle after the tarball it attests, and attaches both, so neither filename is
+        # spelled here. See repomatic/release/attestation.py.
         env:
           CURRENT_VERSION: ${{ matrix.current_version }}
           BUNDLE_PATH: ${{ steps.attest-manpages.outputs.bundle-path }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: |
-          uv --no-progress run --frozen -- repomatic \
-            pack-attestation --bundle "${BUNDLE_PATH}" > upload-list.txt
-          xargs gh release upload "v${CURRENT_VERSION}" \
-            --repo "${{ github.repository }}" \
-            --clobber < upload-list.txt
+        run: >
+          uv --no-progress run --frozen -- repomatic
+          pack-attestation --bundle "${BUNDLE_PATH}" --upload-to "v${CURRENT_VERSION}"
 
   # Attach the consumer-built extra assets declared by `release-assets` in `[tool.repomatic]`. Each declared filename
   # must arrive as a `release-asset-<filename>` run artifact, uploaded by a job the consumer defines in its own
@@ -666,14 +493,13 @@ jobs:
   extra-assets:
     name: 📎 Extra release assets (${{ matrix.short_sha }})
     needs:
-      - metadata
       - create-release
     if: >-
       always()
       && needs.create-release.result == 'success'
-      && join(fromJSON(needs.metadata.outputs.metadata).release_assets) != ''
+      && join(fromJSON(inputs.metadata).release_assets) != ''
     strategy:
-      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
+      matrix: ${{ fromJSON(inputs.metadata).release_commits_matrix }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -689,6 +515,7 @@ jobs:
           ref: ${{ matrix.commit }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          enable-cache: false
           version: "0.13.0"
       - name: Download asset artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -696,35 +523,21 @@ jobs:
           pattern: release-asset-*
           path: release-assets
           merge-multiple: true
-      - name: Check all declared assets landed
-        # A declared asset missing its artifact fails the release loudly here,
-        # before the draft publishes without it.
-        env:
-          # Space-separated: see the release_assets docstring in repomatic/config.py.
-          ASSET_NAMES: ${{ join(fromJSON(needs.metadata.outputs.metadata).release_assets, ' ') }}
-        shell: bash
-        run: |
-          for name in ${ASSET_NAMES}; do
-            if [[ ! -f "release-assets/${name}" ]]; then
-              echo "::error::Declared release asset ${name} has no release-asset-* artifact."
-              exit 1
-            fi
-          done
       - name: Generate assets attestation
         id: attest-assets
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: release-assets/*
-      - name: Verify assets attestation
+      - name: Check every declared asset landed, and verify the attestation
+        # A declared asset missing its artifact fails the release loudly here, before the draft publishes without it.
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          for asset in release-assets/*; do
-            gh attestation verify "${asset}" \
-              --repo "${{ github.repository }}" \
-              --signer-repo kdeldycke/repomatic
-          done
+          BUNDLE_PATH: ${{ steps.attest-assets.outputs.bundle-path }}
+          PACKAGE_NAME: ${{ fromJSON(inputs.metadata).package_name }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pack-attestation
+          --bundle "${BUNDLE_PATH}" --dir release-assets --name "${PACKAGE_NAME}-extra-assets"
+          --require-declared --verify
       - name: Attach assets to release draft
         # A repository declaring one asset gets a bundle named after it; several assets share one bundle, which then
         # takes the `--name` set name because no single filename can claim it. The bundle lands after the attest step
@@ -733,21 +546,15 @@ jobs:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
           BUNDLE_PATH: ${{ steps.attest-assets.outputs.bundle-path }}
-          PACKAGE_NAME: ${{ fromJSON(needs.metadata.outputs.metadata).package_name }}
-        shell: bash
-        run: |
-          uv --no-progress run --frozen -- repomatic pack-attestation \
-            --bundle "${BUNDLE_PATH}" \
-            --dir release-assets \
-            --name "${PACKAGE_NAME}-extra-assets" > upload-list.txt
-          xargs gh release upload "v${CURRENT_VERSION}" \
-            --repo "${{ github.repository }}" \
-            --clobber < upload-list.txt
+          PACKAGE_NAME: ${{ fromJSON(inputs.metadata).package_name }}
+        run: >
+          uv --no-progress run --frozen -- repomatic pack-attestation
+          --bundle "${BUNDLE_PATH}" --dir release-assets --name "${PACKAGE_NAME}-extra-assets"
+          --upload-to "v${CURRENT_VERSION}"
 
   publish-release:
     name: 🎉 Publish GitHub release (${{ matrix.short_sha }})
     needs:
-      - metadata
       - create-release
       - compile-binaries
       - manpages
@@ -771,18 +578,17 @@ jobs:
       && needs.create-release.result == 'success'
       && needs.extra-assets.result != 'failure'
     strategy:
-      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
+      matrix: ${{ fromJSON(inputs.metadata).release_commits_matrix }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
       # Checkout first, before the download below: actions/checkout deletes everything in a workspace holding no
-      # `.git` of its own, so downloading the binaries ahead of it drops them on the floor. The CLI call further down
-      # resolves from `uv.lock`, so it needs the release commit's tree: upstream always runs the unfrozen form,
+      # `.git` of its own, so downloading the binaries ahead of it drops them on the floor. The CLI calls further down
+      # resolve from `uv.lock`, so they need the release commit's tree: upstream always runs the unfrozen form,
       # whatever the freeze wrote. See repomatic/release/prepare_release.py for why.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: needs.compile-binaries.result != 'skipped'
         with:
           ref: ${{ matrix.commit }}
       - name: Download binary and attestation artifacts
@@ -795,8 +601,8 @@ jobs:
           path: ./compile-assets
           merge-multiple: true
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        if: needs.compile-binaries.result != 'skipped'
         with:
+          enable-cache: false
           version: "0.13.0"
       - name: Upload binaries and attestation bundles to release
         # Exclude Python packages (.tar.gz, .whl) already uploaded by create-release.
@@ -810,54 +616,52 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
-        shell: bash
-        # The alias materialization and the exclusion of already-uploaded
-        # Python distributions live in the CLI; the shell only feeds the
-        # printed list to `gh release upload`.
-        run: |
-          uv --no-progress run --frozen -- repomatic pack-binaries \
-            --version "${CURRENT_VERSION}" --dir ./compile-assets > upload-list.txt
-          if [[ -s upload-list.txt ]]; then
-            xargs gh release upload "v${CURRENT_VERSION}" \
-              --repo "${{ github.repository }}" \
-              --clobber < upload-list.txt
-          fi
+        run: >
+          uv --no-progress run --frozen -- repomatic pack-binaries
+          --version "${CURRENT_VERSION}" --dir ./compile-assets --upload-to "v${CURRENT_VERSION}"
       - name: Publish release
+        # The registry's gh, pinned and checksummed, rather than the one the runner image happens to ship.
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
           REPO: ${{ github.repository }}
         run: >
-          gh release edit "v${CURRENT_VERSION}"
-          --draft=false
-          --repo "${REPO}"
+          uv --no-progress run --frozen -- repomatic run gh --
+          release edit "v${CURRENT_VERSION}" --draft=false --repo "${REPO}"
 
   scan-virustotal:
     name: 🛡️ VirusTotal scan (${{ matrix.short_sha }})
     needs:
-      - metadata
       - publish-release
-    # Run after publish-release so the release assets exist. Skip if no VT key.
+    # Run after publish-release so the release assets exist. A job-level `if:` cannot read a secret, so the first
+    # step probes the VirusTotal key and every other step is skipped without one.
     if: >-
       always()
       && needs.publish-release.result == 'success'
-      && needs.metadata.outputs.has_virustotal_key
     strategy:
-      matrix: ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix }}
+      matrix: ${{ fromJSON(inputs.metadata).release_commits_matrix }}
       # Each cell carries the pending scan records off the pull request
       # branch, appends its own, and republishes the branch. Serializing the
       # (rare) multi-release runs is what keeps that read-append-push cycle
       # from racing: raising this drops whichever cell pushed first.
       max-parallel: 1
     runs-on: ubuntu-26.04
-    # Upload plus the 600 s --poll-timeout, with margin; a stuck poll must not
-    # squat a runner-cap slot for the 360-min default.
-    timeout-minutes: 15
+    # The uploads and the polls share one rate budget (4 requests a minute on the free tier, two per upload), so the
+    # six versioned binaries alone take three minutes to submit, before the up to 600 s the --poll-timeout grants the
+    # verdicts. With the asset wait, the catalog rebuild and the pull request on top, 15 minutes is not enough. A stuck
+    # poll must still not squat a runner-cap slot for the 360-min default.
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write
     steps:
+      - name: Check VirusTotal API key
+        id: vt-key
+        env:
+          HAS_KEY: ${{ secrets.VIRUSTOTAL_API_KEY && 'true' || '' }}
+        run: echo "has_key=${HAS_KEY}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.vt-key.outputs.has_key
         with:
           # Scan records and the binaries page are built on top of the default
           # branch tip, not the release commit, so the pull request opens
@@ -866,12 +670,14 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        if: steps.vt-key.outputs.has_key
         with:
           enable-cache: false
           version: "0.13.0"
       - name: Download, upload to VirusTotal and record detections
         # See repomatic/release/virustotal.py for why the download waits on the
         # release's asset list and fetches only the versioned binaries.
+        if: steps.vt-key.outputs.has_key
         env:
           GH_TOKEN: ${{ github.token }}
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
@@ -889,7 +695,9 @@ jobs:
       - name: Regenerate binaries page
         # See repomatic/release/binaries_page.py for the page design rationale.
         # Skipped when [tool.repomatic] binaries.sync is disabled.
-        if: fromJSON(needs.metadata.outputs.metadata).binaries_sync != false
+        if: >-
+          steps.vt-key.outputs.has_key
+          && fromJSON(inputs.metadata).binaries_sync != false
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
@@ -902,7 +710,9 @@ jobs:
         # push: the records are a trend read across releases, so nothing is
         # lost by leaving it open. Skipped when [tool.repomatic] binaries.sync
         # is disabled. See docs/operation-contracts.md § Scan job contract.
-        if: fromJSON(needs.metadata.outputs.metadata).binaries_sync != false
+        if: >-
+          steps.vt-key.outputs.has_key
+          && fromJSON(inputs.metadata).binaries_sync != false
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
@@ -915,17 +725,16 @@ jobs:
   sync-dev-release:
     name: 🔄 Sync dev pre-release
     needs:
-      - metadata
       - compile-binaries
     # Run on non-release pushes to main after builds complete. The wheel comes
     # from the _release-build.yaml lane (release.yaml gates this engine on
     # `needs: build`), downloaded run-scoped below alongside the binaries.
-    # Uses always() because compile-binaries may be skipped (no nuitka_matrix or skip_binary_build).
+    # Uses always() because compile-binaries is skipped when nuitka_matrix is empty.
     if: >-
       always()
       && github.ref == 'refs/heads/main'
-      && !fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
-      && fromJSON(needs.metadata.outputs.metadata).current_version
+      && !fromJSON(inputs.metadata).release_commits_matrix
+      && fromJSON(inputs.metadata).current_version
     # Serialise this job across overlapping release runs: the dev pre-release is a
     # single mutable GitHub resource this job deletes, recreates and uploads to. The
     # run-level concurrency in release.yaml cancels a superseded run mid-sync, which
@@ -944,6 +753,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          enable-cache: false
           version: "0.13.0"
       - name: Download all build artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

@@ -151,6 +151,7 @@ def create_issue(
     title: str,
     *,
     repository: str | None = None,
+    assignees: Sequence[str] = (),
 ) -> int:
     """Create a new issue.
 
@@ -161,6 +162,7 @@ def create_issue(
     :param title: Issue title.
     :param repository: Repository in `owner/name` form, or `None` to let `gh`
         resolve it.
+    :param assignees: Logins to assign the issue to.
     :return: The created issue number.
     :raises RuntimeError: When the output carries no parsable issue URL.
     """
@@ -175,6 +177,8 @@ def create_issue(
     ]
     for label in labels:
         args.extend(["--label", label])
+    for assignee in assignees:
+        args.extend(["--assignee", assignee])
 
     output = run_gh_command(args)
     issue_number, _url = parse_create_output(output, "issue")
@@ -245,7 +249,8 @@ def manage_issue_lifecycle(
     no_issues_comment: str = "No more issues.",
     *,
     repository: str | None = None,
-) -> None:
+    assignees: Sequence[str] = (),
+) -> int | None:
     """Manage the full issue lifecycle: list, triage, close, create/update.
 
     This function handles:
@@ -272,6 +277,10 @@ def manage_issue_lifecycle(
         the condition no longer applies.
     :param repository: Repository in `owner/name` form, or `None` to let `gh`
         resolve it.
+    :param assignees: Logins to assign a newly created issue to. An issue
+        that already exists keeps its assignees.
+    :return: The number of the issue created, updated or reopened, or `None`
+        when *has_issues* is false.
     """
     issues = list_issues(title, repository=repository)
     logging.info(f"Found {len(issues)} issues matching {title!r}")
@@ -292,7 +301,7 @@ def manage_issue_lifecycle(
         )
 
     if not has_issues:
-        return
+        return None
 
     # Create, update, or reopen the issue. The body is fitted to GitHub's
     # size limit before it ever touches disk, so the write paths below need
@@ -310,5 +319,11 @@ def manage_issue_lifecycle(
                     repository=repository,
                 )
             update_issue(triage.keep, body_path, repository=repository)
-        else:
-            create_issue(body_path, labels, title=title, repository=repository)
+            return triage.keep
+        return create_issue(
+            body_path,
+            labels,
+            title=title,
+            repository=repository,
+            assignees=assignees,
+        )

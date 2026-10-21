@@ -27,7 +27,8 @@ import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from ..changelog import GITHUB_RELEASE_URL, Changelog
+from ..changelog import GITHUB_RELEASE_URL, Changelog, availability_admonition
+from ..pypi import PYPI_PROJECT_URL
 from ..tabular import ReportAction, render_markdown_table
 from ..templating import render_template
 from .gh import GhCommandError
@@ -55,14 +56,15 @@ def build_expected_body(
     Lives here, with the release publishers, rather than in
     {mod}`repomatic.changelog`: every caller is a GitHub-release writer (this
     sync, the dev pre-release, the release-notes metadata keys), and the
-    changelog module renders changelog entries, not release bodies.
+    changelog module renders changelog entries, not release bodies. The
+    release draft is one more: see {func}`build_draft_body`.
 
     :param changelog: Parsed changelog instance.
     :param version: Version string (e.g. `1.2.3`).
     :param admonition_override: If provided, replaces the
         `availability_admonition` from the changelog. Used by
-        `release_notes_with_admonition` to inject a pre-computed
-        admonition at release time.
+        {func}`build_pypi_body` to inject a pre-computed admonition at
+        release time.
     :return: The rendered release body, or empty string if the
         version has no changelog section.
     """
@@ -77,6 +79,67 @@ def build_expected_body(
         **asdict(elements),
         tag_range=elements.tag_range,
     )
+
+
+def build_pypi_body(changelog: Changelog, version: str, package_name: str) -> str:
+    """Build the release body of a version published on PyPI.
+
+    The body of {func}`build_expected_body`, with the availability admonition
+    linking to PyPI and GitHub injected before `fix-changelog` writes it into
+    `changelog.md`. The admonition comes from
+    {func}`~repomatic.changelog.availability_admonition`, the renderer
+    `fix-changelog` writes the section with, so both word it the same way.
+
+    The draft cannot ask the platforms which release came first: the PyPI
+    upload runs beside it, and a failed lookup reads like an empty one. The
+    changelog answers instead, as `lint-changelog` will once both platforms
+    carry the release.
+
+    :param changelog: Parsed changelog instance.
+    :param version: Version string (e.g. `1.2.3`).
+    :param package_name: The project name on PyPI.
+    :return: The rendered body, or an empty string when the changelog names no
+        repository or holds no section for *version*.
+    """
+    repo_url = changelog.extract_repo_url()
+    if not repo_url:
+        return ""
+    first = changelog.is_first_release(version)
+    admonition = availability_admonition(
+        version,
+        pypi_url=PYPI_PROJECT_URL.format(package=package_name, version=version),
+        github_url=GITHUB_RELEASE_URL.format(repo_url=repo_url, version=version),
+        first_on_pypi=first,
+        first_on_github=first,
+    )
+    return build_expected_body(changelog, version, admonition_override=admonition)
+
+
+def build_draft_body(
+    changelog: Changelog, version: str, package_name: str | None
+) -> str:
+    """Build the body a release draft is created with.
+
+    The body carries the PyPI availability admonition from the start: baking it
+    into the draft, rather than editing the release from the caller's fast
+    `publish-pypi` lane, avoids a race between the lanes. That edit can run
+    before the draft exists. The bake is optimistic: it assumes the parallel
+    PyPI upload succeeds, which it does on the normal path, and a failed upload
+    surfaces as a red `publish-pypi` job.
+
+    :param changelog: Parsed changelog instance.
+    :param version: Version string (e.g. `1.2.3`).
+    :param package_name: The project name on PyPI, or `None` for a project
+        that does not publish there.
+    :return: {func}`build_pypi_body` for a PyPI project, else
+        {func}`build_expected_body`. Empty when the changelog holds no section
+        for *version*.
+    """
+    if package_name:
+        body = build_pypi_body(changelog, version, package_name)
+        if body:
+            return body
+    return build_expected_body(changelog, version)
 
 
 @dataclass(frozen=True)

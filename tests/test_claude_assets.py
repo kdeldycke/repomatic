@@ -109,11 +109,13 @@ lookup. Anchored at the start of the span so it never matches mid-sentence.
 COOLDOWN_FLAG_RE = re.compile(r"--exclude-newer(?![\w-])")
 """The `--exclude-newer` flag itself, which `--exclude-newer-package` is not."""
 
-COOLDOWN_WINDOW_RE = re.compile(r"--exclude-newer[= ]'(?P<window>[^']+)'")
+COOLDOWN_WINDOW_RE = re.compile(r"--exclude-newer[= ]'(?P<window>(?!\{)[^']+)'")
 """A `--exclude-newer` flag carrying a quoted duration.
 
 The bare and double-quoted forms are absent from every bundled asset, so
-this stays keyed on the one shape in use rather than accepting three.
+this stays keyed on the one shape in use rather than accepting three. A
+`{placeholder}` the reader fills in from the configuration holds no copy of
+the window, so it is passed over.
 """
 
 MODULE_PATH_RE = re.compile(r"^(repomatic/[a-z0-9_/]+\.py)$")

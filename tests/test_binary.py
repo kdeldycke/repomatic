@@ -27,7 +27,11 @@ from extra_platforms import (
     AARCH64,
     ALL_ARCHITECTURES,
     ALL_IDS,
+    FREEBSD,
     LINUX,
+    MACOS,
+    UBUNTU,
+    UNKNOWN_PLATFORM,
     WINDOWS,
     X86_64,
 )
@@ -38,8 +42,10 @@ from repomatic.release.binary import (
     BINARY_ASSET_SUFFIXES,
     MACHINE_IDS,
     NUITKA_BUILD_TARGETS,
+    NUITKA_DISABLE_CCACHE_FLAG,
     BinaryFormat,
     BuildTarget,
+    current_build_target,
     pack_binary_assets,
 )
 from tests.conftest import metadata_from_pyproject
@@ -264,6 +270,49 @@ def test_enforced_floor_follows_binary_format(
     else:
         assert build_target.binary_format.floor_label
         assert build_target.enforced_floor == build_target.floor
+
+
+@pytest.mark.parametrize(
+    ("target_id", "build_target"), sorted(NUITKA_BUILD_TARGETS.items())
+)
+def test_macos_compiles_without_ccache_at_its_floor(
+    target_id: str, build_target: BuildTarget
+) -> None:
+    """macOS turns ccache off, keeps no cache, and pins its deployment target.
+
+    Every other target adds no option and no variable, and keeps its cache.
+    """
+    if build_target.platform is MACOS:
+        assert build_target.nuitka_flags == (NUITKA_DISABLE_CCACHE_FLAG,)
+        assert build_target.compile_cache is False
+        assert build_target.build_env == {
+            "MACOSX_DEPLOYMENT_TARGET": build_target.floor
+        }
+    else:
+        assert build_target.nuitka_flags == ()
+        assert build_target.compile_cache is True
+        assert build_target.build_env == {}
+
+
+@pytest.mark.parametrize(
+    ("platform", "architecture", "expected"),
+    (
+        pytest.param(MACOS, AARCH64, "macos-arm64", id="macos-arm"),
+        pytest.param(MACOS, X86_64, "macos-x64", id="macos-intel"),
+        pytest.param(WINDOWS, X86_64, "windows-x64", id="windows"),
+        pytest.param(UBUNTU, AARCH64, "linux-arm64", id="linux-distribution"),
+        pytest.param(UNKNOWN_PLATFORM, X86_64, "linux-x64", id="unnamed-linux"),
+        pytest.param(FREEBSD, X86_64, None, id="no-target"),
+    ),
+)
+def test_current_build_target(monkeypatch, platform, architecture, expected):
+    """The machine's platform and architecture pick its target."""
+    monkeypatch.setattr("repomatic.release.binary.current_platform", lambda: platform)
+    monkeypatch.setattr(
+        "repomatic.release.binary.current_architecture", lambda: architecture
+    )
+    target = current_build_target()
+    assert (target.id if target else None) == expected
 
 
 def test_nuitka_enabled_default():

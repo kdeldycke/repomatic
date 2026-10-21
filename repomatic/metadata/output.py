@@ -33,19 +33,7 @@ from ..matrix.model import Matrix
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from typing import Any, Final
-
-
-HEREDOC_FIELDS: Final[frozenset[str]] = frozenset((
-    "release_notes",
-    "release_notes_with_admonition",
-))
-"""Metadata fields that always use the heredoc format in GitHub Actions output.
-
-These fields can hold characters that break the simple `key=value` format:
-brackets, parentheses, emojis or newlines. So they use the heredoc delimiter
-format even when they hold a single line.
-"""
+    from typing import Any
 
 
 class JSONMetadata(json.JSONEncoder):
@@ -139,6 +127,24 @@ def format_github_value(value: Any) -> str:
     return str(value)
 
 
+def _is_word_list(value: Any) -> bool:
+    """Whether *value* is a list of strings or paths, empty lists included.
+
+    The `github-json` dialect joins such a list into one space-separated string.
+    GitHub Actions turns a JSON array into the word `Array` when an expression
+    splices it into a `run:` or `env:` value, so a file list must arrive as a
+    string. An empty list joins into an empty string, which an `if:` gate reads
+    as false.
+
+    A list of mappings stays a JSON array instead: a workflow hands it to
+    `strategy.matrix.include` as it is, with no second `fromJSON()` to unwrap a
+    string.
+    """
+    return isinstance(value, (list, tuple)) and all(
+        isinstance(item, (str, Path)) for item in value
+    )
+
+
 class Dialect(StrEnum):
     """Output dialect for metadata serialization."""
 
@@ -157,11 +163,9 @@ class Dialect(StrEnum):
             lines = []
             for env_name, value in metadata.items():
                 env_value = format_github_value(value)
-                # A value spanning several lines, or a field that may hold
-                # characters `key=value` cannot carry, goes in a heredoc. That
-                # path also trims a value past the size a consuming step can
-                # receive.
-                if len(env_value.splitlines()) > 1 or env_name in HEREDOC_FIELDS:
+                # A value spanning several lines goes in a heredoc. That path
+                # also trims a value past the size a consuming step can receive.
+                if len(env_value.splitlines()) > 1:
                     lines.append(format_multiline_output(env_name, env_value))
                 else:
                     lines.append(f"{env_name}={env_value}")
@@ -172,18 +176,8 @@ class Dialect(StrEnum):
             # Downstream jobs access values via
             # `fromJSON(needs.metadata.outputs.metadata).key`,
             # eliminating the need for per-key `outputs:` declarations.
-            #
-            # Pre-format list/tuple values via format_github_value(). GitHub
-            # Actions stringifies JSON arrays as "Array" when interpolated in
-            # ${{ }} expressions, so workflows that splice lists into `run:`
-            # or `env:` contexts would receive the literal word "Array".
-            # Matrix objects are excluded: they serialize to JSON objects via
-            # JSONMetadata and are consumed directly in `strategy: matrix:`
-            # blocks, which accept expression objects without string coercion.
             formatted = {
-                key: format_github_value(value)
-                if isinstance(value, (list, tuple))
-                else value
+                key: format_github_value(value) if _is_word_list(value) else value
                 for key, value in metadata.items()
             }
             json_str = json.dumps(formatted, cls=JSONMetadata, separators=(",", ":"))

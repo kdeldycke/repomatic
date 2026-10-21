@@ -66,6 +66,7 @@ from typing import NamedTuple
 from uuid import uuid4
 
 from .. import git_ops
+from ..release.protocol import bump_branch
 from .event import get_default_branch
 from .gh import gh_api_pages, gh_json, parse_create_output, run_gh_command
 from .pr_body import fit_github_body, temp_body_file
@@ -87,6 +88,13 @@ STALE_PR_COMMENT = (
 A retired pull request otherwise closes with no trace on the conversation of
 *why* it closed.
 """
+
+STALE_BUMP_PR_COMMENT = (
+    "Closing stale {part} version-bump PR: `main` already advanced past the "
+    "target version, so this branch no longer represents a valid bump."
+)
+"""Comment left on a version-bump pull request {func}`close_stale_bump_prs`
+retires, with the version part to fill in."""
 
 TEMP_BRANCH_PREFIX = "repomatic/pr-sync-"
 """Namespace for the throwaway local branch a sync builds its commit on.
@@ -222,6 +230,24 @@ def close_open_prs_on_branch(branch: str, comment: str) -> list[int]:
         close_pr(pr["number"], comment)
         closed.append(pr["number"])
     return closed
+
+
+def close_stale_bump_prs(part: str) -> list[int]:
+    """Close the pull request of a version bump that is no longer allowed.
+
+    A scheduled bump that started before a competing push can open its pull
+    request against a `main` that already advanced past the target, leaving an
+    orphan that later runs cannot refresh. The caller decides the bump is no
+    longer allowed, then this deletes the branch with its pull request.
+
+    Idempotent: a no-op when no open pull request exists on the branch.
+
+    :param part: The version part whose bump branch to retire.
+    :return: The numbers of the pull requests closed.
+    """
+    return close_open_prs_on_branch(
+        bump_branch(part), comment=STALE_BUMP_PR_COMMENT.format(part=part)
+    )
 
 
 def _needs_push(

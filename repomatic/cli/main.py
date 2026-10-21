@@ -175,11 +175,17 @@ COMMANDS: dict[str, LazySubcommand] = {
         "repomatic.cli.deps.sync_workflow_pins", section=_section_sync
     ),
     # Release & versioning.
+    "bump-version": LazySubcommand(
+        "repomatic.cli.release.bump_version_cmd", section=_section_release
+    ),
     "changelog": LazySubcommand(
         "repomatic.cli.release.changelog", section=_section_release
     ),
-    "close-stale-bump-pr": LazySubcommand(
-        "repomatic.cli.github.close_stale_bump_pr", section=_section_release
+    "create-release": LazySubcommand(
+        "repomatic.cli.release.create_release_cmd", section=_section_release
+    ),
+    "detect-squash-merge": LazySubcommand(
+        "repomatic.cli.release.detect_squash_merge", section=_section_release
     ),
     "git-tag": LazySubcommand(
         "repomatic.cli.release.git_tag", section=_section_release
@@ -189,6 +195,9 @@ COMMANDS: dict[str, LazySubcommand] = {
     ),
     "pack-binaries": LazySubcommand(
         "repomatic.cli.release.pack_binaries", section=_section_release
+    ),
+    "pack-manpages": LazySubcommand(
+        "repomatic.cli.release.pack_manpages_cmd", section=_section_release
     ),
     "pack-plugin": LazySubcommand(
         "repomatic.cli.release.pack_plugin_cmd", section=_section_release
@@ -201,6 +210,9 @@ COMMANDS: dict[str, LazySubcommand] = {
     ),
     "verify-binary": LazySubcommand(
         "repomatic.cli.release.verify_binary", section=_section_release
+    ),
+    "wait-pypi": LazySubcommand(
+        "repomatic.cli.release.wait_pypi", section=_section_release
     ),
     # GitHub issues & PRs.
     "apply-labels": LazySubcommand(

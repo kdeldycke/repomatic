@@ -76,7 +76,7 @@ It also fixed a silent bug the old shape could only warn about. `github/issue-la
 
 That action was the last third-party one entrusted with `REPOMATIC_PAT`, a token carrying workflow-write scope, which made it the largest remaining trust delegation on this page. It was nonetheless SHA-pinned with bumps gated on [`minimum-release-age`](dependencies.md) by `sync-action-pins`, so the supply-chain gain is real but bounded: a compromised release could not have reached a build until it had been public for the cooldown window and a maintainer had merged the bump.
 
-The concrete win is elsewhere. The action's cleanup only ran when the action ran, and a job behind an `if:` gate skips its own steps, leaving a branch and pull request nobody retires: `repomatic close-stale-bump-pr` exists to patch exactly that hole. `pr-sync` decides internally instead, so one command covers the create, update, no-op and close cases.
+The concrete win is elsewhere. The action's cleanup only ran when the action ran, and a job behind an `if:` gate skips its own steps, leaving a branch and pull request nobody retires. `pr-sync` decides internally instead, so one command covers the create, update, no-op and close cases, and `bump-version` closes the pull request of a bump that is no longer allowed.
 
 Owning both ends also collapsed the plumbing: each job used to render its body with `repomatic pr-body`, squeeze it through a `$GITHUB_OUTPUT` step output (a 32 KiB ceiling), and relay it into the action via `env:`. `pr-sync --template X` renders internally, so the relay, its size ceiling, and the per-step `env:` blocks are gone, and the branch, labels and draft state derive from the template's own frontmatter.
 
@@ -139,7 +139,7 @@ Workflows are grouped by:
 - **Pull requests**: `{workflow-name}-{pr-number}` — Multiple commits to the same PR cancel previous runs
 - **Branch pushes**: `{workflow-name}-{branch-ref}` — Multiple pushes to the same branch cancel previous runs
 
-`release.yaml` uses a stronger protection: release commits get a **unique concurrency group** based on the commit SHA, so they can never be cancelled. This ensures tagging, PyPI publishing, and GitHub release creation complete successfully.
+`release.yaml` uses a stronger protection: release commits get a **unique concurrency group** based on the commit SHA, so they can never be cancelled. This ensures tagging, PyPI publishing, and GitHub release creation complete successfully. `tests.yaml` gives a release push the same group of its own, so the one post-merge test of the release tree runs to completion.
 
 Additionally, [`cancel-runs.yaml`](workflows.md#github-workflows-cancel-runs-yaml-jobs) actively cancels in-progress and queued runs when a PR is closed. This complements passive concurrency groups, which only trigger cancellation when a *new* run enters the same group — closing a PR doesn't produce such an event.
 

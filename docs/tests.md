@@ -58,12 +58,14 @@
    tests.test_lint_changelog
    tests.test_lint_repo
    tests.test_mailmap
+   tests.test_manpages
    tests.test_markdown
    tests.test_matrix
    tests.test_metadata
    tests.test_metadata_git
    tests.test_metrics
    tests.test_npm
+   tests.test_nuitka
    tests.test_outputs
    tests.test_pages_redirects
    tests.test_platform_keys
@@ -77,6 +79,7 @@
    tests.test_pyproject
    tests.test_readme
    tests.test_release_sync
+   tests.test_release_workflow_steps
    tests.test_releases
    tests.test_runner_catalog
    tests.test_runner_sync

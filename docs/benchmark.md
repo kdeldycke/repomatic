@@ -51,7 +51,7 @@ For config file sync, `copier` and `cruft` sync files only as part of a full tem
 | Template staleness checking     |             |                    |                        |      ✓       |      ✓      |               |                 |                |                     |                 |
 | Dangerous workflow detection    |      ✓      |                    |                        |              |             |       ✓       |                 |                |                     |                 |
 
-`repomatic` invokes 15+ tools (ruff, mypy, mdformat, shfmt, typos, biome, yamllint, actionlint, zizmor, lychee, gitleaks, oxipng, pyproject-fmt, labelmaker, autopep8, awesome-lint) through a unified `repomatic run <tool>` interface with automatic installation, platform-specific binary caching, and 4-level config precedence. No other tool in this benchmark bundles code quality tooling.
+`repomatic` invokes 15+ tools (ruff, mypy, mdformat, shfmt, typos, biome, yamllint, actionlint, zizmor, lychee, gitleaks, oxipng, pyproject-fmt, labelmaker, autopep8, awesome-lint, shellcheck) through a unified `repomatic run <tool>` interface with automatic installation, platform-specific binary caching, and 4-level config precedence. No other tool in this benchmark bundles code quality tooling.
 
 `allstar`'s security checks focus on repository-level policies (branch protection compliance, dangerous workflow patterns, binary artifacts in source) rather than linting individual files.
 

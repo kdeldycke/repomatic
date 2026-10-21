@@ -58,9 +58,12 @@ name: 📚 Docs
 
 permissions: {}
 
+# A newer run always supersedes an older one: its deploy publishes a later tree.
+# Sparing the run of a release push would let its deploy finish last and put the
+# older site back live.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.event.head_commit.message, '[changelog] Release') }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 # Supply-chain cooldown: no package published within the window can be resolved by
 # any command in this workflow. Set here, not per command, so it also covers the
@@ -92,8 +95,7 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
-          is_python_project is_sphinx doc_files sphinx_builder
-          site_deploy site_cloudflare_project
+          builds_sphinx doc_files sphinx_builder site_deploy cloudflare_project
 
   deploy-docs:
     name: 📖 Deploy Sphinx doc
@@ -103,10 +105,10 @@ jobs:
     # instead. Two jobs rather than one with conditional steps: each host wants
     # different permissions, and GitHub Pages needs a job-level `environment:`
     # that would be a lie on the other path. Only ever one of them runs, so the
-    # build is never done twice.
+    # build is never done twice. Both jobs run the same two build steps, defined
+    # once here as YAML anchors.
     if: >-
-      fromJSON(needs.metadata.outputs.metadata).is_python_project
-      && fromJSON(needs.metadata.outputs.metadata).is_sphinx
+      fromJSON(needs.metadata.outputs.metadata).builds_sphinx
       && fromJSON(needs.metadata.outputs.metadata).site_deploy == 'github-pages'
     runs-on: ubuntu-26.04
     # Wider than the default: this job provisions a toolchain, so its runtime tracks how much it has to install.
@@ -122,31 +124,32 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
-      - name: Install Graphviz and mandoc
-        # Graphviz: backs the sphinx.ext.graphviz directive.
-        # See: https://www.sphinx-doc.org/en/master/usage/extensions/graphviz.html
-        # mandoc: renders the roff `.1` files written by the
-        # click_extra.sphinx.manpages hook into the browser-viewable
-        # `.html` siblings the docs site links to. Skipped silently when
-        # the hook is not opted in.
-        # fonts-liberation is graphviz's only Recommends (via the transitional
-        # fonts-liberation2), and an image that ships no fonts of its own would
-        # otherwise lose it: naming it here keeps diagram labels rendering
-        # whatever the base image carries, while --no-install-recommends stops
-        # apt pulling anything else unasked.
+      # Graphviz: backs the sphinx.ext.graphviz directive.
+      # See: https://www.sphinx-doc.org/en/master/usage/extensions/graphviz.html
+      # mandoc: renders the roff `.1` files written by the
+      # click_extra.sphinx.manpages hook into the browser-viewable
+      # `.html` siblings the docs site links to. Skipped silently when
+      # the hook is not opted in.
+      # fonts-liberation is graphviz's only Recommends (via the transitional
+      # fonts-liberation2), and an image that ships no fonts of its own would
+      # otherwise lose it: naming it here keeps diagram labels rendering
+      # whatever the base image carries, while --no-install-recommends stops
+      # apt pulling anything else unasked.
+      - &install-docs-toolchain
+        name: Install Graphviz and mandoc
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             fonts-liberation graphviz mandoc
-      - name: Build documentation
+      - &build-docs
+        name: Build documentation
         # Install --all-extras so documentation can cover all features of the project, including the optional ones.
         # The builder is `[tool.repomatic] sphinx.builder`, defaulting to `html`:
         # a project serving extension-less URLs sets it to `dirhtml`.
         # It travels through the environment rather than being interpolated
-        # into the command, like DOC_FILES below: the value is whatever the
-        # repository's own `pyproject.toml` holds, so expanding it inline would
-        # let a `pull_request`-triggered caller run a fork's string as shell
-        # code.
+        # into the command: the value is whatever the repository's own
+        # `pyproject.toml` holds, and `${{ }}` in a `run:` body is substituted
+        # into the script before the shell sees it.
         # `-d` keeps Sphinx's pickled parse cache out of the published tree. It
         # otherwise defaults to `<outdir>/.doctrees`, which the upload below then
         # ships: on a project with autodoc-heavy pages that was 118 MB of a 182 MB
@@ -175,8 +178,7 @@ jobs:
     needs:
       - metadata
     if: >-
-      fromJSON(needs.metadata.outputs.metadata).is_python_project
-      && fromJSON(needs.metadata.outputs.metadata).is_sphinx
+      fromJSON(needs.metadata.outputs.metadata).builds_sphinx
       && fromJSON(needs.metadata.outputs.metadata).site_deploy == 'cloudflare-pages'
     runs-on: ubuntu-26.04
     # Same toolchain as the job above, so the same wider cap.
@@ -190,21 +192,8 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
-      - name: Install Graphviz and mandoc
-        # Same reasons as the GitHub Pages job above.
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            fonts-liberation graphviz mandoc
-      - name: Build documentation
-        # Same invocation as the GitHub Pages job above, comments included.
-        env:
-          SPHINX_BUILDER: ${{ fromJSON(needs.metadata.outputs.metadata).sphinx_builder }}
-        run: >
-          uv --no-progress run --frozen --all-extras --group docs --
-          sphinx-build -b "$SPHINX_BUILDER"
-          -d "${{ runner.temp }}/sphinx-doctrees"
-          ./docs ./docs/_build
+      - *install-docs-toolchain
+      - *build-docs
       - name: Offload files over the Pages upload limit
         id: offload
         # Direct Upload rejects any file over 25 MiB, and `wrangler` fails the
@@ -212,19 +201,18 @@ jobs:
         # bucket `site.cloudflare-r2-bucket` declares, with a redirect from its
         # old path. A file that cannot move is dropped with an error annotation,
         # and the step fails; `continue-on-error` lets the deploy below publish
-        # everything else first, and the last step then fails the job.
+        # everything else first, and the last step then fails the job. The
+        # offload table goes to the step summary. The command resolves the
+        # project the deploy below reads from `cloudflare_project`.
         # See repomatic/cloudflare/r2.py for rationale.
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
           CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
-          PROJECT_NAME: >-
-            ${{ fromJSON(needs.metadata.outputs.metadata).site_cloudflare_project
-            || github.event.repository.name }}
         run: >
           uv --no-progress run --frozen -- repomatic cloudflare-r2
-          --offload ./docs/_build --project "$PROJECT_NAME"
+          --offload ./docs/_build --output "$GITHUB_STEP_SUMMARY"
       - name: Deploy to Cloudflare Pages
         # Direct Upload: the tree built above is what reaches the edge, so
         # Cloudflare never builds anything and needs no access to this
@@ -239,9 +227,7 @@ jobs:
         # `run:` body is substituted into the script before the shell sees it.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          PROJECT_NAME: >-
-            ${{ fromJSON(needs.metadata.outputs.metadata).site_cloudflare_project
-            || github.event.repository.name }}
+          PROJECT_NAME: ${{ fromJSON(needs.metadata.outputs.metadata).cloudflare_project }}
           REF_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
         run: >
@@ -282,16 +268,11 @@ jobs:
         with:
           version: "0.13.0"
       - name: Compare live project against declared state
-        # Same project resolution as the deploy job above, spelled out so the
-        # two jobs visibly address one project.
+        # The command resolves the project the deploy job above reads from
+        # `cloudflare_project`, so the two jobs address one project.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          SITE_PROJECT: >-
-            ${{ fromJSON(needs.metadata.outputs.metadata).site_cloudflare_project
-            || github.event.repository.name }}
-        run: >
-          uv --no-progress run --frozen -- repomatic cloudflare-pages
-          --project "$SITE_PROJECT" --check
+        run: uv --no-progress run --frozen -- repomatic cloudflare-pages --check
 
   check-broken-links:
     name: 💔 Check broken links
@@ -299,16 +280,13 @@ jobs:
       - metadata
     permissions:
       issues: write
-    # Skip all PRs as we won't have permissions to create issues.
     # Skip the prepare-release branch as it contains URLs pointing to tags that don't exist yet.
     # Skip any push containing a post-release bump commit as a precautionary measure.
     if: >
-      github.event_name != 'pull_request'
-      && github.ref != 'refs/heads/prepare-release'
+      github.ref != 'refs/heads/prepare-release'
       && (! contains(toJSON(github.event.commits.*.message), '[changelog] Post-release bump'))
       && (fromJSON(needs.metadata.outputs.metadata).doc_files
-        || (fromJSON(needs.metadata.outputs.metadata).is_python_project
-          && fromJSON(needs.metadata.outputs.metadata).is_sphinx))
+        || fromJSON(needs.metadata.outputs.metadata).builds_sphinx)
     # ARM rather than the x86 axis: this crawl's runtime is dominated by remote
     # servers' throttling and grows with every release (each adds a dozen URLs
     # to the binaries page), so it wants the fastest Linux image available. It
@@ -334,9 +312,7 @@ jobs:
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-lychee-
       - name: Install Graphviz
-        if: >
-          fromJSON(needs.metadata.outputs.metadata).is_python_project
-          && fromJSON(needs.metadata.outputs.metadata).is_sphinx
+        if: fromJSON(needs.metadata.outputs.metadata).builds_sphinx
         # So we can use the sphinx.ext.graphviz plugin.
         # See: https://www.sphinx-doc.org/en/master/usage/extensions/graphviz.html
         # fonts-liberation named explicitly: see the deploy-docs job above.
@@ -344,9 +320,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends fonts-liberation graphviz
       - name: Run Sphinx linkcheck
-        if: >
-          fromJSON(needs.metadata.outputs.metadata).is_python_project
-          && fromJSON(needs.metadata.outputs.metadata).is_sphinx
+        if: fromJSON(needs.metadata.outputs.metadata).builds_sphinx
         # Do not use -W: we parse output.json directly instead of relying on exit codes.
         # GitHub throttles anonymous crawls to ~1 request/minute, enough to blow a
         # capped runner's job budget on link-heavy repos (the runner kills the whole
@@ -359,39 +333,12 @@ jobs:
           uv --no-progress run --frozen --all-extras --group docs --
           sphinx-build -b linkcheck ./docs ./docs/_linkcheck
         continue-on-error: true
-      - name: Run lychee
-        if: fromJSON(needs.metadata.outputs.metadata).doc_files
-        id: lychee_run
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          DOC_FILES: ${{ fromJSON(needs.metadata.outputs.metadata).doc_files }}
-        # xargs splits the list and does nothing else. It must not be what launches
-        # lychee: xargs answers any child status in 1..125 with 123 of its own, so
-        # lychee's 2 ("broken links found") reaches `repomatic broken-links` looking
-        # exactly like a crash, and a real report gets filed as a tool failure and
-        # dropped. Batching is the second casualty, since each batch writes the same
-        # --output path and only the last one survives. Handing the split to `printf
-        # '%s\0'` keeps xargs on an operation that cannot fail, and the single
-        # invocation below then carries back both the status and the whole report.
-        #
-        # The split cannot be `eval "set -- ${DOC_FILES}"`: metadata wraps each path
-        # in bare double quotes with no escaping, so a filename containing $(...)
-        # would execute. xargs expands neither that nor backticks.
-        run: |
-          exit_code=0
-          files=()
-          while IFS= read -r -d '' f; do files+=("$f"); done \
-            < <(echo "${DOC_FILES}" | xargs printf '%s\0')
-          uv --no-progress run --frozen -- repomatic run lychee -- \
-            --format markdown --output ./lychee/out.md \
-            --hidden --suggest --no-progress --include-fragments --exclude-all-private \
-            "${files[@]}" \
-            || exit_code=$?
-          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
       - name: Manage broken links issue
+        # The command runs lychee itself over the documentation files, reads the
+        # Sphinx linkcheck output above, and files, updates or closes the issue.
+        # lychee reads GITHUB_TOKEN to lift GitHub's rate limit on its checks.
+        # See repomatic/broken_links.py for rationale.
         env:
           GH_TOKEN: ${{ github.token }}
-          LYCHEE_EXIT_CODE: ${{ steps.lychee_run.outputs.exit_code }}
-        run: |
-          uv --no-progress run --frozen -- repomatic broken-links \
-            ${LYCHEE_EXIT_CODE:+--lychee-exit-code "${LYCHEE_EXIT_CODE}"}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv --no-progress run --frozen -- repomatic broken-links

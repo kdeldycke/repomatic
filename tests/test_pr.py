@@ -33,6 +33,7 @@ from repomatic.github.pr import (
     carry_pr_branch_paths,
     close_open_prs_on_branch,
     close_pr,
+    close_stale_bump_prs,
     list_changed_files,
     list_open_prs_by_branch,
     upsert_pr,
@@ -141,6 +142,20 @@ def test_close_open_prs_on_branch_closes_every_match():
     close_args = [call.args[0] for call in mock_close.call_args_list]
     assert close_args[0][:3] == ["pr", "close", "11"]
     assert close_args[1][:3] == ["pr", "close", "22"]
+
+
+@pytest.mark.parametrize("part", ("minor", "major"))
+def test_close_stale_bump_prs_retires_the_bump_branch(part):
+    """The pull request of a bump no longer allowed closes, saying why."""
+    with patch("repomatic.github.pr.close_open_prs_on_branch") as mock_close:
+        mock_close.return_value = [42]
+        assert close_stale_bump_prs(part) == [42]
+    (branch,) = mock_close.call_args.args
+    assert branch == f"{part}-version-increment"
+    assert (
+        f"Closing stale {part} version-bump PR"
+        in mock_close.call_args.kwargs["comment"]
+    )
 
 
 @pytest.mark.parametrize(

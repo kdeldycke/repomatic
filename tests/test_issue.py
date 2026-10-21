@@ -184,6 +184,53 @@ def test_lifecycle_trims_oversized_body_before_writing():
     assert "> Report truncated to fit GitHub's body size limit." in fitted
 
 
+@pytest.mark.parametrize(
+    ("listing", "expected_number", "expected_verbs"),
+    (
+        pytest.param([], 7, ["list", "create"], id="created"),
+        pytest.param([_issue(42, "2025-01-01")], 42, ["list", "edit"], id="updated"),
+    ),
+)
+def test_lifecycle_returns_the_issue_it_keeps(listing, expected_number, expected_verbs):
+    """The number of the issue the condition lives in comes back to the caller.
+
+    A new issue gets the assignees: an existing one keeps the assignees it has,
+    so a re-run updates it instead of opening a second one.
+    """
+    calls: list[list[str]] = []
+
+    def fake_gh(args):
+        calls.append(list(args))
+        if args[:2] == ["issue", "list"]:
+            return json.dumps(listing)
+        if args[:2] == ["issue", "create"]:
+            return "https://github.com/user/repo/issues/7\n"
+        return ""
+
+    with patch_every_gh(side_effect=fake_gh):
+        number = manage_issue_lifecycle(
+            has_issues=True,
+            body="The crate is empty.",
+            labels=[],
+            title=TITLE,
+            assignees=("kevin",),
+        )
+
+    assert number == expected_number
+    assert [call[1] for call in calls] == expected_verbs
+    created = [call for call in calls if call[1] == "create"]
+    for call in created:
+        assert call[call.index("--assignee") + 1] == "kevin"
+
+
+def test_lifecycle_returns_nothing_when_no_issue_is_needed():
+    with patch_every_gh(return_value="[]"):
+        assert (
+            manage_issue_lifecycle(has_issues=False, body="", labels=[], title=TITLE)
+            is None
+        )
+
+
 def test_lifecycle_targets_the_repository_given():
     """Every call of the lifecycle names the repository, when one is given."""
     listing = json.dumps([_issue(42, "2025-01-01")])

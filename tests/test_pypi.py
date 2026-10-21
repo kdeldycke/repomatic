@@ -26,7 +26,9 @@ from unittest.mock import MagicMock, patch
 from urllib.error import URLError
 
 import pytest
+from click_extra.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.pypi import (
     PYPI_TRUSTED_PUBLISHER_SETTINGS_URL,
     TrustedPublisher,
@@ -35,6 +37,8 @@ from repomatic.pypi import (
     get_trusted_publishers,
     pypi_release_dates,
     pypi_trusted_publisher_settings_url,
+    sdist_name_version,
+    wait_for_release,
 )
 from tests.conftest import FakeResponse
 
@@ -392,3 +396,76 @@ def test_settings_url_url_encodes_unsafe_characters():
     )
     assert "owner=alice+%26+bob" in url
     assert "environment=staging%2Fedge" in url
+
+
+def _dist_dir(tmp_path, *names: str):
+    """A directory holding empty distributions named *names*."""
+    for name in names:
+        (tmp_path / name).touch()
+    return tmp_path
+
+
+def test_sdist_name_version_splits_on_the_last_hyphen(tmp_path):
+    """A normalized name holds no hyphen, so the last one splits it off."""
+    dist_dir = _dist_dir(
+        tmp_path,
+        "meta_package_manager-6.2.0-py3-none-any.whl",
+        "meta_package_manager-6.2.0.tar.gz",
+    )
+    assert sdist_name_version(dist_dir) == ("meta_package_manager", "6.2.0")
+
+
+@pytest.mark.parametrize(
+    ("names", "message"),
+    (
+        (("papaya-1.0.0-py3-none-any.whl",), "holds no sdist"),
+        (("papaya.tar.gz",), "Cannot read a project name"),
+    ),
+)
+def test_sdist_name_version_rejects(tmp_path, names, message):
+    with pytest.raises(ValueError, match=message):
+        sdist_name_version(_dist_dir(tmp_path, *names))
+
+
+def test_wait_for_release_polls_until_the_version_answers():
+    """Each lookup reads the version endpoint afresh, waiting between two."""
+    answers = [None, None, {"info": {"version": "1.0.0"}}]
+    with (
+        patch("repomatic.pypi.get_json_soft", side_effect=answers) as lookup,
+        patch("repomatic.pypi.time.sleep") as sleep,
+    ):
+        assert wait_for_release("papaya", "1.0.0", attempts=5, delay=15) == 3
+    assert lookup.call_args.args[0] == "https://pypi.org/pypi/papaya/1.0.0/json"
+    assert [call.args for call in sleep.call_args_list] == [(15,), (15,)]
+
+
+def test_wait_for_release_gives_up_without_a_last_wait():
+    with (
+        patch("repomatic.pypi.get_json_soft", return_value=None) as lookup,
+        patch("repomatic.pypi.time.sleep") as sleep,
+    ):
+        assert wait_for_release("papaya", "1.0.0", attempts=3, delay=15) is None
+    assert lookup.call_count == 3
+    assert sleep.call_count == 2
+
+
+@pytest.mark.parametrize(
+    ("answers", "exit_code", "message"),
+    (
+        ([None, {"info": {}}], 0, "Visible after 2 attempt(s) (~5s)."),
+        ([None, None], 1, "papaya 1.0.0 was not visible on PyPI after 2 lookups."),
+    ),
+)
+def test_wait_pypi_cli(tmp_path, answers, exit_code, message):
+    """The command reads the release off the sdist and reports how it went."""
+    dist_dir = _dist_dir(tmp_path, "papaya-1.0.0.tar.gz")
+    with (
+        patch("repomatic.pypi.get_json_soft", side_effect=answers),
+        patch("repomatic.pypi.time.sleep"),
+    ):
+        result = CliRunner().invoke(
+            repomatic,
+            ["wait-pypi", "--dir", str(dist_dir), "--attempts", "2", "--delay", "5"],
+        )
+    assert result.exit_code == exit_code, result.output
+    assert message in result.output

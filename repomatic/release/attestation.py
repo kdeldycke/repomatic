@@ -28,7 +28,8 @@ multi-subject case.
 
 ```{note}
 The signing itself stays in `actions/attest`: it needs the job's OIDC token, so
-it cannot move here. This module runs immediately after it, in the same job.
+it cannot move here. This module runs immediately after it, in the same job,
+and checks the provenance back through {func}`verify_attestation`.
 ```
 """
 
@@ -37,12 +38,16 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 import shutil
 from pathlib import Path
 
+from ..github.gh import run_gh_command
+from ..upstream import DEFAULT_REPO
+
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
     from typing import Final
 
 ATTESTATION_SUFFIX: Final[str] = ".attestation.json"
@@ -183,3 +188,44 @@ def pack_attestation(
     target = asset_dir / bundle_filename(subjects, set_name)
     shutil.copy2(bundle_path, target)
     return sorted({*assets, target})
+
+
+def missing_subjects(bundle_path: Path, expected: Iterable[str]) -> list[str]:
+    """Name the *expected* files a bundle does not attest.
+
+    The release workflow attests the extra assets a consumer declares in
+    `[tool.repomatic] release-assets`. A declared file whose run artifact never
+    landed is absent from the bundle, and the release must not publish without
+    it: an immutable release can never gain the asset afterwards.
+
+    :param bundle_path: The bundle `actions/attest` wrote.
+    :param expected: The filenames the bundle must attest.
+    :return: The missing filenames, sorted.
+    """
+    subjects = set(bundle_subjects(bundle_path))
+    return sorted(set(expected) - subjects)
+
+
+def verify_attestation(path: Path, repository: str) -> None:
+    """Check the provenance of an attested release asset.
+
+    Runs `gh attestation verify` against the attestations GitHub stores for
+    *repository*, requiring the signing workflow to come from the upstream
+    repository: every attestation of the release workflow is signed by its
+    reusable lanes, wherever the release runs.
+
+    :param path: The attested file.
+    :param repository: The repository the release belongs to, in `owner/name`
+        form.
+    :raises GhCommandError: When the verification fails.
+    """
+    run_gh_command([
+        "attestation",
+        "verify",
+        str(path),
+        "--repo",
+        repository,
+        "--signer-repo",
+        DEFAULT_REPO,
+    ])
+    logging.info(f"Verified the attestation of {path.name}.")

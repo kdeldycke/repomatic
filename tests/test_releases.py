@@ -31,13 +31,16 @@ from repomatic.github.releases import (
     GitHubRelease,
     GitHubReleasesUnavailable,
     ReleaseNotesRequest,
+    create_release,
     dev_release_url_and_previous_version,
     edit_release_notes,
     extract_version,
     fetch_github_release_notes,
     get_github_releases,
     get_release_tags,
+    release_exists,
     release_review_steps,
+    upload_release_files,
 )
 from tests.conftest import FakeResponse
 
@@ -430,6 +433,102 @@ def test_edit_release_notes_raises_on_a_transient_failure():
         pytest.raises(GhCommandError, match="502"),
     ):
         edit_release_notes("v1.2.3", "user/repo", "body")
+
+
+# --- release_exists(), create_release() and upload_release_files() ---
+
+
+@pytest.mark.parametrize(
+    ("side_effect", "expected"),
+    (
+        pytest.param(['{"tagName": "v1.2.3"}'], True, id="found"),
+        pytest.param([GhCommandError("release not found")], False, id="missing"),
+    ),
+)
+def test_release_exists(side_effect, expected):
+    with patch(
+        "repomatic.github.releases.run_gh_command", side_effect=side_effect
+    ) as mock_gh:
+        assert release_exists("v1.2.3", "user/repo") is expected
+    mock_gh.assert_called_once_with([
+        "release",
+        "view",
+        "v1.2.3",
+        "--repo",
+        "user/repo",
+        "--json",
+        "tagName",
+    ])
+
+
+def test_release_exists_raises_on_a_transient_failure():
+    """A failed lookup is no absence: reading it as one duplicates the release."""
+    with (
+        patch(
+            "repomatic.github.releases.run_gh_command",
+            side_effect=GhCommandError("gh: Server Error (HTTP 502)"),
+        ),
+        pytest.raises(GhCommandError, match="502"),
+    ):
+        release_exists("v1.2.3", "user/repo")
+
+
+def test_create_release_creates_a_draft_with_its_assets(tmp_path):
+    wheel = tmp_path / "papaya-1.2.3-py3-none-any.whl"
+    with patch(
+        "repomatic.github.releases.run_gh_command",
+        side_effect=[GhCommandError("release not found"), ""],
+    ) as mock_gh:
+        created = create_release(
+            "v1.2.3", "user/repo", target="abc123", notes="Notes.", files=[wheel]
+        )
+    assert created is True
+    assert mock_gh.call_args.args[0] == [
+        "release",
+        "create",
+        "v1.2.3",
+        "--draft",
+        "--target",
+        "abc123",
+        "--title",
+        "v1.2.3",
+        "--repo",
+        "user/repo",
+        "--notes",
+        "Notes.",
+        str(wheel),
+    ]
+
+
+def test_create_release_leaves_an_existing_release_alone():
+    """A re-run finds the release its first attempt created."""
+    with patch(
+        "repomatic.github.releases.run_gh_command", return_value='{"tagName": "v1"}'
+    ) as mock_gh:
+        created = create_release("v1.2.3", "user/repo", target="abc123", notes="")
+    assert created is False
+    assert mock_gh.call_count == 1
+
+
+def test_upload_release_files_replaces_same_named_assets(tmp_path):
+    files = [tmp_path / "papaya-linux-x64.bin", tmp_path / "papaya.zip"]
+    with patch("repomatic.github.releases.run_gh_command") as mock_gh:
+        upload_release_files("v1.2.3", "user/repo", files)
+    mock_gh.assert_called_once_with([
+        "release",
+        "upload",
+        "v1.2.3",
+        *map(str, files),
+        "--repo",
+        "user/repo",
+        "--clobber",
+    ])
+
+
+def test_upload_release_files_without_files_calls_nothing():
+    with patch("repomatic.github.releases.run_gh_command") as mock_gh:
+        upload_release_files("v1.2.3", "user/repo", [])
+    mock_gh.assert_not_called()
 
 
 def _asset_payload(

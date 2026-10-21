@@ -55,7 +55,7 @@ rename-from = ["duplicate"]
 name = "✨ enhancement"
 color = "1d76db"
 description = "New feature or improvement to an existing one"
-rename-from = ["enhancement", "🎁 feature request"]
+rename-from = ["enhancement"]
 
 [[profiles.default.labels]]
 name = "🌱 good first issue"

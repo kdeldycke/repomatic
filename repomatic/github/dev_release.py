@@ -48,7 +48,7 @@ from ..release.binary import BINARY_ASSET_SUFFIXES, PYTHON_DIST_SUFFIXES
 from ..versions import DEV_SUFFIX_RE
 from .gh import gh_json, run_gh_command
 from .release_sync import build_expected_body
-from .releases import edit_release_notes
+from .releases import edit_release_notes, upload_release_files
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -263,16 +263,7 @@ def upload_release_assets(
     deleted = _delete_release_assets(tag, repository)
     logging.debug(f"Deleted {deleted} existing assets before upload.")
 
-    file_args = [str(f) for f in files]
-    run_gh_command([
-        "release",
-        "upload",
-        tag,
-        *file_args,
-        "--repo",
-        repository,
-        "--clobber",
-    ])
+    upload_release_files(tag, repository, files)
     return files
 
 

@@ -334,6 +334,26 @@ def emit_annotation(level: AnnotationLevel, message: str) -> None:
     print(f"::{level.value}::{message}")
 
 
+def add_problem_matcher(path: Path) -> None:
+    """Register the problem matcher at *path* with the GitHub Actions runner.
+
+    The runner reads the file when it processes the command, so the file must
+    outlast the process that prints it. The command is flushed at once: a tool
+    started next writes its findings to the same stream, and the runner must
+    read the command before the first of them.
+
+    ```{seealso}
+    https://github.com/actions/toolkit/blob/main/docs/problem-matchers.md
+    ```
+    """
+    print(f"::add-matcher::{path}", flush=True)
+
+
+def remove_problem_matcher(owner: str) -> None:
+    """Unregister the problem matcher of *owner* from the GitHub Actions runner."""
+    print(f"::remove-matcher owner={owner}::", flush=True)
+
+
 def report_finding(level: AnnotationLevel, message: str) -> None:
     """Report one finding in the log and as a workflow annotation.
 

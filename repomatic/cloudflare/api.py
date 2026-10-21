@@ -64,8 +64,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from typing import Any, Final
 
-    from ..config import Config
-
 API_ROOT: Final = "https://api.cloudflare.com/client/v4"
 """Cloudflare v4 API root every call is relative to."""
 
@@ -379,12 +377,12 @@ def zone_for(domain: str, token: str) -> dict[str, Any] | None:
     return None
 
 
-def resolve_project(config: Config, project: str | None = None) -> str:
+def resolve_project(project: str | None = None) -> str:
     """Name the Pages project a command acts on.
 
-    :param config: The `[tool.repomatic]` configuration.
     :param project: The project the caller named, if any.
-    :return: *project*, else `site.cloudflare-project`, else the repository
-        name. Empty when none of them names a project.
+    :return: *project*, else the
+        {attr}`~repomatic.metadata.core.Metadata.cloudflare_project` the deploy
+        job reads too. Empty when neither names a project.
     """
-    return project or config.site_cloudflare_project or Metadata().repo_name or ""
+    return project or Metadata().cloudflare_project

@@ -24,11 +24,12 @@ and the {mod}`repomatic.deps.report` release-notes helper build on top of these
 reads, and so do the review steps of the prepare-release checklist
 ({func}`release_review_steps`).
 
-One write helper lives here too: {func}`edit_release_notes`, the shared
+The write helpers live here too, so every release writer carries the same
+arguments and failure contract: {func}`edit_release_notes`, the shared
 `gh release edit` path behind the dev pre-release sync
 ({mod}`repomatic.github.dev_release`) and the changelog-to-release-notes sync
-({mod}`repomatic.github.release_sync`), so both writers carry the same
-arguments and failure contract.
+({mod}`repomatic.github.release_sync`), {func}`create_release` behind the
+release draft, and {func}`upload_release_files` behind every asset upload.
 """
 
 from __future__ import annotations
@@ -47,7 +48,8 @@ from .urls import parse_github_repo
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
+    from pathlib import Path
 
     from packaging.version import Version
 
@@ -498,12 +500,121 @@ def edit_release_notes(
     try:
         run_gh_command(args)
     except GhCommandError as error:
-        if error.status == 404 or RELEASE_NOT_FOUND_MARKER in error.stderr:
+        if _is_missing_release(error):
             logging.debug(f"No release carries {tag} in {repository}.")
             return False
         logging.warning(f"Could not edit the release notes of {tag}: {error}")
         raise
     return True
+
+
+def _is_missing_release(error: GhCommandError) -> bool:
+    """Whether a failed `gh release` command says the release does not exist."""
+    return error.status == 404 or RELEASE_NOT_FOUND_MARKER in error.stderr
+
+
+def release_exists(tag: str, repository: str) -> bool:
+    """Whether *repository* has a release for *tag*, draft or published.
+
+    :param tag: Git tag name of the release (like `v1.2.3`).
+    :param repository: GitHub repository in `owner/name` form.
+    :raises GhCommandError: When the lookup fails for another reason than an
+        absent release. A transient failure is not an absence: a caller reading
+        it as one would create a second release for the same tag.
+    """
+    try:
+        run_gh_command([
+            "release",
+            "view",
+            tag,
+            "--repo",
+            repository,
+            "--json",
+            "tagName",
+        ])
+    except GhCommandError as error:
+        if _is_missing_release(error):
+            return False
+        raise
+    return True
+
+
+def create_release(
+    tag: str,
+    repository: str,
+    *,
+    target: str,
+    notes: str,
+    files: Sequence[Path] = (),
+) -> bool:
+    """Create the release draft of *tag*, unless a release already carries it.
+
+    The draft is titled after its tag, targets *target*, and starts with
+    *files* attached. It stays a draft: assets can still be added to it, and
+    publishing it is the last step of the release, after which an immutable
+    release locks them.
+
+    Idempotent: a release that already exists, from an earlier attempt of the
+    same run, is left as it is.
+
+    :param tag: Git tag name of the release (like `v1.2.3`).
+    :param repository: GitHub repository in `owner/name` form.
+    :param target: The commit the tag points at, created with the release when
+        the tag does not exist yet.
+    :param notes: The release notes.
+    :param files: Assets to attach.
+    :return: `True` when the draft was created, `False` when a release
+        already carried *tag*.
+    :raises GhCommandError: When the lookup or the creation fails.
+    """
+    if release_exists(tag, repository):
+        logging.info(f"Release {tag} already exists, skipping creation.")
+        return False
+    run_gh_command([
+        "release",
+        "create",
+        tag,
+        "--draft",
+        "--target",
+        target,
+        "--title",
+        tag,
+        "--repo",
+        repository,
+        "--notes",
+        notes,
+        *(str(path) for path in files),
+    ])
+    logging.info(f"Created release draft {tag}.")
+    return True
+
+
+def upload_release_files(tag: str, repository: str, files: Sequence[Path]) -> None:
+    """Attach *files* to the release of *tag*, replacing same-named assets.
+
+    The one upload path of every release writer: the release draft of the
+    release workflow and the rolling dev pre-release alike. An upload to a
+    published immutable release fails, so the release workflow attaches every
+    asset while its release is still a draft.
+
+    :param tag: Git tag name of the release (like `v1.2.3`).
+    :param repository: GitHub repository in `owner/name` form.
+    :param files: The files to attach. Empty uploads nothing.
+    :raises GhCommandError: When the upload fails.
+    """
+    if not files:
+        logging.info(f"Nothing to upload to {tag}.")
+        return
+    run_gh_command([
+        "release",
+        "upload",
+        tag,
+        *(str(path) for path in files),
+        "--repo",
+        repository,
+        "--clobber",
+    ])
+    logging.info(f"Uploaded {len(files)} file(s) to {tag}.")
 
 
 class ReleaseNotesRequest(NamedTuple):

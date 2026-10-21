@@ -1,5 +1,7 @@
 rules:
-  # Needs follow-up PR to add `persist-credentials: false` on all checkout steps.
+  # The jobs that push commits authenticate `git push` with the credentials
+  # `actions/checkout` persists, so turning persistence off breaks them. No job
+  # uploads an artifact holding `.git/`, the leak this audit guards against.
   artipacked:
     disable: true
 
@@ -10,7 +12,9 @@ rules:
     ignore:
       - changelog.yaml
 
-  # Needs follow-up PR to add explicit `permissions:` blocks to all workflows.
+  # A generated thin caller with no downstream jobs carries no `permissions:` block by design: its
+  # job inherits the default of the repository, which the jobs of the reusable workflow then
+  # narrow. This audit reads that default as overly broad, so it would flag each such caller.
   excessive-permissions:
     disable: true
 
@@ -18,9 +22,3 @@ rules:
   # would require per-repo settings configuration across all downstream repositories.
   secrets-outside-env:
     disable: true
-
-  # Repo uses tag-based pins by design; sync-action-pins manages version updates.
-  unpinned-uses:
-    config:
-      policies:
-        "*": ref-pin

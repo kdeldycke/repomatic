@@ -28,7 +28,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote, urlencode
 
-from ..release.protocol import RELEASE_COMMIT_PREFIX
+from ..release.protocol import RELEASE_PUSH_PREFIXES
 from .gh import GhCommandError, gh_api_pages, gh_json, run_gh_command
 
 TYPE_CHECKING = False
@@ -186,17 +186,17 @@ def cancel_superseded_runs(branch: str, current_run_id: str) -> int:
     branch's live runs would otherwise burn CI minutes to completion.
 
     Every listed run is cancelled except two: *current_run_id* (the
-    cancelling run itself), and any run whose head commit carries
-    {data}`~repomatic.release.protocol.RELEASE_COMMIT_PREFIX`. A run that fails to
-    cancel (already finished, insufficient token scope) is logged and
+    cancelling run itself), and any run whose head commit carries one of the
+    {data}`~repomatic.release.protocol.RELEASE_PUSH_PREFIXES`. A run that fails
+    to cancel (already finished, insufficient token scope) is logged and
     skipped so one straggler never aborts the sweep.
 
     ```{caution}
     The release guard is what makes this safe to point at a default branch.
-    Every workflow's `cancel-in-progress` gate already spares a release run
-    from *automatic* supersession, but a sweep like this one enters no
-    concurrency group, so nothing else would stop it from killing the
-    matrix that publishes a release. Cancelling a release run mid-flight
+    The concurrency groups of `release.yaml` and `tests.yaml` already spare a
+    release run from *automatic* supersession, but a sweep like this one
+    enters no concurrency group, so nothing else would stop it from killing
+    the matrix that publishes a release. Cancelling a release run mid-flight
     costs the version its binaries permanently, since publishing locks the
     asset list (see the `publish-release` job of `_release-engine.yaml`).
     ```
@@ -215,10 +215,9 @@ def cancel_superseded_runs(branch: str, current_run_id: str) -> int:
         if not run_id or run_id in seen:
             continue
         seen.add(run_id)
-        if display_title.startswith(RELEASE_COMMIT_PREFIX):
+        if display_title.startswith(RELEASE_PUSH_PREFIXES):
             logging.info(
-                f"Sparing release run {run_id}: {display_title!r} carries "
-                f"{RELEASE_COMMIT_PREFIX!r}."
+                f"Sparing release run {run_id}: {display_title!r} names a release push."
             )
             continue
         logging.info(f"Cancelling run {run_id} (status: {run.get('status')}).")

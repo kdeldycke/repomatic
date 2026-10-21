@@ -24,12 +24,14 @@ from importlib.resources import files
 from pathlib import Path
 
 import pytest
+import yaml
 from click_extra import Context
 
 from repomatic import __version__
 from repomatic.cli.main import repomatic
 from repomatic.config import config_reference
 from repomatic.deps.shippable import RELEASE_READY_SENTENCE
+from repomatic.deps.sync import OPERATIONS_BY_NAME
 from repomatic.frontmatter import split_frontmatter
 from repomatic.release.protocol import (
     CHANGELOG_COMMIT_PREFIX,
@@ -83,8 +85,8 @@ CLI_TEMPLATES = tuple(sorted(set(get_template_names()) - PROGRAMMATIC_TEMPLATES)
 REFERENCE_WORKFLOWS = (
     ".github/workflows/autofix.yaml",
     ".github/workflows/changelog.yaml",
-    # The detect-squash-merge --template reference lives in the build lane, not
-    # the release.yaml entry (which only calls the lanes and publishes).
+    # The detect-squash-merge command runs in the build lane, not the
+    # release.yaml entry (which only calls the lanes and publishes).
     ".github/workflows/_release-build.yaml",
     # The scan-virustotal --template reference lives in the engine lane: that
     # job scans the assets a release publishes.
@@ -97,6 +99,16 @@ REFERENCE_WORKFLOWS = (
     ".github/workflows/self-maintenance.yaml",
 )
 """Workflow files that reference PR body templates via ``--template``."""
+
+COMMAND_TEMPLATES: dict[str, str] = {
+    "bump-version": "bump-version",
+    "detect-squash-merge": "detect-squash-merge",
+}
+"""Templates a command renders on its own, keyed by the command a workflow runs.
+
+Each command opens its pull request or issue itself, so no `--template`
+argument names the template in the workflow.
+"""
 
 WORKFLOWS_DOCS_URL = "https://repomatic.net/workflows"
 """Hosted workflows reference that template ``docs:`` fields deep-link into."""
@@ -687,13 +699,29 @@ def test_templates_list_the_switch_of_their_command() -> None:
 
 
 def _collect_template_references() -> set[str]:
-    """Scan reference workflows for all ``--template <name>`` arguments."""
+    """Scan reference workflows for the templates their steps render.
+
+    A `--template <name>` argument names one, and so does a run of a command of
+    {data}`COMMAND_TEMPLATES`. A `sync-deps --pr-sync` call renders the template
+    of each updater it names, which shares its name.
+    """
     repo_root = Path(__file__).resolve().parent.parent
     pattern = re.compile(r"--template\s+([\w-]+)")
+    command = re.compile(r"repomatic\s+([\w-]+)")
     refs: set[str] = set()
     for rel_path in REFERENCE_WORKFLOWS:
         content = (repo_root / rel_path).read_text(encoding="UTF-8")
         refs.update(pattern.findall(content))
+        refs.update(
+            COMMAND_TEMPLATES[name]
+            for name in command.findall(content)
+            if name in COMMAND_TEMPLATES
+        )
+        for job in (yaml.safe_load(content).get("jobs") or {}).values():
+            for step in job.get("steps") or ():
+                run = step.get("run") or ""
+                if "repomatic sync-deps" in run and "--pr-sync" in run:
+                    refs.update(set(run.split()) & set(OPERATIONS_BY_NAME))
     return refs
 
 

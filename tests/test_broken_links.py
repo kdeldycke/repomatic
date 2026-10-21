@@ -19,23 +19,31 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
 
 from repomatic.broken_links import (
+    LYCHEE_INSTALL_FAILURE_EXIT,
+    LYCHEE_REPORT_FORMAT,
     NO_BROKEN_LINKS,
     LinkcheckResult,
     LinkVerdict,
+    LycheeRun,
     filter_broken,
     generate_markdown_report,
     get_label,
     lychee_section,
     manage_combined_broken_links_issue,
     parse_output_json,
+    run_lychee,
     sphinx_section,
 )
+from repomatic.cli.main import repomatic
 from repomatic.markdown import sanitize_markdown_mentions
+from repomatic.tooling.registry import TOOL_REGISTRY, ToolInstallError
 
 # ---------------------------------------------------------------------------
 # Label selection tests
@@ -378,13 +386,10 @@ def test_lychee_output_sanitized(tmp_path):
         pytest.param(3, False, LinkVerdict.UNKNOWN, "exit code 3", id="config-error"),
     ),
 )
-def test_lychee_section_reads_the_exit_code(
-    tmp_path, exit_code, has_report, verdict, needle
-):
+def test_lychee_section_reads_the_exit_code(exit_code, has_report, verdict, needle):
     """Only exit 2 with a report reports broken links; 1 and 3 report nothing."""
-    report = tmp_path / "out.md"
-    report.write_text("Broken: mango.example", encoding="UTF-8")
-    section, found = lychee_section(exit_code, report if has_report else None)
+    report = "Broken: mango.example" if has_report else None
+    section, found = lychee_section(LycheeRun(exit_code, report))
     assert found is verdict
     assert section.startswith("## Lychee\n\n")
     assert needle in section
@@ -412,8 +417,6 @@ def test_sphinx_section_reads_the_statuses(tmp_path, status, verdict):
 def _manage(tmp_path, monkeypatch, exit_code, sphinx_status=None):
     """Run the lifecycle with lychee's *exit_code*, capturing the issue call."""
     monkeypatch.chdir(tmp_path)
-    report = tmp_path / "out.md"
-    report.write_text("Broken: mango.example", encoding="UTF-8")
     output = None
     if sphinx_status:
         output = tmp_path / "output.json"
@@ -427,8 +430,7 @@ def _manage(tmp_path, monkeypatch, exit_code, sphinx_status=None):
     with patch("repomatic.broken_links.manage_issue_lifecycle") as lifecycle:
         verdict = manage_combined_broken_links_issue(
             repo_name="orchard",
-            lychee_exit_code=exit_code,
-            lychee_body_file=report,
+            lychee=LycheeRun(exit_code, "Broken: mango.example"),
             sphinx_output_json=output,
         )
     return verdict, lifecycle
@@ -470,3 +472,87 @@ def test_a_completed_run_files_or_closes_the_issue(
     assert verdict is (LinkVerdict.BROKEN if has_issues else LinkVerdict.CLEAN)
     assert lifecycle.call_args.kwargs["has_issues"] is has_issues
     assert lifecycle.call_args.kwargs["labels"] == ["📚 documentation"]
+
+
+# ---------------------------------------------------------------------------
+# The lychee crawl
+# ---------------------------------------------------------------------------
+
+
+def test_run_lychee_skips_a_repository_with_no_documentation(tmp_path, monkeypatch):
+    """With no documentation file, lychee has nothing to check and never runs."""
+    monkeypatch.chdir(tmp_path)
+    with patch("repomatic.broken_links.run_tool") as run_tool:
+        assert run_lychee() is None
+    run_tool.assert_not_called()
+
+
+def test_run_lychee_reads_back_the_report_it_asked_for(tmp_path, monkeypatch):
+    """The crawl is the bare `run lychee` invocation, plus the report flags.
+
+    The report reaches the issue through the run itself, with no path agreed on
+    with a workflow step.
+    """
+    monkeypatch.chdir(tmp_path)
+    Path("readme.md").write_text("# Orchard\n", encoding="UTF-8")
+    calls = []
+
+    def crawl(name, extra_args):
+        calls.append((name, extra_args))
+        output = extra_args[extra_args.index("--output") + 1]
+        Path(output).write_text("Broken: kiwi.example", encoding="UTF-8")
+        return 2
+
+    with patch("repomatic.broken_links.run_tool", side_effect=crawl):
+        run = run_lychee()
+
+    assert run == LycheeRun(2, "Broken: kiwi.example")
+    ((name, args),) = calls
+    assert name == "lychee"
+    assert args[: len(LYCHEE_REPORT_FORMAT)] == list(LYCHEE_REPORT_FORMAT)
+    assert args[-1] == "readme.md"
+    for flag in TOOL_REGISTRY["lychee"].default_args:
+        assert flag in args
+
+
+def test_run_lychee_without_a_report_says_so(tmp_path, monkeypatch):
+    """A crawl that wrote no report carries none, whatever its exit code."""
+    monkeypatch.chdir(tmp_path)
+    Path("readme.md").write_text("# Orchard\n", encoding="UTF-8")
+    with patch("repomatic.broken_links.run_tool", return_value=1):
+        assert run_lychee() == LycheeRun(1)
+
+
+def test_run_lychee_that_cannot_install_did_not_complete(tmp_path, monkeypatch):
+    """A lychee that cannot be installed checked nothing: the issue stays put."""
+    monkeypatch.chdir(tmp_path)
+    Path("readme.md").write_text("# Orchard\n", encoding="UTF-8")
+    refused = ToolInstallError("no binary for this platform")
+    with patch("repomatic.broken_links.run_tool", side_effect=refused):
+        run = run_lychee()
+    assert run == LycheeRun(LYCHEE_INSTALL_FAILURE_EXIT)
+    _section, verdict = lychee_section(run)
+    assert verdict is LinkVerdict.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    ("flag", "crawls"),
+    (
+        pytest.param((), True, id="default"),
+        pytest.param(("--no-lychee",), False, id="no-lychee"),
+    ),
+)
+def test_cli_crawls_unless_told_not_to(monkeypatch, flag, crawls):
+    """`broken-links` runs lychee itself, and `--no-lychee` leaves it out."""
+    monkeypatch.setenv("GH_TOKEN", "fake-token")
+    crawl = LycheeRun(0)
+    with (
+        patch("repomatic.cli.github.run_lychee", return_value=crawl) as run,
+        patch("repomatic.cli.github.manage_combined_broken_links_issue") as manage,
+    ):
+        result = CliRunner().invoke(
+            repomatic, ["broken-links", "--repo-name", "orchard", *flag]
+        )
+    assert result.exit_code == 0, result.output
+    assert run.called is crawls
+    assert manage.call_args.kwargs["lychee"] == (crawl if crawls else None)

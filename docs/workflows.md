@@ -164,7 +164,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 - **Requires**:
   - Python package (with a `pyproject.toml` file)
   - `uv` >= `0.11.15`, for the `uv audit --output-format json` output that `repomatic audit` parses. An older `uv` rejects the flag, and the job fails on uv's own error rather than silently scanning nothing
-  - For the GitHub Advisory Database source: a token with `Dependabot alerts: Read-only` permission (`REPOMATIC_PAT` or the workflow `GITHUB_TOKEN`) and Dependabot alerts enabled on the repository
+  - For the GitHub Advisory Database source: a token that can read the Dependabot alerts, and Dependabot alerts enabled on the repository. `REPOMATIC_PAT` needs its `Dependabot alerts: Read-only` permission. The workflow `GITHUB_TOKEN` gets the `security-events: read` scope the job grants
 - **Skipped if**:
   - `vulnerable-deps.sync = false` in `[tool.repomatic]`
 
@@ -216,8 +216,8 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 ### 🔗 Sync dependencies (`sync-deps`)
 
 One consolidated job runs four dependency updaters on a shared runner, sharing a single `actions/checkout`, `astral-sh/setup-uv`, and a cached `~/.cache/repomatic` directory (repomatic's TTL-gated HTTP cache of PyPI/GitHub/npm release metadata) across all four updaters.
-Each updater still opens its own pull request on its own branch (`sync-dep-sources`, `sync-uv-lock`, `sync-action-pins`, `sync-workflow-pins`), all labelled `🔗 dependencies`.
-The working tree is reset (`git checkout -- .`) before each updater so their diffs never bleed together, keeping review and revert independent.
+The job runs them through one [`repomatic sync-deps --pr-sync`](cli.md#repomatic-sync-deps) call. Each updater still opens its own pull request on its own branch (`sync-dep-sources`, `sync-uv-lock`, `sync-action-pins`, `sync-workflow-pins`), all labelled `🔗 dependencies`.
+The working tree goes back to `HEAD` before each updater so their diffs never bleed together, keeping review and revert independent. An updater with nothing to act on in the repository (no `uv.lock`, no workflow file, no git-tracked source) only closes a stale pull request. An updater that fails leaves its pull request as it is, never stops the others, and fails the job once all of them ran.
 To run all enabled updaters locally, or a named subset, use [`repomatic sync-deps`](cli.md#repomatic-sync-deps).
 
 #### 🔀 `sync-dep-sources` updater
@@ -289,8 +289,8 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 - Regenerates Sphinx autodoc files using [`sphinx-apidoc`](https://github.com/sphinx-doc/sphinx), converting the generated RST stubs to [MyST markdown](https://myst-parser.readthedocs.io/) when the docs tree uses it
 - Lists every generated page in the `toctree` of its parent index page (`Subpackages` for a package, `Submodules` for a module), so a module added later never sits orphaned. An index page lacking the section a new page needs is left alone and named in the job log
 - Runs `docs/docs_update.py` if present to generate dynamic content (tables, diagrams, Sphinx directives)
+- Re-formats with [`pyproject-fmt`](https://github.com/tox-dev/pyproject-fmt) each `pyproject.toml` that `docs/docs_update.py` rewrote, so this job's pull request cannot ping-pong with the `format-pyproject` job. A `pyproject.toml` the run left alone keeps its drift, which belongs to `format-pyproject`
 - Refreshes self-updating directive blocks (like [`{matrix}` compatibility tables](https://kdeldycke.github.io/click-extra/sphinx.html#matrix-directives)) in `docs/` and `readme.md` with `click-extra refresh-directives`
-- Re-formats the `pyproject.toml` files with [`pyproject-fmt`](https://github.com/tox-dev/pyproject-fmt) afterwards, so a `docs/docs_update.py` rewriting some of their sections cannot make this job's pull request ping-pong with the `format-pyproject` job
 - **Requires**:
   - Python package with a `pyproject.toml` file
   - `docs` dependency group
@@ -331,7 +331,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 ### ✂️ Cancel PR runs (`cancel-runs`)
 
-- Cancels all in-progress and queued workflow runs for a PR's branch when the PR is closed using [`repomatic cancel-runs`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/github/runs.py). A run whose head commit carries `[changelog] Release` is spared, so pointing the sweep at a default branch cannot kill a release matrix
+- Cancels all in-progress and queued workflow runs for a PR's branch when the PR is closed using [`repomatic cancel-runs`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/github/runs.py). A run whose head commit carries `[changelog] Release` or `[changelog] Post-release bump` is spared, so pointing the sweep at a default branch cannot kill a release matrix. A rebase-merged release push ends on its post-release bump, which names its runs
 - Prevents wasted CI resources from long-running jobs (e.g. Nuitka binary builds) that continue after a PR is closed
 - GitHub Actions does not natively cancel runs on PR close — the `concurrency` mechanism only triggers cancellation when a *new* run enters the same group
 
@@ -341,8 +341,8 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 ### 🆙 Bump version (`bump-version`)
 
-- Creates PRs for minor and major version bumps using [`bump-my-version`](https://github.com/callowayproject/bump-my-version)
-- Runs `uv lock --upgrade` to refresh `uv.lock` in the same commit (matches the [`sync-uv-lock`](#github-workflows-autofix-yaml-jobs) updater in the `sync-deps` job, so transitive marker drift does not produce a redundant follow-up PR)
+- Runs `repomatic bump-version --part` once for the minor and once for the major part. When the bump is allowed, it bumps the part with [`bump-my-version`](https://github.com/callowayproject/bump-my-version) and opens or refreshes the draft PR on the `<part>-version-increment` branch. When it is no longer allowed, it closes the PR an earlier run left open
+- Re-locks `uv.lock` in the same commit with a plain `uv lock`, never `--upgrade`: a version bump refreshes only the project's own entry, and dependency upgrades stay the job of the [`sync-uv-lock`](#github-workflows-autofix-yaml-jobs) updater
 - Uses commit message parsing as fallback when tags aren't available yet
 - **Requires**:
   - `bump-my-version` configuration in `pyproject.toml`
@@ -364,7 +364,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 ### 🎬 Prepare release (`prepare-release`)
 
-- Creates a release PR with two commits: a **freeze commit** that freezes everything to the release version, and an **unfreeze commit** that reverts to development references and bumps the patch version
+- Creates a release PR with two commits: a **freeze commit** that freezes everything to the release version, and an **unfreeze commit** that reverts to development references and bumps the patch version. `repomatic prepare-release --commit` creates both, authored by `github-actions[bot]`, and names each after the versions it carries
 - The PR body's `How-to release` checklist opens with two review links, the draft dev pre-release and the full changes against `main`, before the merge instructions; each is omitted when its GitHub data is unavailable (no dev pre-release, no prior release, or an unauthenticated run)
 - The body opens on a dependency shippability verdict, regenerated on every push to `main`: the usual "This PR is ready to be merged" sentence, or a `[!CAUTION]` block naming each dependency the release would ship unresolvable. See [Dependency management § Shippable sources](dependencies.md#shippable-sources)
 - Uses [`bump-my-version`](https://github.com/callowayproject/bump-my-version) and [`repomatic changelog`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/changelog.py)
@@ -432,15 +432,14 @@ docs = [
 
 ### 💔 Check broken links (`check-broken-links`)
 
-- Checks for broken links in documentation with two complementary scanners, then files a single combined issue via `repomatic broken-links`:
-  - [`lychee`](https://github.com/lycheeverse/lychee) scans every documentation file for dead external URLs
+- Checks for broken links in documentation with two complementary scanners, then files a single combined issue via [`repomatic broken-links`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/broken_links.py):
+  - [`lychee`](https://github.com/lycheeverse/lychee) scans every documentation file for dead external URLs. `repomatic broken-links` runs it itself, as a bare `repomatic run lychee` does, and reads its report and its exit code back
   - Sphinx's built-in [`linkcheck`](https://www.sphinx-doc.org/en/master/usage/builders/index.html#sphinx.builders.linkcheck.CheckExternalLinksBuilder) builder additionally catches broken auto-generated links (intersphinx, autodoc, type annotations) that Lychee cannot see; this step only runs for Sphinx projects
 - Creates/updates one issue covering the findings of both scanners
 - **Requires**:
   - Documentation files (`**/*.{markdown,mdown,mkdn,mdwn,mkd,md,mdtxt,mdtext,mdx,rst,tex}`) in the repository
   - For the Sphinx linkcheck step: a `docs` dependency group and a Sphinx configuration file at `docs/conf.py`
 - **Skipped for**:
-  - All PRs (only runs on push to main)
   - `prepare-release` branch
   - Post-release bump commits
 
@@ -464,13 +463,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - Labels freshly opened issues and PRs with `repomatic apply-labels`: content rules match the title and body, file rules match a pull request's changed paths
 - Rules are configured as `[tool.repomatic.labels]` tables mapping each label to its patterns, overlaid on the bundled defaults
 - Additive only: labels already on the thread stay, and none is ever removed
-- **Skipped for**:
-  - `prepare-release`, `major-version-increment` and `minor-version-increment` branches
-  - Bot-created PRs
-
-### 💝 Tag sponsors (`sponsor-label`)
-
-- Adds a `💖 sponsor` label to issues and PRs from sponsors using the GitHub GraphQL API, and is the only job that sets it
+- Then adds a `💖 sponsor` label to issues and PRs from sponsors with `repomatic sponsor-label`, using the GitHub GraphQL API. Nothing else sets that label. This step runs even when the labeller failed
 - **Skipped for**:
   - `prepare-release`, `major-version-increment` and `minor-version-increment` branches
   - Bot-created PRs
@@ -518,7 +511,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 ### ⚡ Lint GitHub Actions (`lint-github-actions`)
 
-- Lints workflow files using [`actionlint`](https://github.com/rhysd/actionlint) and [`shellcheck`](https://github.com/koalaman/shellcheck)
+- Lints workflow files using [`actionlint`](https://github.com/rhysd/actionlint) and [`shellcheck`](https://github.com/koalaman/shellcheck). `repomatic run actionlint` puts the pinned, checksum-verified shellcheck on `PATH`, and registers actionlint's problem matcher so each finding annotates the line it names
 - **Requires**:
   - Workflow files (`.github/workflows/**/*.{yaml,yml}`) in the repository
 - **Skipped for**:
@@ -536,7 +529,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 ### 🌟 Lint Awesome list (`lint-awesome`)
 
-- Lints awesome lists using [`awesome-lint`](https://github.com/sindresorhus/awesome-lint)
+- Lints awesome lists using [`awesome-lint`](https://github.com/sindresorhus/awesome-lint). The npm on the runner only installs the pinned npm of the `repomatic run` registry, which installs awesome-lint under the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown
 - **Requires**:
   - Repository name starts with `awesome-`
 - **Skipped for**:
@@ -544,7 +537,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 ### 🔐 Lint secrets (`lint-secrets`)
 
-- Scans for leaked secrets using [`gitleaks`](https://github.com/gitleaks/gitleaks)
+- Scans the git history for leaked secrets using [`gitleaks`](https://github.com/gitleaks/gitleaks)
 - **Skipped for**:
   - `prepare-release` branch
   - Bot-created PRs
@@ -573,6 +566,7 @@ The `publish-pypi` job lives here rather than inside a reusable lane so each rep
   - The `package_built` output from the `build` lane, reflecting whether the `build-package` job succeeded.
 - The job is guarded by `always()` and gated on `package_built`, so it is decoupled from the run's overall result: a wheel that built cleanly still publishes even when an unrelated job (like the binary tests in the engine lane) fails the run. PyPI receives only the wheel and sdist, never the compiled binaries, so a binary regression must not block the package upload.
 - The job touches only PyPI; it does not edit the GitHub release. The PyPI availability admonition is baked into the release notes by the engine's `create-release` job at draft creation, which removes the cross-lane race where editing the release from this fast lane ran before the engine had created it (and silently dropped the admonition under `continue-on-error`).
+- After the upload, `repomatic wait-pypi` blocks until PyPI serves the new version, so automation reacting to the release (a downstream pin bump) does not race its propagation. The action runs that command from the repomatic source tree it was fetched with, since a downstream caller checks nothing out.
 - Runs on `ubuntu-26.04`.
 
 ### 🧩 Pack Claude Code plugin (`pack-plugin`)
@@ -582,19 +576,19 @@ Repomatic-only. This job is not part of the shape `repomatic init` generates: it
 ```
 
 - Runs `repomatic pack-plugin`, which assembles `.claude/.claude-plugin/plugin.json` and every skill and agent the component registry declares into `repomatic-claude-plugin.zip`, then uploads it as the `release-asset-repomatic-claude-plugin.zip` run artifact the engine's `extra-assets` job collects. See [§ Claude Code plugin](claude-code-plugin.md).
-- Deliberately unconditional, with no `if:` and no matrix. The `release` job gates on it, so a skip here would cascade into skipping the whole engine on ordinary pushes, taking `sync-dev-release` with it. Packing a zip is cheap enough to pay on every push.
-- The artifact is only ever consumed on a release commit, where `main` HEAD is the freeze commit whose version `pack-plugin` stamps into the packaged manifest.
+- The job itself is unconditional, with no `if:` and no matrix. The `release` job gates on it, so a skip here would cascade into skipping the whole engine on ordinary pushes, taking `sync-dev-release` with it. Its steps run on a release push only, the one push that consumes the artifact.
+- It packs the release commit, whose version `pack-plugin` stamps into the packaged manifest: on a release push, `main` HEAD is the post-release bump that follows it.
 - Runs on `ubuntu-26.04`.
 
 (github-workflows-release-build-yaml-jobs)=
 
 ## 📦 [`.github/workflows/_release-build.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-build.yaml)
 
-The release **fast lane**: it runs the squash-merge guard and the dependency shippability gate, computes project metadata, and builds (and signs) the Python wheel and sdist. The entry `release.yaml` calls it first so the `publish-pypi` job can ship to PyPI the moment the wheel exists, without waiting for the engine's binary compilation. It exposes the `package_built` and `release_commits_matrix` outputs that `publish-pypi` consumes.
+The release **fast lane**: it runs the squash-merge guard and the dependency shippability gate, computes project metadata, and builds (and signs) the Python wheel and sdist. The entry `release.yaml` calls it first so the `publish-pypi` job can ship to PyPI the moment the wheel exists, without waiting for the engine's binary compilation. It exposes the `package_built` and `release_commits_matrix` outputs that `publish-pypi` consumes, and the `metadata` output the engine lane reads instead of computing its own.
 
 ### 🧯 Detect squash merge (`detect-squash-merge`)
 
-- Detects squash-merged release PRs, opens a GitHub issue to notify the maintainer, and fails the workflow
+- Detects squash-merged release PRs with `repomatic detect-squash-merge`, which opens a GitHub issue assigned to the workflow actor, then fails the workflow. A re-run updates that issue instead of opening a second one
 - Running it in the build lane fails fast: `release.yaml` gates the engine on `needs: build`, so a detected squash merge skips the engine (binaries, tag, release) entirely
 - The release is effectively skipped: `create-tag` only matches commits with the `[changelog] Release v` prefix, so no tag, PyPI publish, or GitHub release is created from a squash merge
 - The net effect of squashing freeze + unfreeze leaves `main` in a valid state for the next development cycle; the maintainer just releases the next version when ready
@@ -624,7 +618,9 @@ The release **fast lane**: it runs the squash-merge guard and the dependency shi
 
 ## 🚀 [`.github/workflows/_release-engine.yaml` jobs](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/_release-engine.yaml)
 
-[Release Engineering is a full-time job, and full of edge-cases](https://web.archive.org/web/20250126113318/https://blog.axo.dev/2023/02/cargo-dist) that nobody wants to deal with. This workflow automates most of it for Python projects. The entry `release.yaml` gates it on `needs: build`, so it starts once the fast lane's wheel is ready (binary compilation therefore begins roughly one package build after the push).
+[Release Engineering is a full-time job, and full of edge-cases](https://web.archive.org/web/20250126113318/https://blog.axo.dev/2023/02/cargo-dist) that nobody wants to deal with. This workflow automates most of it for Python projects. The entry `release.yaml` gates it on `needs: build`, so it starts once the fast lane's wheel is ready (binary compilation therefore begins roughly one package build after the push). It computes no metadata of its own: the entry passes it the build lane's `metadata` output as its `metadata` input.
+
+Every job here that holds a write scope runs `astral-sh/setup-uv` with `enable-cache: false`. Any workflow of the default branch can write a cache entry, so restoring one into a job that tags, attests, uploads or publishes could carry a poisoned package into a release.
 
 **Cross-platform binaries** — Targets 6 platform/architecture combinations (Linux/macOS/Windows × `x86_64`/`aarch64`). Unstable targets use `continue-on-error` so builds don't fail on experimental platforms. Job names are prefixed with ✅ (stable, must pass) or ⁉️ (unstable, allowed to fail) for quick visual triage in the GitHub Actions UI.
 
@@ -658,10 +654,11 @@ flowchart TD
 
 - Compiles standalone binaries using [`Nuitka`](https://github.com/Nuitka/Nuitka) for Linux/macOS/Windows on `x86_64`/`aarch64`
 - Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so binaries keep the [documented OS floors](binaries.md#minimum-os-requirements) instead of inheriting the runner image's
-- Persists the Nuitka compile caches across runs with `actions/cache` (ccache objects on the gcc targets, Nuitka's internal `clcache` objects on MSVC, downloads and bytecode alongside them), so a warm build skips most of the C compilation. Release commits neither restore nor save the cache, and macOS is left out of it entirely: see [](nuitka.md#compile-caching)
+- `repomatic run nuitka` prepares each build: it installs the `nuitka.extras` of `[tool.repomatic]`, trims and configures the compile cache, and adds what the target needs (`MACOSX_DEPLOYMENT_TARGET` and `--disable-ccache` on macOS)
+- Persists the Nuitka compile caches across runs with `actions/cache` (ccache objects on the gcc targets, Nuitka's internal `clcache` objects on MSVC, downloads and bytecode alongside them), so a warm build skips most of the C compilation. Release commits neither restore nor save the cache, and macOS is left out of it entirely: the `nuitka_cache` flag of each matrix entry says which. See [](nuitka.md#compile-caching)
 - On non-release runs, self-tests the freshly-built binary in place with [`click-extra test-suite`](https://kdeldycke.github.io/click-extra/test-suite.html); the standalone `test-binaries` job is reserved for release commits
 - Verifies each binary's architecture and measures its actual glibc / macOS floor against the declared one (`repomatic verify-binary`, parsing ELF/Mach-O/PE headers natively)
-- On release pushes, each binary is attested and its sigstore bundle renamed after the binary it covers (`<binary-name>.attestation.json`) by [`repomatic pack-attestation`](cli.md), so no two targets collide once the bundles are merged. Binaries and bundles leave the job as run artifacts, and [`publish-release`](#publish-release-publish-release) attaches them to the release
+- On release pushes, each binary is attested, and [`repomatic pack-attestation --verify`](cli.md) checks its provenance and renames its sigstore bundle after the binary it covers (`<binary-name>.attestation.json`), so no two targets collide once the bundles are merged. Binaries and bundles leave the job as run artifacts, and [`publish-release`](#publish-release-publish-release) attaches them to the release
 - **Requires**:
   - Python package with [CLI entry points](https://docs.astral.sh/uv/concepts/projects/config/#entry-points) defined in `pyproject.toml`
 - **Skipped if** `[tool.repomatic] nuitka.enabled = false` is set in `pyproject.toml` (for projects with CLI entry points that don't need standalone binaries)
@@ -694,8 +691,8 @@ flowchart TD
 
 ### 🐙 Create release draft (`create-release`)
 
-- Creates a GitHub release **draft** with the Python package attached using `gh release create`
-- The draft notes carry the PyPI availability admonition from the start (baked in via [`repomatic show-metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py)'s `release_notes_with_admonition`), so it never depends on a later cross-lane edit; non-PyPI projects fall back to the plain release notes
+- Creates a GitHub release **draft** with the Python package attached, using `repomatic create-release`. A release that already carries the tag is left as it is, so a re-run passes
+- The draft notes are the changelog section of the release commit, with the PyPI availability admonition from the start, so they never depend on a later cross-lane edit; non-PyPI projects get the plain release notes
 - Attaches no binary: [`publish-release`](#publish-release-publish-release) uploads them, with their attestation bundles, from the [`compile-binaries`](#compile-binaries-compile-binaries) run artifacts while the release is still a draft (uploading to drafts is allowed)
 - **Requires**:
   - Successful `create-tag` job
@@ -703,8 +700,8 @@ flowchart TD
 ### 📖 Man pages (`manpages`)
 
 - Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra wrap --help-format man --output-dir man "${SCRIPT}"` against the consumer's already-synced venv
-- Bundles the pages as a single `<asset-name>.tar.gz` and uploads them to the GitHub release **draft** via `gh release upload --clobber`, before `publish-release` publishes and locks the release
-- The tarball is attested with the same provenance chain as the compiled binaries: its sigstore bundle rides along as an `<asset-name>.tar.gz.attestation.json` asset, named by [`repomatic pack-attestation`](cli.md) after the file it covers, and provenance verifies with `gh attestation verify <asset-name>.tar.gz --repo <consumer> --signer-repo kdeldycke/repomatic`
+- Bundles the pages as a single, byte-deterministic `<asset-name>.tar.gz` with `repomatic pack-manpages`, and uploads it to the GitHub release **draft** with `repomatic pack-attestation --upload-to`, before `publish-release` publishes and locks the release
+- The tarball is attested with the same provenance chain as the compiled binaries: its sigstore bundle rides along as an `<asset-name>.tar.gz.attestation.json` asset, named by [`repomatic pack-attestation`](cli.md) after the file it covers, and provenance verifies with `gh attestation verify <asset-name>.tar.gz --repo <consumer> --signer-repo kdeldycke/repomatic`, which `pack-attestation --verify` runs before the upload
 - **Requires**:
   - `manpages.script = "..."` in `[tool.repomatic]`. The value follows the same shape as `click-extra wrap SCRIPT`: a `module:function` path (preferred when the console-script entry point dispatches through a wrapper), an entry-point name, a `.py` file path, or a plain importable module name
   - The consumer's `click-extra` floor is `>= 9`: `--help-format man` renders the roff source, and its `--output-dir DIR` option writes one `.1` file per resolved (sub)command into `DIR`, creating the directory if missing. On `8.x` the roff came from `wrap --man`, which `9.0` repurposed to page the typeset manual instead, so a consumer still on `8.x` fails this job until it upgrades
@@ -719,7 +716,7 @@ flowchart TD
 - The build code therefore stays in the downstream repository as regular workflow code, reviewed and linted there: the engine never executes consumer-supplied commands, it only downloads, attests, verifies, and uploads
 - Assets are attested with the same provenance chain as the compiled binaries and uploaded to the GitHub release **draft** together with their sigstore bundle, before `publish-release` publishes and locks the release; provenance verifies with `gh attestation verify <file> --repo <consumer> --signer-repo kdeldycke/repomatic`
 - [`repomatic pack-attestation`](cli.md) names that bundle. A repository declaring a single asset gets `<filename>.attestation.json`, matching the binaries and the man-page tarball, so the sidecar sorts directly beside what it covers. Several declared assets share one bundle (`actions/attest` emits a single attestation listing every subject), which then falls back to `<package-name>-extra-assets.attestation.json` because no one filename can claim it
-- A declared asset whose artifact never landed fails the job loudly, and that failure blocks `publish-release`, so a broken consumer build lane cannot silently ship a release without its asset. The release stays a draft, which is the recoverable state: re-run the lane, or attach the file by hand, then publish. Once published the release is immutable and the asset can never be added
+- A declared asset whose artifact never landed fails the job loudly (`pack-attestation --require-declared`, before anything is attached), and that failure blocks `publish-release`, so a broken consumer build lane cannot silently ship a release without its asset. The release stays a draft, which is the recoverable state: re-run the lane, or attach the file by hand, then publish. Once published the release is immutable and the asset can never be added
 - **Requires**:
   - A non-empty `release-assets` list in the consumer's `pyproject.toml`, with space-free filenames
   - A consumer-side job uploading each `release-asset-<filename>` artifact; gate the engine call on it (like `needs: build` for the wheel) so the artifact exists before the engine reaches this job
@@ -730,7 +727,7 @@ flowchart TD
 ### 🎉 Publish release (`publish-release`)
 
 - Publishes the draft GitHub release after all assets (Python package, binaries, man pages, extra assets) have been uploaded
-- Attaches the compiled binaries and their attestation bundles itself, from the run artifacts [`compile-binaries`](#compile-binaries-compile-binaries) left behind. [`repomatic pack-binaries`](cli.md) copies each versioned binary to a versionless alias (`repomatic-linux-x64.bin`) so the `releases/latest/download` URLs keep resolving, then prints the upload list, leaving out the Python distributions `create-release` already attached
+- Attaches the compiled binaries and their attestation bundles itself, from the run artifacts [`compile-binaries`](#compile-binaries-compile-binaries) left behind. [`repomatic pack-binaries --upload-to`](cli.md) copies each versioned binary to a versionless alias (`repomatic-linux-x64.bin`) so the `releases/latest/download` URLs keep resolving, then uploads them, leaving out the Python distributions `create-release` already attached
 - Supports [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases): once published, tags and assets are locked, so flipping `--draft=false` is the terminal step of the release engine and every asset-uploading job must run upstream of it
 - Uses `always()` so it runs even when `compile-binaries`, `manpages` or `extra-assets` is skipped (non-binary projects, no man pages, no extra assets), and still publishes when `compile-binaries` or `manpages` partially fails (unstable platforms): shipping the Python distributions beats blocking the release on one unstable platform
 - That trade-off is permanent rather than deferred. Publishing locks the asset list, so a binary missing at this point can never be attached to that version: `v6.30.0` shipped without `windows-arm64`, `v7.5.0` without either Windows build, and `v7.7.0` without any binary at all. This is the intended behavior, not a gap to plug: a short release is recovered by releasing again, which a fast cycle makes cheap, so fix the build and let the next version carry it. What a short ship does leave behind is a changelog section, a release body and an install guide still advertising the missing binaries: see [§ Repairing a short ship](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-ship/SKILL.md#repairing-a-short-ship) for that cleanup
@@ -749,7 +746,7 @@ flowchart TD
   - `VIRUSTOTAL_API_KEY` repository secret ([free API key](https://www.virustotal.com/gui/my-apikey))
   - Successful `publish-release` job
 - **Skipped if**:
-  - `VIRUSTOTAL_API_KEY` secret is not configured
+  - `VIRUSTOTAL_API_KEY` secret is not configured: a job condition cannot read a secret, so the job's first step probes it and every later step is skipped without it
   - `publish-release` job did not succeed
 - **Recording steps skipped if**: `binaries.sync = false` in [`[tool.repomatic]`](configuration.md) (the scan still runs and seeds AV vendor databases; the catalog and scan history are not committed)
 
@@ -779,9 +776,10 @@ This workflow maintains repomatic's own package source and is the one file in `.
 ### 🔼 Sync tool versions (`sync-tool-versions`)
 
 - **Upstream-only**: rewrites `repomatic/tooling/registry.py`, which exists only in this repository; downstream repos receive updated tool versions when they sync against a new repomatic release
-- Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gh, gitleaks, labelmaker, lychee, oxipng, shfmt, typos), the npm registry for npm tools (awesome-lint), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
+- Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gh, gitleaks, labelmaker, lychee, oxipng, ShellCheck, shfmt, typos), the npm registry for npm tools (awesome-lint, npm), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
 - Bumps the packages pinned *alongside* a tool in its `uvx` environment too (mdformat's plugin set), which no other updater sees
 - Recomputes the SHA-256 checksums for every binary tool in the same pass, so version bump and checksum land in one PR branch
+- Refreshes the bundled actionlint problem matcher from the tag of the actionlint it pins
 - Runs via `uv run` against the local editable source, rewriting `repomatic/tooling/registry.py` directly
 - **Runs on**: daily schedule and manual dispatch. Daily rather than weekly because the `minimum-release-age` cooldown already delays every adoption on its own, and a release becomes eligible on whatever weekday its cooldown expires
 - **Requires**:
@@ -1073,7 +1071,7 @@ stateDiagram-v2
 
 #### Squash merge safeguard
 
-The [`detect-squash-merge`](#github-workflows-release-build-yaml-jobs) job catches squash-merged release PRs by checking if the head commit message starts with `` Release `v `` (the PR title pattern) rather than `[changelog] Release v` (the canonical freeze commit pattern). When detected, it opens a GitHub issue assigned to the person who merged, then fails the workflow. Existing safeguards in `create-tag` prevent tagging, publishing, and releasing from a squashed commit.
+The [`detect-squash-merge`](#github-workflows-release-build-yaml-jobs) job catches squash-merged release PRs by checking if the head commit message starts with `` Release `v `` (the PR title pattern) rather than `[changelog] Release v` (the canonical freeze commit pattern). When detected, it opens a GitHub issue assigned to the person who merged, then fails the workflow. A later squash merge, or a re-run, reopens or updates that one issue instead of opening another. Existing safeguards in `create-tag` prevent tagging, publishing, and releasing from a squashed commit.
 
 The net effect of squashing freeze + unfreeze leaves `main` in a valid state for the next development cycle: the maintainer releases the next version when ready.
 
@@ -1093,9 +1091,13 @@ Immutability only blocks **asset uploads and modifications** on published releas
 
 #### Concurrency strategies
 
-Workflows use two concurrency strategies depending on whether they perform critical release operations. Read the `concurrency:` block in each workflow file for the exact YAML.
+Every workflow cancels with `cancel-in-progress: true`, and its group decides what a newer run supersedes. Read the `concurrency:` block in each workflow file for the exact YAML.
 
 **`release.yaml`: SHA-based unique groups.** Tagging, PyPI publishing, and GitHub release creation must run to completion. The block lives on the push-triggered entry workflow, not the reusable `_release-engine.yaml` it calls: GitHub decides run cancellation from the entry workflow's group, and a block on the engine lane (reached via `needs: build`) joins its group only after the build lane finishes, too late to cancel queued or building runs. A simple thin caller cancels fine without its own block because its single job joins the reusable workflow's group immediately; the release entry can't, so it declares concurrency itself. Using conditional `cancel-in-progress: false` doesn't work: it's evaluated on the *new* workflow, not the old one. If a regular commit is pushed while a release workflow is running, the new workflow would cancel the release because they share the same concurrency group. The solution: give each release run its own unique group using the commit SHA. Both `[changelog] Release` and `[changelog] Post-release` patterns must be matched because when a release is pushed, the event contains **two commits bundled together** and `github.event.head_commit` refers to the most recent one (the post-release bump). `schedule` and `workflow_dispatch` runs are isolated the same way, keyed on `github.run_id` rather than a SHA: they compile the [full target fleet](nuitka.md#build-cadence) on purpose, and a dispatch sharing the branch group was observed cancelled mid-build by the next push.
+
+**`tests.yaml`: SHA-based unique groups for a release push.** The run of a release push is the one post-merge test of the release tree, so it gets a group of its own the same way, and no later push cancels it.
+
+**Every other workflow: one group per branch.** A newer run supersedes an older one, which is the right outcome there: `autofix.yaml` and `lint.yaml` skip a release push in every job anyway, `labels.yaml` runs only `sync-labels` on it, which the next push runs again, and a later `docs.yaml` run publishes a newer tree. Sparing the docs run of a release push would let its deploy finish last and put the older site back live.
 
 **`changelog.yaml`: event-scoped groups.** `changelog.yaml` includes `github.event_name` in its concurrency group to prevent cross-event cancellation. Without `event_name`, the `workflow_run` event (which fires when "🚀 Build & release" completes) would cancel the `push` event's `prepare-release` job, then skip `prepare-release` itself (due to `if: github.event_name != 'workflow_run'`), so `prepare-release` would never run.
 

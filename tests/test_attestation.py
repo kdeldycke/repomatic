@@ -21,6 +21,7 @@ from __future__ import annotations
 import base64
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -28,8 +29,11 @@ from repomatic.release.attestation import (
     ATTESTATION_SUFFIX,
     bundle_filename,
     bundle_subjects,
+    missing_subjects,
     pack_attestation,
+    verify_attestation,
 )
+from repomatic.upstream import DEFAULT_REPO
 
 
 def write_bundle(path: Path, *subjects: str) -> Path:
@@ -174,3 +178,29 @@ def test_pack_attestation_rejects_a_missing_subject(tmp_path):
 
     with pytest.raises(ValueError, match=r"mango\.zip, missing from"):
         pack_attestation(bundle, tmp_path, "fruit-extra-assets")
+
+
+def test_missing_subjects_names_what_the_bundle_lacks(tmp_path):
+    """A declared asset whose artifact never landed is absent from the bundle."""
+    bundle = write_bundle(tmp_path / "raw.json", "papaya.zip")
+    assert missing_subjects(bundle, ["papaya.zip", "mango.zip", "kiwi.zip"]) == [
+        "kiwi.zip",
+        "mango.zip",
+    ]
+    assert missing_subjects(bundle, ["papaya.zip"]) == []
+
+
+def test_verify_attestation_requires_the_upstream_signer(tmp_path):
+    """The release lanes of the upstream repository signed every attestation."""
+    asset = tmp_path / "papaya.zip"
+    with patch("repomatic.release.attestation.run_gh_command") as mock_gh:
+        verify_attestation(asset, "user/repo")
+    mock_gh.assert_called_once_with([
+        "attestation",
+        "verify",
+        str(asset),
+        "--repo",
+        "user/repo",
+        "--signer-repo",
+        DEFAULT_REPO,
+    ])

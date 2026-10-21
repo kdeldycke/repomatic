@@ -25,6 +25,7 @@ held against the workflows.
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import re
 import subprocess
@@ -52,6 +53,7 @@ from repomatic.deps.pins import (
 )
 from repomatic.deps.report import HeldBackPackage
 from repomatic.deps.sync import (
+    ACTIONLINT_MATCHER_URL,
     DEPENDENCY_LABEL,
     SYNC_OPERATIONS,
     BypassForecast,
@@ -68,12 +70,15 @@ from repomatic.deps.sync import (
     _resolve_dep_sources,
     _resolve_tool_versions,
     _resolve_workflow_pins,
+    _sync_actionlint_matcher,
     _widest_changes,
     render_plan_markdown,
     run_sync_operations,
     selected_operations,
 )
 from repomatic.github.labels import DEFAULT_CONTENT_RULES, DEFAULT_FILE_RULES
+from repomatic.github.pr import PrOperation, PrSyncResult
+from repomatic.http import FetchError
 from repomatic.pypi import PyPIRelease
 from repomatic.templating import PrTemplate, get_template_names
 from repomatic.tooling.registry import TOOL_REGISTRY
@@ -106,9 +111,10 @@ class CiJob:
     def consolidated(self) -> bool:
         """Whether the operation shares the multi-bumper job.
 
-        A consolidated operation must reset the working tree before it runs, so
-        the previous bumper's diff never bleeds into its PR. An operation with a
-        job to itself starts from a clean checkout and needs no reset.
+        The shared job runs the operations through one `sync-deps --pr-sync`
+        call, which resets the working tree before each, so the previous
+        bumper's diff never bleeds into its PR. An operation with a job to
+        itself starts from a clean checkout and needs no reset.
         """
         return self.job == SHARED_JOB
 
@@ -116,18 +122,16 @@ class CiJob:
 WORKFLOW_FILES = (".github/workflows/*.yaml", ".github/actions/**/*.yaml")
 
 CI_JOBS: dict[str, CiJob] = {
-    "sync-dep-sources": CiJob(
-        ("uv.lock", "pyproject.toml"), ("--no-table", "--release-notes")
-    ),
+    "sync-dep-sources": CiJob(("uv.lock", "pyproject.toml"), ("--release-notes",)),
     "sync-uv-lock": CiJob(
-        ("uv.lock", "pyproject.toml [tool.uv]"), ("--no-table", "--release-notes")
+        ("uv.lock", "pyproject.toml [tool.uv]"), ("--release-notes",)
     ),
     "sync-action-pins": CiJob(WORKFLOW_FILES, ("--release-notes",)),
     "sync-workflow-pins": CiJob(WORKFLOW_FILES, ("--release-notes",)),
     # It rewrites this package's own source, so it runs in a workflow
     # `repomatic init` never materializes downstream.
     "sync-tool-versions": CiJob(
-        ("repomatic/tooling/registry.py", ".github/workflows/lint.yaml"),
+        ("repomatic/tooling/registry.py", "repomatic/data/actionlint-matcher.json"),
         ("--release-notes",),
         workflow="self-maintenance.yaml",
         job="sync-tool-versions",
@@ -179,7 +183,7 @@ def test_label_is_shared() -> None:
 
 
 def test_write_domains_justify_serial_apply() -> None:
-    """Three updaters share the workflow files; the uv pair stays out of them.
+    """Two updaters share the workflow files; the uv pair stays out of them.
 
     This is the invariant behind the serial apply phase: the workflow-file
     rewriters cannot write concurrently, while `sync-uv-lock` and
@@ -192,11 +196,7 @@ def test_write_domains_justify_serial_apply() -> None:
         return any(".github/workflows" in entry for entry in CI_JOBS[name].write_domain)
 
     workflow_writers = {name for name in OPERATION_NAMES if touches_workflows(name)}
-    assert workflow_writers == {
-        "sync-action-pins",
-        "sync-workflow-pins",
-        "sync-tool-versions",
-    }
+    assert workflow_writers == {"sync-action-pins", "sync-workflow-pins"}
     assert not touches_workflows("sync-uv-lock")
     assert not touches_workflows("sync-dep-sources")
 
@@ -329,6 +329,21 @@ def _consolidated_job_steps() -> list[dict]:
     return steps
 
 
+def _sync_deps_run() -> str:
+    """The command of the consolidated job's one updater step."""
+    (run,) = (
+        step["run"]
+        for step in _consolidated_job_steps()
+        if "repomatic sync-deps" in step.get("run", "")
+    )
+    return str(run)
+
+
+def _sync_deps_operations() -> list[str]:
+    """The updaters the consolidated step names, in the order it names them."""
+    return [token for token in _sync_deps_run().split() if token in OPERATION_NAMES]
+
+
 def _host_job_steps(op: SyncOperation) -> list[dict]:
     """Steps of the job that actually runs *op*, per {data}`CI_JOBS`.
 
@@ -389,6 +404,11 @@ def test_consolidated_job_covers_every_operation() -> None:
     PR-body template and the PR branch all share the operation's name.
     """
     for op in SYNC_OPERATIONS:
+        if CI_JOBS[op.name].consolidated:
+            # `--pr-sync` renders the template and targets the branch of the
+            # operation's own name.
+            assert op.name in _sync_deps_operations(), f"{op.name} not run"
+            continue
         steps = _host_job_steps(op)
         runs = " ".join(step.get("run", "") for step in steps)
         pr_branches = {_pr_branch(step) for step in _pr_steps(steps)}
@@ -397,9 +417,11 @@ def test_consolidated_job_covers_every_operation() -> None:
         assert op.name in pr_branches, f"{op.name} pr-sync step missing"
 
     # No stray dependency PRs beyond the registry, in either direction.
-    assert {_pr_branch(step) for step in _pr_steps(_consolidated_job_steps())} == {
+    assert set(_sync_deps_operations()) == {
         name for name, ci_job in CI_JOBS.items() if ci_job.consolidated
     }
+    assert "--pr-sync" in _sync_deps_run()
+    assert not _pr_steps(_consolidated_job_steps())
 
 
 @pytest.mark.parametrize("op", SYNC_OPERATIONS, ids=OPERATION_NAMES)
@@ -412,16 +434,19 @@ def test_consolidated_job_passes_ci_flags(op: SyncOperation) -> None:
     drops the feature from the PR body. Fails by name when the registry and the
     YAML disagree.
     """
-    steps = _host_job_steps(op)
-    sync_runs = [
-        run
-        for step in steps
-        if f"repomatic {op.name} " in (run := step.get("run", ""))
-        and "pr-body" not in run
-    ]
-    assert len(sync_runs) == 1, f"expected exactly one sync step for {op.name}"
+    if CI_JOBS[op.name].consolidated:
+        sync_run = _sync_deps_run()
+    else:
+        sync_runs = [
+            run
+            for step in _host_job_steps(op)
+            if f"repomatic {op.name} " in (run := step.get("run", ""))
+            and "pr-body" not in run
+        ]
+        assert len(sync_runs) == 1, f"expected exactly one sync step for {op.name}"
+        (sync_run,) = sync_runs
     for flag in CI_JOBS[op.name].ci_flags:
-        assert flag in sync_runs[0], f"{op.name} step is missing {flag!r}"
+        assert flag in sync_run, f"{op.name} step is missing {flag!r}"
 
 
 def test_consolidated_job_uses_full_history() -> None:
@@ -434,25 +459,96 @@ def test_consolidated_job_uses_full_history() -> None:
 
 @pytest.mark.repo_maintenance
 def test_consolidated_job_labels_every_pr_consistently() -> None:
-    """Every PR the consolidated job opens carries the shared dependency label."""
+    """Every PR the consolidated job opens carries the shared dependency label.
+
+    `--pr-sync` labels each pull request from the frontmatter of the template
+    named after its operation.
+    """
     labels = set()
-    for step in _pr_steps(_consolidated_job_steps()):
-        labels |= _pr_labels(step)
+    for name in _sync_deps_operations():
+        labels |= set(PrTemplate.load(name).labels)
     assert labels == {DEPENDENCY_LABEL}
 
 
-def test_consolidated_job_resets_tree_before_each_operation() -> None:
-    """Each shared-job operation resets the tree first, so PR diffs never bleed.
+def _recording_operation(
+    name: str, events: list[str], *, applies: bool = True, fail: bool = False
+) -> SyncOperation:
+    """Build a network-free operation that logs its resolve and its apply."""
 
-    Only the consolidated operations need this: one with a job to itself starts
-    from a clean checkout, so a reset there would be dead weight.
+    def resolve(rc: ResolveContext) -> SyncPlan:
+        events.append(f"resolve {name}")
+        if fail:
+            raise RuntimeError(f"{name} boom")
+        return SyncPlan(
+            operation=name,
+            subject="Package",
+            heading="Updated packages",
+            changes=[("kiwi", "1.0", "2.0")],
+        )
+
+    return SyncOperation(
+        name=name,
+        config_key="uv-lock.sync",
+        resolve=resolve,
+        apply=lambda plan: events.append(f"apply {name}"),
+        applies_here=lambda: applies,
+    )
+
+
+def test_pr_sync_mode_runs_each_operation_from_a_clean_tree(monkeypatch) -> None:
+    """Each operation starts from a tree put back to HEAD, then converges its PR.
+
+    One that fails leaves its pull request alone, never stops the next one, and
+    fails the command once all ran. One with nothing to act on resolves nothing,
+    but still converges its pull request, so a stale one closes.
     """
-    resets = [
-        step
-        for step in _consolidated_job_steps()
-        if step.get("run", "").strip() == "git checkout -- ."
+    events: list[str] = []
+    operations = [
+        _recording_operation("sync-dep-sources", events, applies=False),
+        _recording_operation("sync-uv-lock", events, fail=True),
+        _recording_operation("sync-action-pins", events),
     ]
-    assert len(resets) == len([job for job in CI_JOBS.values() if job.consolidated])
+    monkeypatch.setattr(
+        "repomatic.cli.deps.selected_operations", lambda config, names: operations
+    )
+    monkeypatch.setattr(
+        "repomatic.cli.deps.git_ops.discard_changes", lambda: events.append("reset")
+    )
+    bodies: dict[str, str] = {}
+
+    def upsert(**kwargs):
+        events.append(f"pr {kwargs['branch']}")
+        bodies[kwargs["branch"]] = kwargs["body"]
+        assert list(kwargs["labels"]) == [DEPENDENCY_LABEL]
+        return PrSyncResult(PrOperation.UPDATED, kwargs["branch"], number=7)
+
+    monkeypatch.setattr("repomatic.cli.deps.upsert_pr", upsert)
+
+    names = [op.name for op in operations]
+    result = CliRunner().invoke(repomatic, ["sync-deps", "--pr-sync", *names])
+
+    assert result.exit_code == 1, result.output
+    assert events == [
+        "reset",
+        "pr sync-dep-sources",
+        "reset",
+        "resolve sync-uv-lock",
+        "reset",
+        "resolve sync-action-pins",
+        "apply sync-action-pins",
+        "pr sync-action-pins",
+    ]
+    assert "kiwi" in bodies["sync-action-pins"]
+    assert "kiwi" not in bodies["sync-dep-sources"]
+    assert "Failed: sync-uv-lock" in result.output
+
+
+@pytest.mark.parametrize("flag", ("--dry-run", "--output=report.md"))
+def test_pr_sync_mode_refuses_a_preview_or_a_report(flag) -> None:
+    """Each report goes into its pull request: there is nothing to preview."""
+    result = CliRunner().invoke(repomatic, ["sync-deps", "--pr-sync", flag])
+    assert result.exit_code == 2
+    assert "--pr-sync" in result.output
 
 
 def test_pinned_with_packages_covers_every_registry_pin() -> None:
@@ -496,14 +592,14 @@ def test_no_standalone_dependency_jobs_remain() -> None:
 def test_sync_tool_versions_routes_npm_tools_to_the_npm_registry(monkeypatch) -> None:
     """npm-backed tools resolve versions through the npm registry datasource.
 
-    awesome-lint is the only npm tool, so recording the argument `npm_candidates`
-    receives proves `tool_candidates` routes it away from PyPI/GitHub. Empty
-    candidate lists mean nothing is bumped, so `tooling/registry.py` stays put.
+    Recording the arguments `npm_candidates` receives proves `tool_candidates`
+    routes every npm tool away from PyPI/GitHub. Empty candidate lists mean
+    nothing is bumped, so `tooling/registry.py` stays put.
     """
-    seen = {}
+    seen: set[str] = set()
 
     def fake_npm(package):
-        seen["package"] = package
+        seen.add(package)
         return []
 
     # The tool pass reads through `tool_candidates`, and the `with_packages`
@@ -518,7 +614,8 @@ def test_sync_tool_versions_routes_npm_tools_to_the_npm_registry(monkeypatch) ->
         ResolveContext(config=Config(), today=date(2026, 1, 1))
     )
 
-    assert seen["package"] == "awesome-lint"
+    assert seen == {spec.name for spec in TOOL_REGISTRY.values() if spec.npm}
+    assert seen >= {"awesome-lint", "npm"}
     assert not plan.has_changes
 
 
@@ -562,6 +659,64 @@ def test_tool_versions_apply_downloads_with_the_jobs_width(tmp_path, monkeypatch
         registry, version_overrides={"typos": "99.0.0"}, jobs=6
     )
     assert registry.read_text(encoding="UTF-8") == "rewritten"
+
+
+def _bundled_matcher_in(tmp_path: Path, monkeypatch) -> Path:
+    """Point the matcher refresh at a scratch copy of the package's data folder."""
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(
+        "repomatic.deps.sync.tool_registry",
+        SimpleNamespace(__file__=str(tmp_path / "tooling" / "registry.py")),
+    )
+    matcher = TOOL_REGISTRY["actionlint"].problem_matcher
+    assert matcher
+    return tmp_path / "data" / matcher
+
+
+def test_actionlint_bump_refreshes_the_bundled_problem_matcher(tmp_path, monkeypatch):
+    """A bumped actionlint brings the problem matcher of its own tag.
+
+    The copy keeps the tabs the `format-json` job writes, so the two never
+    fight over it.
+    """
+    target = _bundled_matcher_in(tmp_path, monkeypatch)
+    fetched: list[str] = []
+
+    def fetch(url):
+        fetched.append(url)
+        return '{"problemMatcher": [{"owner": "actionlint"}]}'
+
+    monkeypatch.setattr("repomatic.deps.sync.get_text", fetch)
+
+    _sync_actionlint_matcher("9.9.9")
+
+    assert fetched == [ACTIONLINT_MATCHER_URL.format(version="9.9.9")]
+    assert target.read_text(encoding="UTF-8") == (
+        '{\n\t"problemMatcher": [\n\t\t{\n\t\t\t"owner": "actionlint"\n\t\t}\n\t]\n}\n'
+    )
+
+
+def test_actionlint_bump_keeps_the_matcher_on_a_failed_fetch(tmp_path, monkeypatch):
+    """A matcher that cannot be fetched leaves the bundled copy in place."""
+    target = _bundled_matcher_in(tmp_path, monkeypatch)
+    target.write_text("{}\n", encoding="UTF-8")
+
+    def refuse(url):
+        raise FetchError("raw.githubusercontent.com timed out")
+
+    monkeypatch.setattr("repomatic.deps.sync.get_text", refuse)
+
+    _sync_actionlint_matcher("9.9.9")
+
+    assert target.read_text(encoding="UTF-8") == "{}\n"
+
+
+def test_bundled_problem_matcher_is_written_like_a_refresh() -> None:
+    """The bundled matcher has the shape a refresh writes, so a bump diffs cleanly."""
+    matcher = TOOL_REGISTRY["actionlint"].problem_matcher
+    assert matcher
+    content = get_data_content(matcher)
+    assert content == json.dumps(json.loads(content), indent="\t") + "\n"
 
 
 @pytest.mark.parametrize(

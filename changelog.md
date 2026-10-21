@@ -6,18 +6,111 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** Drop Python 3.10, past its end of life: repomatic needs Python 3.11, and the default test matrix starts at 3.11 on every runner.
+- **Breaking:** Remove the `metadata` alias of `show-metadata` and the hidden `workflow lint` command, as their deprecation warnings announced. `lint-repo` and `init` flag a workflow step that still calls `metadata`.
+- **Breaking:** Remove `lint-workflows`: `lint-repo` runs its checks as `workflow-dispatch`, `thin-caller-pins`, `thin-caller-triggers` and `thin-caller-secrets`.
+- **Breaking:** Remove `git-commit-push`, which no bundled workflow calls since `7.14.0`.
+- **Breaking:** Rename `show-metadata --format` to `--output-format`, like every other command. A workflow step passing `--format` needs the new name.
+- **Breaking:** `changelog` now writes in place at `changelog.location`, and its `--source` option becomes `--changelog`. Pass `-` to print instead.
+- **Breaking:** Remove `sync-binaries --backfill-records`, the `show-metadata --force` and `--replace` aliases, and the `GHA_PR_*` environment variables.
+- **Breaking:** `pr-body` and `pr-sync` read the diff table and the upgrade report only from `REPOMATIC_DIFF_TABLE_FILE` and `REPOMATIC_UPGRADE_REPORT_FILE`.
+- **Breaking:** Remove the `[tool.repomatic.flavor]` table and the `metrics.skip` and `cache.github-release-ttl` keys. A config that sets them gets an unknown-key warning.
+- **Breaking:** Remove the `new_commits`, `release_commits`, `release_notes`, `release_notes_with_admonition`, `minor_bump_allowed`, `major_bump_allowed`, `skip_binary_build` and `nuitka_extras` keys of `show-metadata`, which no workflow reads.
+- **Breaking:** Replace the `unsubscribe-phase1` and `unsubscribe-phase2` templates with one `unsubscribe-report` template.
+- **Breaking:** `lint-repo` drops the `pat-stale-statuses-permission` check, so it no longer posts a commit status on each run.
+- **Breaking:** `init` no longer deletes the files of assets removed before `7.0.0`. A repository upgrading from `6.x` deletes them by hand.
+- **Breaking:** `scan-virustotal` and `sync-binaries` refuse a scan history kept only in the pre-`7.13.0` JSON file, and no longer migrate old binaries page markers.
+- **Breaking:** `cloudflare-r2 --offload` writes its report through the new `--output` option instead of `$GITHUB_STEP_SUMMARY`, and needs a project name like the other modes.
+- **Breaking:** Remove the `close-stale-bump-pr` command and the `pr-body --pr-ref` option. `bump-version` and `detect-squash-merge` do their work.
+- **Breaking:** `broken-links` now runs lychee itself and drops `--lychee-exit-code` and `--body-file`. Pass `--no-lychee` to skip the crawl.
+- **Breaking:** `show-metadata` replaces `site_cloudflare_project` with `cloudflare_project`, which falls back to the repository name.
+- **Breaking:** The `github-json` format of `show-metadata` now writes a list of objects, like `build_targets`, as a JSON array. Drop the `fromJSON` that decoded it.
+- **Breaking:** The `_release-engine.yaml` reusable workflow takes the metadata of the build lane as a required `metadata` input, and loses its `🧬 Project metadata` job.
+- **Breaking:** `labels.yaml` merges its `sponsor-label` job into `apply-labels`. A required check that names the old job needs the new name.
+- **Breaking:** `repomatic run pyproject-fmt` now exits 0 after a rewrite it verified, instead of 1.
+- **Breaking:** The bundled `zizmor.yaml` now requires hash pins for third-party actions.
+- **Breaking:** The bundled `labels.toml` no longer renames the `🎁 feature request` label, and `lychee.toml` no longer skips star-history.com links.
+- `repomatic` now imports only the module of the command it runs: `repomatic --version` starts in 0.3 s instead of 0.45 s.
+- Add the `sync-runner-images.sync` and `github-releases.sync` keys to turn off these two syncs.
+- Add the `bump-version`, `create-release`, `detect-squash-merge`, `pack-manpages` and `wait-pypi` commands, which replace the shell steps of the release workflows.
+- Add `prepare-release --commit` and `--output`, `--upload-to` on `pack-attestation` and `pack-binaries`, and `pack-attestation --require-declared` and `--verify`.
+- Add `sync-deps --pr-sync`, which syncs each updater from a clean tree and opens or refreshes its own pull request.
+- Add the `show-metadata` keys `is_awesome`, `builds_sphinx`, `main_cli_script`, `import_name`, `latest_stable_python`, `is_release_push` and `release_commit`.
+- `nuitka_matrix` is now empty when the binary build is skipped, and each entry gains a `nuitka_cache` flag.
+- `manpages_asset_name` now gives its `<package>-manpages` default instead of an empty value.
+- The help screen gains "Site & docs" and "Tools" sections, and lists every `sync-*` command under "Sync".
+- Every `--output` option now accepts `-o`, and `-` for stdout.
+- `apply-labels`, `lock-threads`, `sync-labels`, `sponsor-label` and `sync-binaries` fall back to the repository of the git remote when `--repo` is missing.
+- Library helpers now read the configuration the CLI resolved, so `--config` reaches the tool cooldown, the cache settings and the `init` pins.
+- `lint-repo` and `setup-guide` now read the repository once and probe each setup step once, which saves API calls on every run.
 - `lint-repo` now warns when a `repomatic run` tool pin is still inside the cooldown, and names the `exclude-newer-package` entry that admits it.
+- `lint-repo` no longer warns that a `REPOMATIC_PAT` limited to its own repository likely has access to all repositories.
+- `immutable-releases` now applies to every repository with a changelog, not only to Python packages.
+- `description-matches` and `website-for-sphinx` skip when no repository is named, instead of failing.
+- `ci-status` and the workflow checks of `lint-repo` now read `.yml` workflow files too.
 - The setup guide issue now stays open while `REPOMATIC_PAT` also has access to another repository of its owner, and the token step names it.
+- `run --list` and the tool reference now find the bump-my-version configuration in `[tool.bumpversion]`.
+- `sync-tool-versions` now downloads only the artifacts of the tools it bumps, and fetches release data in parallel, like `sync-action-pins`.
+- `sync-workflow-pins` now realigns the inline `repomatic` pin in every shape `lint-repo` checks, extras included.
+- Generated tool configs are cached under a content digest, so two checkouts no longer overwrite each other's config.
+- A bare `repomatic run gitleaks` now scans the git history, and a bare `repomatic run lychee` checks the documentation files.
+- Add `repomatic run shellcheck` and `repomatic run npm`. `repomatic run actionlint` puts shellcheck on `PATH` and annotates its findings in CI.
+- `repomatic run nuitka` now installs `nuitka.extras`, prepares the compile cache, and adds the macOS deployment flags.
+- npm tools now always install through the pinned npm, so the cooldown holds whatever npm the runner provides.
+- `update-docs` now reformats the `pyproject.toml` files it changes.
+- `cancel-runs` now spares the runs of a release push.
+- Tool downloads stop at once on an HTTP 4xx and send the `repomatic/{version}` User-Agent. An install failure prints an error, not a traceback.
+- `audit --fix` links each version change to its GitHub comparison.
+- Dependency pull requests fetch release notes with one listing per repository, show GitHub-only releases, and leave out pre-releases inside the range.
+- `lint-deps` policy warnings name locations as TOML paths, like `project.dependencies`.
+- The output of uv no longer interleaves with the progress display of `sync-deps`, `audit --fix` and `update-dep-graph`.
+- `init` reports a merged `pyproject.toml` once under "Updated", and a new changelog starts with a section that `lint-changelog` can parse.
+- `include = ["awesome-template"]` now writes the template in any repository, like other `include` entries.
+- The `github` format of `show-metadata` trims a value over the step-output limit with a warning, instead of failing the step.
+- Outside CI, the repository slug now comes from the `origin` remote before `gh`.
+- `sync-labels` picks the awesome-list label profile from `--repo` instead of the checkout.
+- `sample-metrics` refuses a metrics store holding an unknown source.
+- The `unsubscribe-threads` report warns when its first phase cannot fetch notifications, and shows dates beside relative times.
+- The `fix-typos` pull request title and commit message now read "Fix typos".
+- Release lookups leave out draft releases, and `sync-github-releases --live` reads fresh release bodies and continues past a failed edit.
+- `sync-dev-release` fails instead of creating a duplicate draft when it cannot edit the listed draft.
+- `scan-virustotal` counts two API calls per upload and shares one rate budget with polling.
+- The `scan-virustotal` job now times out after 30 minutes instead of 15, and passes with its steps skipped when no API key is set.
+- The squash-merge issue now updates on a re-run instead of opening a duplicate, and reopens when a squash merge recurs.
+- Freeze and post-release commits are now authored by `github-actions[bot]` instead of the actor who triggered the run.
+- The generated autofix caller now grants `security-events: read`, so `fix-vulnerable-deps` reads Dependabot alerts with the workflow token.
+- The release workflows now pin `pypi-attestations`, and call the pinned `gh` of the tool registry instead of the runner's.
+- `git-tag` errors now include the output of git.
+- `lint-changelog` tolerates release versions that are not PEP 440.
+- Binary builds now count the `workflow.source-paths` directories, so a source-only push to a src-layout project builds its binaries.
 - The bundled `tests.yaml` drops its step that forced a native Python on Windows ARM64, since uv `0.13.0` picks it unaided. A downstream copy can drop the same step.
 - The Windows binaries now build on uv's managed Python, like the binaries of the other platforms.
 - The test matrix now runs Python `3.15` as the stable release and `3.16` as the development one, and smoke-tests the free-threaded `3.15t`.
 - Bump Nuitka from `4.3` to `4.3.1`, which stops a new kind of local variable from recompiling every C file of the binary.
-- Fix the file lists of `repomatic` commands including the files that `.git/info/exclude` ignores, like an agent worktree under `.claude/worktrees/`.
 - The bundled `benchmark-update` skill now grades each cell ✅, 🟡 or ❌, links it to its evidence, and audits blank cells against quoted sources.
 - The bundled `repomatic-audit` skill now reads the CI state of the default branch, and checks that `[tool.gitleaks]` keeps the built-in rules.
 - The bundled `repomatic-upgrade` skill now runs the newly pinned `mypy` and `ruff` on the untouched tree, since the changelog often leaves a tool bump out.
 - The bundled `repomatic-upgrade` skill now tells a local edit that upstream already holds from one the upgrade drops, with a three-way merge.
-- `lint-repo` no longer warns that a `REPOMATIC_PAT` limited to its own repository likely has access to all repositories.
+- Fix the YAML and workflow lint jobs running on every push: `yaml_changed`, `workflows_changed` and `zsh_changed` now read the commit range, shallow clones included.
+- Fix a later push cancelling the tests of a release push: they now run in a concurrency group of their own.
+- Fix a failed lychee run closing the "Broken links" issue.
+- Fix `audit` running `uv audit` when the configured sources leave it out.
+- Fix `repomatic run mypy` on projects whose Python floor is `3.8` or `3.9`.
+- Fix `exclude-newer = "0 days"` and a `false` entry in `exclude-newer-package`, which `sync-uv-lock` could not read.
+- Fix the generated `release.yaml` and `tests.yaml` header exporting the default cooldown instead of the repository's `minimum-release-age`.
+- Fix `init --upstream-repo` exempting `repomatic` from the cooldown instead of the package of the named repository.
+- Fix `lint-deps --pyproject` reading the `pyproject.toml` next to the file it names.
+- Fix `show-metadata` and `update-docs` crashing on a `conf.py` with a tuple or subscript assignment.
+- Fix `current_version`, which reported the oldest commit of a multi-commit push instead of the newest.
+- Fix the draft GitHub release of a first release, which lacked the "first version" wording of its changelog entry.
+- Fix the malformed table of the `release-sync-report` template, and the doubled footer of `sync-runner-images` pull requests.
+- Fix `cloudflare-pages` and `cloudflare-r2` printing a traceback on a timeout or a dropped connection.
+- Fix GraphQL queries for a repository named like a number or a boolean, such as `2048`.
+- Fix `init` reporting four phantom updates in awesome-list repositories, and missing the `#readme` link of their template.
+- Fix `init --output-dir` building `paths:` filters from the working directory instead of the target project.
+- Fix `cancel-runs` matching the wrong runs for a branch name holding `+`, `&` or `#`.
+- Fix the thin-caller secrets check reading the first job with secrets instead of the job that calls the reusable workflow.
+- Fix the binaries leaving out the `prepare-release` and `release-sync-report` templates.
+- Fix the file lists of `repomatic` commands including the files that `.git/info/exclude` ignores, like an agent worktree under `.claude/worktrees/`.
 
 ## [`7.18.0` (2026-10-13)](https://github.com/kdeldycke/repomatic/compare/v7.17.1...v7.18.0)
 

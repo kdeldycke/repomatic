@@ -325,12 +325,15 @@ def registered_data_files() -> list[str]:
     """Every top-level data file the package claims, sorted.
 
     The non-tree sources of the components, the tool config templates, the
-    tool-runner defaults, and the runtime fragments.
+    tool-runner defaults and problem matchers, and the runtime fragments.
     """
     claimed = {f.source for c in COMPONENTS for f in c.files if not f.tree}
     claimed |= {c.source_file for c in COMPONENTS if isinstance(c, ToolConfigComponent)}
     claimed |= {
         spec.default_config for spec in TOOL_REGISTRY.values() if spec.default_config
+    }
+    claimed |= {
+        spec.problem_matcher for spec in TOOL_REGISTRY.values() if spec.problem_matcher
     }
     return sorted(claimed | set(_RUNTIME_FRAGMENTS))
 

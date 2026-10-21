@@ -24,9 +24,11 @@ name: 🏷️ Labels
 
 permissions: {}
 
+# A newer run supersedes an older one: on a release push, the only job left
+# is `sync-labels`, which every later push runs again.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.event.head_commit.message, '[changelog] Release') }}
+  cancel-in-progress: true
 
 # Supply-chain cooldown: no package published within the window can be resolved by
 # any command in this workflow. Set here, not per command, so it also covers the
@@ -44,16 +46,14 @@ jobs:
 
   metadata:
     name: 🧬 Project metadata
-    # Skipping this job propagates to every `needs: metadata` job below.
-    # The PR branch list must stay in sync with
-    # repomatic.release.protocol.VERSION_BUMP_BRANCHES; the single commit-message clause
-    # relies on repomatic.release.protocol.CHANGELOG_COMMIT_PREFIX marking every
-    # machine-authored version-machinery commit. Both enforced by repomatic's
-    # own test suite.
+    # Runs only for the event of the labelling job below, the one reading it.
+    # Skipping this job skips that job too. The PR branch list must stay in
+    # sync with repomatic.release.protocol.VERSION_BUMP_BRANCHES, enforced by
+    # repomatic's own test suite.
     if: >
-      !contains(fromJSON('["major-version-increment","minor-version-increment","prepare-release"]'),
+      (github.event_name == 'pull_request' || github.event_name == 'issues')
+      && !contains(fromJSON('["major-version-increment","minor-version-increment","prepare-release"]'),
       github.head_ref)
-      && !startsWith(github.event.head_commit.message || '', '[changelog] ')
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     outputs:
@@ -72,8 +72,10 @@ jobs:
 
   sync-labels:
     name: 🔄 Sync labels
-    # Restrict job to the main branch pushes and workflow calls only, as this is a project-management task.
-    if: github.event_name == 'push' || github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch'
+    # Restrict job to the main branch pushes and manual runs only, as this is a
+    # project-management task. A run called from another workflow carries the
+    # event of the caller, so a downstream caller reaches this job the same way.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -100,9 +102,9 @@ jobs:
     name: 🏷️ Apply labels
     needs:
       - metadata
-    if: >
-      (github.event_name == 'pull_request' || github.event_name == 'issues')
-      && (! fromJSON(needs.metadata.outputs.metadata).is_bot)
+    # Both labellers in one job, as they share an `if:`: the metadata job above
+    # already restricts this one to opened issues and pull requests.
+    if: ${{ ! fromJSON(needs.metadata.outputs.metadata).is_bot }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -120,25 +122,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: uv --no-progress run --frozen -- repomatic apply-labels --live
-
-  sponsor-label:
-    name: 💝 Tag sponsors
-    needs:
-      - metadata
-    if: >
-      (github.event_name == 'pull_request' || github.event_name == 'issues')
-      && (! fromJSON(needs.metadata.outputs.metadata).is_bot)
-    runs-on: ubuntu-26.04
-    timeout-minutes: 15
-    permissions:
-      issues: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          version: "0.13.0"
       - name: Add sponsor label
+        # Runs even when the labeller failed: the two read different things.
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: uv --no-progress run --frozen -- repomatic sponsor-label

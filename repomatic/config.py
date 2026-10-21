@@ -1035,7 +1035,8 @@ class Config:
     uploaded to the GitHub release.
 
     Defaults to `<package-name>-manpages` when left empty and `manpages.script`
-    is set. Has no effect when `manpages.script` is empty.
+    is set. Has no effect when `manpages.script` is empty. The
+    `manpages_asset_name` metadata key carries the resolved stem.
     """
 
     manpages_script: str = field(
@@ -1163,10 +1164,11 @@ class Config:
     List of extra names (like `["sbom"]`) to sync into the build venv before
     invoking Nuitka. By default the binary build only sees the project's base
     dependencies, which matches a bare `pip install <package>` and excludes
-    optional features. Listing an extra here calls `uv sync --frozen --extra
-    <name>` before the Nuitka build so the binary can bundle the optional
-    feature's third-party packages (paired with `--include-package` in
-    `[tool.nuitka]` for imports guarded behind `try/except`).
+    optional features. Listing an extra here makes `repomatic run nuitka` call
+    `uv sync --frozen --inexact --extra <name>` before the build so the binary
+    can bundle the optional feature's third-party packages (paired with
+    `--include-package` in `[tool.nuitka]` for imports guarded behind
+    `try/except`).
     """
 
     nuitka_nofollow_imports: list[str] = field(
@@ -1489,6 +1491,15 @@ class Config:
                 " must be a bare hostname, like files.example.com."
             )
             raise ValueError(msg)
+
+    def cloudflare_project(self, repo_name: str) -> str:
+        """The Cloudflare Pages project the site of *repo_name* deploys into.
+
+        :param repo_name: The repository name, which names the project when
+            `site.cloudflare-project` does not.
+        :return: The project name, empty when neither names one.
+        """
+        return self.site_cloudflare_project or repo_name
 
     def is_enabled(self, key: str) -> bool:
         """Whether the `[tool.repomatic]` setting at the dotted *key* is on.

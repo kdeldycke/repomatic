@@ -68,6 +68,10 @@ holds the value, in
 """
 
 
+MANPAGES_ASSET_SUFFIX: Final[str] = "-manpages"
+"""What the package name takes to name the man-page tarball, by default."""
+
+
 _SCRIPT_NAME_RE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9._-]+")
 """Allowed characters in a `[project.scripts]` entry name.
 
@@ -258,6 +262,19 @@ class ProjectMetadata:
         return None
 
     @cached_property
+    def manpages_asset_name(self) -> str | None:
+        """Filename stem of the man-page tarball attached to a release.
+
+        `[tool.repomatic] manpages.asset-name` when set, `<package-name>-manpages`
+        otherwise. `None` for a project with neither.
+        """
+        if self.config.manpages_asset_name:
+            return self.config.manpages_asset_name
+        if self.package_name:
+            return f"{self.package_name}{MANPAGES_ASSET_SUFFIX}"
+        return None
+
+    @cached_property
     def project_description(self) -> str | None:
         """Returns project description from pyproject.toml."""
         if self.pyproject and self.pyproject.description:
@@ -324,6 +341,33 @@ class ProjectMetadata:
         return entries
 
     @cached_property
+    def main_cli_script(self) -> str | None:
+        """The first `[project.scripts]` entry, the CLI the self-tests drive.
+
+        :return: The script name, or `None` when the project declares none.
+        """
+        if not self.script_entries:
+            return None
+        return self.script_entries[0][0]
+
+    @cached_property
+    def import_name(self) -> str | None:
+        """The top-level package that `python -m` runs.
+
+        Read from the module of {attr}`main_cli_script`, since the CLI lives in
+        that package: `mail_deduplicate.cli` gives `mail_deduplicate`. A project
+        with no script falls back to its package name, with each hyphen turned
+        into an underscore.
+
+        :return: The import name, or `None` when the project has no name.
+        """
+        if self.script_entries:
+            return self.script_entries[0][1].partition(".")[0]
+        if self.package_name:
+            return self.package_name.replace("-", "_")
+        return None
+
+    @cached_property
     def requires_python_floor(self) -> tuple[int, int] | None:
         """The project's `requires-python` lower bound, as `(major, minor)`.
 
@@ -360,31 +404,19 @@ class ProjectMetadata:
         return ["--python-version", f"{major}.{minor}"]
 
     @cached_property
-    def _bump_baseline(self) -> BumpBaseline | None:
-        """The versions both bump gates compare, read once for the two."""
-        return BumpBaseline.resolve()
-
-    @cached_property
-    def minor_bump_allowed(self) -> bool:
-        """Check if a minor version bump is allowed.
-
-        This prevents double version increments within a development cycle.
-        """
-        return self._bump_baseline is None or self._bump_baseline.allows("minor")
-
-    @cached_property
-    def major_bump_allowed(self) -> bool:
-        """Check if a major version bump is allowed.
-
-        This prevents double version increments within a development cycle.
-        """
-        return self._bump_baseline is None or self._bump_baseline.allows("major")
-
-    @cached_property
     def is_sphinx(self) -> bool:
         """Returns `True` if the Sphinx config file is present."""
         # The Sphinx config file is present, that's enough for us.
         return self.sphinx_conf_path.is_file()
+
+    @cached_property
+    def builds_sphinx(self) -> bool:
+        """Whether the Docs workflow builds this repository's Sphinx site.
+
+        The build installs the project to run Sphinx, so it needs a Python
+        project as well as a Sphinx configuration.
+        """
+        return self.is_python_project and self.is_sphinx
 
     @cached_property
     def sphinx_extensions(self) -> frozenset[str]:

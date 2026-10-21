@@ -160,6 +160,7 @@ def test_update_docs_runs_apidoc_for_autodoc_project(tmp_path, monkeypatch):
         (DocsPhase.CONVERSION, PhaseStatus.SKIPPED),
         (DocsPhase.TOCTREE, PhaseStatus.DONE),
         (DocsPhase.SCRIPT, PhaseStatus.SKIPPED),
+        (DocsPhase.PYPROJECT, PhaseStatus.SKIPPED),
         (DocsPhase.DIRECTIVES, PhaseStatus.SKIPPED),
     ]
     assert results[0].message == "sphinx-apidoc completed."
@@ -228,6 +229,67 @@ def test_update_docs_check_skips_writes_and_propagates(tmp_path, monkeypatch):
     assert mock_tool.call_count == 2
     for call in mock_tool.call_args_list:
         assert "--check" in call.args
+
+
+ORCHARD_PYPROJECT = '[project]\nname="orchard"\n'
+"""An unformatted `pyproject.toml`, as a project's docs update script leaves it."""
+
+
+def _run_update_script(tmp_path, monkeypatch, script):
+    """Run `update_docs` with *script* standing in for the docs update script.
+
+    :return: The phase results, and the mock standing in for `run_tool`.
+    """
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "docs_update.py").write_text("", encoding="UTF-8")
+    (tmp_path / "pyproject.toml").write_text(ORCHARD_PYPROJECT, encoding="UTF-8")
+    nested = tmp_path / "plugins" / "kiwi"
+    nested.mkdir(parents=True)
+    (nested / "pyproject.toml").write_text('[project]\nname="kiwi"\n', encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    meta = SimpleNamespace(is_sphinx=True, active_autodoc=False, uses_myst=False)
+    with (
+        patch("repomatic.docs.Metadata", return_value=meta),
+        patch("repomatic.docs._run_docs_tool", side_effect=script),
+        patch("repomatic.docs.run_tool", return_value=0) as run_tool,
+    ):
+        results = update_docs(_docs_config("docs/docs_update.py"))
+    return results, run_tool
+
+
+def test_update_docs_reformats_the_pyproject_its_script_changed(tmp_path, monkeypatch):
+    """A `pyproject.toml` the update script rewrote is reformatted, and only it.
+
+    A `pyproject.toml` the run left alone keeps its drift: that one belongs to
+    the `format-pyproject` job.
+    """
+
+    def script(*args):
+        Path("pyproject.toml").write_text(
+            f'{ORCHARD_PYPROJECT}keywords=["fig"]\n', encoding="UTF-8"
+        )
+        return 0
+
+    results, run_tool = _run_update_script(tmp_path, monkeypatch, script)
+
+    run_tool.assert_called_once_with("pyproject-fmt", extra_args=["pyproject.toml"])
+    assert (
+        PhaseResult(
+            DocsPhase.PYPROJECT, PhaseStatus.DONE, "pyproject.toml reformat completed."
+        )
+        in results
+    )
+
+
+def test_update_docs_leaves_an_unchanged_pyproject_alone(tmp_path, monkeypatch):
+    """A run that changed no `pyproject.toml` reformats none."""
+    results, run_tool = _run_update_script(tmp_path, monkeypatch, lambda *args: 0)
+
+    run_tool.assert_not_called()
+    assert (DocsPhase.PYPROJECT, PhaseStatus.SKIPPED) in [
+        (result.phase, result.status) for result in results
+    ]
 
 
 def test_update_docs_check_reports_drift(tmp_path, monkeypatch):

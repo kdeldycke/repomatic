@@ -139,3 +139,28 @@ def run_uv(
     if check and result.returncode:
         raise UvError(result.returncode, cmd, result.stdout, result.stderr)
     return result
+
+
+def relock() -> None:
+    """Refresh `uv.lock` after a version bump, and nothing else in it.
+
+    A plain `uv lock`, on purpose. `bump-my-version` rewrites the project's
+    version in `pyproject.toml` but not in `uv.lock`, and a bump committed
+    without the re-lock leaves the project ahead of its own lock entry: the
+    next `uv run --frozen` then reinstalls the project, and two nested syncs of
+    a release build can delete a console script the other one is running, a
+    sharing violation on Windows.
+
+    `uv lock --upgrade` would re-resolve every dependency instead. With a
+    `"0 day"` `exclude-newer-package` bypass in place, it fast-forwards that
+    dependency across a release still inside its cooldown, on an unreviewed
+    bump pull request. `uv sync` would leave the lock in a state the
+    `sync-uv-lock` job rewrites into a redundant follow-up pull request.
+    Dependency upgrades stay the job of `sync-uv-lock`, in their own pull
+    request.
+
+    :raises UvError: When uv cannot lock the project.
+    """
+    cmd = uv_cmd("lock")
+    logging.info(f"Running: {' '.join(cmd)}")
+    run_uv(cmd)

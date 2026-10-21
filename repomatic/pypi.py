@@ -25,6 +25,7 @@ Also the home of what counts as the public index at all
 
 from __future__ import annotations
 
+import time
 from typing import NamedTuple
 from urllib.parse import urlencode, urlsplit
 
@@ -35,6 +36,7 @@ from .versions import safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from pathlib import Path
     from typing import Any
 
     from packaging.version import Version
@@ -67,6 +69,22 @@ PYPI_PACKAGE_URL = "https://pypi.org/project/{package}/"
 
 PYPI_PROJECT_URL = "https://pypi.org/project/{package}/{version}/"
 """PyPI project page URL for a specific version."""
+
+PYPI_VERSION_API_URL = "https://pypi.org/pypi/{package}/{version}/json"
+"""PyPI JSON API URL for the metadata of one version of a package."""
+
+SDIST_SUFFIX = ".tar.gz"
+"""Extension of a source distribution, after its `{name}-{version}` stem."""
+
+PROPAGATION_ATTEMPTS = 20
+"""Lookups {func}`wait_for_release` makes before it gives up."""
+
+PROPAGATION_DELAY = 15
+"""Seconds {func}`wait_for_release` waits between two lookups.
+
+With {data}`PROPAGATION_ATTEMPTS`, the wait lasts about five minutes, which
+covers the propagation delay of PyPI's index and CDN.
+"""
 
 PYPI_PROVENANCE_URL = (
     "https://pypi.org/integrity/{package}/{version}/{filename}/provenance"
@@ -477,4 +495,63 @@ def get_changelog_url(package: str) -> str | None:
         candidate = project_urls.get(key, "")
         if candidate:
             return candidate.rstrip("/")
+    return None
+
+
+def sdist_name_version(dist_dir: Path) -> tuple[str, str]:
+    """Read the project name and version off the sdist in *dist_dir*.
+
+    An sdist is named `{name}-{version}.tar.gz`, with a name normalized to hold
+    no hyphen, so the last hyphen of the stem splits the two.
+
+    :param dist_dir: Directory holding the distributions of one release.
+    :return: The normalized project name and the version.
+    :raises ValueError: When *dist_dir* holds no sdist, or one whose name
+        does not split.
+    """
+    sdists = sorted(dist_dir.glob(f"*{SDIST_SUFFIX}"))
+    if not sdists:
+        msg = f"{dist_dir} holds no sdist to read the release from."
+        raise ValueError(msg)
+    stem = sdists[0].name.removesuffix(SDIST_SUFFIX)
+    name, _, version = stem.rpartition("-")
+    if not name or not version:
+        msg = f"Cannot read a project name and a version off {sdists[0].name}."
+        raise ValueError(msg)
+    return name, version
+
+
+def wait_for_release(
+    package: str,
+    version: str,
+    *,
+    attempts: int = PROPAGATION_ATTEMPTS,
+    delay: float = PROPAGATION_DELAY,
+) -> int | None:
+    """Poll PyPI until *version* of *package* answers on its JSON API.
+
+    `uv publish` returns once PyPI accepts the upload, but its index and CDN
+    can take minutes to serve the release everywhere. Automation that reacts
+    to the release at once (a downstream repository bumping its pin, or this
+    project syncing its own workflow references against itself) would race
+    that window and fail to resolve the version. The release lane waits here
+    instead, so nothing after it inherits the race.
+
+    Each lookup reads the API afresh: the cached reads of this module would
+    serve the snapshot taken before the upload.
+
+    :param package: The PyPI package name.
+    :param version: The version just published.
+    :param attempts: Lookups to make before giving up.
+    :param delay: Seconds to wait between two lookups.
+    :return: The number of the lookup that found the version, or `None` when
+        none did.
+    """
+    url = PYPI_VERSION_API_URL.format(package=package, version=version)
+    for attempt in range(1, attempts + 1):
+        found = get_json_soft(url, f"PyPI does not serve {package} {version} yet")
+        if found is not None:
+            return attempt
+        if attempt < attempts:
+            time.sleep(delay)
     return None

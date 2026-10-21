@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import threading
+from dataclasses import replace
 from itertools import combinations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -45,10 +46,12 @@ from extra_platforms import (
     Group,
     Platform,
 )
+from packaging.version import Version
 
 from repomatic.bundle import get_data_content
 from repomatic.cli.main import repomatic
 from repomatic.cli.tools import run as run_command
+from repomatic.deps.uv import UvError
 from repomatic.file_inventory import FileInventory
 from repomatic.matrix.axes import (
     SINGLE_RUNNER_PYTHON_VERSIONS,
@@ -57,10 +60,13 @@ from repomatic.matrix.axes import (
 )
 from repomatic.metadata.core import Metadata
 from repomatic.metadata.project import MYPY_VERSION_MIN
+from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from repomatic.tooling.registry import (
     _DIRECTIVE_YAML_OPTIONS_RE,
     _ESCAPED_COLON_FENCE_RE,
     CHECKSUMS,
+    NPM_BOOTSTRAP_TOOL,
+    NPM_MIN_VERSION_FOR_COOLDOWN,
     TOOL_REGISTRY,
     VERSIONS,
     ArchiveFormat,
@@ -90,6 +96,7 @@ from repomatic.tooling.runner import (
     _installs_into_venv,
     _npm_supports_cooldown,
     _path_tools_env,
+    _prepare,
     _venv_install_args,
     find_unmodified_configs,
     resolve_config,
@@ -97,7 +104,7 @@ from repomatic.tooling.runner import (
     run_tool,
     verify_via_write_path,
 )
-from tests.conftest import load_workflow, skip_unless_tool_runs
+from tests.conftest import skip_unless_tool_runs
 
 # ---------------------------------------------------------------------------
 # ToolSpec and registry validation
@@ -555,50 +562,69 @@ def test_datasource_url_by_backend():
     assert ToolSpec(name="widget").datasource_url == "https://pypi.org/project/widget/"
 
 
+def _fake_npm_prefixes(dest: Path, *tools: str) -> None:
+    """Pre-create the executables the (mocked) npm installs would produce.
+
+    Every tool but the pinned npm lands in *dest*. The pinned npm lands in the
+    `npm` folder below it.
+    """
+    for tool in tools:
+        prefix = dest / tool if tool == NPM_BOOTSTRAP_TOOL else dest
+        bin_dir = prefix / "node_modules" / ".bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        (bin_dir / tool).write_text("", encoding="UTF-8")
+
+
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.shutil.which", return_value="/usr/bin/npm")
 def test_install_npm_command_shape(mock_which, mock_run, tmp_path):
-    """The npm backend installs pkg@version into a prefix with the cooldown flag."""
-    # Two subprocess calls when a cooldown is set: `npm --version`, then install.
+    """The npm on PATH installs the pinned npm, which installs the tool.
+
+    Both installs land in a prefix of their own, block install scripts and
+    carry the cooldown.
+    """
+    # The pinned npm install, its `npm --version`, then the tool install.
     mock_run.side_effect = [
-        MagicMock(returncode=0, stdout="11.10.0\n"),
+        MagicMock(returncode=0),
+        MagicMock(returncode=0, stdout=f"{NPM_MIN_VERSION_FOR_COOLDOWN}\n"),
         MagicMock(returncode=0),
     ]
     spec = TOOL_REGISTRY["awesome-lint"]
-    # Pre-create the executable the (mocked) install would produce.
-    bin_dir = tmp_path / "node_modules" / ".bin"
-    bin_dir.mkdir(parents=True)
-    (bin_dir / "awesome-lint").write_text("", encoding="UTF-8")
+    pinned = TOOL_REGISTRY[NPM_BOOTSTRAP_TOOL]
+    _fake_npm_prefixes(tmp_path, NPM_BOOTSTRAP_TOOL, "awesome-lint")
 
     bin_path = _install_npm(spec, tmp_path, cooldown_days=8)
 
-    cmd = mock_run.call_args_list[-1][0][0]  # the install call, after `npm --version`
-    assert cmd[0] == "/usr/bin/npm"
-    assert cmd[1] == "install"
-    assert f"awesome-lint@{spec.version}" in cmd
-    assert "--prefix" in cmd and str(tmp_path) in cmd
-    assert "--min-release-age=8" in cmd
-    # Install-time scripts are blocked (the npm supply-chain worm vector); the
-    # other flags mirror meta-package-manager's npm `pre_args`.
-    assert "--ignore-scripts" in cmd
-    assert "--no-audit" in cmd
-    assert "--no-update-notifier" in cmd
-    assert bin_path == bin_dir / "awesome-lint"
+    bootstrap = mock_run.call_args_list[0][0][0]
+    install = mock_run.call_args_list[-1][0][0]
+    assert bootstrap[:2] == ["/usr/bin/npm", "install"]
+    assert f"npm@{pinned.version}" in bootstrap
+    assert str(tmp_path / NPM_BOOTSTRAP_TOOL) in bootstrap
+    pinned_npm = tmp_path / NPM_BOOTSTRAP_TOOL / "node_modules" / ".bin" / "npm"
+    assert install[:2] == [str(pinned_npm), "install"]
+    assert f"awesome-lint@{spec.version}" in install
+    assert "--prefix" in install and str(tmp_path) in install
+    for cmd in (bootstrap, install):
+        assert "--min-release-age=8" in cmd
+        # Install-time scripts are blocked (the npm supply-chain worm vector);
+        # the other flags mirror meta-package-manager's npm `pre_args`.
+        for flag in NPM_INSTALL_FLAGS:
+            assert flag in cmd
+    assert bin_path == tmp_path / "node_modules" / ".bin" / "awesome-lint"
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.shutil.which", return_value="/usr/bin/npm")
 def test_install_npm_zero_cooldown_omits_flag(mock_which, mock_run, tmp_path):
-    """A 0-day cooldown drops the min-release-age flag entirely."""
+    """A 0-day cooldown drops the min-release-age flag from both installs."""
     mock_run.return_value = MagicMock(returncode=0)
-    bin_dir = tmp_path / "node_modules" / ".bin"
-    bin_dir.mkdir(parents=True)
-    (bin_dir / "awesome-lint").write_text("", encoding="UTF-8")
+    _fake_npm_prefixes(tmp_path, NPM_BOOTSTRAP_TOOL, "awesome-lint")
 
     _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=0)
 
-    cmd = mock_run.call_args[0][0]
-    assert not any(str(arg).startswith("--min-release-age") for arg in cmd)
+    assert mock_run.call_count == 2
+    for call in mock_run.call_args_list:
+        assert not any(str(arg).startswith("--min-release-age") for arg in call[0][0])
 
 
 @patch("repomatic.tooling.runner.shutil.which", return_value=None)
@@ -629,34 +655,112 @@ def test_npm_supports_cooldown(mock_run, version_output, supported):
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.shutil.which", return_value="/usr/bin/npm")
 def test_install_npm_warns_when_npm_too_old(mock_which, mock_run, tmp_path, caplog):
-    """Old npm cannot enforce the cooldown, so the runner warns but still installs."""
+    """An npm that cannot enforce the cooldown warns, but still installs.
+
+    Running the pinned npm itself installs it with the npm on PATH, which is
+    then the one the floor check reads.
+    """
     mock_run.side_effect = [
         MagicMock(returncode=0, stdout="10.8.2\n"),  # npm --version
         MagicMock(returncode=0),  # npm install
     ]
     bin_dir = tmp_path / "node_modules" / ".bin"
     bin_dir.mkdir(parents=True)
-    (bin_dir / "awesome-lint").write_text("", encoding="UTF-8")
+    (bin_dir / NPM_BOOTSTRAP_TOOL).write_text("", encoding="UTF-8")
 
     with caplog.at_level(logging.WARNING):
-        _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=8)
+        _install_npm(TOOL_REGISTRY[NPM_BOOTSTRAP_TOOL], tmp_path, cooldown_days=8)
 
+    assert mock_run.call_count == 2
     assert "minimum-release-age cooldown is not enforced" in caplog.text
 
 
-def test_npm_bootstrap_carries_the_install_flags():
-    """The `lint-awesome` job installs npm with every flag of the npm backend.
+def test_pinned_npm_enforces_the_cooldown():
+    """The npm that installs every npm-backed tool honors `min-release-age`.
 
-    The job installs a recent npm before `repomatic run awesome-lint`. That
-    install is as exposed to install scripts and to the audit endpoint as the
-    install of the tool itself.
+    A pin moved below the floor would install every tool with the cooldown
+    ignored, and the bootstrap would hide it.
     """
-    steps = load_workflow("lint.yaml")["jobs"]["lint-awesome"]["steps"]
-    (bootstrap,) = (
-        step["run"] for step in steps if "npm install npm@" in step.get("run", "")
+    pinned = TOOL_REGISTRY[NPM_BOOTSTRAP_TOOL]
+    assert pinned.npm is not None
+    assert Version(pinned.version) >= Version(NPM_MIN_VERSION_FOR_COOLDOWN)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [spec for spec in TOOL_REGISTRY.values() if spec.problem_matcher],
+    ids=lambda spec: spec.name,
+)
+def test_problem_matcher_reads_the_output_of_its_tool(spec):
+    """A bundled matcher is a valid matcher file, keyed on a named owner.
+
+    actionlint's own line format, with and without the color codes of its
+    `-color` flag, is what the pattern has to read.
+    """
+    matchers = json.loads(get_data_content(spec.problem_matcher))["problemMatcher"]
+    assert [matcher["owner"] for matcher in matchers] == [spec.name]
+    (pattern,) = matchers[0]["pattern"]
+    finding = '.github/workflows/fig.yaml:3:5: unexpected key "fig" [syntax-check]'
+    # The kind closes the line in gray: its reset code opens the next line.
+    colored = (
+        "\x1b[33m.github/workflows/fig.yaml\x1b[0m\x1b[90m:\x1b[0m3\x1b[90m:\x1b[0m5"
+        '\x1b[90m: \x1b[0m\x1b[1munexpected key "fig"\x1b[0m\x1b[90m [syntax-check]'
     )
-    missing = set(NPM_INSTALL_FLAGS) - set(bootstrap.split())
-    assert not missing, f"lint-awesome installs npm without {sorted(missing)}"
+    for line in (finding, colored):
+        match = re.fullmatch(pattern["regexp"], line)
+        assert match, line
+        assert match.group(pattern["file"]) == ".github/workflows/fig.yaml"
+        assert match.group(pattern["line"]) == "3"
+        assert match.group(pattern["column"]) == "5"
+        assert match.group(pattern["code"]) == "syntax-check"
+
+
+@pytest.mark.parametrize("in_ci", (True, False))
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.binaries.install_binary")
+def test_run_tool_wraps_the_run_in_its_problem_matcher(
+    mock_install_binary, mock_run, tmp_path, monkeypatch, in_ci
+):
+    """In GitHub Actions, the matcher is on for the length of the run, and only then.
+
+    The runner reads the matcher file when it processes the registration, so the
+    file lands in the job's temporary directory, which outlives the process.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setattr("repomatic.tooling.runner.is_github_ci", lambda: in_ci)
+    mock_install_binary.return_value = tmp_path / "actionlint"
+    events: list[str] = []
+    monkeypatch.setattr(
+        "repomatic.tooling.runner.add_problem_matcher",
+        lambda path: events.append(f"add {path.name}"),
+    )
+    monkeypatch.setattr(
+        "repomatic.tooling.runner.remove_problem_matcher",
+        lambda owner: events.append(f"remove {owner}"),
+    )
+
+    def run(*args, **kwargs):
+        events.append("run")
+        return MagicMock(returncode=0)
+
+    mock_run.side_effect = run
+
+    assert run_tool("actionlint") == 0
+
+    matcher = TOOL_REGISTRY["actionlint"].problem_matcher
+    if in_ci:
+        assert events == [f"add {matcher}", "run", "remove actionlint"]
+        written = (tmp_path / matcher).read_text(encoding="UTF-8")
+        assert written == get_data_content(matcher)
+    else:
+        assert events == ["run"]
+
+
+def test_actionlint_lints_run_scripts_with_the_pinned_shellcheck():
+    """actionlint finds shellcheck on PATH, so the registry puts its own there."""
+    assert TOOL_REGISTRY["actionlint"].path_tools == ("shellcheck",)
+    assert TOOL_REGISTRY["shellcheck"].binary is not None
 
 
 def test_lookup_tool_rejects_an_unknown_name():
@@ -1990,6 +2094,40 @@ def test_run_tool_nuitka_nofollow_imports_default(
 
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
+def test_run_tool_nuitka_gets_its_target_environment(
+    mock_ci, mock_run, tmp_path, monkeypatch
+):
+    """The variables the prepare hook returns reach Nuitka, over the inherited ones."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("NUITKA_CACHE_DIR", raising=False)
+    monkeypatch.setattr(
+        "repomatic.tooling.nuitka.current_build_target",
+        lambda: NUITKA_BUILD_TARGETS["macos-x64"],
+    )
+    mock_run.return_value = MagicMock(returncode=0)
+
+    run_tool("nuitka", extra_args=("repomatic",))
+
+    cmd = mock_run.call_args.args[0]
+    env = mock_run.call_args.kwargs["env"]
+    assert "--disable-ccache" in cmd
+    assert env["MACOSX_DEPLOYMENT_TARGET"] == "10.15"
+    assert env["PATH"] == os.environ["PATH"]
+
+
+def test_prepare_failure_is_an_install_error():
+    """A preparation uv refuses ends the run like a failed install."""
+
+    def refuse(metadata):
+        raise UvError(2, ["uv", "sync"], "", "No such extra: kiwi")
+
+    spec = replace(TOOL_REGISTRY["nuitka"], prepare=refuse)
+    with pytest.raises(ToolInstallError, match="No such extra: kiwi"):
+        _prepare(spec)
+
+
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_nuitka_nofollow_imports_override(
     mock_ci, mock_run, tmp_path, monkeypatch
 ):
@@ -2807,10 +2945,14 @@ def test_run_tool_reports_a_rewrite_status_that_rewrote_nothing(
 @patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
-def test_run_tool_passes_a_rewrite_status_that_rewrote_a_file(
+def test_run_tool_reports_success_for_a_rewrite_it_verified(
     mock_ci, mock_run, mock_install_binary, tmp_path, monkeypatch
 ):
-    """The same exit code is passed through untouched when a file did change."""
+    """The same exit code reports success when a file did change.
+
+    The rewrite is what the caller asked for, so no workflow step has to
+    tolerate the code the formatter announces it with.
+    """
     monkeypatch.chdir(tmp_path)
     target = tmp_path / "pyproject.toml"
     target.write_text(MESSY_PYPROJECT, encoding="UTF-8")
@@ -2821,7 +2963,7 @@ def test_run_tool_passes_a_rewrite_status_that_rewrote_a_file(
 
     mock_run.side_effect = reformat
 
-    assert run_tool("pyproject-fmt") == 1
+    assert run_tool("pyproject-fmt") == 0
 
 
 @patch("repomatic.tooling.binaries.install_binary")

@@ -59,7 +59,7 @@ from repomatic.cloudflare.pages import (
     desired_settings,
     run_cloudflare_pages,
 )
-from repomatic.config import Config
+from repomatic.config import Config, publish_config
 from tests.conftest import FakeResponse
 
 PROJECT = "papaya-site"
@@ -902,13 +902,14 @@ def test_wrangler_config_paths_default_to_the_xdg_home(monkeypatch, tmp_path):
     ),
 )
 def test_resolve_project_prefers_the_named_project(given, declared, expected):
-    config = Config(site_cloudflare_project=declared)
-    assert resolve_project(config, given) == expected
+    publish_config(Config(site_cloudflare_project=declared))
+    assert resolve_project(given) == expected
 
 
 def test_resolve_project_falls_back_to_the_repository_name(monkeypatch):
     monkeypatch.setenv("GITHUB_REPOSITORY", "orchard/papaya")
-    assert resolve_project(Config()) == "papaya"
+    publish_config(Config())
+    assert resolve_project() == "papaya"
 
 
 # ----- The command line
@@ -945,9 +946,7 @@ def test_pages_mode_says_whether_it_writes_the_settings(mode, writes):
 
 
 def test_cli_needs_a_project_name(monkeypatch):
-    monkeypatch.setattr(
-        "repomatic.cli.site.resolve_project", lambda config, project: ""
-    )
+    monkeypatch.setattr("repomatic.cli.site.resolve_project", lambda project: "")
     result = CliRunner().invoke(repomatic, ["cloudflare-pages", "--check"])
     assert result.exit_code == 2
     assert "No project name: pass --project" in result.output

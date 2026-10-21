@@ -25,6 +25,7 @@ import pytest
 import yaml
 
 from repomatic.bundle import get_data_content
+from repomatic.cli.github import unsubscribe_threads_cmd
 from repomatic.components import (
     ALL_WORKFLOW_FILES,
     NON_REUSABLE_WORKFLOWS,
@@ -168,11 +169,25 @@ def test_unsubscribe_has_call_inputs() -> None:
 
 
 # The complete workflow_call input surface every thin-caller-deployed reusable
-# workflow forwards. Only unsubscribe.yaml (config-gated, off by default) carries
-# any; the rest forward nothing.
+# workflow forwards. unsubscribe.yaml (config-gated, off by default) forwards its
+# dispatch inputs. The release engine (recorded as release.yaml's source) takes
+# the build lane's metadata from the generated release.yaml, whose `with:` block
+# comes from the bundled release.yaml of the running version: a first adoption
+# the cooldown steps back to a release whose engine predates the input writes a
+# caller GitHub rejects, until the pin catches up. The rest forward nothing.
 EXPECTED_THIN_CALLER_CALL_INPUTS: dict[str, set[str]] = {
+    "release.yaml": {"metadata"},
     "unsubscribe.yaml": {"max-unsubscribes", "dry-run", "months"},
 }
+
+LANE_CALL_INPUTS: dict[str, frozenset[str]] = {
+    "release.yaml": frozenset(("metadata",)),
+}
+"""Inputs carrying data from another lane of the same run, not configuration.
+
+The release engine reads the metadata the build lane computed, which its caller
+passes on: no `workflow_dispatch` counterpart can supply it.
+"""
 
 
 def test_thin_caller_workflow_call_inputs_stay_minimal() -> None:
@@ -377,13 +392,16 @@ def test_call_inputs_are_dispatch_passthroughs(filename: str) -> None:
     of accepting inputs. The only ``workflow_call`` inputs allowed are
     passthroughs of the workflow's own ``workflow_dispatch`` inputs, so
     generated thin callers can forward a manual dispatch to the reusable
-    workflow (see ``_generate_thin_caller``). Type and default must match the
-    dispatch declaration, so both entry points behave identically.
+    workflow (see ``_generate_thin_caller``), and the lane inputs of
+    ``LANE_CALL_INPUTS``, which carry no configuration. Type and default must
+    match the dispatch declaration, so both entry points behave identically.
     """
     info = extract_trigger_info(WORKFLOW_SOURCES.get(filename, filename))
     dispatch_config = info.non_call_triggers.get("workflow_dispatch") or {}
     dispatch_inputs = dispatch_config.get("inputs") or {}
     for input_name, call_input in info.call_inputs.items():
+        if input_name in LANE_CALL_INPUTS.get(filename, ()):
+            continue
         assert input_name in dispatch_inputs, (
             f"{filename}: workflow_call input {input_name!r} has no"
             " workflow_dispatch counterpart"
@@ -1823,10 +1841,15 @@ def test_header_preserves_canonical_quote_style() -> None:
     ("filename", "expected"),
     (
         # Every autofix job that writes opens a pull request; setup-guide adds
-        # the issues scope.
+        # the issues scope, and fix-vulnerable-deps reads the Dependabot alerts.
         (
             "autofix.yaml",
-            {"contents": "write", "issues": "write", "pull-requests": "write"},
+            {
+                "contents": "write",
+                "issues": "write",
+                "pull-requests": "write",
+                "security-events": "read",
+            },
         ),
         # The labellers only read the tree, so contents stays at read while the
         # scopes they do write are unioned in.
@@ -1901,6 +1924,7 @@ def test_generate_thin_caller_emits_both_permission_halves() -> None:
         "contents": "write",
         "issues": "write",
         "pull-requests": "write",
+        "security-events": "read",
     }
     # The permissions block must not displace the call's own arguments.
     assert data["jobs"]["autofix"]["uses"].startswith(DEFAULT_REPO)
@@ -2178,11 +2202,13 @@ def test_canonical_input_defaults_match_the_config_field(
 ) -> None:
     """The canonical workflow and the config field declare the same default.
 
-    The literal is spelled three times in `unsubscribe.yaml`: the `workflow_call`
-    input, the `workflow_dispatch` input, and the `|| '...'` fallback the step
-    applies when a non-dispatch event leaves `inputs` null. A default that moves
-    in the config and not in the YAML would leave a repository configuring
-    nothing on a different value than the one the schema documents.
+    The literal is spelled twice in `unsubscribe.yaml`: the `workflow_call`
+    input and the `workflow_dispatch` input. A default that moves in the config
+    and not in the YAML would leave a repository configuring nothing on a
+    different value than the one the schema documents.
+
+    A non-dispatch event leaves `inputs` empty. The step then passes no option
+    at all, so the CLI applies its own default, which the config field sets.
     """
     expected = str(getattr(Config, field_name))
     workflow = yaml.safe_load(UNSUBSCRIBE_WORKFLOW_PATH.read_text(encoding="UTF-8"))
@@ -2193,8 +2219,20 @@ def test_canonical_input_defaults_match_the_config_field(
             f"unsubscribe.yaml {trigger}.inputs.{input_name} declares {declared},"
             f" but Config.{field_name} is {expected}."
         )
-    body = UNSUBSCRIBE_WORKFLOW_PATH.read_text(encoding="UTF-8")
-    assert f"inputs.{input_name} || '{expected}'" in body, (
-        f"unsubscribe.yaml has no `inputs.{input_name} || '{expected}'` fallback,"
-        f" so a scheduled run would not see Config.{field_name}."
+    (step,) = (
+        step
+        for step in workflow["jobs"]["unsubscribe-threads"]["steps"]
+        if "unsubscribe-threads" in (step.get("run") or "")
     )
+    variable = next(
+        name for name, value in step["env"].items() if f"inputs.{input_name}" in value
+    )
+    assert f"${{{variable}:+--{input_name} " in step["run"], (
+        f"unsubscribe.yaml passes --{input_name} even when the input is empty, so"
+        f" a scheduled run would not fall back to Config.{field_name}."
+    )
+    param_name = input_name.replace("-", "_")
+    option = next(
+        param for param in unsubscribe_threads_cmd.params if param.name == param_name
+    )
+    assert option.default == getattr(Config, field_name)

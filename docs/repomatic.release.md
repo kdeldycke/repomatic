@@ -16,6 +16,7 @@
    repomatic.release.attestation
    repomatic.release.binaries_page
    repomatic.release.binary
+   repomatic.release.manpages
    repomatic.release.prepare_release
    repomatic.release.protocol
    repomatic.release.self_pin

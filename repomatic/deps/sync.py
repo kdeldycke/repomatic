@@ -35,9 +35,9 @@ serially:
 - {attr}`SyncOperation.resolve` performs the network discovery and computes the
   new file contents in memory, returning a {class}`SyncPlan`. It does not touch
   the repository, so the resolves are safe to run in parallel.
-- {attr}`SyncOperation.apply` writes the planned contents. Three of the five
-  operations rewrite `.github/workflows/*.yaml` (action pins, workflow literals,
-  and the actionlint matcher URL all live there), so applies must run serially.
+- {attr}`SyncOperation.apply` writes the planned contents. Two of the five
+  operations rewrite `.github/workflows/*.yaml` (action pins and workflow
+  literals both live there), so applies must run serially.
 
 `sync-uv-lock` and `sync-dep-sources` are the documented exceptions: their
 discovery *is* a mutation (`uv lock` rewrites `uv.lock`), so their
@@ -57,8 +57,8 @@ read it. The terminal output stays in the CLI.
 
 from __future__ import annotations
 
+import json
 import logging
-import re
 import subprocess
 import threading
 from contextlib import contextmanager
@@ -77,6 +77,7 @@ from ..github.releases import (
     resolve_tag_to_sha,
 )
 from ..github.workflow_files import github_yaml_paths
+from ..http import FetchError, get_text
 from ..humanize import format_countdown, utc_midnight
 from ..init.tool_config import init_config
 from ..init.upgrade import upgrade_invite
@@ -153,6 +154,12 @@ if TYPE_CHECKING:
     from ..config import Config
     from .pins import Candidate
 
+ACTIONLINT_MATCHER_URL = (
+    "https://raw.githubusercontent.com/rhysd/actionlint/refs/tags/v{version}"
+    "/.github/actionlint-matcher.json"
+)
+"""Where actionlint keeps its problem matcher, at the tag of a release."""
+
 DEPENDENCY_LABEL = "🔗 dependencies"
 """GitHub label applied to every dependency-update PR.
 
@@ -200,23 +207,30 @@ def _pinnable_files() -> dict[Path, str]:
     }
 
 
-def _sync_actionlint_matcher_url(version: str) -> None:
-    """Align the actionlint matcher URL in `lint.yaml` with the registry version.
+def _sync_actionlint_matcher(version: str) -> None:
+    """Refresh the bundled actionlint problem matcher from the tag of *version*.
 
-    The matcher URL embeds the actionlint version as a release tag; it is a
-    reference derived from the registry, kept in lockstep with the
-    `sync-tool-versions` bump.
+    The matcher reads the output format of actionlint, so the copy `repomatic
+    run actionlint` registers moves with the pinned release, in the pull
+    request of the bump. A fetch that fails keeps the previous copy, with a
+    warning: the format has not changed across releases, and the bump of the
+    tool itself is still worth proposing.
+
+    The copy is indented with tabs, the way the `format-json` job writes it.
     """
-    lint_path = Path(".github/workflows/lint.yaml")
-    if not lint_path.is_file():
+    spec = TOOL_REGISTRY["actionlint"]
+    assert spec.problem_matcher
+    url = ACTIONLINT_MATCHER_URL.format(version=version)
+    try:
+        matcher = json.loads(get_text(url))
+    except (FetchError, json.JSONDecodeError) as error:
+        logging.warning(
+            f"Cannot fetch the actionlint {version} problem matcher, keeping the"
+            f" previous copy: {error}"
+        )
         return
-    content = lint_path.read_text(encoding="UTF-8")
-    updated = re.sub(
-        r"(actionlint/refs/tags/v)[0-9][0-9.]*(/)",
-        rf"\g<1>{version}\g<2>",
-        content,
-    )
-    write_if_changed(lint_path, updated, previous=content)
+    path = Path(tool_registry.__file__).parents[1] / "data" / spec.problem_matcher
+    write_if_changed(path, json.dumps(matcher, indent="\t") + "\n")
 
 
 @contextmanager
@@ -302,7 +316,7 @@ class ToolVersionExtras:
     """Binary tool name to new version, for the checksum recompute."""
 
     actionlint_version: str | None = None
-    """New actionlint version, for the matcher-URL realignment."""
+    """New actionlint version, to refresh the bundled problem matcher at its tag."""
 
     jobs: int = 1
     """How many artifact downloads of the checksum recompute run at once.
@@ -447,7 +461,7 @@ class SyncPlan:
     """
 
     tool_versions: ToolVersionExtras = field(default_factory=ToolVersionExtras)
-    """`sync-tool-versions` write extras (checksum recompute, matcher URL)."""
+    """`sync-tool-versions` write extras (checksum recompute, problem matcher)."""
 
     uv_project: UvProjectExtras = field(default_factory=UvProjectExtras)
     """`sync-uv-lock` and `sync-dep-sources` rendering extras."""
@@ -806,7 +820,7 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
 
 
 def _apply_tool_versions(plan: SyncPlan) -> None:
-    """Rewrite `tooling/registry.py`, recompute checksums, realign the matcher URL."""
+    """Rewrite `tooling/registry.py`, recompute checksums, refresh the matcher."""
     if not plan.has_changes:
         return
     for path, content in plan.file_writes.items():
@@ -822,7 +836,7 @@ def _apply_tool_versions(plan: SyncPlan) -> None:
                 jobs=plan.tool_versions.jobs,
             )
     if plan.tool_versions.actionlint_version:
-        _sync_actionlint_matcher_url(plan.tool_versions.actionlint_version)
+        _sync_actionlint_matcher(plan.tool_versions.actionlint_version)
 
 
 def _widest_changes(
@@ -1473,7 +1487,7 @@ def run_sync_operations(
     an {class}`click_extra.OperationTrail` reports each resolve as a `✓`/`✘`
     line and closes with a summary, its rendering tracking the worker count
     and its elapsed times following `--time` (click-extra's own default). The
-    apply phase runs in {data}`SYNC_OPERATIONS` order because three of the five
+    apply phase runs in {data}`SYNC_OPERATIONS` order because two of the five
     rewrite the same workflow files. In `--dry-run` no apply runs. An operation
     whose resolve raises is logged and reported with a `None` plan so one
     failure never blocks the others.

@@ -23,14 +23,16 @@ from unittest.mock import Mock, patch
 import pytest
 from click_extra.testing import CliRunner
 
-from repomatic.changelog import Changelog
+from repomatic.changelog import Changelog, availability_admonition
 from repomatic.cli.main import repomatic
 from repomatic.github.gh import GhCommandError
 from repomatic.github.release_sync import (
     SyncResult,
     SyncRow,
     _normalize_body,
+    build_draft_body,
     build_expected_body,
+    build_pypi_body,
     render_sync_report,
     sync_github_releases,
 )
@@ -173,6 +175,79 @@ def test_build_expected_body_includes_full_changelog_link():
     body = build_expected_body(changelog, "2.0.0")
     assert "**Full changelog**: [`v1.1.0...v2.0.0`](" in body
     assert "compare/v1.1.0...v2.0.0)" in body
+
+
+def test_build_draft_body_bakes_the_pypi_admonition():
+    """A PyPI project's draft carries its availability admonition from the start.
+
+    The draft is created before `fix-changelog` writes the admonition into the
+    changelog, which is the race the bake closes.
+    """
+    changelog = Changelog(SAMPLE_CHANGELOG)
+    body = build_draft_body(changelog, "2.0.0", "papaya")
+    assert body == build_pypi_body(changelog, "2.0.0", "papaya")
+    assert "https://pypi.org/project/papaya/2.0.0/" in body
+    assert "https://github.com/user/repo/releases/tag/v2.0.0" in body
+    assert "- Added new feature X." in body
+
+
+def test_build_draft_body_falls_back_to_the_plain_notes():
+    """A project not on PyPI gets the changelog section as it is."""
+    changelog = Changelog(SAMPLE_CHANGELOG)
+    body = build_draft_body(changelog, "2.0.0", None)
+    assert body == build_expected_body(changelog, "2.0.0")
+    assert "pypi.org" not in body
+
+
+RELEASE_SECTIONS = {
+    "1.1.0": (
+        "## [`1.1.0` (2026-02-10)](https://github.com/user/repo/compare/v1.0.0...v1.1.0)"
+        "\n\n- Second release.\n"
+    ),
+    "1.0.0": (
+        "## [`1.0.0` (2026-01-15)](https://github.com/user/repo/compare/v0.9.0...v1.0.0)"
+        "\n\n- Initial release.\n"
+    ),
+}
+"""Released changelog sections, newest first, keyed by their version."""
+
+
+@pytest.mark.parametrize(
+    ("released", "first"),
+    (
+        pytest.param(("1.0.0",), True, id="first-release"),
+        pytest.param(("1.1.0", "1.0.0"), False, id="later-release"),
+    ),
+)
+def test_draft_release_notes_word_availability_like_the_changelog(released, first):
+    """The draft release body states availability the way the changelog will.
+
+    `lint-changelog --fix` writes the *first version* wording into the section
+    of a project's first release. The draft body is baked before that fix runs,
+    so it has to reach the same wording on its own, or the two disagree.
+    """
+    version = released[0]
+    content = "# Changelog\n\n" + "\n".join(RELEASE_SECTIONS[v] for v in released)
+    notes = build_draft_body(Changelog(content), version, "papaya")
+
+    expected = availability_admonition(
+        version,
+        pypi_url=f"https://pypi.org/project/papaya/{version}/",
+        github_url=f"https://github.com/user/repo/releases/tag/v{version}",
+        first_on_pypi=first,
+        first_on_github=first,
+    )
+    assert expected in notes
+    assert ("is the *first version* available on" in notes) is first
+
+
+def test_build_pypi_body_needs_a_repository():
+    """A changelog naming no repository cannot link the GitHub release."""
+    changelog = Changelog("# Changelog\n\n## [`1.0.0` (2026-01-01)]\n\n- Seed.\n")
+    assert build_pypi_body(changelog, "1.0.0", "papaya") == ""
+    assert build_draft_body(changelog, "1.0.0", "papaya") == build_expected_body(
+        changelog, "1.0.0"
+    )
 
 
 @pytest.mark.parametrize(

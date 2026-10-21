@@ -41,7 +41,7 @@ from repomatic.deps.pins import find_workflow_literals
 from repomatic.github.workflow_files import workflow_triggers
 from repomatic.github.workflow_sync import COOLDOWN_DOCS_URL, cooldown_env_block
 from repomatic.matrix.axes import KNOWN_RUNNERS, TEST_PYTHON_FULL
-from repomatic.metadata.core import Metadata
+from repomatic.metadata.core import Metadata, requested_metadata_keys
 from repomatic.metadata.output import format_github_value
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from repomatic.release.protocol import (
@@ -49,12 +49,16 @@ from repomatic.release.protocol import (
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
     RELEASE_COMMIT_PATTERN,
     RELEASE_COMMIT_PREFIX,
+    SQUASHED_RELEASE_PREFIX,
     VERSION_BUMP_BRANCHES,
     VERSION_BUMP_COMMIT_PREFIXES,
+    bump_branch,
+    post_release_commit_message,
+    release_commit_message,
 )
 from repomatic.release.self_pin import local_cli_invocation
 from repomatic.templating import PrTemplate
-from repomatic.upstream import UPSTREAM_PACKAGE
+from repomatic.upstream import DEFAULT_REPO, UPSTREAM_PACKAGE
 from repomatic.versions import BUMP_PARTS
 from tests.conftest import (
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,
@@ -90,15 +94,17 @@ WORKFLOWS_WITHOUT_CONCURRENCY = frozenset((
     "unsubscribe.yaml",  # Scheduled only, no concurrent execution possible.
 ))
 
-# Workflows that protect releases using unique concurrency groups (github.sha)
-# instead of conditional cancel-in-progress. This is necessary when
-# cancel-in-progress is evaluated on the NEW workflow, which would cancel
-# running releases. The group lives on the push-triggered entry workflow, not
-# the reusable engine lane it calls (a block on a `needs:`-gated lane joins its
-# group too late to cancel queued runs).
+# Workflows that protect the run of a release push with a group of its own,
+# keyed on github.sha. A conditional cancel-in-progress cannot: GitHub reads it
+# from the newer run, so it would let any later push cancel the release run.
+# The group lives on the push-triggered entry workflow, not the reusable engine
+# lane it calls (a block on a `needs:`-gated lane joins its group too late to
+# cancel queued runs).
 WORKFLOWS_WITH_UNIQUE_GROUPS = frozenset((
-    # release.yaml uses github.sha in group for release/post-release commits.
+    # The release lanes: tagging, publishing and the GitHub release.
     "release.yaml",
+    # The one post-merge run of the release tree.
+    "tests.yaml",
 ))
 
 # Workflows that use event-scoped concurrency groups (github.event_name in group)
@@ -140,35 +146,13 @@ WORKFLOWS_IGNORING_VERSION_BUMPS = frozenset((
 # for tests.yaml's narrower gating. `autofix.yaml` qualifies because
 # version-bump pushes are machine-generated and ship-gated, and none of its
 # jobs needs a release push to fire. Its three metadata-independent jobs
-# repeat the commit-prefix clause on their own `if:`.
+# repeat the commit-prefix clause on their own `if:`. `labels.yaml` gates its
+# `metadata` job on the issue and pull request events instead, which carry no
+# head commit: see `test_labels_metadata_runs_for_the_labelling_events`.
 WORKFLOWS_WITH_METADATA_GATE = frozenset((
     "autofix.yaml",
-    "labels.yaml",
     "lint.yaml",
 ))
-
-# Workflows with no `push` trigger. `github.event.head_commit` is always null
-# for them, so a release-commit guard in cancel-in-progress would be dead logic:
-# they cancel unconditionally. Derived rather than hand-listed, so a workflow
-# that later grows a push trigger falls back under the conditional-cancel rule
-# without anyone remembering to update this set.
-WORKFLOWS_WITHOUT_PUSH_TRIGGER = frozenset(
-    p.name
-    for p in WORKFLOWS_DIR.glob("*.yaml")
-    if "push" not in workflow_triggers(yaml.safe_load(p.read_text(encoding="UTF-8")))
-)
-
-# Workflows that must use conditional cancel-in-progress (excludes unique
-# group, event-scoped, and push-less workflows).
-WORKFLOWS_WITH_CONDITIONAL_CANCEL = tuple(
-    sorted(
-        name
-        for name in WORKFLOWS_WITH_CONCURRENCY
-        if name not in WORKFLOWS_WITH_UNIQUE_GROUPS
-        and name not in WORKFLOWS_WITH_EVENT_SCOPED_GROUPS
-        and name not in WORKFLOWS_WITHOUT_PUSH_TRIGGER
-    )
-)
 
 
 @pytest.mark.parametrize("workflow_name", WORKFLOWS_WITH_CONCURRENCY)
@@ -203,43 +187,26 @@ def test_concurrency_group_format(workflow_name: str) -> None:
     )
 
 
-@pytest.mark.parametrize("workflow_name", WORKFLOWS_WITH_CONDITIONAL_CANCEL)
+@pytest.mark.parametrize("workflow_name", WORKFLOWS_WITH_CONCURRENCY)
 def test_cancel_in_progress_protects_releases(workflow_name: str) -> None:
-    """Verify that cancel-in-progress protects release commits."""
-    workflow = load_workflow(workflow_name)
-    concurrency = workflow.get("concurrency", {})
-    cancel_in_progress = concurrency.get("cancel-in-progress", "")
+    """No `cancel-in-progress` value tries to spare a release run.
 
-    # Must be a conditional expression, not a static boolean.
-    assert isinstance(cancel_in_progress, str), (
-        f"{workflow_name}: cancel-in-progress must be a conditional expression, "
-        f"not {type(cancel_in_progress).__name__}"
+    GitHub reads the value from the newer run. A guard testing the head commit
+    for a release therefore spares an ordinary run from the release push, and
+    never the release run from the push after it. The release push also ends on
+    its post-release bump commit, so a guard on the release prefix never even
+    matched it. A workflow that must keep its release run puts it in a group of
+    its own instead: see `WORKFLOWS_WITH_UNIQUE_GROUPS`. Every other workflow
+    cancels unconditionally, and says in a comment why it can.
+    """
+    cancel_in_progress = load_workflow(workflow_name)["concurrency"].get(
+        "cancel-in-progress"
     )
-
-    # Must reference the release commit prefix.
-    assert RELEASE_COMMIT_PREFIX in cancel_in_progress, (
-        f"{workflow_name}: cancel-in-progress must check for "
-        f"'{RELEASE_COMMIT_PREFIX}' to protect release commits"
-    )
-
-    # Must use startsWith for proper prefix matching.
-    assert "startsWith" in cancel_in_progress, (
-        f"{workflow_name}: cancel-in-progress must use startsWith() "
-        "for commit message matching"
-    )
-
-    # Must check the head commit message.
-    assert "github.event.head_commit.message" in cancel_in_progress, (
-        f"{workflow_name}: cancel-in-progress must check "
-        "github.event.head_commit.message"
-    )
-
-    # Must negate the condition (release commits should NOT be cancelled).
-    # Handle multiline YAML expressions where whitespace may appear after ${{.
-    normalized = " ".join(cancel_in_progress.split())
-    assert normalized.startswith("${{ !"), (
-        f"{workflow_name}: cancel-in-progress must negate the condition "
-        "to protect release commits from cancellation"
+    assert cancel_in_progress is True, (
+        f"{workflow_name}: cancel-in-progress must be `true`, not"
+        f" {cancel_in_progress!r}. A conditional value is read from the newer"
+        " run, so it never protects a release run: give the release push a"
+        " group of its own instead."
     )
 
 
@@ -280,6 +247,16 @@ def test_unique_group_protects_releases(workflow_name: str) -> None:
     assert RELEASE_COMMIT_PREFIX in group, (
         f"{workflow_name}: concurrency group must check for "
         f"'{RELEASE_COMMIT_PREFIX}' to identify release commits"
+    )
+
+    # A rebase-merged release push ends on its post-release bump commit, the
+    # head commit GitHub exposes: the group must recognize that one too.
+    prefixes = re.findall(
+        r"startsWith\(github\.event\.head_commit\.message,\s*'([^']+)'\)", group
+    )
+    assert any(POST_RELEASE_COMMIT_PREFIX.startswith(p) for p in prefixes), (
+        f"{workflow_name}: concurrency group tests {prefixes!r}, none of which"
+        f" matches the {POST_RELEASE_COMMIT_PREFIX!r} head commit of a release push"
     )
 
 
@@ -668,6 +645,26 @@ def test_metadata_gate_skips_version_bump_commits(workflow_name: str) -> None:
     )
 
 
+LABELLING_EVENTS = frozenset(("issues", "pull_request"))
+"""The events `labels.yaml` labels a thread on, the only ones reading metadata."""
+
+
+def test_labels_metadata_runs_for_the_labelling_events() -> None:
+    """The labels metadata job runs for the events of the job that reads it.
+
+    `sync-labels` runs on a push and reads no metadata, so a metadata job
+    running there would cost a runner and feed nothing.
+    """
+    jobs = load_workflow("labels.yaml")["jobs"]
+    condition = jobs["metadata"]["if"]
+    gated = set(re.findall(r"github\.event_name == '(\w+)'", condition))
+    assert gated == LABELLING_EVENTS, condition
+    readers = sorted(
+        name for name, job in jobs.items() if "metadata" in (job.get("needs") or ())
+    )
+    assert readers == ["apply-labels"]
+
+
 # Autofix jobs that run without a `needs: metadata` edge, so the central gate
 # cannot skip them: each repeats the CHANGELOG_COMMIT_PREFIX clause on its own
 # `if:`.
@@ -706,32 +703,43 @@ def test_changelog_prefix_is_the_machinery_invariant() -> None:
     assert RELEASE_COMMIT_PATTERN.fullmatch(f"{CHANGELOG_COMMIT_PREFIX}Release v1.2.3")
 
 
+BUMP_VERSION_RUN_RE = re.compile(r"repomatic bump-version --part \"?\$\{?PART\}?\"?")
+"""The `bump-version` call of `changelog.yaml`, its part read from the `PART` env."""
+
+
+def _bump_version_step(job: dict[str, Any]) -> dict[str, Any]:
+    """The step of *job* running `repomatic bump-version`."""
+    steps: list[dict[str, Any]] = [
+        step
+        for step in job.get("steps", ())
+        if BUMP_VERSION_RUN_RE.search(step.get("run") or "")
+    ]
+    assert len(steps) == 1, f"Expected one bump-version step, got {steps!r}"
+    return steps[0]
+
+
 @pytest.mark.repo_maintenance
 def test_version_bump_branches_match_changelog_workflow() -> None:
-    """VERSION_BUMP_BRANCHES must equal the set of branches actually created
-    by `changelog.yaml`'s `peter-evans/create-pull-request` steps.
+    """VERSION_BUMP_BRANCHES must equal the set of branches `changelog.yaml` opens.
 
-    `prepare-release` is hard-coded; the `bump-version` job templates
-    `${{ matrix.part }}-version-increment` over `matrix.part = [major, minor]`,
-    so the full set is `{prepare-release, major-version-increment,
+    `prepare-release` names its branch through its `pr-sync` step. The
+    `bump-version` job runs `repomatic bump-version` over `matrix.part`, which
+    opens {func}`~repomatic.release.protocol.bump_branch` of each part, so the
+    full set is `{prepare-release, major-version-increment,
     minor-version-increment}`.
     """
     jobs = load_workflow("changelog.yaml").get("jobs", {})
-    created_branches: set[str] = set()
-    for job_name in ("prepare-release", "bump-version"):
-        job = jobs.get(job_name, {})
-        parts = job.get("strategy", {}).get("matrix", {}).get("part") or [None]
-        for step in job.get("steps", ()):
-            if "repomatic pr-sync" not in (step.get("run") or ""):
-                continue
-            branch_template = pr_sync_branch(step)
-            for part in parts:
-                if part is None:
-                    created_branches.add(branch_template)
-                else:
-                    created_branches.add(
-                        branch_template.replace("${{ matrix.part }}", part)
-                    )
+    created_branches = {
+        pr_sync_branch(step)
+        for step in jobs["prepare-release"].get("steps", ())
+        if "repomatic pr-sync" in (step.get("run") or "")
+    }
+    bump_job = jobs["bump-version"]
+    step = _bump_version_step(bump_job)
+    assert step["env"]["PART"] == "${{ matrix.part }}"
+    created_branches.update(
+        bump_branch(part) for part in bump_job["strategy"]["matrix"]["part"]
+    )
     assert created_branches == set(VERSION_BUMP_BRANCHES), (
         f"changelog.yaml creates {sorted(created_branches)!r} but "
         f"VERSION_BUMP_BRANCHES is {sorted(VERSION_BUMP_BRANCHES)!r}"
@@ -741,10 +749,10 @@ def test_version_bump_branches_match_changelog_workflow() -> None:
 def test_bump_matrix_parts_are_the_ones_the_cli_accepts() -> None:
     """`changelog.yaml`'s bump matrix may only name a part the CLI takes.
 
-    The matrix value reaches `pr-sync --part` and `close-stale-bump-pr --part`,
-    both typed on {data}`~repomatic.versions.BUMP_PARTS`. Adding a third part
-    to the YAML alone would leave the job failing on a rejected value, in a
-    workflow that only runs on a schedule.
+    The matrix value reaches `bump-version --part`, typed on
+    {data}`~repomatic.versions.BUMP_PARTS`. Adding a third part to the YAML
+    alone would leave the job failing on a rejected value, in a workflow that
+    only runs on a schedule.
     """
     jobs = load_workflow("changelog.yaml").get("jobs", {})
     parts = jobs.get("bump-version", {}).get("strategy", {}).get("matrix", {})
@@ -754,31 +762,26 @@ def test_bump_matrix_parts_are_the_ones_the_cli_accepts() -> None:
     )
 
 
+def _prepare_release_step(name: str) -> str:
+    """The `run:` line of the step of `changelog.yaml`'s prepare-release job."""
+    steps = load_workflow("changelog.yaml")["jobs"]["prepare-release"]["steps"]
+    matching = [step for step in steps if step.get("name") == name]
+    assert len(matching) == 1, f"changelog.yaml must have one {name!r} step"
+    return " ".join(matching[0]["run"].split())
+
+
 def test_release_commit_prefix_in_changelog_workflow() -> None:
-    """Verify that changelog.yaml uses the same release commit prefix."""
-    workflow = load_workflow("changelog.yaml")
+    """The freeze commit is the one the release workflow finds and tags.
 
-    # Find the prepare-release job's commit message.
-    jobs = workflow.get("jobs", {})
-    prepare_release = jobs.get("prepare-release", {})
-    steps = prepare_release.get("steps", [])
-
-    # Look for the step that creates the freeze commit.
-    release_commit_step = None
-    for step in steps:
-        if step.get("name") == "Create freeze commit":
-            release_commit_step = step
-            break
-
-    assert release_commit_step is not None, (
-        "changelog.yaml must have a 'Create freeze commit' step"
-    )
-
-    run_command = release_commit_step.get("run", "")
-    assert RELEASE_COMMIT_PREFIX in run_command, (
-        f"changelog.yaml release commit must use '{RELEASE_COMMIT_PREFIX}' prefix. "
-        f"Found: {run_command}"
-    )
+    `prepare-release --commit` composes its message, so the step only has to
+    run the command in its release mode.
+    """
+    run_command = _prepare_release_step("Create freeze commit")
+    assert "repomatic prepare-release --commit" in run_command, run_command
+    assert "--post-release" not in run_command, run_command
+    message = release_commit_message("1.2.3")
+    assert message.startswith(RELEASE_COMMIT_PREFIX)
+    assert RELEASE_COMMIT_PATTERN.fullmatch(message)
 
 
 def test_version_increments_runs_on_expected_events() -> None:
@@ -849,12 +852,10 @@ def test_workflow_run_references_match_workflow_names() -> None:
 
 
 # changelog.yaml jobs that evaluate `is_version_bump_allowed` and therefore
-# need the latest release tag in their checkout. `metadata` computes
-# `*_bump_allowed`; `bump-version` runs `close-stale-bump-pr`, which
-# re-evaluates the gate. Both resolve the release via `get_latest_tag_version()`,
-# so a tag-less checkout makes the decision fall back to "allow" — which
-# silently leaks orphan version-bump PRs from the cleanup step.
-CHANGELOG_JOBS_REQUIRING_TAGS = ("bump-version", "metadata")
+# need the latest release tag in their checkout. `bump-version` resolves the
+# release via `get_latest_tag_version()`, so a tag-less checkout makes the
+# decision fall back to "allow", which leaks orphan version-bump PRs.
+CHANGELOG_JOBS_REQUIRING_TAGS = ("bump-version",)
 
 
 @pytest.mark.parametrize("job_name", CHANGELOG_JOBS_REQUIRING_TAGS)
@@ -863,7 +864,7 @@ def test_bump_allowance_jobs_fetch_tags(job_name: str) -> None:
 
     `is_version_bump_allowed` resolves the latest release from Git tags. A job
     that evaluates it without fetching tags falls back to "allow", which
-    neutralizes the `close-stale-bump-pr` cleanup and leaves orphan
+    skips the stale pull request cleanup of `bump-version` and leaves orphan
     version-bump PRs open on `main`.
     """
     jobs = load_workflow("changelog.yaml").get("jobs", {})
@@ -885,56 +886,31 @@ def test_bump_allowance_jobs_fetch_tags(job_name: str) -> None:
 
 
 def test_post_release_commit_in_changelog_workflow() -> None:
-    """Verify that changelog.yaml uses the correct post-release commit message."""
-    workflow = load_workflow("changelog.yaml")
+    """The unfreeze commit carries the post-release prefix the gates skip on.
 
-    jobs = workflow.get("jobs", {})
-    prepare_release = jobs.get("prepare-release", {})
-    steps = prepare_release.get("steps", [])
-
-    # Look for the step that creates the post-release commit.
-    post_release_step = None
-    for step in steps:
-        if step.get("name") == "Create unfreeze commit":
-            post_release_step = step
-            break
-
-    assert post_release_step is not None, (
-        "changelog.yaml must have a 'Create unfreeze commit' step"
+    `prepare-release --post-release --commit` composes its message, so the step
+    only has to run the command in its post-release mode.
+    """
+    run_command = _prepare_release_step("Create unfreeze commit")
+    assert "repomatic prepare-release --post-release --commit" in run_command, (
+        run_command
     )
-
-    run_command = post_release_step.get("run", "")
-    assert POST_RELEASE_COMMIT_PREFIX in run_command, (
-        f"changelog.yaml post-release commit must use '{POST_RELEASE_COMMIT_PREFIX}'. "
-        f"Found: {run_command}"
-    )
+    message = post_release_commit_message("1.2.3", "1.2.4.dev0")
+    assert message.startswith(POST_RELEASE_COMMIT_PREFIX)
+    assert message.startswith(tuple(VERSION_BUMP_COMMIT_PREFIXES))
 
 
 @pytest.mark.repo_maintenance
 def test_version_bump_commit_in_changelog_workflow() -> None:
-    """Verify that changelog.yaml uses the correct version bump commit message."""
-    workflow = load_workflow("changelog.yaml")
+    """The bump-version job runs the command that renders the bump template.
 
-    jobs = workflow.get("jobs", {})
-    version_increments = jobs.get("bump-version", {})
-    steps = version_increments.get("steps", [])
-
-    # The commit message comes from the bump-version template's title, which
-    # `test_changelog_prefix_is_the_machinery_invariant` holds to the
-    # `[changelog]` prefix; here it is enough that the step is template-driven.
-    create_pr_step = None
-    for step in steps:
-        if "repomatic pr-sync" in (step.get("run") or ""):
-            create_pr_step = step
-            break
-
-    assert create_pr_step is not None, (
-        "changelog.yaml bump-version job must have a pr-sync step"
-    )
-    assert "--template bump-version" in create_pr_step["run"], (
-        "bump-version must render its commit message from the bump-version "
-        f"template. Found: {create_pr_step['run']!r}"
-    )
+    The commit message comes from the bump-version template's title, which
+    `test_changelog_prefix_is_the_machinery_invariant` holds to the
+    `[changelog]` prefix. Here it is enough that the job runs the command once
+    per part, with the token it needs to open the pull request.
+    """
+    step = _bump_version_step(load_workflow("changelog.yaml")["jobs"]["bump-version"])
+    assert PR_SYNC_ENV_KEYS <= set(step["env"])
 
 
 PR_SYNC_ENV_KEYS = frozenset(("GH_TOKEN",))
@@ -1089,11 +1065,16 @@ def test_version_bumps_relock_before_committing() -> None:
     `needs_venv` tool. The second deletes the console script the first had just
     written, which Windows refuses as a sharing violation and which took the
     Windows binaries out of a release.
+
+    The `bump-version` command bumps and relocks on its own, which
+    `tests/test_release_workflow_steps.py` holds.
     """
     # The `bump` subcommand specifically: `bump-my-version -- show` reads the
     # version without touching the tree, and a commit message may well spell
     # the word "bump" on its own.
     bump_invocation = re.compile(r"bump-my-version\s+--\s+bump\b")
+    # A commit is made by git itself, or by `prepare-release --commit`.
+    commit_invocation = re.compile(r"git commit|prepare-release\b[^\n]*--commit\b")
 
     offenders = []
     for workflow_path in sorted(WORKFLOWS_DIR.glob("*.yaml")):
@@ -1112,7 +1093,7 @@ def test_version_bumps_relock_before_committing() -> None:
                     if re.search(r"\buv\b.*\block\b", later_run):
                         relocked = True
                         break
-                    if "git commit" in later_run:
+                    if commit_invocation.search(" ".join(later_run.split())):
                         break
                 if not relocked:
                     offenders.append(
@@ -1822,8 +1803,8 @@ def test_release_lanes_split_jobs() -> None:
 
     assert "build-package" not in engine_jobs
     assert "detect-squash-merge" not in engine_jobs
-    # The engine recomputes metadata for its own jobs.
-    assert "metadata" in engine_jobs
+    # The engine reads the build lane's metadata rather than computing it again.
+    assert "metadata" not in engine_jobs
     assert "compile-binaries" in engine_jobs
     assert "create-release" in engine_jobs
 
@@ -1895,22 +1876,121 @@ def test_publish_pypi_does_not_touch_the_github_release() -> None:
 
 
 def test_create_release_bakes_pypi_admonition_at_creation() -> None:
-    """The engine bakes the PyPI availability admonition into the draft notes.
+    """The engine creates the draft with the notes `create-release` builds.
 
     `create-release` writes the notes while the release is still a draft, so the
-    admonition lands there: this avoids both the cross-lane race (above) and the
-    immutable-release locks that apply once `publish-release` flips the draft.
-    The body falls back to the plain notes for non-PyPI projects, whose
-    `release_notes_with_admonition` is empty.
+    availability admonition lands there: this avoids both the cross-lane race
+    (above) and the immutable-release locks that apply once `publish-release`
+    flips the draft. `tests/test_release_sync.py` holds the notes themselves,
+    and their fallback to the plain notes for a project not on PyPI.
     """
     steps = load_workflow("_release-engine.yaml")["jobs"]["create-release"]["steps"]
     draft = next(s for s in steps if s.get("name") == "Create GitHub release draft")
-    notes = " ".join(draft["env"]["RELEASE_NOTES"].split())
-    assert "release_notes_with_admonition" in notes
-    assert notes.rstrip().endswith(".release_notes }}"), (
-        "create-release must fall back to the plain release_notes for non-PyPI "
-        "projects (empty admonition body)"
+    run = " ".join(draft["run"].split())
+    assert "repomatic create-release" in run, run
+    assert '--commit "${COMMIT}"' in run, run
+    assert "--skip-existing" in run, run
+
+
+METADATA_READ_RE = re.compile(
+    r"fromJSON\((?:needs\.[\w-]+\.outputs|inputs)\.metadata\)\.(?P<key>\w+)"
+)
+"""A workflow expression reading one key of the metadata JSON object."""
+
+METADATA_SOURCES: dict[str, str] = {
+    "_release-engine.yaml": "_release-build.yaml",
+    "release.yaml": "_release-build.yaml",
+}
+"""Workflows reading the metadata another workflow computes, mapped to it.
+
+The build lane computes the metadata of the whole release run: the engine reads
+it as its `metadata` input, and the entry workflow through the build lane's
+`metadata` output. Every other workflow reads the metadata of its own job.
+"""
+
+
+def _requested_keys(workflow_name: str) -> set[str]:
+    """Every metadata key the `show-metadata` steps of a workflow request."""
+    return {
+        key
+        for job in (load_workflow(workflow_name).get("jobs") or {}).values()
+        for step in job.get("steps") or ()
+        for key in requested_metadata_keys(step.get("run") or "", UPSTREAM_PACKAGE)
+    }
+
+
+def _read_keys(workflow_name: str) -> set[str]:
+    """Every metadata key the expressions of a workflow read."""
+    text = (WORKFLOWS_DIR / workflow_name).read_text(encoding="UTF-8")
+    return set(METADATA_READ_RE.findall(text))
+
+
+@pytest.mark.parametrize(
+    "workflow", sorted(p.name for p in WORKFLOWS_DIR.glob("*.yaml"))
+)
+def test_workflows_request_every_metadata_key_they_read(workflow: str) -> None:
+    """A key a workflow reads is one its metadata step requests.
+
+    `show-metadata` emits only the keys it is asked for, and GitHub reads an
+    absent key as `null`, so a gate on a key nobody requested is false on every
+    run: a release job gated that way never runs, and nothing fails to say so.
+    """
+    source = METADATA_SOURCES.get(workflow, workflow)
+    missing = _read_keys(workflow) - _requested_keys(source)
+    assert not missing, (
+        f"{workflow} reads metadata keys {sorted(missing)} that {source} never "
+        "requests from show-metadata."
     )
+
+
+@pytest.mark.parametrize("source", sorted(p.name for p in WORKFLOWS_DIR.glob("*.yaml")))
+def test_workflows_request_only_the_metadata_keys_they_read(source: str) -> None:
+    """A workflow requests no metadata key that no workflow reads.
+
+    A metadata job runs on every trigger of its workflow, and each key it
+    requests costs its computation there: a `nuitka_matrix` nobody reads still
+    walks the history.
+    """
+    readers = [
+        source,
+        *(name for name, src in METADATA_SOURCES.items() if src == source),
+    ]
+    read = set().union(*(_read_keys(name) for name in readers))
+    unread = _requested_keys(source) - read
+    assert not unread, f"{source} requests metadata keys nobody reads: {unread}"
+
+
+def test_engine_reads_the_build_lane_metadata() -> None:
+    """The entry workflow hands the build lane's metadata to the engine.
+
+    Without the edge, the engine's required input is missing and GitHub
+    refuses to start the run.
+    """
+    build = load_workflow("_release-build.yaml")
+    outputs = build["on"]["workflow_call"]["outputs"]
+    assert outputs["metadata"]["value"] == "${{ jobs.metadata.outputs.metadata }}"
+
+    engine_inputs = load_workflow("_release-engine.yaml")["on"]["workflow_call"][
+        "inputs"
+    ]
+    assert engine_inputs["metadata"]["required"] is True
+
+    release = load_workflow("release.yaml")["jobs"]["release"]
+    assert release["with"] == {"metadata": "${{ needs.build.outputs.metadata }}"}
+    assert "build" in release["needs"]
+
+
+def test_squash_merge_gate_matches_the_protocol() -> None:
+    """The `detect-squash-merge` job gates on the prefix its command checks.
+
+    The gate keeps a runner off every ordinary push, and the command reads the
+    same prefix back: the two drifting apart would either never run the check
+    or run it on every push.
+    """
+    job = load_workflow("_release-build.yaml")["jobs"]["detect-squash-merge"]
+    assert f"'{SQUASHED_RELEASE_PREFIX}'" in job["if"]
+    run = " ".join(step.get("run") or "" for step in job["steps"])
+    assert "repomatic detect-squash-merge" in run
 
 
 @pytest.mark.parametrize("lane", RELEASE_ENGINE_WORKFLOWS)
@@ -2058,11 +2138,19 @@ def test_local_cli_invocation_is_contiguous(workflow: str) -> None:
     )
 
 
+UPSTREAM_EXCLUSION = f"github.repository != '{DEFAULT_REPO}'"
+"""The `if:` clause of a job that only ever runs in a downstream repository.
+
+The release freeze rewrites the CLI invocation of such a job into its
+PyPI-pinned form, which needs no checkout, before any repository can run it.
+"""
+
 # Every (workflow, job) whose steps run the CLI from the local checkout.
 LOCAL_CLI_JOBS = [
-    (workflow_name, job_name)
-    for workflow_name, job_name, steps in iter_jobs_with_steps()
-    if any(LOCAL_CLI in (step.get("run") or "") for step in steps)
+    (workflow_name, job_id)
+    for workflow_name, job_id, job in _iter_jobs()
+    if any(LOCAL_CLI in (step.get("run") or "") for step in job.get("steps") or ())
+    and UPSTREAM_EXCLUSION not in str(job.get("if") or "")
 ]
 
 

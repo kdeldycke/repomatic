@@ -21,6 +21,9 @@ GitHub issue. Sphinx linkcheck parsing detects broken auto-generated links
 (intersphinx, autodoc, type annotations) that Lychee cannot see because they
 only exist in the rendered HTML output.
 
+{func}`run_lychee` runs the Lychee crawl itself, through the tool runner, and
+reads back the report and the exit code. No workflow step has to relay either.
+
 Each checker reports one {class}`LinkVerdict`. Only a run that completed can
 clear the issue: a checker that did not finish says nothing about the links,
 so it never closes an open issue.
@@ -32,6 +35,7 @@ from __future__ import annotations
 
 import json
 import logging
+import tempfile
 from dataclasses import dataclass
 from enum import StrEnum
 from itertools import groupby
@@ -43,11 +47,14 @@ from .markdown import sanitize_markdown_mentions
 from .metadata.core import Metadata
 from .tabular import render_markdown_table
 from .templating import render_template
+from .tooling.registry import ToolInstallError, lookup_tool
+from .tooling.runner import resolve_default_args, run_tool
 from .upstream import is_awesome_repo
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from typing import Final
 
 
 ISSUE_TITLE = "Broken links"
@@ -68,8 +75,15 @@ the run itself did not complete, so neither "broken links found" nor "no broken
 links" can be claimed from them.
 """
 
-LYCHEE_DEFAULT_BODY = Path("./lychee/out.md")
-"""Report path the lychee step of the `docs.yaml` workflow passes to `--output`."""
+LYCHEE_REPORT_FORMAT: Final[tuple[str, ...]] = ("--format", "markdown")
+"""Flags that make lychee write the markdown report the issue body embeds."""
+
+LYCHEE_INSTALL_FAILURE_EXIT = 1
+"""Exit code a lychee that could not be installed counts as.
+
+The one lychee itself returns on an unexpected failure: like a crash, a missing
+tool checks no link, so the issue is left as it is.
+"""
 
 SPHINX_DEFAULT_OUTPUT = Path("./docs/_linkcheck/output.json")
 """Default Sphinx linkcheck output path produced by the `docs.yaml` workflow."""
@@ -89,6 +103,50 @@ class LinkVerdict(StrEnum):
 
     UNKNOWN = "unknown"
     """The run did not complete, or left no report: nothing can be claimed."""
+
+
+@dataclass(frozen=True)
+class LycheeRun:
+    """What one lychee crawl of the documentation files returned."""
+
+    exit_code: int
+    """Exit code of lychee. See {data}`LYCHEE_BROKEN_LINKS_EXIT`."""
+
+    report: str | None = None
+    """The markdown report lychee wrote, `None` when it wrote none."""
+
+
+def run_lychee() -> LycheeRun | None:
+    """Crawl the documentation files with lychee, and keep its report.
+
+    Runs the invocation of a bare `repomatic run lychee`: the default arguments
+    of the registry, over the `doc_files` inventory. The markdown report goes
+    to a scratch file this function reads back, so no workflow step has to
+    agree on a path with it.
+
+    A lychee that cannot be installed checked no link, so it counts as a run
+    that did not complete: {data}`LYCHEE_INSTALL_FAILURE_EXIT`.
+
+    :return: The run, or `None` when the repository holds no documentation
+        file: lychee has nothing to check, and its section is left out.
+    """
+    batches = resolve_default_args(lookup_tool("lychee"))
+    if batches is None:
+        return None
+    # lychee takes its targets in one invocation, never one per file.
+    (crawl,) = batches
+    with tempfile.TemporaryDirectory(prefix="repomatic-lychee-") as scratch:
+        report_path = Path(scratch) / "report.md"
+        args = [*LYCHEE_REPORT_FORMAT, "--output", str(report_path), *crawl]
+        try:
+            exit_code = run_tool("lychee", extra_args=args)
+        except ToolInstallError as error:
+            logging.error(f"Cannot run lychee: {error}")
+            return LycheeRun(LYCHEE_INSTALL_FAILURE_EXIT)
+        report = None
+        if report_path.is_file():
+            report = report_path.read_text(encoding="UTF-8")
+    return LycheeRun(exit_code, report)
 
 
 @dataclass(frozen=True)
@@ -214,7 +272,7 @@ def get_label(repo_name: str) -> str:
     return FIX_LINK_LABEL if is_awesome_repo(repo_name) else DOCUMENTATION_LABEL
 
 
-def lychee_section(exit_code: int, body_file: Path | None) -> tuple[str, LinkVerdict]:
+def lychee_section(run: LycheeRun) -> tuple[str, LinkVerdict]:
     """Render the Lychee section of the issue body, with its verdict.
 
     Only {data}`LYCHEE_BROKEN_LINKS_EXIT` reports on the links themselves, and
@@ -222,14 +280,14 @@ def lychee_section(exit_code: int, body_file: Path | None) -> tuple[str, LinkVer
     would file an issue whose body claims the links are fine. Every other
     non-zero code reports that the run failed.
 
-    :param exit_code: Exit code of the lychee run.
-    :param body_file: The report lychee wrote, `None` when it wrote none.
+    :param run: The lychee crawl.
     :return: The section markdown, and what it says about the links.
     """
+    exit_code = run.exit_code
     if exit_code == 0:
         return f"## Lychee\n\n{NO_BROKEN_LINKS}", LinkVerdict.CLEAN
-    if exit_code == LYCHEE_BROKEN_LINKS_EXIT and body_file is not None:
-        report = sanitize_markdown_mentions(body_file.read_text(encoding="UTF-8"))
+    if exit_code == LYCHEE_BROKEN_LINKS_EXIT and run.report is not None:
+        report = sanitize_markdown_mentions(run.report)
         return f"## Lychee\n\n{report.strip()}", LinkVerdict.BROKEN
     if exit_code == LYCHEE_BROKEN_LINKS_EXIT:
         logging.warning(
@@ -270,8 +328,7 @@ def sphinx_section(
 
 def manage_combined_broken_links_issue(
     repo_name: str | None = None,
-    lychee_exit_code: int | None = None,
-    lychee_body_file: Path | None = None,
+    lychee: LycheeRun | None = None,
     sphinx_output_json: Path | None = None,
     sphinx_source_url: str | None = None,
 ) -> LinkVerdict | None:
@@ -291,8 +348,6 @@ def manage_combined_broken_links_issue(
 
     - `repo_name` defaults to {attr}`Metadata.repo_name
       <repomatic.metadata.env.EnvironmentMetadata.repo_name>`.
-    - `lychee_body_file` defaults to {data}`LYCHEE_DEFAULT_BODY` when
-      `lychee_exit_code` is provided and the file exists.
     - `sphinx_output_json` defaults to {data}`SPHINX_DEFAULT_OUTPUT` when the
       file exists.
     - `sphinx_source_url` is composed from {attr}`Metadata.repo_url
@@ -300,9 +355,8 @@ def manage_combined_broken_links_issue(
       {attr}`Metadata.sha <repomatic.metadata.env.EnvironmentMetadata.sha>`.
 
     :param repo_name: Repository name, for label selection.
-    :param lychee_exit_code: Exit code from lychee, `None` if lychee was not
-        run. See {data}`LYCHEE_BROKEN_LINKS_EXIT`.
-    :param lychee_body_file: Path to the lychee output file.
+    :param lychee: The lychee crawl from {func}`run_lychee`, `None` if lychee
+        did not run.
     :param sphinx_output_json: Path to Sphinx linkcheck `output.json`.
     :param sphinx_source_url: Base URL for linking filenames and line numbers
         in the Sphinx report.
@@ -319,14 +373,6 @@ def manage_combined_broken_links_issue(
         msg = "No repository name specified. Set --repo-name or $GITHUB_REPOSITORY."
         raise ValueError(msg)
 
-    if (
-        lychee_exit_code is not None
-        and lychee_body_file is None
-        and LYCHEE_DEFAULT_BODY.exists()
-    ):
-        lychee_body_file = LYCHEE_DEFAULT_BODY.resolve()
-        logging.info(f"Auto-detected lychee body file: {lychee_body_file}")
-
     if sphinx_output_json is None and SPHINX_DEFAULT_OUTPUT.exists():
         sphinx_output_json = SPHINX_DEFAULT_OUTPUT.resolve()
         logging.info(f"Auto-detected Sphinx output: {sphinx_output_json}")
@@ -342,10 +388,8 @@ def manage_combined_broken_links_issue(
 
     sections: dict[str, str] = {"lychee_section": "", "sphinx_section": ""}
     verdicts: list[LinkVerdict] = []
-    if lychee_exit_code is not None:
-        sections["lychee_section"], verdict = lychee_section(
-            lychee_exit_code, lychee_body_file
-        )
+    if lychee is not None:
+        sections["lychee_section"], verdict = lychee_section(lychee)
         verdicts.append(verdict)
     if sphinx_output_json is not None:
         sections["sphinx_section"], verdict = sphinx_section(

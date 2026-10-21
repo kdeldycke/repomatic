@@ -62,17 +62,13 @@ jobs:
     runs-on: ubuntu-26.04
     # Wider than the default: this job provisions a toolchain, so its runtime tracks how much it has to install.
     timeout-minutes: 30
+    # No checkout: the job never runs in this repository, and downstream the CLI
+    # call below is frozen to a PyPI pin at release time.
     steps:
-      # Only needed on the upstream repo, which runs the CLI from the lockfile
-      # of its own checkout. Downstream thin callers point to a tagged release
-      # where the version is frozen to a PyPI pin, so no checkout is required.
-      - if: github.repository == 'kdeldycke/repomatic'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          # Downstream runs have no checkout (the uvx call below is frozen to a PyPI pin at
-          # release time), so the workdir is empty by design and there are never dependency
-          # files for the default cache-dependency-glob to key on: the cache would never
+          # The workdir is empty by design, so there are never dependency files
+          # for the default cache-dependency-glob to key on: the cache would never
           # invalidate.
           enable-cache: false
           ignore-empty-workdir: true
@@ -80,19 +76,21 @@ jobs:
       - name: Unsubscribe from closed threads
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}
-          MONTHS: ${{ inputs.months || '3' }}
-          MAX_UNSUBSCRIBES: ${{ inputs.max-unsubscribes || '200' }}
+          MONTHS: ${{ inputs.months }}
+          MAX_UNSUBSCRIBES: ${{ inputs.max-unsubscribes }}
         # Skip silently when REPOMATIC_NOTIFICATIONS_PAT is not configured.
         # GitHub Actions does not allow secrets.* in job-level if: conditions,
         # so the check is done here at step level via the env var.
         if: env.GH_TOKEN != ''
+        # A scheduled run leaves `inputs` empty, so each option is passed only
+        # when its input carries a value: the CLI default applies otherwise.
         # stdout (the markdown report) is redirected to the step summary; --verbosity INFO
         # streams per-thread progress to the live job log via stderr.
         run: >
           uv --no-progress run --frozen -- repomatic --verbosity INFO
           unsubscribe-threads
-          --months "$MONTHS"
-          --max-unsubscribes "$MAX_UNSUBSCRIBES"
+          ${MONTHS:+--months "$MONTHS"}
+          ${MAX_UNSUBSCRIBES:+--max-unsubscribes "$MAX_UNSUBSCRIBES"}
           ${{ github.event_name == 'workflow_dispatch'
           && inputs.dry-run != false
           && '--dry-run' || '--live' }}

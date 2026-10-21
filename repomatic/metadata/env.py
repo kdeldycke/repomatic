@@ -164,6 +164,14 @@ class EnvironmentMetadata:
         return os.environ.get("GITHUB_JOB") or None
 
     @cached_property
+    def ref(self) -> str | None:
+        """Returns the full ref that triggered the workflow, like `refs/heads/main`.
+
+        Reads `GITHUB_REF`.
+        """
+        return os.environ.get("GITHUB_REF") or None
+
+    @cached_property
     def ref_name(self) -> str | None:
         """Returns the short ref name of the branch or tag.
 

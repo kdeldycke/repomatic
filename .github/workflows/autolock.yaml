@@ -40,7 +40,7 @@ jobs:
           version: "0.13.0"
       - name: Lock inactive threads
         # Window, comments, lock reason and the bot-issue exclusion are all
-        # command defaults. See repomatic/github/issue.py for the rationale
+        # command defaults. See repomatic/github/threads.py for the rationale
         # behind each, and why the exclusion exists at all.
         env:
           GH_TOKEN: ${{ github.token }}

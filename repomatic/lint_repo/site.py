@@ -414,7 +414,7 @@ def check_wrangler_config(ctx: LintContext) -> Iterator[CheckResult]:
         yield CheckResult(False, f"{path} does not parse: {error}")
         return
 
-    project = ctx.config.site_cloudflare_project or ctx.repo_name
+    project = ctx.config.cloudflare_project(ctx.repo_name or "")
     file_name = data.get("name")
     if project and file_name:
         if file_name == project:

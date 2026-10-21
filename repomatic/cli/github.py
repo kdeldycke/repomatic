@@ -22,7 +22,6 @@ under its help section.
 from __future__ import annotations
 
 import functools
-import logging
 from pathlib import Path
 from typing import cast
 
@@ -39,7 +38,7 @@ from click_extra import (
     pass_context,
 )
 
-from ..broken_links import manage_combined_broken_links_issue
+from ..broken_links import manage_combined_broken_links_issue, run_lychee
 from ..config import Config
 from ..github import token as _token_mod
 from ..github.event import (
@@ -49,7 +48,7 @@ from ..github.event import (
 )
 from ..github.labels import apply_labels, labels_for_thread
 from ..github.outputs import format_multiline_output
-from ..github.pr import close_open_prs_on_branch, upsert_pr
+from ..github.pr import upsert_pr
 from ..github.pr_body import TemplateArgumentError, render_pr
 from ..github.sponsor import is_sponsor
 from ..github.threads import (
@@ -72,7 +71,6 @@ from ..github.unsubscribe import (
 from ..github.urls import repo_name
 from ..lint_repo.context import LintContext
 from ..metadata.core import Metadata
-from ..metadata.project import is_version_bump_allowed
 from ..setup_guide import manage_setup_guide
 from ..templating import PrTemplate, get_template_names
 from ..upstream import is_awesome_repo
@@ -337,33 +335,26 @@ def apply_labels_cmd(
 
 
 @subcommand(
-    short_help="Manage broken links issue lifecycle",
+    short_help="Check links, and manage the broken links issue",
     examples=(
         (
             "In GitHub Actions, with every default auto-detected",
-            "repomatic broken-links --lychee-exit-code 2",
+            "repomatic broken-links",
         ),
         (
-            "Explicit options",
-            'repomatic broken-links --lychee-exit-code 2 --body-file ./lychee/out.md --repo-name "my-repo"',
+            "Report the Sphinx linkcheck output alone",
+            'repomatic broken-links --no-lychee --repo-name "my-repo"',
         ),
     ),
 )
 @option(
-    "--lychee-exit-code",
-    type=int,
-    default=None,
+    "--lychee/--no-lychee",
+    default=True,
     help=(
-        "Exit code from lychee: 0 for no broken links, 2 for broken links found."
-        " Any other code is a run that did not complete, which leaves the issue"
-        " as it is."
+        "Crawl the documentation files with lychee, as `repomatic run lychee`"
+        " does. Skipped when the repository holds none. A crawl that does not"
+        " complete leaves the issue as it is."
     ),
-)
-@option(
-    "--body-file",
-    type=file_path(exists=True, readable=True, resolve_path=True),
-    default=None,
-    help="Path to the issue body file (lychee output).",
 )
 @option(
     "--output-json",
@@ -380,26 +371,26 @@ def apply_labels_cmd(
 @repo_name_option
 @require_token("validate_gh_token_env")
 def broken_links(
-    lychee_exit_code: int | None,
-    body_file: Path | None,
+    lychee: bool,
     output_json: Path | None,
     source_url: str | None,
     repo_name: str | None,
 ) -> None:
-    """Manage the broken links issue lifecycle.
+    """Check the documentation links, and manage the broken links issue.
 
-    Combines Lychee and Sphinx linkcheck results into a single "Broken links"
-    issue. Creates or updates the issue when a checker found broken links, and
-    closes it when every checker that ran completed clean. A checker that did
-    not complete leaves the issue as it is. The repository name selects the
-    labels the issue carries.
+    Crawls the documentation files with lychee, then combines its report with
+    the Sphinx linkcheck output into a single "Broken links" issue. Creates or
+    updates the issue when a checker found broken links, and closes it when
+    every checker that ran completed clean. A checker that did not complete
+    leaves the issue as it is. The repository name selects the labels the
+    issue carries.
 
-    Requires the gh CLI to be authenticated.
+    Requires the gh CLI to be authenticated. lychee reads $GITHUB_TOKEN to lift
+    GitHub's rate limit on the links it checks there.
 
     \b
     In GitHub Actions, most options are auto-detected:
     - --repo-name defaults to $GITHUB_REPOSITORY name component.
-    - --body-file defaults to ./lychee/out.md when --lychee-exit-code is set.
     - --output-json defaults to ./docs/_linkcheck/output.json if it exists.
     - --source-url is composed from $GITHUB_SERVER_URL, $GITHUB_REPOSITORY,
       and $GITHUB_SHA when --output-json is set.
@@ -407,64 +398,12 @@ def broken_links(
     try:
         manage_combined_broken_links_issue(
             repo_name=repo_name,
-            lychee_exit_code=lychee_exit_code,
-            lychee_body_file=body_file,
+            lychee=run_lychee() if lychee else None,
             sphinx_output_json=output_json,
             sphinx_source_url=source_url,
         )
     except ValueError as error:
         raise UsageError(str(error)) from error
-
-
-@subcommand(
-    short_help="Close a stale version-bump PR",
-    examples=(
-        (
-            "Close a stale minor-bump pull request",
-            "repomatic close-stale-bump-pr --part minor",
-        ),
-        (
-            "Close a stale major-bump pull request",
-            "repomatic close-stale-bump-pr --part major",
-        ),
-    ),
-)
-@option(
-    "--part",
-    type=Choice(BUMP_PARTS, case_sensitive=False),
-    required=True,
-    help="The version part whose bump PR should be reconciled.",
-)
-def close_stale_bump_pr(part: str) -> None:
-    """Close the minor/major version-increment PR when a bump is no longer allowed.
-
-    The changelog workflow's bump-version job opens a draft PR on the
-    "<part>-version-increment" branch whenever a bump is allowed. A scheduled
-    run that started before a competing push can open this PR against a main
-    branch that has already advanced past the target, leaving an orphan that
-    subsequent scheduled runs cannot refresh.
-
-    This command reconciles that state: it re-evaluates the gate against the
-    current checkout and, when the bump is no longer allowed, closes any open
-    PR on the matching branch (deleting the branch). When the bump is still
-    allowed, it leaves the PR alone so the standard bump flow can update it.
-
-    Idempotent: a no-op when no open PR exists on the target branch.
-    """
-    if is_version_bump_allowed(part):  # type: ignore[arg-type]
-        logging.info(f"{part} bump still allowed, leaving any open PR untouched.")
-        return
-    branch = f"{part}-version-increment"
-    closed = close_open_prs_on_branch(
-        branch,
-        comment=(
-            f"Closing stale {part} version-bump PR: `main` already advanced "
-            f"past the target version, so this branch no longer represents a "
-            f"valid bump."
-        ),
-    )
-    if closed:
-        logging.info(f"Closed {len(closed)} stale {part} bump PR(s): {closed}")
 
 
 @subcommand(
@@ -595,12 +534,6 @@ def lock_threads(
     "large to pass as an argument. Wins over --prefix when both are given.",
 )
 @template_options
-@option(
-    "--pr-ref",
-    "pr_ref",
-    default=None,
-    help="PR reference passed to detect-squash-merge template (like #2316).",
-)
 @report_options(
     "Write the PR body to this file. github-actions writes the body, title and"
     " commit message as step outputs.",
@@ -617,7 +550,6 @@ def pr_body(
     template_arg_files: tuple[str, ...],
     version: str | None,
     part: str | None,
-    pr_ref: str | None,
     output: Path,
     output_format: str,
 ) -> None:
@@ -644,7 +576,6 @@ def pr_body(
             extra_args=parse_template_args(template_args_cli, template_arg_files),
             version=version,
             part=part,
-            pr_ref=pr_ref,
         )
     except TemplateArgumentError as error:
         raise UsageError(str(error)) from error

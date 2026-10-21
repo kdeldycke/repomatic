@@ -18,8 +18,8 @@
 
 Backs the `update-docs` command, which runs the phases of {class}`DocsPhase`
 in order: `sphinx-apidoc`, the RST-to-MyST conversion, the toctree wiring, the
-project's `docs/docs_update.py` script, and the self-updating directive-block
-refresh. {func}`update_docs` returns one {class}`PhaseResult` per phase it
+project's `docs/docs_update.py` script, the reformat of a `pyproject.toml` that
+script changed, and the self-updating directive-block refresh. {func}`update_docs` returns one {class}`PhaseResult` per phase it
 ran, and the command reports them. Configuration is read from
 `[tool.repomatic.docs]`.
 """
@@ -36,11 +36,14 @@ from pathlib import Path
 from click_extra import convert_rst_files_in_directory
 
 from .deps.uv import uv_cmd
+from .file_inventory import FileInventory
 from .metadata.core import Metadata
+from .tooling.registry import ToolInstallError
+from .tooling.runner import run_tool
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from .config import Config
 
@@ -89,6 +92,10 @@ class DocsPhase(Enum):
     SCRIPT = (
         "Docs update script",
         "Run docs/docs_update.py (docs.update-script), if it exists.",
+    )
+    PYPROJECT = (
+        "pyproject.toml reformat",
+        "Reformat with pyproject-fmt each pyproject.toml an earlier phase changed.",
     )
     DIRECTIVES = (
         "Directive-block refresh",
@@ -389,6 +396,32 @@ def _script(config: Config, repo_root: Path, check: bool) -> PhaseResult:
     )
 
 
+def _reformat_pyproject(before: Mapping[Path, bytes]) -> PhaseResult:
+    """Reformat each `pyproject.toml` an earlier phase of this run changed.
+
+    The docs update script may regenerate sections of `pyproject.toml`, like
+    label rules or keywords. Reformatting what it wrote keeps the output of
+    `update-docs` a `pyproject-fmt` fixpoint, so its pull request never fights
+    the one of the `format-pyproject` job. A file this run left alone keeps
+    any formatting drift it had: that drift belongs to `format-pyproject`.
+
+    :param before: The content of each `pyproject.toml` before the first phase.
+    """
+    phase = DocsPhase.PYPROJECT
+    changed = [
+        str(path)
+        for path, content in before.items()
+        if path.is_file() and path.read_bytes() != content
+    ]
+    if not changed:
+        return PhaseResult(phase, PhaseStatus.SKIPPED, "No pyproject.toml changed.")
+    try:
+        code = run_tool("pyproject-fmt", extra_args=changed)
+    except ToolInstallError as error:
+        return PhaseResult(phase, PhaseStatus.FAILED, str(error))
+    return _tool_result(phase, code)
+
+
 def _refresh(repo_root: Path, docs_dir: Path, check: bool) -> PhaseResult:
     """Refresh the self-updating blocks of the docs and the readme.
 
@@ -440,11 +473,16 @@ def update_docs(config: Config, *, check: bool = False) -> list[PhaseResult]:
         logging.info("No Sphinx configuration found. Nothing to do.")
         return []
 
+    # What the phases start from, for the reformat to tell what they changed.
+    pyproject_before = {
+        path: path.read_bytes() for path in FileInventory().pyproject_files
+    }
     runners: dict[DocsPhase, Callable[[], PhaseResult]] = {
         DocsPhase.APIDOC: lambda: _apidoc(config, meta, docs_dir),
         DocsPhase.CONVERSION: lambda: _convert(meta, docs_dir),
         DocsPhase.TOCTREE: lambda: _wire(meta, docs_dir),
         DocsPhase.SCRIPT: lambda: _script(config, repo_root, check),
+        DocsPhase.PYPROJECT: lambda: _reformat_pyproject(pyproject_before),
         DocsPhase.DIRECTIVES: lambda: _refresh(repo_root, docs_dir, check),
     }
     results: list[PhaseResult] = []

@@ -106,6 +106,7 @@ Every `pack-*` operation assembles a distributable artifact set for a release (l
 
 - Idempotent: re-running overwrites the same artifacts with the same bytes. This is load-bearing on a re-run of a release job, where a partially uploaded asset set must converge rather than duplicate.
 - Writes only under a build or distribution directory, never into tracked repository content.
+- Uploads only when asked to: `--upload-to TAG` attaches the packed files to the release of that tag, replacing the assets of the same name, so a re-run converges on the same asset set.
 - Only the CLI command and the job or step ID share the `pack-<noun>` name. Unlike a `sync-*` or `format-*` operation, there is no matching PR branch or `.github/pr-templates/` entry to keep in step.
 
 ```{note}

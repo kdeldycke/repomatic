@@ -150,14 +150,19 @@ def test_cancel_superseded_runs_spares_release_runs():
     """A run publishing a release survives the sweep.
 
     Nothing else protects it: this sweep enters no concurrency group, so the
-    `cancel-in-progress` gate every workflow carries never fires for it, and
-    a cancelled release matrix costs that version its binaries for good.
+    release groups of the workflows never shield it, and a cancelled release
+    matrix costs that version its binaries for good. A rebase-merged release
+    push ends on its post-release bump, so its runs carry that title, not the
+    title of the release commit.
     """
     run = _dispatch({
         "in_progress": _listing(
             (11, "Fix the melon parser"), (12, "[changelog] Release v1.2.3")
         ),
-        "queued": _listing((13, "[changelog] Post-release bump to `v1.2.4`")),
+        "queued": _listing(
+            (13, "[changelog] Post-release bump v1.2.3 → v1.2.4"),
+            (14, "Release notes for the melon parser"),
+        ),
     })
     with (
         patch("repomatic.github.gh.run_gh_command", side_effect=run),
@@ -166,7 +171,7 @@ def test_cancel_superseded_runs_spares_release_runs():
         assert cancel_superseded_runs("main", "1") == 2
     assert _cancelled(cancel) == [
         "repos/{owner}/{repo}/actions/runs/11/cancel",
-        "repos/{owner}/{repo}/actions/runs/13/cancel",
+        "repos/{owner}/{repo}/actions/runs/14/cancel",
     ]
 
 

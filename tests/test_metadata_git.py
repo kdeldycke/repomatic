@@ -25,7 +25,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from repomatic.git_ops import NULL_SHA, GitError, head_sha
+from repomatic.git_ops import NULL_SHA, Commit, GitError, head_sha
 from repomatic.github.event import WorkflowEvent
 from repomatic.metadata.core import Metadata
 from repomatic.metadata.git import commit_matrix, version_at
@@ -269,3 +269,63 @@ def test_version_at_without_any_source(repository):
     """A commit carrying no bump-my-version configuration declares no version."""
     _seed_commit(repository, "pyproject.toml", '[project]\nname = "kiwi"\n', "Seed")
     assert version_at("HEAD") is None
+
+
+def test_release_commit_is_the_newest_of_a_release_push(
+    repository, tmp_path, monkeypatch
+):
+    """A job checks out the newest release commit of the push.
+
+    `list_commits` reads the range oldest first, so the newest release commit
+    is the last of the list. Reading its first entry would build and lint the
+    older release.
+    """
+    _seed_commit(repository, "fruits.txt", "apple\n", "Seed")
+    base = head_sha()
+    shas = []
+    for message in (
+        "[changelog] Release v1.0.0",
+        "[changelog] Post-release bump v1.0.0 → v1.0.1.dev0",
+        "[changelog] Release v1.0.1",
+        "[changelog] Post-release bump v1.0.1 → v1.0.2.dev0",
+    ):
+        _seed_commit(repository, "fruits.txt", f"{message}\n", message)
+        shas.append(head_sha())
+    _push_event(tmp_path, monkeypatch, base, shas[-1])
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+
+    metadata = Metadata()
+    assert metadata.release_commits is not None
+    assert [commit.hash for commit in metadata.release_commits] == [shas[0], shas[2]]
+    assert metadata.release_commit == shas[2]
+    assert metadata.is_release_push is True
+
+
+def test_release_commit_falls_back_to_the_event_commit(monkeypatch):
+    """A push carrying no release commit names its own commit."""
+    monkeypatch.setenv("GITHUB_SHA", "f" * 40)
+    metadata = Metadata()
+    metadata.__dict__["release_commits"] = ()
+    assert metadata.release_commit == "f" * 40
+
+
+@pytest.mark.parametrize(
+    ("ref", "release", "expected"),
+    (
+        pytest.param("refs/heads/main", True, True, id="release-on-main"),
+        pytest.param("refs/heads/kiwi", True, False, id="release-on-a-branch"),
+        pytest.param(None, True, False, id="release-outside-ci"),
+        pytest.param("refs/heads/main", False, False, id="ordinary-push"),
+    ),
+)
+def test_is_release_push(monkeypatch, ref, release, expected):
+    """Only release commits landing on the release branch make a release push."""
+    if ref:
+        monkeypatch.setenv("GITHUB_REF", ref)
+    else:
+        monkeypatch.delenv("GITHUB_REF", raising=False)
+    metadata = Metadata()
+    metadata.__dict__["release_commits"] = (
+        (Commit("a" * 40, "[changelog] Release v1.2.3"),) if release else ()
+    )
+    assert metadata.is_release_push is expected

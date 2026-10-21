@@ -32,6 +32,7 @@ from click_extra import (
     Choice,
     IntRange,
     SortByOption,
+    UsageError,
     argument,
     echo,
     file_path,
@@ -42,6 +43,7 @@ from click_extra import (
     resolve_jobs,
 )
 
+from .. import git_ops
 from ..deps.audit import (
     AUDIT_HEADER_DEFS,
     AdvisorySource,
@@ -74,12 +76,16 @@ from ..deps.sync import (
     selected_operations,
 )
 from ..github.outputs import AnnotationLevel, emit_annotation, emit_report
+from ..github.pr import upsert_pr
+from ..github.pr_body import render_pr
 from ..humanize import today_utc
+from ..metadata.core import Metadata
 from ..pyproject import (
     dependency_group_names,
     extra_names,
     get_project_name,
 )
+from ..templating import PrTemplate
 from .main import (
     LazyChoice,
     dry_run_option,
@@ -94,6 +100,8 @@ from .main import (
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from click_extra import Context
 
     from ..config import Config
@@ -765,6 +773,63 @@ def update_dep_graph(
     write_output("graph", graph, output)
 
 
+def _sync_pull_requests(
+    ctx: Context, operations: Sequence[SyncOperation], rc: ResolveContext
+) -> list[str]:
+    """Run each updater from a clean tree, and converge its pull request.
+
+    Each updater owns a branch and a pull request named after it, so a reviewer
+    merges or reverts one without the others, and the tree goes back to `HEAD`
+    before each one, so no diff bleeds into the next. An updater with nothing
+    to act on in this tree (no `uv.lock`, no workflow file, no git-tracked
+    source) resolves nothing, but its pull request is still converged: a stale
+    one closes.
+
+    A failed updater leaves its pull request as it is, and never stops the
+    updaters after it.
+
+    :return: The name of each updater that failed.
+    """
+    md = Metadata()
+    assignees = (md.event_actor,) if md.event_actor else ()
+    failed: list[str] = []
+    for op in operations:
+        git_ops.discard_changes()
+        report = ""
+        try:
+            if op.applies_here():
+                plan = op.resolve(rc)
+                if plan.has_changes:
+                    op.apply(plan)
+                    echo(f"{op.name} updated {len(plan.changes)} item(s):")
+                    print_plan_tables(ctx, plan)
+                    report = render_plan_markdown(plan)
+            template = PrTemplate.load(op.name)
+            content = render_pr(
+                md, rc.config, template=template, extra_args={"diff_table": report}
+            )
+            result = upsert_pr(
+                branch=op.name,
+                title=content.title,
+                body=content.body,
+                commit_message=content.commit_message,
+                labels=template.labels,
+                assignees=assignees,
+                draft=template.draft,
+            )
+        except Exception:
+            logging.exception(f"{op.name} failed.")
+            emit_annotation(
+                AnnotationLevel.ERROR,
+                f"{op.name} failed, so its pull request is left as it is.",
+            )
+            failed.append(op.name)
+            continue
+        number = f" PR #{result.number}" if result.number else ""
+        echo(f"{op.name}: {result.operation}{number} on {result.branch}")
+    return failed
+
+
 @subcommand(
     short_help="Update dependencies, all or a named subset",
     examples=(
@@ -774,6 +839,10 @@ def update_dep_graph(
             "repomatic sync-deps sync-uv-lock sync-action-pins",
         ),
         ("Preview without writing", "repomatic sync-deps --dry-run"),
+        (
+            "CI: one pull request per updater",
+            "repomatic sync-deps --pr-sync --release-notes sync-uv-lock",
+        ),
     ),
 )
 @argument(
@@ -788,6 +857,15 @@ def update_dep_graph(
 @sync_held_back_option
 # `sync-deps` is the "do it" aggregate, so it runs live unless asked not to.
 @dry_run_option(default=False)
+@option(
+    "--pr-sync",
+    is_flag=True,
+    help=(
+        "Run the updaters one after the other, each from a clean tree, and open,"
+        " refresh or close the pull request of each, as `pr-sync` does. The mode"
+        " the autofix workflow runs."
+    ),
+)
 @pass_context
 def sync_deps(
     ctx: Context,
@@ -797,6 +875,7 @@ def sync_deps(
     release_notes: bool,
     held_back: bool,
     dry_run: bool,
+    pr_sync: bool,
 ) -> None:
     """Update project dependencies, the whole set or a named subset.
 
@@ -805,7 +884,7 @@ def sync_deps(
     sync-dep-sources, sync-uv-lock, sync-action-pins, sync-workflow-pins, and
     sync-tool-versions: their network discovery runs concurrently (one shared
     HTTP cache, one spinner), then the file rewrites apply serially because
-    three of them touch the same workflow files. Name one or more updaters to
+    two of them touch the same workflow files. Name one or more updaters to
     run just those; with none named, every enabled updater runs.
 
     \b
@@ -816,9 +895,19 @@ def sync_deps(
     regardless of the working tree.
 
     \b
-    Each updater still opens its own PR in CI; this is the local one-shot, and
-    the shared engine the consolidated autofix job drives.
+    With --pr-sync, each updater instead runs on its own, from a tree put back
+    to HEAD, and opens, refreshes or closes the pull request on the branch
+    named after it. A named updater with nothing to act on in this tree runs
+    nothing, and only closes a stale pull request. A failed updater leaves its
+    pull request alone, the others still run, and the command exits 1.
     """
+    if pr_sync and (dry_run or output):
+        msg = (
+            "--pr-sync writes each report into its pull request: it takes no"
+            " --dry-run and no --output."
+        )
+        raise UsageError(msg)
+
     config = get_tool_config(ctx)
     selected = selected_operations(config, names=list(operations) or None)
     if not selected:
@@ -831,6 +920,13 @@ def sync_deps(
     rc = _resolve_context(
         ctx, config, release_notes=release_notes, held_back=held_back, dry_run=dry_run
     )
+    if pr_sync:
+        pr_failures = _sync_pull_requests(ctx, selected, rc)
+        if pr_failures:
+            echo(f"Failed: {', '.join(pr_failures)}", err=True)
+            ctx.exit(1)
+        return
+
     results = run_sync_operations(
         selected, rc, spinner_label="Resolving dependency updates"
     )
@@ -1045,8 +1141,8 @@ def sync_tool_versions(
     For each registry tool, finds the highest version that has cleared the
     [tool.repomatic] minimum-release-age cooldown (GitHub releases for binary
     tools, PyPI otherwise), writes it into tooling/registry.py, recomputes binary
-    checksums in the same pass, and keeps the actionlint matcher URL in
-    lint.yaml in lockstep.
+    checksums in the same pass, and refreshes the bundled actionlint problem
+    matcher from the tag of the actionlint it pins.
 
     \b
     Upstream-only: it rewrites repomatic's own package source, so invoke it with

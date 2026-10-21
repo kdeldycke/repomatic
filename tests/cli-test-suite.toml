@@ -72,18 +72,13 @@ stdout_contains = [
 ]
 stdout_regex_matches = [
   "is_bot=(true|false)",
-  "skip_binary_build=(true|false)",
   "yaml_changed=(true|false)",
   "zsh_changed=(true|false)",
   "workflows_changed=(true|false)",
   'python_files="[\S ]+"',
   'current_version=[0-9.]+(\.[a-z]+[0-9]+)?',
-  "release_notes<<GHA_DELIMITER_[0-9]+",
-  "GHA_DELIMITER_[0-9]+",
   'build_targets=\[\{"target": .+\}\]',
   'nuitka_matrix=\{"os": \[.+\]',
-  "minor_bump_allowed=(true|false)",
-  "major_bump_allowed=(true|false)",
 ]
 
 # Test changelog output.
@@ -134,6 +129,12 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic broken-links"
 
 [[cases]]
+cli_parameters = "bump-version --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic bump-version"
+
+[[cases]]
 cli_parameters = "cache --help"
 exit_code = 0
 strip_ansi = true
@@ -182,10 +183,16 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic ci-status"
 
 [[cases]]
-cli_parameters = "close-stale-bump-pr --help"
+cli_parameters = "create-release --help"
 exit_code = 0
 strip_ansi = true
-stdout_contains = "Usage: repomatic close-stale-bump-pr"
+stdout_contains = "Usage: repomatic create-release"
+
+[[cases]]
+cli_parameters = "detect-squash-merge --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic detect-squash-merge"
 
 [[cases]]
 cli_parameters = "fix-awesome-toc --help"
@@ -300,6 +307,12 @@ cli_parameters = "pack-binaries --help"
 exit_code = 0
 strip_ansi = true
 stdout_contains = "Usage: repomatic pack-binaries"
+
+[[cases]]
+cli_parameters = "pack-manpages --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic pack-manpages"
 
 [[cases]]
 cli_parameters = "pack-plugin --help"
@@ -478,3 +491,9 @@ cli_parameters = "verify-binary --help"
 exit_code = 0
 strip_ansi = true
 stdout_contains = "Usage: repomatic verify-binary"
+
+[[cases]]
+cli_parameters = "wait-pypi --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic wait-pypi"

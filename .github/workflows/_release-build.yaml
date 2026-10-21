@@ -8,6 +8,13 @@ name: 📦 Build package
 "on":
   workflow_call:
     outputs:
+      metadata:
+        description: >
+          The metadata job's output: one JSON object holding every key this
+          lane and the engine lane read. The caller passes it on as the
+          engine's `metadata` input, so the engine reads the same values
+          without computing them again.
+        value: ${{ jobs.metadata.outputs.metadata }}
       package_built:
         description: >
           Whether the build-package job fully succeeded ("true"/"false").
@@ -55,8 +62,8 @@ jobs:
 
   detect-squash-merge:
     name: 🧯 No squash on release
-    # Detect squash merges on release PRs and open an issue instead of releasing.
-    # See RELEASE_COMMIT_PATTERN in repomatic/metadata/core.py for the detection mechanism.
+    # Detect squash merges on release PRs and open an issue instead of releasing. The gate is the cheap half of the
+    # check, so ordinary pushes spin up no runner. See SQUASHED_RELEASE_PREFIX in repomatic/release/protocol.py.
     if: >-
       github.event_name == 'push'
       && startsWith(github.event.head_commit.message, 'Release `v')
@@ -69,42 +76,10 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
-      - name: Extract PR reference
-        id: extract
-        env:
-          COMMIT_MSG: ${{ github.event.head_commit.message }}
-        run: |
-          pr_ref=$(echo "${COMMIT_MSG}" | grep -oE '#[0-9]+' | tail -1)
-          echo "pr_ref=${pr_ref}" >> "$GITHUB_OUTPUT"
-      - name: Generate issue body
-        id: issue-metadata
-        env:
-          PR_REF: ${{ steps.extract.outputs.pr_ref }}
-        run: >
-          uv --no-progress run --frozen -- repomatic
-          pr-body --output-format github-actions
-          --template detect-squash-merge
-          --pr-ref "${PR_REF}"
-          --output "$GITHUB_OUTPUT"
-      - name: Open issue to notify maintainer
-        id: issue
+      - name: Open or update the squash-merge issue, then fail
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TITLE: ${{ steps.issue-metadata.outputs.title }}
-          BODY: ${{ steps.issue-metadata.outputs.body }}
-        run: |
-          issue_url=$(gh issue create \
-            --title "${TITLE}" \
-            --assignee "${GITHUB_ACTOR}" \
-            --body "${BODY}")
-          echo "issue_url=${issue_url}" >> "$GITHUB_OUTPUT"
-      - name: Fail workflow
-        env:
-          ISSUE_URL: ${{ steps.issue.outputs.issue_url }}
-        run: |
-          echo "::error::Squash merge detected. Release was skipped. See ${ISSUE_URL}"
-          exit 1
+        run: uv --no-progress run --frozen -- repomatic detect-squash-merge
 
   metadata:
     name: 🧬 Project metadata
@@ -115,26 +90,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Checkout pull request HEAD commit to ignore actions/checkout's merge commit. Fallback to push SHA.
-          # See: https://github.com/actions/checkout/issues/504
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          # We're going to browse all new commits.
+          # The commit range of the push is read back from the history.
           fetch-depth: 0
-      - name: List all branches
-        run: git branch --all
-      - name: List all commits
-        run: git log --decorate=full --oneline
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
+      # Every key this lane reads, and every key the caller and the engine lane read through the `metadata` output.
       - name: Run repomatic show-metadata
         id: metadata
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
-          new_commits_matrix release_commits_matrix build_targets nuitka_matrix
-          is_python_project cli_scripts package_name current_version released_version
-          release_notes release_notes_with_admonition skip_binary_build
+          binaries_sync cli_scripts current_version is_python_project is_release_push
+          manpages_asset_name manpages_script new_commits_matrix nuitka_matrix package_name
+          release_assets release_commit release_commits_matrix
 
   lint-deps:
     name: 🔗 Lint deps
@@ -143,7 +112,7 @@ jobs:
     # wheel builds and uploads exactly as it would have and only the install fails: nothing else
     # in the lane can see it. Fatal only on a release commit, so test-driving a git branch during
     # development stays frictionless while still annotating every push.
-    # See repomatic/deps/sources.py for the rules and the failure classes.
+    # See repomatic/deps/shippable.py for the rules and the failure classes.
     needs:
       - metadata
     if: fromJSON(needs.metadata.outputs.metadata).is_python_project
@@ -152,15 +121,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The release commit, not the push head: a rebase-merged release PR delivers the freeze
-          # and the post-release bump together, so `main` HEAD already carries the next `.devN`.
-          # The tree being published is the one that has to pass. Most recent release commit
-          # first, as in release.yaml's pack-plugin; a push carrying two of them checks only the
-          # newest, which is the same assumption the rest of the lane makes.
-          ref: >-
-            ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
-            && fromJSON(needs.metadata.outputs.metadata).release_commits_matrix.commit[0]
-            || github.sha }}
+          # The release commit, not the push head: the tree being published is the one that has to pass. A push
+          # carrying two release commits checks only the newest, the same assumption the rest of the lane makes.
+          ref: ${{ fromJSON(needs.metadata.outputs.metadata).release_commit }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
@@ -203,6 +166,9 @@ jobs:
       # catch it: it holds on every ordinary push and only opens on the release
       # commit, so a CLI-less project builds green for its whole life and fails the
       # one run that tags, publishes and releases it.
+      # A pinned click-extra rather than the project's lock: a CLI project need not install click-extra by default (it
+      # can sit in a non-default group only), and `uv run --frozen` then finds no `click-extra` to run. The engine's
+      # binary build runs the locked one, since its self-test already requires it.
       - name: Pre-bake tag SHA
         if: >-
           !contains(matrix.current_version, '.dev')
@@ -217,13 +183,9 @@ jobs:
       # Signs each dist file with the job's OIDC token via Sigstore and writes
       # `<dist>.publish.attestation` sidecars (PEP 740 format) directly into
       # ./dist/ so the artifact uploaded below carries its own attestations.
-      # Skipped on fork PRs where the OIDC token is unavailable.
       - name: Sign distributions with PEP 740 attestations
-        if: >-
-          github.event_name != 'pull_request'
-          || !github.event.pull_request.head.repo.fork
         shell: bash
-        run: uvx --no-progress pypi-attestations sign ./dist/*.whl ./dist/*.tar.gz
+        run: uvx --no-progress 'pypi-attestations==0.0.30' sign ./dist/*.whl ./dist/*.tar.gz
       - name: Upload artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

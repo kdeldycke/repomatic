@@ -37,6 +37,7 @@ Config resolution precedence (first match wins, no merging):
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import shutil
@@ -57,14 +58,16 @@ from .. import bundle
 from ..cache import lock_path, store_config
 from ..config import load_repomatic_config
 from ..deps.pins import exclude_newer_cutoff, min_release_age_days
-from ..deps.uv import uv_cmd, uvx_cmd
+from ..deps.uv import UvError, uv_cmd, uvx_cmd
 from ..file_inventory import FileInventory
+from ..github.outputs import add_problem_matcher, remove_problem_matcher
 from ..hashing import compute_file_sha256
 from ..humanize import today_utc
 from ..metadata.core import Metadata
 from ..pyproject import read_pyproject_toml
 from . import binaries
 from .registry import (
+    NPM_BOOTSTRAP_TOOL,
     NPM_MIN_VERSION_FOR_COOLDOWN,
     TOOL_REGISTRY,
     BinaryInstallError,
@@ -117,16 +120,16 @@ installs a repomatic-pinned, cooldown-gated tool, where no install script is
 needed. `--no-audit` stops npm from sending the resolved dependency tree to the
 audit endpoint of the registry on every install.
 
-The `lint-awesome` job installs npm itself with the same flags, which a test
-holds in step with this tuple.
+The install of the pinned npm that installs the tool carries them too: see
+{func}`_install_npm`.
 """
 
 TOOL_CRASH_EXIT_CODE = 70
 """Exit code reported when a tool contradicts its own rewrite status.
 
 `EX_SOFTWARE` from `sysexits.h`: an internal error in the tool being run.
-Deliberately outside the set a formatter's caller tolerates, so a crash cannot
-land on the code that means "I reformatted a file". See
+Deliberately distinct from the code a formatter uses to say "I reformatted a
+file", so a crash cannot pass for a rewrite. See
 {attr}`~repomatic.tooling.registry.ToolSpec.rewrite_exit_code`.
 """
 
@@ -459,38 +462,19 @@ def _npm_supports_cooldown(npm: str) -> bool:
         return True
 
 
-def _install_npm(spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
-    """Install an npm tool into *dest* and return its executable path.
+def _npm_install(npm: str, spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
+    """Install the pinned *spec* into *dest* with *npm*, and return its executable.
 
-    The npm counterpart to {func}`~repomatic.tooling.binaries.install_binary`:
-    installs `<package>@<version>` into a throwaway prefix with
-    {data}`NPM_INSTALL_FLAGS`, relying on npm's own per-tarball integrity checks
-    (no repomatic-pinned checksum), and applies the `minimum-release-age`
-    cooldown through npm's `min-release-age` when *cooldown_days* is non-zero.
-    On npm older than {data}`NPM_MIN_VERSION_FOR_COOLDOWN` the gate is a no-op
-    and the runner warns (via {func}`_npm_supports_cooldown`); the
-    `lint-awesome` job provisions a new-enough npm so CI enforces it.
-
+    :param npm: The npm executable that runs the install.
+    :param spec: The npm-backed tool to install.
     :param dest: Directory to install into (`dest/node_modules/.bin/<exe>`).
     :param cooldown_days: `minimum-release-age` in whole days; `0` omits the gate.
-    :return: Path to the installed executable.
-    :raises ToolInstallError: npm is absent, the install fails, or the
-        executable is missing afterward.
+    :raises ToolInstallError: The install fails, or leaves no executable.
     """
-    npm = shutil.which("npm")
-    if npm is None:
-        msg = f"{spec.name} needs Node.js and npm on PATH, but npm was not found."
-        raise ToolInstallError(msg)
     package_pin = f"{spec.install_target}@{spec.version}"
     cmd = [npm, "install", *NPM_INSTALL_FLAGS, "--prefix", str(dest), package_pin]
     if cooldown_days:
         cmd.append(f"--min-release-age={cooldown_days}")
-        if not _npm_supports_cooldown(npm):
-            logging.warning(
-                f"npm on PATH is older than {NPM_MIN_VERSION_FOR_COOLDOWN}, so the "
-                f"minimum-release-age cooldown is not enforced; {spec.name}'s "
-                "transitive dependencies resolve without it."
-            )
     logging.info(f"Installing {spec.name} via npm: {' '.join(cmd)}")
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
@@ -501,6 +485,44 @@ def _install_npm(spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
         msg = f"{spec.name!r} not found under {dest} after installing {package_pin}."
         raise ToolInstallError(msg)
     return bin_path
+
+
+def _install_npm(spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
+    """Install an npm tool into *dest* and return its executable path.
+
+    The npm counterpart to {func}`~repomatic.tooling.binaries.install_binary`:
+    installs `<package>@<version>` into a throwaway prefix with
+    {data}`NPM_INSTALL_FLAGS`, relying on npm's own per-tarball integrity checks
+    (no repomatic-pinned checksum), and applies the `minimum-release-age`
+    cooldown through npm's `min-release-age` when *cooldown_days* is non-zero.
+
+    The npm on `PATH` only installs the pinned
+    {data}`~repomatic.tooling.registry.NPM_BOOTSTRAP_TOOL` into `dest/npm`, and
+    that npm installs the tool: see the rationale there. An npm older than
+    {data}`NPM_MIN_VERSION_FOR_COOLDOWN` cannot enforce the gate, so the runner
+    still checks the one that installs the tool, and warns (via
+    {func}`_npm_supports_cooldown`) when it falls short.
+
+    :param dest: Directory to install into (`dest/node_modules/.bin/<exe>`).
+    :param cooldown_days: `minimum-release-age` in whole days; `0` omits the gate.
+    :return: Path to the installed executable.
+    :raises ToolInstallError: npm is absent, an install fails, or an
+        executable is missing afterward.
+    """
+    npm = shutil.which("npm")
+    if npm is None:
+        msg = f"{spec.name} needs Node.js and npm on PATH, but npm was not found."
+        raise ToolInstallError(msg)
+    if spec.name != NPM_BOOTSTRAP_TOOL:
+        pinned = TOOL_REGISTRY[NPM_BOOTSTRAP_TOOL]
+        npm = str(_npm_install(npm, pinned, dest / pinned.name, cooldown_days))
+    if cooldown_days and not _npm_supports_cooldown(npm):
+        logging.warning(
+            f"npm installing {spec.name} is older than "
+            f"{NPM_MIN_VERSION_FOR_COOLDOWN}, so the minimum-release-age cooldown "
+            "is not enforced; its transitive dependencies resolve without it."
+        )
+    return _npm_install(npm, spec, dest, cooldown_days)
 
 
 def _build_install_args(spec: ToolSpec, exclude_newer: str | None = None) -> list[str]:
@@ -799,8 +821,9 @@ def _run_batch(
     :param config_args: The config arguments from {func}`resolve_config`.
     :param batch: The arguments of this invocation.
     :param env: The environment of the child, `None` to inherit it.
-    :return: The exit code of the tool, or {data}`TOOL_CRASH_EXIT_CODE` when
-        it reports a rewrite it did not perform.
+    :return: The exit code of the tool, `0` when it reports a rewrite it did
+        perform, or {data}`TOOL_CRASH_EXIT_CODE` when it reports a rewrite it
+        did not perform.
     """
     cmd = [*prefix, *spec.splice_config_args(config_args, batch)]
 
@@ -814,29 +837,34 @@ def _run_batch(
     logging.info(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, check=False, env=env)
     logging.info(f"{spec.name} exited with code {result.returncode}.")
+    exit_code = result.returncode
 
-    # A rewrite status that rewrote nothing is a contradiction, and the shape a
-    # crash takes in a tool whose caller has to tolerate that status:
-    # pyproject-fmt exits 1 on a PanicException exactly as it does on a
-    # successful reformat. Trust the files over the code.
-    crashed = (
-        spec.rewrite_exit_code is not None
-        and result.returncode == spec.rewrite_exit_code
-        and _digest_targets(batch) == before
-    )
-    if crashed:
-        logging.error(
-            f"{spec.name} exited with code {result.returncode}, which it uses "
-            "to report rewritten files, but left every target unchanged. "
-            f"Treating it as a crash and reporting {TOOL_CRASH_EXIT_CODE}; "
-            "re-run it directly to see why."
-        )
+    # The files settle what a rewrite status means. With a target rewritten,
+    # the status reports the success the caller asked for, so it becomes 0 and
+    # no caller has to tolerate it. With every target unchanged, it is a
+    # contradiction, and the shape a crash takes: pyproject-fmt exits 1 on a
+    # PanicException exactly as it does on a successful reformat.
+    if spec.rewrite_exit_code is not None and exit_code == spec.rewrite_exit_code:
+        if _digest_targets(batch) == before:
+            logging.error(
+                f"{spec.name} exited with code {exit_code}, which it uses "
+                "to report rewritten files, but left every target unchanged. "
+                f"Treating it as a crash and reporting {TOOL_CRASH_EXIT_CODE}; "
+                "re-run it directly to see why."
+            )
+            exit_code = TOOL_CRASH_EXIT_CODE
+        else:
+            logging.info(
+                f"{spec.name} rewrote its targets, which its exit code {exit_code}"
+                " reports. Reporting success."
+            )
+            exit_code = 0
 
     # post_process is a write-mode-only fixup: it rewrites files on disk, so it
     # runs only after a successful write (return code 0), never in check or
     # dry-run mode, which writes nothing. The warning below covers that gap;
     # see ToolSpec.check_bypasses_post_process.
-    if result.returncode == 0 and spec.post_process:
+    if exit_code == 0 and spec.post_process:
         # A directory argument names no file, so add the ones this run
         # rewrote below it. A file the tool's own exclude list skipped is
         # unchanged, which keeps it out of the fixup as well.
@@ -860,13 +888,53 @@ def _run_batch(
             "that against throwaway copies."
         )
 
-    return TOOL_CRASH_EXIT_CODE if crashed else result.returncode
+    return exit_code
+
+
+def _prepare(spec: ToolSpec) -> dict[str, str]:
+    """Run the {attr}`~repomatic.tooling.registry.ToolSpec.prepare` hook of *spec*.
+
+    :return: The environment variables the hook asks for, empty when the tool
+        declares no hook.
+    :raises ToolInstallError: When the hook cannot install what the run needs.
+    """
+    if spec.prepare is None:
+        return {}
+    try:
+        return spec.prepare(Metadata())
+    except UvError as exc:
+        msg = f"Cannot prepare the {spec.name} run: {exc}"
+        raise ToolInstallError(msg) from exc
 
 
 def _remove_config_file(path: Path) -> None:
     """Delete a config file written for one run."""
     logging.debug(f"Cleaning up temp config: {path.resolve()}")
     path.unlink(missing_ok=True)
+
+
+@contextmanager
+def _problem_matcher(filename: str) -> Generator[None, None, None]:
+    """Register a bundled problem matcher with the GitHub Actions runner, for one run.
+
+    The runner reads the matcher file when it processes the registration, so
+    the file goes to the temporary directory of the job, which outlives this
+    process. The tool writes its findings to the stream the registration went
+    to, so the removal, printed once the tool exited, reaches the runner after
+    the last line the matcher has to read.
+
+    :param filename: The matcher, in `repomatic/data/`.
+    """
+    content = bundle.get_data_content(filename)
+    owners = [matcher["owner"] for matcher in json.loads(content)["problemMatcher"]]
+    path = Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()) / filename
+    path.write_text(content, encoding="UTF-8")
+    add_problem_matcher(path)
+    try:
+        yield
+    finally:
+        for owner in owners:
+            remove_problem_matcher(owner)
 
 
 def run_tool(
@@ -893,10 +961,10 @@ def run_tool(
     :param skip_checksum: Skip SHA-256 verification entirely.
     :param no_cache: Bypass the binary cache when `True`.
     :return: The tool's exit code; the first non-zero one when the defaults
-        resolved to several invocations, or {data}`TOOL_CRASH_EXIT_CODE` when a
-        tool declaring
-        {attr}`~repomatic.tooling.registry.ToolSpec.rewrite_exit_code` reports a
-        rewrite it did not perform.
+        resolved to several invocations. A tool declaring
+        {attr}`~repomatic.tooling.registry.ToolSpec.rewrite_exit_code` reports
+        `0` for a rewrite it performed, and {data}`TOOL_CRASH_EXIT_CODE` for one
+        it did not.
     :raises ValueError: If no tool goes by *name*.
     :raises ToolInstallError: If the tool or one of its companions cannot be
         installed.
@@ -926,10 +994,19 @@ def run_tool(
         else:
             stack.callback(_remove_config_file, config_file)
 
+        # Ready the machine before the install: a sync it runs into the project
+        # virtualenv must not remove the tool installed there afterwards.
+        prepared_env = _prepare(spec)
         prefix = _command_prefix(
             spec, stack, skip_checksum=skip_checksum, no_cache=no_cache
         )
         env = _path_tools_env(spec, skip_checksum=skip_checksum, no_cache=no_cache)
+        if prepared_env:
+            env = {**(env or os.environ), **prepared_env}
+        # Each finding becomes an annotation on the line it names. See
+        # ToolSpec.problem_matcher.
+        if spec.problem_matcher and is_github_ci():
+            stack.enter_context(_problem_matcher(spec.problem_matcher))
 
         exit_code = 0
         for batch in batches:
@@ -1066,11 +1143,11 @@ def verify_via_write_path(
 
         # A tool that died on the copies formatted nothing, so the comparison
         # below would find no difference and report the tree as clean. Surface
-        # the failure instead of laundering it into a passing verdict. The
-        # rewrite status is the one non-zero code that means success here: it
-        # is what a formatter returns after reformatting a copy.
+        # the failure instead of laundering it into a passing verdict. A
+        # formatter that reformatted a copy reports 0 here, whatever rewrite
+        # status it exits with: run_tool checks that status against the files.
         run_code = run_tool(name, extra_args=rewritten, **run_kwargs)
-        if run_code not in {0, spec.rewrite_exit_code}:
+        if run_code != 0:
             logging.error(
                 f"{name} failed with code {run_code} on the throwaway copies; its "
                 "formatting cannot be verified."

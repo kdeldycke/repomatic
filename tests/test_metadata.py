@@ -33,9 +33,7 @@ import pytest
 from click_extra import Context
 from click_extra.testing import CliRunner
 from extra_platforms import is_windows
-from packaging.version import Version
 
-from repomatic.changelog import Changelog, availability_admonition
 from repomatic.cli.ci import (
     CELL_STATE_SEPARATOR,
     EMPTY_CELL,
@@ -83,8 +81,8 @@ from repomatic.metadata.core import (
     metadata_keys_reference,
     unknown_metadata_keys,
 )
+from repomatic.metadata.matrix import NUITKA_CACHE_KEY
 from repomatic.metadata.output import Dialect, format_github_value
-from repomatic.metadata.project import BumpBaseline
 from repomatic.pyproject import read_pyproject_toml
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from tests.conftest import IN_GIT_CHECKOUT, metadata_from_pyproject
@@ -200,31 +198,6 @@ class OptionalVersionOrEmptyString:
 
     def __init__(self, version_pattern: re.Pattern) -> None:
         self.version_pattern = version_pattern
-
-
-class AnyReleaseNotes:
-    """Matcher for release notes that vary based on development vs release state.
-
-    During development, release notes contain a warning that the version is not
-    released yet. On release branches, the notes contain actual release content.
-    None is valid when the changelog section is empty (e.g. right after a release).
-    """
-
-    def __init__(self, dev_pattern: re.Pattern, release_pattern: re.Pattern) -> None:
-        self.dev_pattern = dev_pattern
-        self.release_pattern = release_pattern
-
-
-class AnyReleaseNotesOrEmptyString:
-    """Matcher for GitHub format release notes.
-
-    Can be empty string (when no version), None (empty changelog section),
-    or match either development or release notes patterns.
-    """
-
-    def __init__(self, dev_pattern: re.Pattern, release_pattern: re.Pattern) -> None:
-        self.dev_pattern = dev_pattern
-        self.release_pattern = release_pattern
 
 
 def _matches_pattern(item: Any, pattern: dict) -> bool:
@@ -354,36 +327,6 @@ def iter_checks(metadata: Any, expected: Any, context: Any) -> None:
         )
         assert re.fullmatch(expected.version_pattern, metadata) is not None, (
             f"{metadata!r} does not match {expected.version_pattern.pattern!r} in {context!r}"
-        )
-
-    elif isinstance(expected, AnyReleaseNotes):
-        # Allow None (empty changelog section) or release notes matching either
-        # development or release pattern.
-        if metadata is None:
-            return
-        assert isinstance(metadata, str), (
-            f"{metadata!r} should be a string in {context!r}"
-        )
-        dev_match = re.fullmatch(expected.dev_pattern, metadata) is not None
-        release_match = re.fullmatch(expected.release_pattern, metadata) is not None
-        assert dev_match or release_match, (
-            f"{metadata!r} does not match dev pattern {expected.dev_pattern.pattern!r} "
-            f"or release pattern {expected.release_pattern.pattern!r} in {context!r}"
-        )
-
-    elif isinstance(expected, AnyReleaseNotesOrEmptyString):
-        # Allow empty string, None (empty changelog section), or release notes
-        # matching either pattern.
-        if metadata is None or metadata == "":
-            return
-        assert isinstance(metadata, str), (
-            f"{metadata!r} should be '' or a string in {context!r}"
-        )
-        dev_match = re.fullmatch(expected.dev_pattern, metadata) is not None
-        release_match = re.fullmatch(expected.release_pattern, metadata) is not None
-        assert dev_match or release_match, (
-            f"{metadata!r} does not match dev pattern {expected.dev_pattern.pattern!r} "
-            f"or release pattern {expected.release_pattern.pattern!r} in {context!r}"
         )
 
     elif isinstance(expected, dict):
@@ -532,9 +475,7 @@ lands the two expectations below have to diverge.
 
 expected: dict[str, Any] = {
     "is_bot": AnyBool(),
-    # skip_binary_build depends on the event type and changed files. In CI push events
-    # where only non-binary-affecting files changed, it is True.
-    "skip_binary_build": AnyBool(),
+    "is_awesome": False,
     # *_changed booleans depend on the current event's commit range.
     "yaml_changed": AnyBool(),
     "zsh_changed": AnyBool(),
@@ -564,12 +505,14 @@ expected: dict[str, Any] = {
     "is_python_package": True,
     "binaries_sync": True,
     "manpages_script": "repomatic.cli.main:repomatic",
-    "manpages_asset_name": "",
+    # The `<package-name>-manpages` default, `manpages.asset-name` being empty.
+    "manpages_asset_name": "repomatic-manpages",
     # Plain strings, not Path objects, so GitHub format joins them unquoted.
     "release_assets": StringList(["repomatic-claude-plugin.zip"]),
-    "nuitka_extras": [],
     "package_name": "repomatic",
     "cli_scripts": StringList(["repomatic"]),
+    "main_cli_script": "repomatic",
+    "import_name": "repomatic",
     "project_description": "🏭 Automate repository maintenance, releases, and CI/CD workflows",
     "mypy_params": StringList(["--python-version", "3.11"]),
     "current_version": regex(r"[0-9\.]+(\.dev[0-9]+)?"),
@@ -578,38 +521,9 @@ expected: dict[str, Any] = {
     # commit exists).
     "released_version": OptionalVersionString(regex(r"[0-9]+\.[0-9]+\.[0-9]+")),
     "is_sphinx": True,
+    "builds_sphinx": True,
     "active_autodoc": True,
     "uses_myst": True,
-    # Release notes are verbatim changelog content.
-    # Development: starts with the unreleased warning admonition.
-    # Release: contains actual changelog entries (bullets, admonitions).
-    "release_notes": AnyReleaseNotes(
-        dev_pattern=regex(
-            r"> \[\!WARNING\]\n"
-            r"> This version is \*\*not released yet\*\* and is under active development\.\n\n"
-            r".+"
-        ),
-        release_pattern=regex(
-            r"(?:(?!> \[\!WARNING\]).+|"  # With changelog entries.
-            # With admonition (e.g. NOTE or CAUTION).
-            r"> \[\!(NOTE|CAUTION)\]\n>.+)"
-        ),
-    ),
-    # Same as release_notes, but always includes a pre-computed availability
-    # admonition with PyPI and GitHub links.
-    "release_notes_with_admonition": AnyReleaseNotes(
-        dev_pattern=regex(
-            r"> \[\!WARNING\]\n"
-            r"> This version is \*\*not released yet\*\* and is under active development\.\n\n"
-            r"> \[\!NOTE\]\n"
-            r"> .+is available on.+\n\n"
-            r".+"
-        ),
-        release_pattern=regex(
-            r"> \[\!NOTE\]\n"
-            r"> .+is available on.+"
-        ),
-    ),
     # new_commits_matrix is None when running outside GitHub Actions.
     # In CI, it contains a matrix dict with commit data.
     "new_commits_matrix": OptionalMatrix(),
@@ -617,6 +531,12 @@ expected: dict[str, Any] = {
     # It contains a matrix dict only when a "[changelog] Release vX.Y.Z"
     # commit is present.
     "release_commits_matrix": OptionalMatrix(),
+    # No release commit outside a release push.
+    "is_release_push": False,
+    # The event's own commit when it carries no release commit: `GITHUB_SHA`
+    # in CI, absent locally. A SHA rather than a version, which the optional
+    # matcher takes all the same.
+    "release_commit": OptionalVersionString(regex(r"[0-9a-f]{40}")),
     "build_targets": [
         {
             "target": "linux-arm64",
@@ -698,6 +618,7 @@ expected: dict[str, Any] = {
                 "arch": "aarch64",
                 "extension": "bin",
                 "floor": "2.28",
+                "nuitka_cache": "true",
                 "container": (
                     "quay.io/pypa/manylinux_2_28_aarch64@sha256:"
                     "e7035406e58d96b7407246af1f6514a3cbd753a0025b42b9adfbeadd3b29ba80"
@@ -710,6 +631,7 @@ expected: dict[str, Any] = {
                 "arch": "x86_64",
                 "extension": "bin",
                 "floor": "2.28",
+                "nuitka_cache": "true",
                 "container": (
                     "quay.io/pypa/manylinux_2_28_x86_64@sha256:"
                     "fdb9a9c223b215604dc7b6f7e8fff4b39bfea5fbaa7777a2e5544a60dfa437f8"
@@ -722,6 +644,7 @@ expected: dict[str, Any] = {
                 "arch": "aarch64",
                 "extension": "bin",
                 "floor": "11.0",
+                "nuitka_cache": "false",
             },
             {
                 "target": "macos-x64",
@@ -730,6 +653,7 @@ expected: dict[str, Any] = {
                 "arch": "x86_64",
                 "extension": "bin",
                 "floor": "10.15",
+                "nuitka_cache": "false",
             },
             {
                 "target": "windows-arm64",
@@ -738,6 +662,7 @@ expected: dict[str, Any] = {
                 "arch": "aarch64",
                 "extension": "exe",
                 "floor": "11",
+                "nuitka_cache": "true",
             },
             {
                 "target": "windows-x64",
@@ -746,6 +671,7 @@ expected: dict[str, Any] = {
                 "arch": "x86_64",
                 "extension": "exe",
                 "floor": "10",
+                "nuitka_cache": "true",
             },
             # Entry point info (fixed, one per entry point). The value of
             # Nuitka's --main-entry-point rides here, per entry point;
@@ -891,18 +817,16 @@ expected: dict[str, Any] = {
             {"state": "stable"},
         ],
     },
-    # Bump allowed values depend on comparing current version vs latest git tag.
-    # These can be True or False depending on the current development cycle state.
-    "minor_bump_allowed": AnyBool(),
-    "major_bump_allowed": AnyBool(),
+    # The newest plain release of the full matrix's `python-version` axis.
+    "latest_stable_python": "3.15",
     # `minimum-release-age` default "1 week", rendered as whole days for npm.
     "npm_min_release_age_days": 7,
-    # This repository publishes `.html` pages, the `sphinx.builder` default.
-    "sphinx_builder": "html",
     # This repository dogfoods its own Cloudflare Pages lane on repomatic.net,
     # so it declares that target rather than the `github-pages` default, into a
-    # project named after the repository (the empty override).
-    "site_cloudflare_project": "",
+    # project named after the repository: `site.cloudflare-project` is empty.
+    "cloudflare_project": "repomatic",
+    # This repository publishes `.html` pages, the `sphinx.builder` default.
+    "sphinx_builder": "html",
     "site_deploy": "cloudflare-pages",
 }
 
@@ -992,12 +916,12 @@ def test_metadata_github_json_format():
     json_str = lines[0][len("metadata=") :]
     metadata = json.loads(json_str)
 
-    # In github_json format, list/tuple values are pre-formatted via
-    # format_github_value() because GitHub Actions stringifies JSON arrays
-    # as "Array" when interpolated in ${{ }} expressions. Transform expected
-    # values to match: file lists become space-separated quoted strings,
-    # plain string lists become space-separated unquoted strings, and
-    # dict lists become JSON strings.
+    # In github_json format, a list of strings or paths is joined into one
+    # string, because GitHub Actions stringifies a JSON array as "Array" when
+    # an expression interpolates it. Transform expected values to match: file
+    # lists become space-separated quoted strings, and plain string lists
+    # space-separated unquoted strings. A list of mappings stays a JSON array,
+    # which a workflow hands to `strategy.matrix.include` as it is.
     github_json_expected = dict(expected)
     for key, value in github_json_expected.items():
         if isinstance(value, list):
@@ -1009,8 +933,6 @@ def test_metadata_github_json_format():
                     github_json_expected[key] = " ".join(f'"{v}"' for v in value)
                 else:
                     github_json_expected[key] = " ".join(value)
-            elif all(isinstance(i, dict) for i in value):
-                github_json_expected[key] = json.dumps(value)
 
     iter_checks(metadata, github_json_expected, raw)
 
@@ -1215,11 +1137,6 @@ def test_metadata_github_format():
             # Convert OptionalVersionString to OptionalVersionOrEmptyString for GitHub
             # format.
             new_value = OptionalVersionOrEmptyString(value.version_pattern)
-        elif isinstance(value, AnyReleaseNotes):
-            # Convert AnyReleaseNotes to AnyReleaseNotesOrEmptyString for GitHub format.
-            new_value = AnyReleaseNotesOrEmptyString(
-                value.dev_pattern, value.release_pattern
-            )
         elif isinstance(value, StringList):
             # Plain string lists: space-separated without double-quotes.
             new_value = " ".join(value)
@@ -1620,6 +1537,59 @@ def test_nuitka_matrix_skips_push_without_dev_targets(monkeypatch):
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     monkeypatch.setattr(Metadata, "dev_targets", set())
     assert Metadata().nuitka_matrix is None
+
+
+@pytest.mark.repo_maintenance
+def test_nuitka_matrix_is_empty_when_the_build_is_skipped(monkeypatch):
+    """An event that cannot change a binary leaves nothing to compile."""
+    monkeypatch.setattr(Metadata, "skip_binary_build", True)
+    assert Metadata().nuitka_matrix is None
+
+
+@pytest.mark.repo_maintenance
+@pytest.mark.parametrize("release", (False, True), ids=("canary", "release"))
+def test_nuitka_matrix_gates_the_compile_cache(monkeypatch, release):
+    """Each target tells its compile job whether to keep a cache.
+
+    Release commits build cold, and a target compiling without ccache keeps
+    no cache at all. The flag is a string, as every matrix value is.
+    """
+    if release:
+        monkeypatch.setattr(
+            Metadata, "release_commits_matrix", Metadata().current_commit_matrix
+        )
+    matrix = Metadata().nuitka_matrix
+    assert matrix is not None
+    flags = {
+        entry["target"]: entry[NUITKA_CACHE_KEY]
+        for entry in matrix.include
+        if "target" in entry
+    }
+    assert flags == {
+        target_id: "true" if target.compile_cache and not release else "false"
+        for target_id, target in NUITKA_BUILD_TARGETS.items()
+    }
+    assert flags["macos-arm64"] == "false"
+
+
+@pytest.mark.parametrize(
+    ("configured", "package", "expected"),
+    (
+        pytest.param("", "papaya", "papaya-manpages", id="default"),
+        pytest.param("papaya-docs", "papaya", "papaya-docs", id="configured"),
+        pytest.param("", None, None, id="no-package"),
+    ),
+)
+def test_manpages_asset_name(tmp_path, monkeypatch, configured, package, expected):
+    """The tarball stem defaults to the package name, unless configured."""
+    lines = []
+    if package:
+        lines += ["[project]", f'name = "{package}"', 'version = "1.0.0"']
+    if configured:
+        lines += ["[tool.repomatic]", f'manpages.asset-name = "{configured}"']
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, "\n".join(lines) + "\n")
+    monkeypatch.chdir(tmp_path)
+    assert metadata.manpages_asset_name == expected
 
 
 def test_null_sha_constant():
@@ -2698,11 +2668,11 @@ def test_github_dialect_trims_an_oversized_heredoc(caplog):
     """
     line = "papaya mango kiwi\n"
     oversized = line * (MAX_STEP_OUTPUT_BYTES // len(line) + 100)
-    content = Dialect.github.serialize({"release_notes": oversized, "is_bot": False})
+    content = Dialect.github.serialize({"harvest_log": oversized, "is_bot": False})
     assert len(content.encode("UTF-8")) < MAX_STEP_OUTPUT_BYTES + 200
-    assert content.startswith("release_notes<<GHA_DELIMITER_")
+    assert content.startswith("harvest_log<<GHA_DELIMITER_")
     assert content.endswith("is_bot=false\n")
-    assert "release_notes" in caplog.text
+    assert "harvest_log" in caplog.text
 
 
 @pytest.mark.parametrize("base_ref", ["main", ""])
@@ -2745,21 +2715,6 @@ def test_is_bot_reads_the_sender_then_the_login(monkeypatch, actor, sender, expe
     assert Metadata().is_bot is expected
 
 
-def test_bump_gates_read_the_versions_once(monkeypatch):
-    """Both bump keys share one read of the version file and of the tags."""
-    calls: list[None] = []
-
-    def resolve() -> BumpBaseline:
-        calls.append(None)
-        return BumpBaseline(Version("5.1.0"), Version("5.0.1"))
-
-    monkeypatch.setattr(BumpBaseline, "resolve", staticmethod(resolve))
-    metadata = Metadata()
-    assert metadata.minor_bump_allowed is False
-    assert metadata.major_bump_allowed is True
-    assert len(calls) == 1
-
-
 @pytest.mark.parametrize(
     ("name", "runners", "python_versions", "attribute"),
     [
@@ -2792,48 +2747,130 @@ def test_current_version_reads_the_most_recent_commit(monkeypatch):
     assert Metadata().current_version == "5.0.1.dev0"
 
 
-RELEASE_SECTIONS = {
-    "1.1.0": (
-        "## [`1.1.0` (2026-02-10)](https://github.com/user/repo/compare/v1.0.0...v1.1.0)"
-        "\n\n- Second release.\n"
+@pytest.mark.parametrize(
+    ("scripts", "main_script", "import_name"),
+    (
+        pytest.param(
+            "[project.scripts]\n"
+            'mdedup = "mail_deduplicate.cli:mdedup"\n'
+            'mailbox = "mailbox_tools.cli:main"\n',
+            "mdedup",
+            "mail_deduplicate",
+            id="first-script",
+        ),
+        pytest.param("", None, "fruit_salad", id="no-script"),
     ),
-    "1.0.0": (
-        "## [`1.0.0` (2026-01-15)](https://github.com/user/repo/compare/v0.9.0...v1.0.0)"
-        "\n\n- Initial release.\n"
-    ),
-}
-"""Released changelog sections, newest first, keyed by their version."""
+)
+def test_main_cli_script_and_its_import_name(
+    tmp_path, monkeypatch, scripts, main_script, import_name
+):
+    """The first script names the CLI, and its module names the import package.
+
+    The module wins over the package name, which can differ from it. A project
+    with no script falls back to the package name, hyphens turned into
+    underscores.
+    """
+    content = f'[project]\nname = "fruit-salad"\nversion = "1.0.0"\n{scripts}'
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, content)
+    assert metadata.main_cli_script == main_script
+    assert metadata.import_name == import_name
 
 
 @pytest.mark.parametrize(
-    ("released", "first"),
+    ("python_project", "sphinx", "expected"),
     (
-        pytest.param(("1.0.0",), True, id="first-release"),
-        pytest.param(("1.1.0", "1.0.0"), False, id="later-release"),
+        (True, True, True),
+        (True, False, False),
+        (False, True, False),
     ),
 )
-def test_draft_release_notes_word_availability_like_the_changelog(released, first):
-    """The draft release body states availability the way the changelog will.
+def test_builds_sphinx_needs_a_python_project_and_a_sphinx_config(
+    monkeypatch, python_project, sphinx, expected
+):
+    """The Sphinx build installs the project, so it needs both to run."""
+    monkeypatch.setattr(Metadata, "is_python_project", python_project)
+    monkeypatch.setattr(Metadata, "is_sphinx", sphinx)
+    assert Metadata().builds_sphinx is expected
 
-    `lint-changelog --fix` writes the *first version* wording into the section
-    of a project's first release. The draft body is baked before that fix runs,
-    so it has to reach the same wording on its own, or the two disagree.
+
+LATEST_STABLE = TEST_PYTHON_PR[-1]
+"""The newest released Python of the default axes, which the PR matrix runs too."""
+
+PLAIN_RELEASES = [v for v in TEST_PYTHON_FULL if v not in UNSTABLE_PYTHON_VERSIONS]
+"""The plain releases of the default `python-version` axis."""
+
+
+@pytest.mark.parametrize(
+    ("matrix_config", "expected"),
+    (
+        pytest.param("", LATEST_STABLE, id="default-axis"),
+        pytest.param(
+            f'remove = {{ python-version = ["{LATEST_STABLE}"] }}\n',
+            TEST_PYTHON_FULL[0],
+            id="removed",
+        ),
+        pytest.param(
+            f'replace = {{ python-version = {{ "{LATEST_STABLE}" = "3.99" }} }}\n',
+            "3.99",
+            id="replaced",
+        ),
+        pytest.param(
+            f"remove = {{ python-version = {json.dumps(PLAIN_RELEASES)} }}\n",
+            None,
+            id="no-plain-release",
+        ),
+    ),
+)
+def test_latest_stable_python_reads_the_configured_axis(
+    tmp_path, monkeypatch, matrix_config, expected
+):
+    """The key follows the project's axis, and skips flavors and dev versions.
+
+    The free-threaded flavor and the in-development version stay on the full
+    matrix in every case here, so an axis left with only those has no answer.
     """
-    version = released[0]
-    content = "# Changelog\n\n" + "\n".join(RELEASE_SECTIONS[v] for v in released)
-    metadata = Metadata()
-    metadata.__dict__["_release_changelog"] = (version, Changelog(content))
-    metadata.__dict__["package_name"] = "papaya"
-
-    notes = metadata.release_notes_with_admonition
-
-    assert notes is not None
-    expected = availability_admonition(
-        version,
-        pypi_url=f"https://pypi.org/project/papaya/{version}/",
-        github_url=f"https://github.com/user/repo/releases/tag/v{version}",
-        first_on_pypi=first,
-        first_on_github=first,
+    content = (
+        '[project]\nname = "fruit-salad"\nversion = "1.0.0"\n\n'
+        f"[tool.repomatic.test-matrix]\n{matrix_config}"
     )
-    assert expected in notes
-    assert ("is the *first version* available on" in notes) is first
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, content)
+    assert metadata.latest_stable_python == expected
+
+
+@pytest.mark.parametrize(
+    ("declared", "expected"),
+    (
+        pytest.param("kiwi-site", "kiwi-site", id="declared"),
+        pytest.param("", "papaya", id="repository-name"),
+    ),
+)
+def test_cloudflare_project_falls_back_to_the_repository_name(
+    monkeypatch, declared, expected
+):
+    """`site.cloudflare-project` names the project, else the repository does."""
+    monkeypatch.setenv("GITHUB_REPOSITORY", "orchard/papaya")
+    publish_config(Config(site_cloudflare_project=declared))
+    assert Metadata().cloudflare_project == expected
+
+
+def test_github_json_keeps_a_list_of_mappings_as_an_array():
+    """A list of mappings reaches the workflow as a JSON array, not a string.
+
+    A workflow hands it to `strategy.matrix.include` as it is. A list of words
+    still joins into one string, and an empty one into the empty string an
+    `if:` gate reads as false.
+    """
+    targets = [{"os": "ubuntu-26.04", "arch": "x86_64"}]
+    raw = Dialect.github_json.serialize({
+        "build_targets": targets,
+        "cli_scripts": ["mdedup", "mailbox"],
+        "doc_files": [Path("readme.md")],
+        "zsh_files": [],
+    })
+    payload = json.loads(raw.removeprefix("metadata="))
+    assert payload == {
+        "build_targets": targets,
+        "cli_scripts": "mdedup mailbox",
+        "doc_files": '"readme.md"',
+        "zsh_files": "",
+    }

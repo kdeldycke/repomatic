@@ -292,7 +292,7 @@ def _arg_sources(
     :param version: The `--version` value, or `None` to read the bumpversion
         configuration.
     :param part: The `--part` value.
-    :param pr_ref: The `--pr-ref` value.
+    :param pr_ref: The pull request reference a squash-merge report names.
     :return: Argument name to its value, a callable producing it, or `None`
         when nothing supplies it.
     """

@@ -332,7 +332,7 @@ Choices that are project-specific:
 - **`sphinx_click` vs `click_extra.sphinx`** — `click_extra.sphinx` provides the `{click:run}`/`{click:source}` directives this lineage uses for live CLI rendering, plus `{click:tree}` for whole-command-tree generation (see § Recipes › `cli.md`). `sphinx_click`'s `.. click::` autodoc-style directive produces a similar tree by a different route. Prefer `{click:tree}`: default to `click_extra.sphinx` only and reach for `sphinx_click` only if a project needs its specific `.. click::` output.
 - **`sphinxcontrib.mermaid`** — pair with `myst_fence_as_directive = ["mermaid"]` so authors write ```` ```mermaid ```` (without curly braces) and the directive still fires. Reference comment for `conf.py`: `# Allow plain mermaid fences (without curly braces), see <https://github.com/mgaitan/sphinxcontrib-mermaid/issues/99#issuecomment-2339587001>`. Keep `mermaid_d3_zoom = True` so dependency-graph diagrams remain navigable.
 - **`sphinxcontrib.jquery` + `sphinx_datatables`** — only for projects shipping the binaries catalog (a `binaries.md` page rendering `assets/binaries.csv` as a searchable, sortable `sphinx-datatable`). jQuery must be listed explicitly: sphinx-datatables only activates it from a `html-page-context` callback, too late for the `jquery.js` static file to be registered and copied, leaving `$` undefined at runtime. Pair with the shared `datatables_options` raw-JS block (empty `order` preserving the CSV's newest-first rows, 25-row pages, a relative-time hint appended to the Released column at display time) that click-extra and repomatic both carry verbatim.
-- **`sphinx_issues`** — **don't adopt**. The extension's `:issue:`/`:pr:`/`:user:`/`:commit:` roles only render inside Sphinx, so the same source files (changelogs, docstrings, comments) display as raw `` :issue:`1234` `` text everywhere else: GitHub's markdown viewer in the repo browser, IDE previews, `pip show`, the PyPI long-description page, downstream tooling reading the changelog. Replace these roles with explicit GitHub URLs that work in every renderer and keep the changelog identically readable on GitHub and on the docs site. See § Migrating off `sphinx_issues`.
+- **`sphinx_issues`** — **don't adopt**. The extension's `:issue:`/`:pr:`/`:user:`/`:commit:` roles only render inside Sphinx, so the same source files (changelogs, docstrings, comments) display as raw `` :issue:`1234` `` text everywhere else: GitHub's markdown viewer in the repo browser, IDE previews, `pip show`, the PyPI long-description page, downstream tooling reading the changelog. Write explicit GitHub URLs instead, which work in every renderer and keep the changelog identically readable on GitHub and on the docs site.
 
 Standard `myst_enable_extensions`, alphabetized (omit only when the project demonstrably doesn't use the syntax):
 
@@ -347,95 +347,6 @@ Standard `myst_enable_extensions`, alphabetized (omit only when the project demo
 - `substitution` — `{{ name }}` substitutions fed from `myst_substitutions`. Enable only when the project injects Python-computed content into pages.
 - `tasklist` — GitHub-style `- [ ]` checkboxes.
 
-## Migrating off `sphinx_issues`
-
-When a repo carries `sphinx_issues` roles, replace them with explicit GitHub URLs in one PR per repo. The roles and their URL equivalents (where `{owner}/{repo}` is the project's GitHub slug):
-
-| `sphinx_issues` role  | Replacement                                                                                                                                           |
-| :-------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `` {issue}`N` ``      | `[#N](https://github.com/{owner}/{repo}/issues/N)`                                                                                                    |
-| `` {pr}`N` ``         | `[#N](https://github.com/{owner}/{repo}/pull/N)`                                                                                                      |
-| `` {user}`name` ``    | `[@name](https://github.com/name)`                                                                                                                    |
-| `` {commit}`sha` ``   | `` [`sha`](https://github.com/{owner}/{repo}/commit/sha) ``                                                                                           |
-| reST `` :issue:`N` `` | same as `` {issue}`N` `` (some Python source files predate the MyST migration; the reST forms surface the same warning as MyST forms outside Sphinx). |
-
-GitHub redirects `/issues/N` ↔ `/pull/N` based on the entity's actual type, so a typo between `issue` and `pr` still resolves; mirror the original role's intent anyway so the URL is self-documenting.
-
-For cross-repo references that worked via role-side prefixing (`` :issue:`astanin/python-tabulate#151` ``), use the full GitHub URL: `[astanin/python-tabulate#151](https://github.com/astanin/python-tabulate/issues/151)`.
-
-After replacing every occurrence:
-
-1. Drop `"sphinx_issues"` from `extensions` in `conf.py`.
-2. Drop `"sphinx-issues>=…"` from `[dependency-groups] docs` in `pyproject.toml`.
-3. Drop `issues_github_path = …` from `conf.py` if the variable isn't read by any other extension.
-4. Build `sphinx-build -W` to confirm no orphan references survive.
-
-A Python helper to run the migration in-place (handles MyST roles, reST roles, and cross-repo prefixed forms):
-
-```python
-import re
-from pathlib import Path
-
-OWNER_REPO = "kdeldycke/click-extra"  # adjust per repo.
-
-PATTERNS = [
-    # MyST roles.
-    (re.compile(r"\{issue\}`([^`]+)`"), lambda m: _link("issues", m.group(1))),
-    (re.compile(r"\{pr\}`([^`]+)`"), lambda m: _link("pull", m.group(1))),
-    (
-        re.compile(r"\{user\}`([^`]+)`"),
-        lambda m: f"[@{m.group(1)}](https://github.com/{m.group(1)})",
-    ),
-    (
-        re.compile(r"\{commit\}`([^`]+)`"),
-        lambda m: (
-            f"[`{m.group(1)}`](https://github.com/{OWNER_REPO}/commit/{m.group(1)})"
-        ),
-    ),
-    # reST roles (in .py files and stale .rst).
-    (re.compile(r":issue:`([^`]+)`"), lambda m: _link("issues", m.group(1))),
-    (re.compile(r":pr:`([^`]+)`"), lambda m: _link("pull", m.group(1))),
-    (
-        re.compile(r":user:`([^`]+)`"),
-        lambda m: f"[@{m.group(1)}](https://github.com/{m.group(1)})",
-    ),
-    (
-        re.compile(r":commit:`([^`]+)`"),
-        lambda m: (
-            f"[`{m.group(1)}`](https://github.com/{OWNER_REPO}/commit/{m.group(1)})"
-        ),
-    ),
-]
-
-
-def _link(kind, target):
-    # Handle cross-repo refs like `astanin/python-tabulate#151` and labelled forms `text <N>`.
-    m = re.match(r"(.+) <(.+)>", target)
-    if m:
-        label, ref = m.groups()
-    else:
-        label = ref = target
-    if "#" in ref:
-        repo, num = ref.split("#", 1)
-        url = f"https://github.com/{repo}/{kind}/{num}"
-        text = f"{repo}#{num}" if label == ref else label
-    else:
-        url = f"https://github.com/{OWNER_REPO}/{kind}/{ref}"
-        text = f"#{ref}" if label == ref else label
-    return f"[{text}]({url})"
-
-
-for path in Path(".").rglob("*"):
-    if path.suffix not in {".md", ".rst", ".py"} or not path.is_file():
-        continue
-    text = path.read_text(encoding="UTF-8")
-    for pattern, replacement in PATTERNS:
-        text = pattern.sub(replacement, text)
-    path.write_text(text, encoding="UTF-8")
-```
-
-For Python source files (where the role appeared inside docstrings or comments), the replacement keeps the same `[#N](url)` form since `click_extra.sphinx.myst_docstrings` recognizes Markdown links inside docstrings; `:issue:` in a `# comment` was never rendered anyway and becomes a plain link.
-
 ## Auto-generated reference tables
 
 For `pyproject.toml` schemas, CLI command lists, and tool registries, generate the markdown from the source of truth. The pattern: a `docs/docs_update.py` script writes between named auto-region markers, invoked by the upstream `autofix.yaml` workflow's `update-docs` job via `repomatic update-docs`. It sits there rather than in `docs.yaml` because it commits a fix like every other autofix job; `docs.yaml` only builds and deploys.
@@ -447,8 +358,6 @@ For `pyproject.toml` schemas, CLI command lists, and tool registries, generate t
 - `<!-- operation-matrix -->` / `<!-- operation-matrix-end -->` (a feature-coverage table).
 - `<!-- pytest-decorators-autodata -->` / `<!-- pytest-decorators-autodata-end -->` (autodata blocks for pytest fixtures).
 - `<!-- python-compat-matrix -->` / `<!-- python-compat-matrix-end -->` (a compatibility table refreshed by a regenerator).
-
-Pages written before the grammar aligned on click-extra spell the open marker with a `-start` suffix (`<!-- binaries-chart-start -->`); the binaries page migrates it automatically on its next refresh, and other regions adopt the bare open as their generators move to `replace_region`.
 
 Pick the `{feature}` slug from the canonical name of the source-of-truth (registry name, dataclass name, command path); pick the `{kind}` slug from the output shape (`table`, `sankey`, `mindmap`, `chart`, `autodata`, `automodule`, `autodoc`, `reference`).
 

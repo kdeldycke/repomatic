@@ -53,6 +53,7 @@ from ..pyproject import (
 from ..release.protocol import (
     BINARY_AFFECTING_PATHS,
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
+    RELEASE_BRANCH,
     RELEASE_COMMIT_PATTERN,
     SKIP_BINARY_BUILD_BRANCHES,
 )
@@ -96,7 +97,7 @@ def commit_matrix(shas: Sequence[str] | None) -> Matrix | None:
 
     Each entry carries the long and short SHA, and the version the commit
     declares, read by {func}`version_at`. Returns a ready-to-use matrix
-    structure:
+    structure, here for a release push listing its commits oldest first:
 
     ```{code-block} python
     {
@@ -108,12 +109,12 @@ def commit_matrix(shas: Sequence[str] | None) -> Matrix | None:
             {
                 "commit": "346ce664f055fbd042a25ee0b7e96702e95",
                 "short_sha": "346ce66",
-                "current_version": "2.0.1",
+                "current_version": "2.0.0",
             },
             {
                 "commit": "6f27db47612aaee06fdf08744b09a9f5f6c2",
                 "short_sha": "6f27db4",
-                "current_version": "2.0.0",
+                "current_version": "2.0.1.dev0",
             },
         ],
     }
@@ -181,6 +182,10 @@ class GitMetadata:
         @cached_property
         def pyproject_toml(self) -> dict[str, Any]:
             """See {class}`~repomatic.metadata.project.ProjectMetadata`."""
+
+        @cached_property
+        def ref(self) -> str | None:
+            """See {class}`~repomatic.metadata.env.EnvironmentMetadata`."""
 
         @cached_property
         def script_entries(self) -> list[tuple[str, str, str]]:
@@ -519,3 +524,31 @@ class GitMetadata:
         if not self.release_commits:
             return None
         return commit_matrix(tuple(commit.hash for commit in self.release_commits))
+
+    @cached_property
+    def is_release_push(self) -> bool:
+        """Whether the event lands release commits on the release branch.
+
+        The test every job that tags, attests or publishes runs before it acts:
+        a release commit reached through another ref (a manual run on a feature
+        branch) must not publish anything.
+        """
+        return bool(self.release_commits) and (
+            self.ref == f"refs/heads/{RELEASE_BRANCH}"
+        )
+
+    @cached_property
+    def release_commit(self) -> str | None:
+        """The commit a job checks out to work on the tree being released.
+
+        A rebase-merged release pull request pushes the freeze commit and the
+        post-release bump together, so the event's own commit already carries
+        the next `.devN` version. This is the newest release commit of the
+        event, and the event's own commit when it carries none.
+
+        {attr}`release_commits` lists the commits oldest first, so the newest
+        one is the last.
+        """
+        if self.release_commits:
+            return self.release_commits[-1].hash
+        return self.sha

@@ -14,15 +14,11 @@ name: 🩺 Debug
 
 permissions: {}
 
+# A newer run supersedes an older one: the dump describes the runners, not the
+# commit that triggered it.
 concurrency:
-  group: >-
-    ${{ github.workflow }}-${{
-      github.event.pull_request.number
-      || github.ref
-    }}
-  cancel-in-progress: >-
-    ${{ !startsWith(github.event.head_commit.message,
-      '[changelog] Release') }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 # Supply-chain cooldown: no package published within the window can be resolved by
 # any command in this workflow. Set here, not per command, so it also covers the
@@ -43,7 +39,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     outputs:
-      build_targets: ${{ steps.extend-matrix.outputs.targets }}
+      metadata: ${{ steps.metadata.outputs.metadata }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -55,26 +51,18 @@ jobs:
           uv --no-progress run --frozen -- repomatic --verbosity DEBUG show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
           build_targets
-      # Unwraps the nested JSON string the metadata output carries. Every job
-      # runs on a test axis, so the build targets already span the fleet.
-      - name: Unwrap build targets
-        id: extend-matrix
-        env:
-          METADATA: ${{ steps.metadata.outputs.metadata }}
-        run: |
-          targets=$(echo "${METADATA}" | jq -c '.build_targets | fromjson')
-          echo "targets=$targets" >> "$GITHUB_OUTPUT"
 
   dump-context:
     name: 🩺 ${{ matrix.os }} info dump
     needs:
       - metadata
-    if: needs.metadata.outputs.build_targets
+    # Every job runs on a test axis, so the build targets already span the fleet.
+    if: fromJSON(needs.metadata.outputs.metadata).build_targets
     strategy:
       # Info-gathering matrix: see docs/workflows.md "Matrix fail-fast strategy".
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.metadata.outputs.build_targets) }}
+        include: ${{ fromJSON(needs.metadata.outputs.metadata).build_targets }}
     runs-on: ${{ matrix.os }}
     # Wider than the default: this job provisions a toolchain, so its runtime tracks how much it has to install.
     timeout-minutes: 30

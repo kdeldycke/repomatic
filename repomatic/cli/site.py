@@ -68,13 +68,13 @@ def _one_mode(given: Mapping[ModeT, bool]) -> ModeT:
     return selected[0]
 
 
-def _project(ctx: Context, project: str | None) -> str:
+def _project(project: str | None) -> str:
     """Name the Pages project a command acts on.
 
     :raises click.UsageError: When neither `--project`, the configuration nor the
         repository names one.
     """
-    resolved = resolve_project(get_tool_config(ctx), project)
+    resolved = resolve_project(project)
     if not resolved:
         msg = (
             "No project name: pass --project or set [tool.repomatic]"
@@ -201,7 +201,7 @@ def cloudflare_pages(
         PagesMode.DUMP: dump,
     })
     config = get_tool_config(ctx)
-    name = _project(ctx, project)
+    name = _project(project)
     try:
         exit_code = run_cloudflare_pages(
             name,
@@ -312,7 +312,7 @@ def cloudflare_r2(
 
     if offload is not None:
         report = run_offload(
-            offload, bucket=bucket, domain=domain, project=_project(ctx, project)
+            offload, bucket=bucket, domain=domain, project=_project(project)
         )
         emit_report(report.markdown(), output, output_format, key="offload_report")
         ctx.exit(report.exit_code)
@@ -323,7 +323,7 @@ def cloudflare_r2(
             " and site.cloudflare-r2-domain."
         )
         raise UsageError(msg)
-    name = _project(ctx, project)
+    name = _project(project)
     try:
         exit_code = run_cloudflare_r2(name, bucket, domain, mode)
     except CloudflareError as error:

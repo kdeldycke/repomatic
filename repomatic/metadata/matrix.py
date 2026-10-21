@@ -24,6 +24,7 @@ test-matrix configuration to them.
 from __future__ import annotations
 
 import logging
+import re
 from functools import cached_property
 
 from ..github.event import WorkflowEvent
@@ -32,6 +33,7 @@ from ..matrix.axes import (
     SINGLE_RUNNER_PYTHON_VERSIONS,
     UNSTABLE_PYTHON_VERSIONS,
     MatrixName,
+    python_version_sort_key,
 )
 from ..matrix.model import (
     JOB_STATE_KEY,
@@ -48,7 +50,24 @@ from ..release.binary import (
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from typing import Final
+
     from ..config import Config
+
+
+NUITKA_CACHE_KEY: Final[str] = "nuitka_cache"
+"""Job key of {attr}`MatrixMetadata.nuitka_matrix` gating the compile cache.
+
+`true` when the compile job restores and saves the target's cache, `false`
+otherwise. The release workflow compares it to the string `'true'`: a matrix
+value is a string, and the string `false` is truthy in a GitHub expression.
+"""
+
+PLAIN_RELEASE_RE: Final = re.compile(r"[0-9]+(?:\.[0-9]+)+")
+"""A `python-version` axis value naming a plain CPython release, like `3.15`.
+
+A build flavor (`3.15t`) or another interpreter (`pypy3.11`) does not match.
+"""
 
 
 def _known_build_targets(names: list[str], kind: str) -> set[str]:
@@ -102,6 +121,10 @@ class MatrixMetadata:
         @cached_property
         def script_entries(self) -> list[tuple[str, str, str]]:
             """See {class}`~repomatic.metadata.project.ProjectMetadata`."""
+
+        @cached_property
+        def skip_binary_build(self) -> bool:
+            """See {class}`~repomatic.metadata.git.GitMetadata`."""
 
     @cached_property
     def nuitka_entry_points(self) -> list[str]:
@@ -187,8 +210,20 @@ class MatrixMetadata:
         per `(os, entry_point, commit)` triple naming the `bin_name` the compiled
         artifact takes, since that name depends on all three at once.
 
+        Each target entry also carries `nuitka_cache`, telling the compile job
+        whether to restore and save the target's compile cache. Release commits
+        build cold, on purpose: a cache entry is writable by any code running in
+        any workflow of the default branch (the cache API is not gated by
+        `permissions:`), and its restore is a tar extraction into the
+        workspace, so a poisoned entry could reach a signed, published,
+        immutable binary. A target with no use for a cache skips it too: see
+        {attr}`~repomatic.release.binary.BuildTarget.compile_cache`.
+
         The matrix closes with `{"state": "stable"}`, which the release workflow
         reads to decide whether a failing job blocks the release.
+
+        `None` when {attr}`~repomatic.metadata.git.GitMetadata.skip_binary_build`
+        holds, so one key tells the release workflow whether to compile.
 
         ```{note}
         Every value comes from {data}`~repomatic.release.binary.NUITKA_BUILD_TARGETS`
@@ -218,6 +253,9 @@ class MatrixMetadata:
             )
             return None
 
+        if self.skip_binary_build:
+            return None
+
         # On an ordinary push, compile only the canary subset: the full fleet
         # exists to refresh the rolling dev pre-release (a draft), and its
         # compile jobs contend for the account-wide runner cap on every code
@@ -243,9 +281,15 @@ class MatrixMetadata:
         matrix.add_variation(
             OS_AXIS, tuple(target.runner for target in build_targets.values())
         )
-        # Augment each "os" entry with platform-specific data.
+        # Augment each "os" entry with platform-specific data. Matrix values are
+        # strings, so the cache flag reads `true` or `false` like a YAML one.
+        release = bool(self.release_commits_matrix)
         for build_target in build_targets.values():
-            matrix.add_includes(build_target.as_matrix_entry())
+            cache = build_target.compile_cache and not release
+            matrix.add_includes({
+                **build_target.as_matrix_entry(),
+                NUITKA_CACHE_KEY: str(cache).lower(),
+            })
 
         # `[tool.nuitka]` is not assembled here: `repomatic run nuitka` resolves
         # it at build time (the tool runner translates the section to CLI flags).
@@ -449,6 +493,29 @@ class MatrixMetadata:
         matrix.add_includes({JOB_STATE_KEY: "stable"})
         self._apply_test_matrix_config(matrix, full=False)
         return matrix
+
+    @cached_property
+    def latest_stable_python(self) -> str | None:
+        """The newest released Python on the full test matrix, like `3.15`.
+
+        For a job that wants one Python to run on rather than a matrix of
+        them. Read from the `python-version` axis once the project's
+        `[tool.repomatic.test-matrix]` has replaced or removed values, so a
+        project that dropped a version never gets it here. The in-development
+        versions ({data}`~repomatic.matrix.axes.UNSTABLE_PYTHON_VERSIONS`) and
+        the build flavors (like the free-threaded `3.15t`) do not count: a
+        plain release is what every user installs.
+
+        :return: The version, or `None` when the axis holds no plain release.
+        """
+        axes = self._test_matrix_base.all_variations()
+        releases = [
+            version
+            for version in axes.get(PYTHON_VERSION_AXIS, ())
+            if version not in UNSTABLE_PYTHON_VERSIONS
+            and PLAIN_RELEASE_RE.fullmatch(version)
+        ]
+        return max(releases, key=python_version_sort_key, default=None)
 
     def test_matrix_named(self, name: MatrixName) -> Matrix:
         """The test matrix *name* designates.

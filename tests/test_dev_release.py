@@ -19,8 +19,10 @@
 from __future__ import annotations
 
 import json
-from functools import partial
-from unittest.mock import call, patch
+from collections.abc import Generator
+from contextlib import contextmanager
+from typing import Any
+from unittest.mock import Mock, call, patch
 
 import pytest
 
@@ -78,8 +80,18 @@ def _delete_call(tag: str, repo: str = "user/repo") -> list[str]:
     return ["release", "delete", tag, "--cleanup-tag", "--yes", "--repo", repo]
 
 
-patch_gh = partial(shared_patch_gh, "repomatic.github.dev_release")
-"""The conftest `patch_gh`, bound to this module's dispatch points."""
+@contextmanager
+def patch_gh(**mock_kwargs: Any) -> Generator[Mock, None, None]:
+    """The conftest `patch_gh`, bound to this module's dispatch points.
+
+    The asset upload runs through {mod}`repomatic.github.releases`, so its
+    `run_gh_command` is patched with the same mock, keeping one call sequence.
+    """
+    with (
+        shared_patch_gh("repomatic.github.dev_release", **mock_kwargs) as mock_gh,
+        patch("repomatic.github.releases.run_gh_command", mock_gh),
+    ):
+        yield mock_gh
 
 
 def test_sync_dev_release_dry_run(unreleased_changelog):
