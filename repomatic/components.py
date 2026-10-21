@@ -415,9 +415,10 @@ class ToolConfigComponent(Component):
     Only meaningful when `sync_mode` is `BOOTSTRAP`. pytest reads
     `[tool.pytest.ini_options]` as well as the native `[tool.pytest]` keys the
     template carries, which need pytest 9.0, and refuses a file holding both.
-    {func}`~repomatic.lint_repo.tool_config.check_bootstrap_config_drift` measures a section
-    that keeps its keys in this sub-table against the sub-table, so it never
-    reports them missing or asks for a native twin the tool would reject.
+    {func}`~repomatic.lint_repo.tool_config.check_bootstrap_config_drift`
+    measures a section that keeps its keys in this sub-table against the
+    sub-table, so it never reports them missing or asks for a native twin the
+    tool would reject.
     """
 
     preserved_keys: tuple[str, ...] = ()

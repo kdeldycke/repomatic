@@ -24,7 +24,7 @@ to process all commits in the push event.
 This is critical for releases, where two commits are pushed together:
 
 1. `[changelog] Release vX.Y.Z` — the release commit to be tagged and published
-2. `[changelog] Post-release bump vX.Y.Z → vX.Y.Z` — bumps version for the next dev cycle
+2. `[changelog] Post-release bump vX.Y.Z → vX.Y.Z` — the next dev cycle's bump
 
 Since `github.event.head_commit` only sees the post-release bump, this module extracts
 the full commit range from the push event and identifies release commits that need
@@ -52,16 +52,14 @@ not a JSON array: workflow `if:` conditions test membership with a padded
 The full key inventory is generated from this module rather than listed here, so
 it cannot go stale: run `repomatic show-metadata --list-keys`, or read the rendered
 table in [the workflows documentation](https://repomatic.net/workflows).
-"""
+"""  # noqa: E501
 
 from __future__ import annotations
 
 import logging
 import re
 import shlex
-from collections.abc import Callable
 from functools import cached_property, partial
-from pathlib import Path
 from typing import NamedTuple
 
 from click_extra import ColumnSpec, field_docstrings
@@ -84,7 +82,8 @@ from .project import ProjectMetadata
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     import pathlib
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Callable, Iterator, Mapping
+    from pathlib import Path
     from typing import Any, Final, Self
 
 
@@ -144,7 +143,9 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "shfmt_files": "List of shell files formattable by shfmt.",
     "zsh_files": "List of Zsh files.",
     "is_python_project": "Repository is a Python project with pyproject.toml.",
-    "is_python_package": "Repository builds a distributable Python package, not a uv virtual project.",
+    "is_python_package": (
+        "Repository builds a distributable Python package, not a uv virtual project."
+    ),
     "package_name": "Package name as published on PyPI.",
     "manpages_asset_name": (
         "Filename stem of the man-page tarball attached to a release."
@@ -161,7 +162,9 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "active_autodoc": "Active Sphinx autodoc extensions detected.",
     "uses_myst": "MyST-Parser is active in Sphinx configuration.",
     "new_commits_matrix": "Matrix of new commits with long and short SHA values.",
-    "release_commits_matrix": "Matrix of release commits with long and short SHA values.",
+    "release_commits_matrix": (
+        "Matrix of release commits with long and short SHA values."
+    ),
     "is_release_push": "Event lands release commits on the release branch.",
     "release_commit": (
         "Newest release commit of the event, else the event's own commit."
@@ -481,7 +484,7 @@ class Metadata(
         During a release, two commits are bundled into a single push event:
 
         1. `[changelog] Release vX.Y.Z` — freezes the version to the release number
-        2. `[changelog] Post-release bump vX.Y.Z → vX.Y.Z` — bumps to the next dev version
+        2. `[changelog] Post-release bump vX.Y.Z → vX.Y.Z` — the next dev version
 
         In this situation, the current version returned is the one from the most recent
         commit (the post-release bump), which represents the next development version.

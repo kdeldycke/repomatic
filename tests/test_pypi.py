@@ -19,8 +19,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
-from contextlib import AbstractContextManager
 from http.client import IncompleteRead
 from unittest.mock import MagicMock, patch
 from urllib.error import URLError
@@ -41,6 +39,11 @@ from repomatic.pypi import (
     wait_for_release,
 )
 from tests.conftest import FakeResponse
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from contextlib import AbstractContextManager
 
 
 def _patch_pypi_json(

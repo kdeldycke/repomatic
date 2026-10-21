@@ -265,8 +265,7 @@ class GitMetadata:
 
     @cached_property
     def yaml_changed(self) -> bool:
-        """Returns `True` when the current event's commit range touches at
-        least one YAML file.
+        """Whether the current event's commit range touches a YAML file.
 
         Lets per-job lint gates short-circuit on pushes / PRs that don't
         touch YAML. Falls back to "repo contains any YAML file" when the
@@ -279,8 +278,7 @@ class GitMetadata:
 
     @cached_property
     def zsh_changed(self) -> bool:
-        """Returns `True` when the current event's commit range touches at
-        least one Zsh file.
+        """Whether the current event's commit range touches a Zsh file.
 
         Falls back to "repo contains any Zsh file" when the commit range
         is unavailable.
@@ -291,8 +289,7 @@ class GitMetadata:
 
     @cached_property
     def workflows_changed(self) -> bool:
-        """Returns `True` when the current event's commit range touches at
-        least one GitHub workflow file.
+        """Whether the current event's commit range touches a GitHub workflow file.
 
         Falls back to "repo contains any workflow file" when the commit
         range is unavailable.
@@ -399,7 +396,8 @@ class GitMetadata:
         ```
 
         ```{seealso}
-        Pull request events on GitHub are a bit complex, see: [The Many SHAs of a GitHub Pull Request](https://www.kenmuse.com/blog/the-many-shas-of-a-github-pull-request/).
+        Pull request events on GitHub are a bit complex, see:
+        [The Many SHAs of a GitHub Pull Request](https://www.kenmuse.com/blog/the-many-shas-of-a-github-pull-request/).
         ```
         """
         if not self.github_event or not self.event_type:

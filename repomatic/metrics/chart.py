@@ -724,7 +724,7 @@ def render_chart(
   {body}
   <text class="axis" x="{left}" y="{height - 10}">{escape(axis)} · sampled on {stamp}</text>
 </svg>
-"""
+"""  # noqa: E501
 
 
 def write_chart(

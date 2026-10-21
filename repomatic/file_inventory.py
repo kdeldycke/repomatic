@@ -45,7 +45,6 @@ from functools import cached_property
 from pathlib import Path, PurePath
 
 from py_walk import get_parser_from_text
-from py_walk.models import Parser
 from wcmatch.glob import (
     BRACE,
     DOTGLOB,
@@ -57,6 +56,10 @@ from wcmatch.glob import (
     globfilter,
     iglob,
 )
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from py_walk.models import Parser
 
 _GLOB_FLAGS = NODIR | GLOBSTAR | DOTGLOB | GLOBTILDE | BRACE | FOLLOW | NEGATE
 """One flag set for the walk and the per-group matches.

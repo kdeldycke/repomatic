@@ -19,9 +19,9 @@
 Backs the `update-docs` command, which runs the phases of {class}`DocsPhase`
 in order: `sphinx-apidoc`, the RST-to-MyST conversion, the toctree wiring, the
 project's `docs/docs_update.py` script, the reformat of a `pyproject.toml` that
-script changed, and the self-updating directive-block refresh. {func}`update_docs` returns one {class}`PhaseResult` per phase it
-ran, and the command reports them. Configuration is read from
-`[tool.repomatic.docs]`.
+script changed, and the self-updating directive-block refresh.
+{func}`update_docs` returns one {class}`PhaseResult` per phase it ran, and the
+command reports them. Configuration is read from `[tool.repomatic.docs]`.
 """
 
 from __future__ import annotations

@@ -118,7 +118,10 @@ def _update_docs_help() -> str:
             "repomatic cloudflare-pages --apply",
         ),
         (
-            "Create the project if missing; an existing one is reconciled, not re-created",
+            (
+                "Create the project if missing; an existing one is reconciled, "
+                "not re-created"
+            ),
             "repomatic cloudflare-pages --create --project my-site",
         ),
         (

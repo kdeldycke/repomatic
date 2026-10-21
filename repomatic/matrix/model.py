@@ -14,8 +14,11 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""GitHub Actions job-matrix model: variations, includes, excludes, and their
-expansion into the JSON payload workflow `strategy.matrix` keys consume."""
+"""GitHub Actions job-matrix model.
+
+Variations, includes, excludes, and their expansion into the JSON payload
+workflow `strategy.matrix` keys consume.
+"""
 
 from __future__ import annotations
 
@@ -245,8 +248,8 @@ class Matrix:
                 effective.append(exclude)
         for exclude, noop_key in noops:
             logging.warning(
-                f"Dropping no-op exclude {exclude}: {exclude[noop_key]!r} is not in the "
-                f"{noop_key!r} axis."
+                f"Dropping no-op exclude {exclude}: {exclude[noop_key]!r} is not "
+                f"in the {noop_key!r} axis."
             )
         self.exclude = tuple(effective)
 

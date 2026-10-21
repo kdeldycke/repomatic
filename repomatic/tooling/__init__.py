@@ -17,4 +17,5 @@
 """The pinned-tool layer.
 
 The registry of external tools, the runner resolving and invoking
-them, the bundled data files, and the plugin settings writer."""
+them, the bundled data files, and the plugin settings writer.
+"""

@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import base64
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -34,6 +33,10 @@ from repomatic.release.attestation import (
     verify_attestation,
 )
 from repomatic.upstream import DEFAULT_REPO
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def write_bundle(path: Path, *subjects: str) -> Path:

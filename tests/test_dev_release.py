@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 from unittest.mock import Mock, call, patch
@@ -35,6 +34,10 @@ from repomatic.github.dev_release import (
     upload_release_assets,
 )
 from tests.conftest import patch_gh as shared_patch_gh
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 UNRELEASED_CHANGELOG = """\
 # Changelog

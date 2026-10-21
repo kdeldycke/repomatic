@@ -116,8 +116,9 @@ SAMPLE_CHANGELOG = dedent(
     ],
 )
 def test_changelog_update(version, initial, modified, updated):
-    """The update reports whether it added an entry, which an unchanged
-    changelog compares against: the CLI exits early on `False`.
+    """The update reports whether it added an entry.
+
+    An unchanged changelog compares against it: the CLI exits early on `False`.
     """
     changelog = Changelog(initial, current_version=version)
     assert changelog.update() is modified

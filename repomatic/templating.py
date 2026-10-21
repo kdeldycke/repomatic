@@ -119,8 +119,8 @@ def footer_opted_out(meta: Mapping[str, object]) -> bool:
     string are honored: the frontmatter is YAML, so a bare `false` parses as a
     boolean, but a downstream template may well have quoted it, and the two
     spellings mean the same thing to whoever wrote them. An absent field keeps
-    the footer. {func}`repomatic.lint_repo.workflows.check_pr_templates` applies the same
-    rule, so it never flags a spelling the renderer honors.
+    the footer. {func}`repomatic.lint_repo.workflows.check_pr_templates` applies
+    the same rule, so it never flags a spelling the renderer honors.
 
     :param meta: Parsed frontmatter of one template.
     :return: `True` when the template drops the footer.

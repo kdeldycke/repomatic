@@ -476,8 +476,9 @@ class PrepareRelease:
         This is part of the **freeze** step. A `git-subdir` marketplace source
         publishes {data}`~repomatic.claude_plugin.PLUGIN_ROOT` verbatim, so the manifest
         a consumer installs is the checked-in one rather than the copy
-        {func}`~repomatic.claude_plugin.pack_plugin` stamps at pack time. Left version-free
-        it fails `claude plugin validate --strict` on `No version specified`.
+        {func}`~repomatic.claude_plugin.pack_plugin` stamps at pack time. Left
+        version-free it fails `claude plugin validate --strict` on
+        `No version specified`.
 
         Written here rather than by hand or by bump-my-version, for the reason
         {meth}`freeze_marketplace_pin` gives: it ratchets forward with the tag it

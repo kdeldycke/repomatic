@@ -1102,8 +1102,10 @@ def test_checksum_table_unreadable_is_unknown(uncached_table):
 
 
 def test_checksum_table_without_keys_is_unknown(uncached_table):
-    """A body parsing to nothing means the upstream format moved, not that
-    the action verifies nothing."""
+    """A body parsing to nothing means the upstream format moved.
+
+    It never means the action verifies nothing.
+    """
     with patch("repomatic.deps.pins.get_text", return_value="export const X = {};"):
         assert vs._checksum_table("deadbeef") is None
 

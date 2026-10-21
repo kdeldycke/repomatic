@@ -27,9 +27,11 @@ nothing of the package, so any module can use it without an import cycle.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from .github.urls import repo_name
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from pathlib import Path
 
 DEFAULT_REPO: str = "kdeldycke/repomatic"
 """Default upstream repository for reusable workflows."""
@@ -38,8 +40,9 @@ INSTALL_GUIDE_PATH = "docs/install.md"
 """Install guide the release freeze pins download URLs in.
 
 Shared by {class}`~repomatic.release.prepare_release.PrepareRelease`, which
-rewrites those URLs, and {func}`~repomatic.lint_repo.repo.check_install_guide_downloads`,
-which verifies the release they name actually carries the files.
+rewrites those URLs, and
+{func}`~repomatic.lint_repo.repo.check_install_guide_downloads`, which verifies
+the release they name actually carries the files.
 """
 
 UPSTREAM_ASSET_GLOB: str = ".claude/**"

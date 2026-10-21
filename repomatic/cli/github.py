@@ -413,7 +413,10 @@ def broken_links(
         ("Lock them, as the autolock workflow does", "repomatic lock-threads --live"),
         (
             "Lock silently after six months, sparing triaged threads",
-            'repomatic lock-threads --live --inactive-days 180 --issue-comment "" --exclude-label "🚧 needs triage"',
+            (
+                "repomatic lock-threads --live --inactive-days 180 "
+                '--issue-comment "" --exclude-label "🚧 needs triage"'
+            ),
         ),
     ),
 )
@@ -504,7 +507,10 @@ def lock_threads(
         ("Preview metadata block locally", "repomatic pr-body"),
         (
             "CI: write as GitHub Actions step outputs",
-            'repomatic pr-body --output "$GITHUB_OUTPUT" --output-format github-actions',
+            (
+                'repomatic pr-body --output "$GITHUB_OUTPUT" '
+                "--output-format github-actions"
+            ),
         ),
         (
             "Use a built-in template",
@@ -512,7 +518,10 @@ def lock_threads(
         ),
         (
             "Use a downstream-shipped template with custom variables",
-            "repomatic pr-body --template-file path/to/template.md --template-arg fruit=mango --template-arg crate=10",
+            (
+                "repomatic pr-body --template-file path/to/template.md "
+                "--template-arg fruit=mango --template-arg crate=10"
+            ),
         ),
         (
             "With a prefix above the metadata block",
@@ -600,11 +609,17 @@ def pr_body(
         ),
         (
             "Open a version-bump PR on its conventional branch",
-            "repomatic pr-sync --template bump-version --part minor --branch minor-version-increment",
+            (
+                "repomatic pr-sync --template bump-version --part minor "
+                "--branch minor-version-increment"
+            ),
         ),
         (
             "A one-off PR with explicit content",
-            'repomatic pr-sync --branch my-fix --title "Fix" --body "…" --commit-message "Fix the thing"',
+            (
+                'repomatic pr-sync --branch my-fix --title "Fix" --body "…" '
+                '--commit-message "Fix the thing"'
+            ),
         ),
     ),
 )
@@ -835,7 +850,10 @@ def setup_guide(
         ("Override specific values", 'repomatic sponsor-label --label "sponsor"'),
         (
             "Manual invocation with all values",
-            "repomatic sponsor-label --owner kdeldycke --author some-user --repo kdeldycke/repomatic --number 123 --issue",
+            (
+                "repomatic sponsor-label --owner kdeldycke --author some-user "
+                "--repo kdeldycke/repomatic --number 123 --issue"
+            ),
         ),
     ),
 )

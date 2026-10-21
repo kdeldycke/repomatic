@@ -144,7 +144,8 @@ def read_run(
 
     :param run_id: The run's numeric ID.
     :param fields: The JSON fields to request, like `jobs` or `headSha`.
-    :param soft: Return `None` when the call fails, as {func}`~repomatic.github.gh.gh_json` does.
+    :param soft: Return `None` when the call fails, as
+        {func}`~repomatic.github.gh.gh_json` does.
     :return: The run payload, or `None` when the answer is not a JSON object.
     :raises GhCommandError: When the `gh` call fails and *soft* is not set.
     :raises GhOutputError: When the answer is not JSON and *soft* is not set.

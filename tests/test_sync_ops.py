@@ -450,8 +450,11 @@ def test_consolidated_job_passes_ci_flags(op: SyncOperation) -> None:
 
 
 def test_consolidated_job_uses_full_history() -> None:
-    """The job checks out full history so repeated create-pull-request calls in
-    one checkout do not trip git's "shallow file has changed" race."""
+    """The job checks out the full history.
+
+    Repeated create-pull-request calls in one checkout then never trip git's
+    "shallow file has changed" race.
+    """
     steps = _consolidated_job_steps()
     checkout = next(s for s in steps if "actions/checkout" in s.get("uses", ""))
     assert checkout.get("with", {}).get("fetch-depth") == 0
@@ -877,7 +880,7 @@ sdist = { url = "https://example.test/cherry.tar.gz", upload-time = "2026-06-01T
 name = "mango"
 version = "2.1.0.dev0"
 source = { git = "https://github.com/acme/mango?branch=main#abcdef12" }
-"""
+"""  # noqa: E501
 """The lock before the swap: `mango` resolved from git, no upload time."""
 
 SWAP_POST_LOCK = """\
@@ -899,7 +902,7 @@ name = "mango"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://example.test/mango.tar.gz", upload-time = "2026-07-10T09:00:00Z" }
-"""
+"""  # noqa: E501
 """The lock a successful `uv lock` produces after the swap."""
 
 

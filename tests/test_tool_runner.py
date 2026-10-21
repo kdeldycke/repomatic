@@ -198,7 +198,8 @@ def test_tool_spec_integrity(name, spec):
             for flag in params:
                 if flag.startswith("-"):
                     assert flag.startswith("--") or len(flag) > 2, (
-                        f"{name}: short flag {flag!r} from computed_params — use long form"
+                        f"{name}: short flag {flag!r} from computed_params: "
+                        "use long form"
                     )
 
     # No flag should appear in more than one of the flag-carrying fields.
@@ -253,7 +254,8 @@ def test_tool_spec_integrity(name, spec):
     for entry in spec.with_packages:
         package, separator, version = entry.partition("==")
         assert separator and package and version, (
-            f"{name}: with_packages entry {entry!r} must be pinned as `package==version`"
+            f"{name}: with_packages entry {entry!r} must be pinned as "
+            "`package==version`"
         )
 
     if spec.default_config:
@@ -1571,7 +1573,7 @@ def test_resolve_config_cwd_write_no_config_flag(tmp_path, monkeypatch):
 
 
 def test_resolve_config_no_config_flag_no_native_files_raises(tmp_path, monkeypatch):
-    """Tools with no config_flag and no native_config_files raise NotImplementedError."""
+    """No config_flag and no native_config_files raises NotImplementedError."""
     monkeypatch.chdir(tmp_path)
 
     spec = ToolSpec(
@@ -1667,7 +1669,9 @@ BARE_TOOL = ToolSpec(name="sometool", version="1.0.0", package="sometool")
         pytest.param(
             "ruff",
             {
-                "pyproject.toml": '[project]\nname = "test"\n\n[tool.ruff]\npreview = true\n'
+                "pyproject.toml": (
+                    '[project]\nname = "test"\n\n[tool.ruff]\npreview = true\n'
+                )
             },
             "[tool.ruff] in pyproject.toml (replaces bundled default)",
             id="reads-pyproject-native",
@@ -2563,7 +2567,7 @@ def test_fix_myst_directives_skips_a_file_that_is_not_text(tmp_path):
 
 
 def test_check_bypasses_post_process():
-    """check_bypasses_post_process is True only for a post_process tool in check mode."""
+    """Only a post_process tool in check mode bypasses post-processing."""
     mdformat = TOOL_REGISTRY["mdformat"]
     assert mdformat.check_bypasses_post_process(("--check", "readme.md"))
     assert not mdformat.check_bypasses_post_process(("readme.md",))

@@ -17,4 +17,5 @@
 """CI test matrices and the GitHub-hosted runners they target.
 
 The matrix model, the axis values of the test workflow, the runner image
-catalog, and the sync that moves workflows off retired runners."""
+catalog, and the sync that moves workflows off retired runners.
+"""

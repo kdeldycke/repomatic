@@ -18,8 +18,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from click.testing import CliRunner
 
@@ -40,6 +38,10 @@ from repomatic.deps.graph import (
     trim_graph_to_depth,
 )
 from repomatic.deps.lockfile import LockSpecifiers
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # Sample CycloneDX SBOM data for testing.
 SAMPLE_SBOM = {

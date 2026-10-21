@@ -14,9 +14,10 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for the `audit` command (read-only report by default, `--fix` to
-upgrade) and the uv machinery behind the `exclude-newer-package`
-cooldown-bypass lifecycle: {mod}`repomatic.deps.uv`,
+"""Tests for the `audit` command and the cooldown-bypass machinery behind it.
+
+`audit` reports by default and upgrades with `--fix`. The
+`exclude-newer-package` lifecycle lives in {mod}`repomatic.deps.uv`,
 {mod}`repomatic.deps.lockfile` and {mod}`repomatic.deps.cooldown`.
 
 The `repomatic.deps.report` renderers these helpers feed are covered by

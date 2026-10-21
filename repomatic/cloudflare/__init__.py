@@ -18,4 +18,5 @@
 
 The API client the other modules share, the Pages project settings, the R2
 bucket that serves files over the Pages size limit, and a replica of the Pages
-`_redirects` engine."""
+`_redirects` engine.
+"""

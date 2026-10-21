@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import ast
 import runpy
-from pathlib import Path
 
 import pytest
 from click_extra.testing import CliRunner
@@ -41,6 +40,10 @@ from repomatic.matrix.runner_sync import (
 )
 from repomatic.matrix.runners import RunnerCatalog, RunnerImage
 from tests.conftest import PACKAGE_FILES, PROJECT_ROOT
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from pathlib import Path
 
 CATALOG = RunnerCatalog((
     RunnerImage("Ubuntu 26.04", "x64", ("ubuntu-26.04",), True, False),

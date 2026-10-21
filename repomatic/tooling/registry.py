@@ -1180,8 +1180,8 @@ _DIRECTIVE_YAML_OPTIONS_RE = re.compile(
 """Match YAML-block directive options immediately after a MyST fence opening.
 
 ```{note}
-Workaround for [executablebooks/mdformat-myst#21](https://github.com/executablebooks/mdformat-myst/issues/21) where
-`mdformat-myst` unconditionally converts `:key: value` directive
+Workaround for [executablebooks/mdformat-myst#21](https://github.com/executablebooks/mdformat-myst/issues/21)
+where `mdformat-myst` unconditionally converts `:key: value` directive
 options to YAML blocks (`---` / `key: value` / `---`).
 ```
 
@@ -1594,9 +1594,15 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             labels = ["my-linux-runner"]
             ```
 
-            With no arguments actionlint lints every workflow under `.github/workflows`. The `[tool.actionlint]` section is bridged to a temporary YAML config: declaring self-hosted runner labels stops custom `runs-on:` values being flagged as unknown.
+            With no arguments actionlint lints every workflow under `.github/workflows`.
+            The `[tool.actionlint]` section is bridged to a temporary YAML config:
+            declaring self-hosted runner labels stops custom `runs-on:` values being
+            flagged as unknown.
 
-            The pinned ShellCheck goes on `PATH` for the run, which is what lints the shell scripts of the `run:` steps. In GitHub Actions, repomatic also registers actionlint's problem matcher, so each finding annotates the line it names.
+            The pinned ShellCheck goes on `PATH` for the run, which is what lints the
+            shell scripts of the `run:` steps. In GitHub Actions, repomatic also
+            registers actionlint's problem matcher, so each finding annotates the line
+            it names.
             """),
     ),
     "autopep8": ToolSpec(
@@ -1621,7 +1627,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             $ repomatic run autopep8 -- .
             ```
 
-            autopep8 takes its configuration from CLI flags only. repomatic passes `--recursive --in-place --max-line-length 88 --select E501` by default; append more flags after `--`.
+            autopep8 takes its configuration from CLI flags only. repomatic passes
+            `--recursive --in-place --max-line-length 88 --select E501` by default;
+            append more flags after `--`.
             """),
     ),
     "awesome-lint": ToolSpec(
@@ -1701,7 +1709,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             indentStyle = "space"
             ```
 
-            `biome check` reports formatting and lint issues; add `--write` after `--` to apply fixes. The `[tool.biome]` section is bridged to a temporary `biome.json`, so keys keep Biome's camelCase spelling.
+            `biome check` reports formatting and lint issues; add `--write` after `--`
+            to apply fixes. The `[tool.biome]` section is bridged to a temporary
+            `biome.json`, so keys keep Biome's camelCase spelling.
             """),
     ),
     "bump-my-version": ToolSpec(
@@ -1729,7 +1739,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             current_version = "1.2.3"
             ```
 
-            The configuration table is `[tool.bumpversion]`, not `[tool.bump-my-version]`: the section name predates the project's rename. `show-bump` previews the next versions without writing; `repomatic run bump-my-version -- bump minor` performs the bump.
+            The configuration table is `[tool.bumpversion]`, not
+            `[tool.bump-my-version]`: the section name predates the project's rename.
+            `show-bump` previews the next versions without writing; `repomatic run
+            bump-my-version -- bump minor` performs the bump.
             """),
     ),
     "gh": ToolSpec(
@@ -1784,7 +1797,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             $ repomatic run gh -- --version
             ```
 
-            Pinned so the release lane gets the same `gh` everywhere. The manylinux container the Linux binaries compile in ships no `gh`, and the runner images that do ship one leave its version to the image. `gh` reads no project configuration: it authenticates from `GH_TOKEN` in the environment.
+            Pinned so the release lane gets the same `gh` everywhere. The manylinux
+            container the Linux binaries compile in ships no `gh`, and the runner images
+            that do ship one leave its version to the image. `gh` reads no project
+            configuration: it authenticates from `GH_TOKEN` in the environment.
             """),
     ),
     "gitleaks": ToolSpec(
@@ -1849,7 +1865,11 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             paths = ['''\.env\.sample$''']
             ```
 
-            With no arguments, gitleaks scans the git history of the repository (`gitleaks git .`), as the `lint-secrets` job does. `repomatic run gitleaks -- dir .` scans the working tree instead. The `[tool.gitleaks]` section is bridged to a temporary `.gitleaks.toml`: keep `extend.useDefault = true`, or a custom config silently replaces the built-in rule set.
+            With no arguments, gitleaks scans the git history of the repository
+            (`gitleaks git .`), as the `lint-secrets` job does. `repomatic run gitleaks
+            -- dir .` scans the working tree instead. The `[tool.gitleaks]` section is
+            bridged to a temporary `.gitleaks.toml`: keep `extend.useDefault = true`, or
+            a custom config silently replaces the built-in rule set.
             """),
     ),
     "labelmaker": ToolSpec(
@@ -1888,7 +1908,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             strip_components=1,
         ),
         docs_notes=cleandoc(r"""
-            labelmaker syncs a repository's issue and PR labels from a label-definition file, so unlike the linters it needs a target repository and a `GITHUB_TOKEN`, not a path in the working tree. There is no `[tool.labelmaker]` section: the label file is the configuration. See the [upstream usage docs](https://github.com/jwodder/labelmaker) for its flags and file schema.
+            labelmaker syncs a repository's issue and PR labels from a label-definition
+            file, so unlike the linters it needs a target repository and a
+            `GITHUB_TOKEN`, not a path in the working tree. There is no
+            `[tool.labelmaker]` section: the label file is the configuration. See the
+            [upstream usage docs](https://github.com/jwodder/labelmaker) for its flags
+            and file schema.
             """),
     ),
     "lychee": ToolSpec(
@@ -1957,7 +1982,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             max_redirects = 5
             ```
 
-            With no arguments, lychee checks the links of every documentation file, as the `check-broken-links` job does through `repomatic broken-links`. Pass paths after `--` to check other files. Since v0.24 it reads `[tool.lychee]` from `pyproject.toml` natively, so repomatic does not translate it.
+            With no arguments, lychee checks the links of every documentation file, as
+            the `check-broken-links` job does through `repomatic broken-links`. Pass
+            paths after `--` to check other files. Since v0.24 it reads `[tool.lychee]`
+            from `pyproject.toml` natively, so repomatic does not translate it.
             """),
     ),
     "mdformat": ToolSpec(
@@ -2016,7 +2044,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             wrap = "no"
             ```
 
-            mdformat rewrites Markdown in place. repomatic bundles a plugin set (GFM, MyST, front-matter, and others) and a baseline `mdformat.toml`; `[tool.mdformat]` in your `pyproject.toml` overrides it.
+            mdformat rewrites Markdown in place. repomatic bundles a plugin set (GFM,
+            MyST, front-matter, and others) and a baseline `mdformat.toml`;
+            `[tool.mdformat]` in your `pyproject.toml` overrides it.
             """),
     ),
     "mypy": ToolSpec(
@@ -2049,9 +2079,18 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             strict = true
             ```
 
-            mypy runs inside the project virtualenv (via `uv run`) so it can import your dependencies. repomatic derives `--python-version` from `requires-python`, so the check matches your lowest supported interpreter. In a repository without a `uv.lock` there is no project virtualenv to freeze, so mypy runs in an isolated environment instead and only resolves the standard library: fine for standalone scripts, but dependency imports then report `import-not-found`.
+            mypy runs inside the project virtualenv (via `uv run`) so it can import your
+            dependencies. repomatic derives `--python-version` from `requires-python`,
+            so the check matches your lowest supported interpreter. In a repository
+            without a `uv.lock` there is no project virtualenv to freeze, so mypy runs
+            in an isolated environment instead and only resolves the standard library:
+            fine for standalone scripts, but dependency imports then report
+            `import-not-found`.
 
-            `uv run` provisions only the default dependency groups, so a module that imports a dep declared solely in a non-default group (`docs`, `typing`, …) sees it as missing and mypy reports `import-not-found`. Either move the stub/dependency somewhere mypy resolves, or silence it with an override:
+            `uv run` provisions only the default dependency groups, so a module that
+            imports a dep declared solely in a non-default group (`docs`, `typing`, …)
+            sees it as missing and mypy reports `import-not-found`. Either move the
+            stub/dependency somewhere mypy resolves, or silence it with an override:
 
             ```toml
             [[tool.mypy.overrides]]
@@ -2073,7 +2112,11 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             $ repomatic run npm -- --version
             ```
 
-            The npm every npm-backed tool installs through, like awesome-lint. The npm on `PATH` only installs this pinned one into the scratch prefix of the run, which then installs the tool: an npm older than 11.10.0 ignores the `minimum-release-age` cooldown, and the one a runner image carries is not pinned at all. Node.js still comes from `PATH`.
+            The npm every npm-backed tool installs through, like awesome-lint. The npm
+            on `PATH` only installs this pinned one into the scratch prefix of the run,
+            which then installs the tool: an npm older than 11.10.0 ignores the
+            `minimum-release-age` cooldown, and the one a runner image carries is not
+            pinned at all. Node.js still comes from `PATH`.
             """),
     ),
     "nuitka": ToolSpec(
@@ -2104,10 +2147,13 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             **Try it:**
 
             ```shell-session
-            $ repomatic run nuitka -- --project-name=papaya --main-entry-point=papaya=papaya.__main__:main
+            $ repomatic run nuitka -- --project-name=papaya \
+                --main-entry-point=papaya=papaya.__main__:main
             ```
 
-            `--main-entry-point` takes a `[project.scripts]` entry, written `name=module:function`, and compiles the binary that console script would start. It needs `--project-name`, which names the build folders.
+            `--main-entry-point` takes a `[project.scripts]` entry, written
+            `name=module:function`, and compiles the binary that console script would
+            start. It needs `--project-name`, which names the build folders.
 
             **Minimal `[tool.nuitka]`:**
 
@@ -2117,11 +2163,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             output-dir = "build"
             ```
 
-            repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI flag: `true` becomes a bare `--flag`, a string or number becomes `--key=value`, and a list repeats the flag once per item. Nuitka `4.2` reads the section itself, but only under `--project` ([Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909)). That mode takes its entry points from the project configuration, not from the command line, so repomatic keeps its own bridge.
+            repomatic reads every key from `[tool.nuitka]` and forwards it as a CLI
+            flag: `true` becomes a bare `--flag`, a string or number becomes
+            `--key=value`, and a list repeats the flag once per item. Nuitka `4.2` reads
+            the section itself, but only under `--project`
+            ([Nuitka#3909](https://github.com/Nuitka/Nuitka/issues/3909)). That mode
+            takes its entry points from the project configuration, not from the command
+            line, so repomatic keeps its own bridge.
 
-            Binaries skip `tkinter` by default, via the `nuitka.nofollow-imports` setting of [`[tool.repomatic]`](configuration.md): set it to `[]` to bundle Tcl/Tk in a GUI project.
+            Binaries skip `tkinter` by default, via the `nuitka.nofollow-imports`
+            setting of [`[tool.repomatic]`](configuration.md): set it to `[]` to bundle
+            Tcl/Tk in a GUI project.
 
-            In a project with a `uv.lock`, repomatic installs Nuitka into the project virtualenv before the build, and Nuitka stays there until the next `uv sync`. The compile cache depends on that fixed path: see [Compile caching](nuitka.md#compile-caching).
+            In a project with a `uv.lock`, repomatic installs Nuitka into the project
+            virtualenv before the build, and Nuitka stays there until the next `uv
+            sync`. The compile cache depends on that fixed path: see [Compile
+            caching](nuitka.md#compile-caching).
             """),
     ),
     "oxipng": ToolSpec(
@@ -2169,7 +2226,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             $ repomatic run oxipng -- --opt 4 --strip safe image.png
             ```
 
-            Lossless PNG optimizer. `repomatic format-images` reaches it through {func}`repomatic.tooling.binaries.ensure_binary`, so the pinned, checksum-verified build is used instead of whatever the runner image or the distro archive supplies.
+            Lossless PNG optimizer. `repomatic format-images` reaches it through
+            {func}`repomatic.tooling.binaries.ensure_binary`, so the pinned,
+            checksum-verified build is used instead of whatever the runner image or the
+            distro archive supplies.
             """),
     ),
     "pyproject-fmt": ToolSpec(
@@ -2198,7 +2258,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             indent = 4
             ```
 
-            pyproject-fmt normalizes and reorders `pyproject.toml` in place. It reads its own `[tool.pyproject-fmt]` section natively.
+            pyproject-fmt normalizes and reorders `pyproject.toml` in place. It reads
+            its own `[tool.pyproject-fmt]` section natively.
             """),
     ),
     "ruff": ToolSpec(
@@ -2232,9 +2293,16 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             line-length = 100
             ```
 
-            `ruff check .` lints; `ruff format .` reformats. Both read `[tool.ruff]` natively. With no project config, repomatic falls back to its bundled `ruff.toml` baseline.
+            `ruff check .` lints; `ruff format .` reformats. Both read `[tool.ruff]`
+            natively. With no project config, repomatic falls back to its bundled
+            `ruff.toml` baseline.
 
-            The default `--config=force-exclude=true` applies `exclude` and `extend-exclude` to a path named on the command line too, as in `repomatic run ruff -- check {path}`. ruff alone honours those lists only while it walks a directory, and lints or reformats an excluded file handed to it by name. To process such a file once, pass `--no-force-exclude` after the subcommand.
+            The default `--config=force-exclude=true` applies `exclude` and
+            `extend-exclude` to a path named on the command line too, as in `repomatic
+            run ruff -- check {path}`. ruff alone honours those lists only while it
+            walks a directory, and lints or reformats an excluded file handed to it by
+            name. To process such a file once, pass `--no-force-exclude` after the
+            subcommand.
             """),
     ),
     "shellcheck": ToolSpec(
@@ -2283,7 +2351,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             $ repomatic run shellcheck -- script.sh
             ```
 
-            ShellCheck lints shell scripts. repomatic puts it on `PATH` for `repomatic run actionlint`, which lints the `run:` scripts of the workflows with it. It reads its own `.shellcheckrc` and the `# shellcheck` directives of each script, so there is no `[tool.shellcheck]` section.
+            ShellCheck lints shell scripts. repomatic puts it on `PATH` for `repomatic
+            run actionlint`, which lints the `run:` scripts of the workflows with it. It
+            reads its own `.shellcheckrc` and the `# shellcheck` directives of each
+            script, so there is no `[tool.shellcheck]` section.
             """),
     ),
     "shfmt": ToolSpec(
@@ -2329,7 +2400,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             $ repomatic run shfmt -- .
             ```
 
-            shfmt formats shell scripts in place. It has no `[tool.shfmt]` section: indentation and style come from `.editorconfig` (`indent_size`, `shell_variant`, and the `shfmt`-specific keys).
+            shfmt formats shell scripts in place. It has no `[tool.shfmt]` section:
+            indentation and style come from `.editorconfig` (`indent_size`,
+            `shell_variant`, and the `shfmt`-specific keys).
             """),
     ),
     "typos": ToolSpec(
@@ -2390,11 +2463,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             extend-exclude = ["*.lock"]
             ```
 
-            typos scans the tree and, with repomatic's default `--write-changes`, fixes what it finds. It reads `[tool.typos]` natively; use `[tool.typos.default.extend-words]` to map project-specific terms to their intended spelling.
+            typos scans the tree and, with repomatic's default `--write-changes`, fixes
+            what it finds. It reads `[tool.typos]` natively; use
+            `[tool.typos.default.extend-words]` to map project-specific terms to their
+            intended spelling.
 
-            The default `--force-exclude` applies `extend-exclude` to a path named on the command line too, as in `repomatic run typos -- {path}`. typos alone honours that list only while it walks a directory, and rewrites an excluded file handed to it by name.
+            The default `--force-exclude` applies `extend-exclude` to a path named on
+            the command line too, as in `repomatic run typos -- {path}`. typos alone
+            honours that list only while it walks a directory, and rewrites an excluded
+            file handed to it by name.
 
-            Because the `fix-typos` workflow job ships whatever typos rewrites as an unattended pull request, guard content where a "correction" is a corruption with `[tool.typos.default.extend-ignore-re]` patterns. The two known traps are encoded hashes, whose random letter runs typos happily respells (a Guix `(base32 "...")` source hash losing its value to an `an`-to-`and` fix), and intentional-typo examples that docs or tests exercise on purpose:
+            Because the `fix-typos` workflow job ships whatever typos rewrites as an
+            unattended pull request, guard content where a "correction" is a corruption
+            with `[tool.typos.default.extend-ignore-re]` patterns. The two known traps
+            are encoded hashes, whose random letter runs typos happily respells (a Guix
+            `(base32 "...")` source hash losing its value to an `an`-to-`and` fix), and
+            intentional-typo examples that docs or tests exercise on purpose:
 
             ```toml
             [tool.typos.default]
@@ -2435,7 +2519,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             max = 120
             ```
 
-            yamllint has no native `pyproject.toml` support, so repomatic bridges `[tool.yamllint]` to a temporary YAML config passed via `--config-file`. With no project config it uses repomatic's strict bundled `yamllint.yaml`.
+            yamllint has no native `pyproject.toml` support, so repomatic bridges
+            `[tool.yamllint]` to a temporary YAML config passed via `--config-file`.
+            With no project config it uses repomatic's strict bundled `yamllint.yaml`.
             """),
     ),
     "zizmor": ToolSpec(
@@ -2462,7 +2548,11 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             $ repomatic run zizmor -- .
             ```
 
-            zizmor audits GitHub Actions workflows for security issues, offline by default. repomatic bridges `[tool.zizmor]` to a temporary YAML config (passed via `--config`); with none, it uses the bundled `zizmor.yaml`. See the [configuration reference](https://docs.zizmor.sh/configuration/) for available keys.
+            zizmor audits GitHub Actions workflows for security issues, offline by
+            default. repomatic bridges `[tool.zizmor]` to a temporary YAML config
+            (passed via `--config`); with none, it uses the bundled `zizmor.yaml`. See
+            the [configuration reference](https://docs.zizmor.sh/configuration/) for
+            available keys.
             """),
     ),
 }

@@ -457,7 +457,7 @@ class LintRepoConfig:
     or one list member, and the other members of that list stay reported. An
     entry that declines nothing is reported in its turn, since the section now
     carries what it names or the bundled template dropped it.
-    """
+    """  # noqa: E501
 
     def declined_entries(self) -> dict[tuple[str, ...], object]:
         """Flatten {attr}`declined` into one entry per leaf.

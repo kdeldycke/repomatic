@@ -322,7 +322,7 @@ def test_nuitka_enabled_default():
 
 
 def test_nuitka_disabled_skips_matrix(tmp_path, monkeypatch):
-    """Test that nuitka_matrix returns None when nuitka is disabled in pyproject.toml."""
+    """`nuitka_matrix` is `None` when nuitka is disabled in `pyproject.toml`."""
     pyproject_content = """\
 [project]
 name = "test-project"

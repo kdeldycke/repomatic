@@ -283,8 +283,7 @@ class ProjectMetadata:
 
     @cached_property
     def script_entries(self) -> list[tuple[str, str, str]]:
-        """Returns a list of tuples containing the script name, its module and
-        callable.
+        """The `(name, module, callable)` tuple of each console script.
 
         Results are derived from the script entries of `pyproject.toml`. So that:
 

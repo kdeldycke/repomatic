@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from typing import NamedTuple
 
@@ -51,6 +50,7 @@ from ..upstream import DEFAULT_REPO
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     import pathlib
+    from collections.abc import Mapping
     from typing import Any, Final
 
     from ..metadata.core import Metadata

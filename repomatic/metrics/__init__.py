@@ -17,4 +17,5 @@
 """Repository metrics.
 
 The forge API readers, the CSV store of sampled readings, and the SVG
-charts drawn from that store."""
+charts drawn from that store.
+"""

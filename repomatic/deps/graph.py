@@ -373,9 +373,9 @@ def filter_root_edges(
     :param root_name: The root package name.
     :param edges: List of (from_name, to_name) edge tuples.
     :param main_deps: Names the root declares as main dependencies, from
-        {attr}`~repomatic.deps.lockfile.LockSpecifiers.by_main`. `None` when the lockfile
-        describes no such package, in which case every edge is kept: missing
-        data is not evidence that an edge is spurious.
+        {attr}`~repomatic.deps.lockfile.LockSpecifiers.by_main`. `None` when the
+        lockfile describes no such package, in which case every edge is kept:
+        missing data is not evidence that an edge is spurious.
     :param subgraphs: Boxes whose owned packages legitimately hang off the root.
     :return: The edge list, without the unbacked root edges.
     """

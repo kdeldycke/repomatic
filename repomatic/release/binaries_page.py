@@ -130,6 +130,9 @@ Spelled by {func}`click_extra.blocks.region_markers`, so they cannot drift from
 the grammar {func}`~click_extra.blocks.replace_region` matches.
 """
 
+# The paragraphs stay on one line each: the page this writes is reformatted by
+# mdformat with `wrap = "no"`, which would unwrap a wrapped template on the next
+# autofix pass and leave the generator and the formatter fighting over the file.
 PAGE_TEMPLATE = """\
 ---
 orphan: true
@@ -160,7 +163,7 @@ The table is searchable and sortable on the documentation site; the raw data liv
 :header-rows: 1
 :class: sphinx-datatable
 ```
-"""
+"""  # noqa: E501
 """Initial page content, used when the page does not exist yet.
 
 The ``{repo_url}`` placeholder is substituted with `str.replace` (not

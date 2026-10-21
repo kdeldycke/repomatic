@@ -55,7 +55,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from functools import cache
-from pathlib import Path
 
 import yaml
 
@@ -75,6 +74,7 @@ from .workflow_files import load_workflow, workflow_triggers
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from pathlib import Path
     from typing import Any, Final
 
 

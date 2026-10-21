@@ -20,4 +20,5 @@ The {class}`~repomatic.metadata.core.Metadata` singleton in `core`
 assembles the concern mixins: `env` (Actions environment), `git`
 (commit ranges and per-commit matrices), `project` (`pyproject.toml`
 and Sphinx reading) and `matrix` (job-matrix construction). `output`
-serializes the values for the workflows that read them."""
+serializes the values for the workflows that read them.
+"""

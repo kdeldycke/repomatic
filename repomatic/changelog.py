@@ -66,7 +66,8 @@ for *users*, consolidated by hand, and summarize only changes worth
 knowing about. Auto-generated logs from developer commits are too
 noisy and don't account for back-and-forth during development.
 
-**Fragment-driven** tools ([towncrier](https://github.com/twisted/towncrier), [scriv](https://github.com/nedbat/scriv)) avoid merge conflicts by using
+**Fragment-driven** tools ([towncrier](https://github.com/twisted/towncrier),
+[scriv](https://github.com/nedbat/scriv)) avoid merge conflicts by using
 per-change files, but handle none of the release orchestration:
 comparison URL management, GFM warning lifecycle, workflow action
 reference freezing, or the two-commit freeze/unfreeze release cycle.

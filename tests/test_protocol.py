@@ -99,8 +99,9 @@ def test_skip_binary_build_branches_constant():
 
 
 def test_skip_binary_build_disjoint_from_version_bumps():
-    """Version-bump branches rewrite the version string baked into the
-    Nuitka binary, so they must not appear in SKIP_BINARY_BUILD_BRANCHES.
+    """Version-bump branches never appear in SKIP_BINARY_BUILD_BRANCHES.
+
+    They rewrite the version string baked into the Nuitka binary.
     """
     assert SKIP_BINARY_BUILD_BRANCHES.isdisjoint(VERSION_BUMP_BRANCHES)
 

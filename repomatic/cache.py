@@ -14,8 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Global cache for downloaded tool executables, HTTP API responses, and
-generated tool configurations.
+"""Global cache for tool executables, API responses and generated tool configs.
 
 Four subtrees under the user-level cache directory:
 

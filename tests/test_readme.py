@@ -153,7 +153,7 @@ def test_docs_bridge_table_covers_registry() -> None:
 
 
 def test_docs_tip_table_covers_registry() -> None:
-    """The tool-runner.md table must list every registry tool that natively reads pyproject.toml.
+    """The tool-runner.md table lists every tool that reads pyproject.toml natively.
 
     Tools with ``reads_pyproject=True`` in the registry should appear in the
     tool table with 'Native' support. The table may also list non-registry tools

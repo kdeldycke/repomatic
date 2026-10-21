@@ -454,8 +454,11 @@ def test_check_drifted_project_exits_one_and_explains(credentials, capsys):
 
 
 def test_check_flags_a_reattached_git_source_as_read_only(credentials, capsys):
-    """The one drift `--apply` must not touch: a source block means a second
-    publisher, and unpicking that belongs in the dashboard, deliberately."""
+    """The one drift `--apply` must not touch.
+
+    A source block means a second publisher, and unpicking that belongs in the
+    dashboard, deliberately.
+    """
     reattached = {**CLEAN_PROJECT, "source": {"type": "github"}}
     with patch.object(api, "call", side_effect=_api(reattached)):
         exit_code = run_cloudflare_pages(PROJECT, PagesMode.APPLY)
@@ -800,8 +803,10 @@ def test_call_sends_a_write_as_json():
     ),
 )
 def test_call_turns_a_broken_connection_into_a_cloudflare_error(failure):
-    """A stalled or dropped connection reaches the command as the error it
-    catches, not as a traceback."""
+    """A stalled or dropped connection reaches the command as a caught error.
+
+    It never surfaces as a traceback.
+    """
     with (
         patch("repomatic.http.urlopen", side_effect=failure),
         pytest.raises(CloudflareError, match="GET /accounts failed") as excinfo,

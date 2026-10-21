@@ -712,7 +712,8 @@ def test_init_config_uv_overlay_noop_when_pins_match(toml_file) -> None:
         "[tool.uv]\n"
         f'required-version = "{pins["required-version"]}"\n'
         'dependency-groups.docs = { requires-python = ">= 3.14" }\n'
-        'sources.mango = { git = "https://github.com/example/mango", branch = "main" }\n'
+        'sources.mango = { git = "https://github.com/example/mango", '
+        'branch = "main" }\n'
         f'exclude-newer = "{pins["exclude-newer"]}"\n'
         'exclude-newer-package = { mango = "0 day" }\n'
         'build-backend.module-root = ""\n'
@@ -729,7 +730,8 @@ def test_init_config_uv_overlay_updates_stale_pins_in_place(toml_file) -> None:
         "[tool.uv]\n"
         'required-version = ">=0.10.0,<0.11"\n'
         'dependency-groups.docs = { requires-python = ">= 3.14" }\n'
-        'sources.mango = { git = "https://github.com/example/mango", branch = "main" }\n'
+        'sources.mango = { git = "https://github.com/example/mango", '
+        'branch = "main" }\n'
         'exclude-newer = "3 days"\n'
         'exclude-newer-package = { mango = "0 day" }\n'
         'build-backend.module-root = ""\n'
@@ -762,7 +764,8 @@ def test_init_config_uv_overlay_appends_missing_pins(toml_file) -> None:
     content = (
         '[project]\nname = "papaya"\nversion = "1.0.0"\n\n'
         "[tool.uv]\n"
-        'sources.mango = { git = "https://github.com/example/mango", branch = "main" }\n'
+        'sources.mango = { git = "https://github.com/example/mango", '
+        'branch = "main" }\n'
         'exclude-newer-package = { mango = "0 day" }\n'
     )
     path = toml_file(content)
@@ -2900,7 +2903,7 @@ replace = 'version = "{new_version}"'
 filename = "./changelog.md"
 search = "## [{current_version} (unreleased)]("
 replace = "## [{new_version} (unreleased)]("
-"""
+"""  # noqa: E501
 
 
 # Mirrors the motivating downstream case (kdeldycke/dotfiles): a non-Python repo
@@ -3926,7 +3929,10 @@ def test_include_config_includes_all_skill_files(
     """Config ``include = ["skills"]`` produces all skills regardless of repo type."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["skills"]\n',
+        (
+            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
+            '[tool.repomatic]\ninclude = ["skills"]\n'
+        ),
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -4004,7 +4010,10 @@ def test_include_bypasses_scope_for_tool_config(
     """
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["lychee"]\n',
+        (
+            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
+            '[tool.repomatic]\ninclude = ["lychee"]\n'
+        ),
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -4351,7 +4360,10 @@ def test_init_detects_excluded_skill_file(
     # First create all skills (include overrides default exclusion).
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["skills"]\n',
+        (
+            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
+            '[tool.repomatic]\ninclude = ["skills"]\n'
+        ),
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -4397,7 +4409,10 @@ def test_init_detects_auto_excluded_awesome_triage(
     # Create skills including awesome-triage (as an awesome repo).
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["skills"]\n',
+        (
+            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
+            '[tool.repomatic]\ninclude = ["skills"]\n'
+        ),
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -4653,7 +4668,10 @@ def test_init_cli_delete_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     """Verify --delete-excluded deletes excluded files and cleans empty dirs."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["skills"]\n',
+        (
+            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
+            '[tool.repomatic]\ninclude = ["skills"]\n'
+        ),
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -4695,7 +4713,10 @@ def test_init_cli_no_delete_excluded_warns(
     """Verify excluded files are reported but not deleted without --delete-excluded."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["skills"]\n',
+        (
+            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
+            '[tool.repomatic]\ninclude = ["skills"]\n'
+        ),
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -5436,7 +5457,10 @@ def test_init_include_overrides_default_exclusions(
     """Verify include overrides default exclusions additively."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["subagents"]\n',
+        (
+            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
+            '[tool.repomatic]\ninclude = ["subagents"]\n'
+        ),
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -5463,7 +5487,10 @@ def test_init_include_cannot_materialize_ephemeral(
     """Verify `include` cannot opt a bare init into an ephemeral component."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\ninclude = ["labels"]\n',
+        (
+            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
+            '[tool.repomatic]\ninclude = ["labels"]\n'
+        ),
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)

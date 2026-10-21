@@ -300,8 +300,11 @@ def test_site_cloudflare_r2_keys_load_from_their_table():
     ),
 )
 def test_site_cloudflare_r2_keys_come_as_a_pair(site):
-    """A bucket with nowhere to redirect, or a host with nothing to upload to,
-    would only fail at the first oversized file, deep in a deploy."""
+    """A bucket and its host are declared together, or the loader refuses.
+
+    A bucket with nowhere to redirect, or a host with nothing to upload to,
+    would only fail at the first oversized file, deep in a deploy.
+    """
     with pytest.raises(ValueError, match=r"go together"):
         load_repomatic_config({"tool": {"repomatic": {"site": site}}})
 

@@ -318,8 +318,10 @@ class HeldBackPackage:
 
     @property
     def row(self) -> tuple[str, str, str, str, str]:
-        """The release as a terminal row: its name, then the
-        {data}`HELD_BACK_COLUMNS` cells."""
+        """The release as a terminal row.
+
+        Its name, then the {data}`HELD_BACK_COLUMNS` cells.
+        """
         return (
             self.name,
             self.locked_version,
@@ -486,8 +488,10 @@ class BypassForecast:
 
     @property
     def awaits_release(self) -> bool:
-        """Whether the freeze holds an unreleased version, which only a release
-        can end."""
+        """Whether the freeze holds an unreleased version.
+
+        Only a release can end such a freeze.
+        """
         return self.expires == BYPASS_NEEDS_RELEASE
 
     @property

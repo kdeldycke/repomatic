@@ -668,7 +668,10 @@ def list_skills(ctx: Context) -> None:
         ("List every key", "repomatic show-metadata --list-keys"),
         (
             "CI: write as GitHub Actions step outputs",
-            'repomatic show-metadata --output-format github-json --output "$GITHUB_OUTPUT" current_version is_python_project',
+            (
+                "repomatic show-metadata --output-format github-json "
+                '--output "$GITHUB_OUTPUT" current_version is_python_project'
+            ),
         ),
     ),
 )
@@ -857,7 +860,10 @@ def show_config(ctx: Context) -> None:
         ("Format images and print summary", "repomatic format-images"),
         (
             "CI: write as a GitHub Actions step output",
-            'repomatic format-images --output "$GITHUB_OUTPUT" --output-format github-actions',
+            (
+                'repomatic format-images --output "$GITHUB_OUTPUT" '
+                "--output-format github-actions"
+            ),
         ),
         (
             "Use a 10% minimum savings threshold",

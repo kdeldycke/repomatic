@@ -189,8 +189,11 @@ def test_exists_reads_a_404_as_absence(raised, expected):
 
 
 def test_exists_lets_a_refusal_through():
-    """A `403` is a credential problem, not a missing object: it must not read
-    as "upload it", since the upload would be refused the same way."""
+    """A `403` is a credential problem, not a missing object.
+
+    It must not read as "upload it", since the upload would be refused the same
+    way.
+    """
     denied = CloudflareHTTPError("HEAD failed: HTTP 403", 403)
     with (
         patch.object(cloudflare_r2, "_send", side_effect=denied),
@@ -207,8 +210,10 @@ def test_exists_lets_a_refusal_through():
     ),
 )
 def test_send_turns_a_broken_connection_into_a_cloudflare_error(raised):
-    """A timeout mid-upload is no `URLError`: it must still reach the offload
-    as an error it catches, or the deploy fails."""
+    """A timeout mid-upload is no `URLError`, and the offload still catches it.
+
+    Otherwise the deploy fails.
+    """
     request = BUCKET._request("HEAD", "abc/atlas.zip", EMPTY)
     with (
         patch.object(cloudflare_r2.urllib.request, "urlopen", side_effect=raised),
@@ -430,8 +435,10 @@ def test_run_offload_touches_no_credential_when_nothing_is_oversized(tmp_path):
 
 
 def test_run_offload_fails_loudly_on_a_dropped_file(tmp_path, monkeypatch, capsys):
-    """The tree is still deployable, but the run must end red: a dead link is
-    already broken, and a green run with a warning hides it."""
+    """The tree is still deployable, but the run must end red.
+
+    A dead link is already broken, and a green run with a warning hides it.
+    """
     site = tmp_path / "site"
     _sparse(site / "atlas.zip")
     summary = tmp_path / "summary.md"

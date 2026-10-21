@@ -14,6 +14,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""GitHub integration package: API clients, `gh` CLI wrapper, and helpers
-for every GitHub surface repomatic touches (releases, issues, PRs, tokens,
-workflows). See each submodule's docstring for its scope."""
+"""GitHub integration: API clients, the `gh` wrapper and per-surface helpers.
+
+Covers every GitHub surface repomatic touches (releases, issues, PRs, tokens,
+workflows). See each submodule's docstring for its scope.
+"""

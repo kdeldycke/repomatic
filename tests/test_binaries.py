@@ -24,7 +24,6 @@ import tarfile
 import zipfile
 from contextlib import contextmanager
 from email.message import Message
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
 
@@ -49,6 +48,10 @@ from repomatic.tooling.registry import (
     ToolSpec,
     UnsupportedPlatformError,
 )
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Download and verification

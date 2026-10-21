@@ -35,7 +35,6 @@ from click.testing import CliRunner
 
 from repomatic.checks import CheckResult
 from repomatic.cli.main import repomatic as repomatic_cli
-from repomatic.github.token import PatPermissionResults
 from repomatic.setup_guide import CANNOT_VERIFY, SETUP_STEPS
 from repomatic.templating import PrTemplate
 from tests.conftest import pat_results
@@ -44,6 +43,8 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Generator
     from unittest.mock import MagicMock
+
+    from repomatic.github.token import PatPermissionResults
 
 # A neutral slug fed through GITHUB_REPOSITORY so Metadata resolves the repo
 # from the environment (no `gh repo view` call) while the body still renders

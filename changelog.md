@@ -30,6 +30,7 @@
 - **Breaking:** `repomatic run pyproject-fmt` now exits 0 after a rewrite it verified, instead of 1.
 - **Breaking:** The bundled `zizmor.yaml` now requires hash pins for third-party actions.
 - **Breaking:** The bundled `labels.toml` no longer renames the `🎁 feature request` label, and `lychee.toml` no longer skips star-history.com links.
+- Enable the `D205`, `D209`, `E501`, `PLC0415` and `TC` ruff rules in the bundled `ruff.toml`.
 - `repomatic` now imports only the module of the command it runs: `repomatic --version` starts in 0.3 s instead of 0.45 s.
 - Add the `sync-runner-images.sync` and `github-releases.sync` keys to turn off these two syncs.
 - Add the `bump-version`, `create-release`, `pack-manpages`, `squashed-release` and `wait-pypi` commands, which replace the shell steps of the release workflows.

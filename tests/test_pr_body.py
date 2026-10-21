@@ -18,8 +18,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from click.testing import CliRunner
 
@@ -39,6 +37,10 @@ from repomatic.github.pr_body import (
 from repomatic.metadata.core import Metadata
 from repomatic.templating import PrTemplate, get_template_names, render_template
 from repomatic.versions import strip_dev_suffix
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from pathlib import Path
 
 PR_TEMPLATES = tuple(
     name for name in get_template_names() if PrTemplate.load(name).meta.get("title")

@@ -349,7 +349,10 @@ def _resolve_lockfile_plan(
         ),
         (
             "CI autofix job: write the markdown report as a step output",
-            'repomatic audit --fix --repo owner/name --output "$GITHUB_OUTPUT" --output-format github-actions',
+            (
+                'repomatic audit --fix --repo owner/name --output "$GITHUB_OUTPUT" '
+                "--output-format github-actions"
+            ),
         ),
     ),
 )
@@ -966,7 +969,10 @@ def sync_deps(
         ("Render the report as JSON", "repomatic --table-format json sync-uv-lock"),
         (
             "CI: write markdown report as a GitHub Actions step output",
-            'repomatic sync-uv-lock --no-table --release-notes --output "$GITHUB_OUTPUT" --output-format github-actions',
+            (
+                "repomatic sync-uv-lock --no-table --release-notes "
+                '--output "$GITHUB_OUTPUT" --output-format github-actions'
+            ),
         ),
     ),
 )
@@ -1049,7 +1055,10 @@ def sync_uv_lock(
         ("Swap whatever is ready and show changes", "repomatic sync-dep-sources"),
         (
             "CI: write markdown report as a GitHub Actions step output",
-            'repomatic sync-dep-sources --no-table --release-notes --output "$GITHUB_OUTPUT" --output-format github-actions',
+            (
+                "repomatic sync-dep-sources --no-table --release-notes "
+                '--output "$GITHUB_OUTPUT" --output-format github-actions'
+            ),
         ),
     ),
 )
@@ -1120,7 +1129,10 @@ def sync_dep_sources(
         ("Bump every registry tool past the cooldown", "repomatic sync-tool-versions"),
         (
             "CI: write a markdown report as a GitHub Actions step output",
-            'repomatic sync-tool-versions --output "$GITHUB_OUTPUT" --output-format github-actions',
+            (
+                'repomatic sync-tool-versions --output "$GITHUB_OUTPUT" '
+                "--output-format github-actions"
+            ),
         ),
     ),
 )

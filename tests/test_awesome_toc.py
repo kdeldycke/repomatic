@@ -55,7 +55,8 @@ def render_readme(sections: tuple[str, ...]) -> str:
     body = "\n\n".join(f"## {title}\n\nSome prose." for title in sections[1:])
     return (
         f"## {sections[0]}\n\n"
-        "<!-- mdformat-toc start --slug=github --no-anchors --maxlevel=6 --minlevel=2 -->"
+        "<!-- mdformat-toc start --slug=github --no-anchors --maxlevel=6 "
+        "--minlevel=2 -->"
         f"\n\n{entries}\n\n"
         "<!-- mdformat-toc end -->\n\n"
         f"{body}\n"

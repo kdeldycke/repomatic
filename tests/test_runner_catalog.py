@@ -60,7 +60,7 @@ README = """\
 ### Label scheme
 
 - Not a table row.
-"""
+"""  # noqa: E501
 
 
 @pytest.fixture

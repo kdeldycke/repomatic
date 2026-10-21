@@ -172,7 +172,10 @@ def test_get_cached_binary_exists(cache_env):
 
 
 @skip_windows(
-    reason="Windows does not use Unix execute bits; os.access(..., X_OK) always returns True.",
+    reason=(
+        "Windows does not use Unix execute bits; os.access(..., X_OK) always "
+        "returns True."
+    ),
 )
 def test_get_cached_binary_not_executable(cache_env):
     """Returns None when the file exists but is not executable."""

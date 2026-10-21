@@ -44,13 +44,13 @@ import shutil
 import socketserver
 import subprocess
 import threading
-from pathlib import Path
 
 import pytest
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
 pytestmark = [
     # Nothing in the repomatic package is exercised here, so the matrix run that
@@ -223,7 +223,8 @@ def test_cli_update_detection_reads_the_plugin_manifest(
     skill = origin / "plug" / "skills" / "log-weather"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text(
-        "---\nname: log-weather\ndescription: Write today's weather into a log.\n---\n\n"
+        "---\nname: log-weather\n"
+        "description: Write today's weather into a log.\n---\n\n"
         "Ask for a city, then append one line to the log.\n",
         encoding="UTF-8",
     )

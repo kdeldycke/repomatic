@@ -13,9 +13,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-"""Tests for the git-to-release dependency source swaps
-({mod}`repomatic.deps.sources`) and the release gate
-({mod}`repomatic.deps.shippable`)."""
+"""Tests for the dependency source swaps and the release gate.
+
+The swaps are {mod}`repomatic.deps.sources`, the gate is
+{mod}`repomatic.deps.shippable`.
+"""
 
 from __future__ import annotations
 
@@ -457,13 +459,19 @@ def test_clean_project_reports_nothing(tmp_path: Path) -> None:
     ("extra", "package", "kind"),
     (
         pytest.param(
-            '[tool.uv.sources]\ncherry = { git = "https://x/cherry", branch = "main" }\n',
+            (
+                "[tool.uv.sources]\n"
+                'cherry = { git = "https://x/cherry", branch = "main" }\n'
+            ),
             "cherry",
             SourceKind.GIT,
             id="git-branch",
         ),
         pytest.param(
-            '[tool.uv.sources]\ncherry = { git = "https://x/cherry", rev = "abc123" }\n',
+            (
+                "[tool.uv.sources]\n"
+                'cherry = { git = "https://x/cherry", rev = "abc123" }\n'
+            ),
             "cherry",
             SourceKind.GIT,
             id="git-rev",
@@ -487,7 +495,10 @@ def test_clean_project_reports_nothing(tmp_path: Path) -> None:
             id="editable-path",
         ),
         pytest.param(
-            '[tool.uv.sources]\ncherry = { url = "https://x/cherry-1.2-py3-none-any.whl" }\n',
+            (
+                "[tool.uv.sources]\n"
+                'cherry = { url = "https://x/cherry-1.2-py3-none-any.whl" }\n'
+            ),
             "cherry",
             SourceKind.URL,
             id="url",
@@ -506,7 +517,10 @@ def test_clean_project_reports_nothing(tmp_path: Path) -> None:
             id="private-index",
         ),
         pytest.param(
-            '[[tool.uv.index]]\nname = "mirror"\nurl = "https://x/simple"\ndefault = true\n',
+            (
+                '[[tool.uv.index]]\nname = "mirror"\nurl = "https://x/simple"\n'
+                "default = true\n"
+            ),
             "mirror",
             SourceKind.INDEX,
             id="non-pypi-default-index",

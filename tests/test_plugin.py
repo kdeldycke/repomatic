@@ -190,8 +190,9 @@ the state this test sees when the suite runs from a released tree. Never a
 
 
 def test_marketplace_installs_from_the_plugin_root(marketplace) -> None:
-    """The single entry publishes {data}`~repomatic.claude_plugin.PLUGIN_ROOT`
-    from a pinned tag.
+    """The single entry publishes the plugin root from a pinned tag.
+
+    That root is {data}`~repomatic.claude_plugin.PLUGIN_ROOT`.
 
     An `archive` source was the previous shape here, and it syncs only in the
     CLI: the claude.ai ingester rejects the type outright, which is what made
@@ -436,7 +437,8 @@ def test_settings_wiring_is_format_json_shaped() -> None:
             {
                 "pyproject.toml": (
                     '[tool.biome.formatter]\nindentStyle = "tab"\n'
-                    '[tool.biome.json.formatter]\nindentStyle = "space"\nindentWidth = 4\n'
+                    "[tool.biome.json.formatter]\n"
+                    'indentStyle = "space"\nindentWidth = 4\n'
                 )
             },
             "    ",
@@ -444,7 +446,9 @@ def test_settings_wiring_is_format_json_shaped() -> None:
         ),
         pytest.param(
             {
-                "biome.json": '{"formatter": {"indentStyle": "space", "indentWidth": 8}}',
+                "biome.json": (
+                    '{"formatter": {"indentStyle": "space", "indentWidth": 8}}'
+                ),
                 "pyproject.toml": '[tool.biome.formatter]\nindentStyle = "tab"\n',
             },
             "        ",
@@ -467,7 +471,9 @@ def test_settings_wiring_is_format_json_shaped() -> None:
         ),
         pytest.param(
             {
-                "biome.json": '{"formatter": {"indentStyle": "space", "indentWidth": 3}}',
+                "biome.json": (
+                    '{"formatter": {"indentStyle": "space", "indentWidth": 3}}'
+                ),
                 "biome.jsonc": (
                     '{"formatter": {"indentStyle": "space", "indentWidth": 6}}'
                 ),

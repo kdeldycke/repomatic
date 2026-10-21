@@ -45,7 +45,7 @@ from tests.test_changelog import MULTI_RELEASE_CHANGELOG
 
 @pytest.fixture
 def changelog_file(tmp_path):
-    """A changelog on disk carrying {data}`~tests.test_changelog.MULTI_RELEASE_CHANGELOG`.
+    """A changelog file holding {data}`~tests.test_changelog.MULTI_RELEASE_CHANGELOG`.
 
     A test needing other content writes over the returned path.
     """
@@ -195,8 +195,10 @@ def test_lint_changelog_dates_fallback_no_package(changelog_file, monkeypatch):
 
 
 def test_lint_changelog_dates_warns_missing_pypi(changelog_file, monkeypatch, caplog):
-    """Test that versions not on PyPI get a warning if they postdate the first
-    PyPI release, and an info log if they predate it."""
+    """A version missing from PyPI warns only when it postdates the first release.
+
+    One predating the first PyPI release gets an info log instead.
+    """
     # Only the oldest version is on PyPI; 1.1.0 is an unexpected gap.
     _patch_sources(monkeypatch, pypi={"1.0.0": ("2025-12-01", False)})
 
@@ -233,8 +235,7 @@ def test_lint_changelog_dates_skips_abandoned(changelog_file, monkeypatch, caplo
 
 
 def test_lint_changelog_dates_archive_suppresses_orphans(tmp_path, monkeypatch):
-    """Versions documented in the archive are neither flagged nor re-inserted
-    as orphans."""
+    """An archived version is neither flagged nor re-inserted as an orphan."""
     live = tmp_path / "changelog.md"
     live.write_text(
         "# Changelog\n\n"
@@ -421,7 +422,7 @@ def test_warn_on_long_bullets_ignores_released_sections(caplog):
             ## [`1.2.2` (2024-01-15)](https://github.com/user/repo/compare/v1.2.1...v1.2.2)
 
             - This released entry is deliberately written far too long to fit within the strict word ceiling that the check would otherwise enforce.
-            """
+            """  # noqa: E501
         )
     )
     with caplog.at_level(logging.WARNING):
@@ -651,8 +652,7 @@ def test_lint_fix_pypi_only(changelog_file, monkeypatch):
 
 
 def test_lint_fix_no_warning_predates_github(changelog_file, monkeypatch):
-    """Test that --fix skips GitHub WARNING for versions predating the first
-    GitHub release."""
+    """--fix adds no GitHub WARNING to a version older than the first GitHub release."""
     # Both on PyPI; only 1.1.0 on GitHub (1.0.0 predates GitHub releases).
     _patch_sources(
         monkeypatch,
@@ -718,8 +718,7 @@ def test_lint_fix_yanked_admonition_carries_reason(changelog_file, monkeypatch):
 
 
 def test_lint_fix_no_admonition_when_nowhere(changelog_file, monkeypatch):
-    """Test that --fix adds WARNINGs for both platforms when version is on
-    neither PyPI nor GitHub."""
+    """--fix adds both WARNINGs to a version on neither PyPI nor GitHub."""
     # 1.0.0 on PyPI; 1.1.0 on neither.
     _patch_sources(monkeypatch, pypi={"1.0.0": ("2025-12-01", False)}, github=["1.0.0"])
 
@@ -752,8 +751,7 @@ def test_lint_fix_idempotent(changelog_file, monkeypatch):
 
 
 def test_lint_fix_removes_stale_unavailable_warning(tmp_path, monkeypatch):
-    """Test that --fix removes stale 'is **not available** on' warnings when
-    the version becomes available."""
+    """--fix removes a stale 'is **not available** on' warning once published."""
     # Pre-seed 1.0.0 with a stale unavailable warning.
     stale = availability_admonition(
         "1.0.0",
@@ -1239,7 +1237,7 @@ CHANGELOG_WITH_ADMONITIONS = dedent(
     > `1.0.0` is the *first version* available on [🐍 PyPI](https://pypi.org/project/my-package/1.0.0/) and [🐙 GitHub](https://github.com/user/repo/releases/tag/v1.0.0).
 
     - Initial release.
-    """
+    """  # noqa: E501
 )
 """Changelog with four releases, each carrying both PyPI and GitHub links.
 

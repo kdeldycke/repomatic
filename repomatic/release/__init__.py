@@ -18,4 +18,5 @@
 
 Release preparation, the release-commit protocol, the binary build roster and
 its verification, the binaries page, attestation, and the VirusTotal scan
-history."""
+history.
+"""

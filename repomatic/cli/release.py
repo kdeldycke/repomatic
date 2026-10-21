@@ -1079,11 +1079,17 @@ def wait_pypi(ctx: Context, dist_dir: Path, attempts: int, delay: int) -> None:
         ),
         (
             "Wait for verdicts and record them",
-            "repomatic scan-virustotal --tag v1.2.3 --binaries-dir ./binaries --poll --records docs/assets/virustotal-scans.csv",
+            (
+                "repomatic scan-virustotal --tag v1.2.3 --binaries-dir ./binaries "
+                "--poll --records docs/assets/virustotal-scans.csv"
+            ),
         ),
         (
             "Download the release's binaries first",
-            "repomatic scan-virustotal --tag v1.2.3 --download --repo owner/repo --binaries-dir ./binaries",
+            (
+                "repomatic scan-virustotal --tag v1.2.3 --download "
+                "--repo owner/repo --binaries-dir ./binaries"
+            ),
         ),
     ),
 )
@@ -1238,11 +1244,17 @@ def scan_virustotal(
     examples=(
         (
             "Verify a Linux ARM64 binary",
-            "repomatic verify-binary --target linux-arm64 --binary ./mpm-linux-arm64.bin",
+            (
+                "repomatic verify-binary --target linux-arm64 "
+                "--binary ./mpm-linux-arm64.bin"
+            ),
         ),
         (
             "Verify a Windows x64 binary",
-            "repomatic verify-binary --target windows-x64 --binary ./mpm-windows-x64.exe",
+            (
+                "repomatic verify-binary --target windows-x64 "
+                "--binary ./mpm-windows-x64.exe"
+            ),
         ),
     ),
 )
@@ -1352,8 +1364,7 @@ def sync_binaries(
 @subcommand(short_help="Sync bumpversion config from bundled template")
 @pass_context
 def sync_bumpversion(ctx: Context) -> None:
-    """Sync [tool.bumpversion] config in pyproject.toml from the bundled
-    template.
+    """Sync [tool.bumpversion] in pyproject.toml from the bundled template.
 
     Re-derives the [tool.bumpversion] section from the canonical template
     bundled in repomatic, keeping the local additions. Designed for the

@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 
 from ..changelog import GITHUB_RELEASE_URL, Changelog, availability_admonition
 from ..pypi import PYPI_PROJECT_URL
@@ -38,6 +37,10 @@ from .releases import (
     get_github_releases,
 )
 from .urls import parse_github_repo
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def build_expected_body(

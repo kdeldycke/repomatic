@@ -387,8 +387,9 @@ def test_update_binaries_page_refuses_markerless_file(tmp_path):
 
 
 def test_docs_floor_table_matches_build_targets():
-    """The Minimum OS requirements table in docs/binaries.md reflects the
-    floors declared in NUITKA_BUILD_TARGETS, which verify-binary enforces.
+    """The Minimum OS requirements table reflects the NUITKA_BUILD_TARGETS floors.
+
+    Those are the floors verify-binary enforces, and docs/binaries.md states them.
     """
     text = (REPO_ROOT / "docs" / "binaries.md").read_text(encoding="UTF-8")
     assert "## Minimum OS requirements" in text

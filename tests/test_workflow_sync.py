@@ -498,7 +498,8 @@ def test_release_caller_emits_concurrency() -> None:
 def test_correct_uses_ref(filename: str) -> None:
     """Verify correct uses reference in job."""
     content = generate_thin_caller(filename)
-    expected = f"{DEFAULT_REPO}/.github/workflows/{WORKFLOW_SOURCES.get(filename, filename)}@main"
+    source = WORKFLOW_SOURCES.get(filename, filename)
+    expected = f"{DEFAULT_REPO}/.github/workflows/{source}@main"
     assert expected in content
 
 
@@ -543,7 +544,7 @@ def test_release_passes_secrets_explicitly() -> None:
 
 
 def test_release_thin_caller_emits_publish_pypi_job() -> None:
-    """Verify the release.yaml caller emits the publish-pypi job gated on the build lane."""
+    """The release.yaml caller emits the publish-pypi job gated on the build lane."""
     content = generate_thin_caller("release.yaml", version="v9.9.9")
     assert "  publish-pypi:" in content
     # publish-pypi depends only on the build lane so the wheel ships to PyPI right
@@ -2060,7 +2061,8 @@ def test_release_caller_drops_repomatic_local_needs() -> None:
     needs = data["jobs"]["release"]["needs"]
     needs = [needs] if isinstance(needs, str) else needs
     assert not local_jobs.intersection(needs), (
-        f"Generated release.yaml gates `release` on {sorted(local_jobs.intersection(needs))}, "
+        f"Generated release.yaml gates `release` on "
+        f"{sorted(local_jobs.intersection(needs))}, "
         "which it does not define."
     )
     # Every surviving edge names a job the generated file actually has.

@@ -28,7 +28,6 @@ no call, and two checks asking for the same one share a single call.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
@@ -48,6 +47,7 @@ from ..upstream import is_awesome_repo
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from typing import Any
 
     from ..checks import CheckResult

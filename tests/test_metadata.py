@@ -142,7 +142,7 @@ class AnyLengthList:
 # list this code mutates, so FURB189's pitfalls do not apply. `UserList` would
 # instead make every such check miss it.
 class StringList(list):  # noqa: FURB189
-    """A list of plain strings serialized without double-quoting in GitHub Actions format.
+    """A list of plain strings serialized unquoted in GitHub Actions format.
 
     Used for metadata fields like ``cli_scripts`` that contain plain string values
     (not file paths). File path lists use double-quoted space-separated format because
@@ -262,7 +262,8 @@ def iter_checks(metadata: Any, expected: Any, context: Any) -> None:
         for item in metadata:
             assert isinstance(item, str), f"{item!r} should be a string in {context!r}"
             assert re.fullmatch(expected.item_pattern, item) is not None, (
-                f"{item!r} does not match {expected.item_pattern.pattern!r} in {context!r}"
+                f"{item!r} does not match {expected.item_pattern.pattern!r} "
+                f"in {context!r}"
             )
 
     elif isinstance(expected, PartialIncludeList):
@@ -315,7 +316,8 @@ def iter_checks(metadata: Any, expected: Any, context: Any) -> None:
             f"{metadata!r} should be None or a string in {context!r}"
         )
         assert re.fullmatch(expected.version_pattern, metadata) is not None, (
-            f"{metadata!r} does not match {expected.version_pattern.pattern!r} in {context!r}"
+            f"{metadata!r} does not match {expected.version_pattern.pattern!r} "
+            f"in {context!r}"
         )
 
     elif isinstance(expected, OptionalVersionOrEmptyString):
@@ -326,7 +328,8 @@ def iter_checks(metadata: Any, expected: Any, context: Any) -> None:
             f"{metadata!r} should be '' or a string in {context!r}"
         )
         assert re.fullmatch(expected.version_pattern, metadata) is not None, (
-            f"{metadata!r} does not match {expected.version_pattern.pattern!r} in {context!r}"
+            f"{metadata!r} does not match {expected.version_pattern.pattern!r} "
+            f"in {context!r}"
         )
 
     elif isinstance(expected, dict):
@@ -513,7 +516,9 @@ expected: dict[str, Any] = {
     "cli_scripts": StringList(["repomatic"]),
     "main_cli_script": "repomatic",
     "import_name": "repomatic",
-    "project_description": "🏭 Automate repository maintenance, releases, and CI/CD workflows",
+    "project_description": (
+        "🏭 Automate repository maintenance, releases, and CI/CD workflows"
+    ),
     "mypy_params": StringList(["--python-version", "3.11"]),
     "current_version": regex(r"[0-9\.]+(\.dev[0-9]+)?"),
     # released_version is None during development, but contains a version string

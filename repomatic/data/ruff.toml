@@ -22,13 +22,30 @@ output-prefer-rule-codes = true
 # Enable reformatting of code snippets in docstrings.
 # https://docs.astral.sh/ruff/formatter/#docstring-formatting
 format.docstring-code-format = true
+# D205: 1 blank line required between summary line and description.
+#   The first line of a docstring is its summary, read alone by Sphinx and by
+#   Click's `--help`, so a summary spilling onto a second line is cut mid-sentence.
+#   See: https://docs.astral.sh/ruff/rules/missing-blank-line-after-summary/
+# D209: Multi-line docstring closing quotes should be on a separate line.
+#   See: https://docs.astral.sh/ruff/rules/new-line-after-last-paragraph/
+# E501: Line too long.
+#   The formatter wraps code and autopep8 wraps comments, but neither touches a
+#   docstring or a string literal, which is where overlong lines survive.
+#   See: https://docs.astral.sh/ruff/rules/line-too-long/
+# PLC0415: `import` should be at the top-level of a file.
+#   A function-local import hides a dependency and escapes isort.
+#   See: https://docs.astral.sh/ruff/rules/import-outside-top-level/
 # PLW1514: `open` and friends called without an explicit `encoding` argument.
 #   Windows defaults text I/O to cp1252, so a bare `open()`, `read_text()` or
 #   `write_text()` breaks on non-ASCII content, and only on Windows runners.
 #   Preview rule; its type inference misses unannotated `Path` locals, so
 #   PEP 597's `PYTHONWARNDEFAULTENCODING=1` remains the complete runtime net.
 #   See: https://docs.astral.sh/ruff/rules/unspecified-encoding/
-lint.extend-select = [ "PLW1514" ]
+# TC: an import used only in annotations belongs in the `if TYPE_CHECKING:` block.
+#   Ruff reads the block in its `TYPE_CHECKING = False` form, which spares the
+#   `typing` import at runtime.
+#   See: https://docs.astral.sh/ruff/rules/#flake8-type-checking-tc
+lint.extend-select = [ "D205", "D209", "E501", "PLC0415", "PLW1514", "TC" ]
 # D301: Use `r"""` if any backslashes in a docstring.
 #   A Click command's docstring is its `--help` text, and `\b` marks a paragraph
 #   Click must not rewrap. The raw prefix this rule asks for turns that backspace

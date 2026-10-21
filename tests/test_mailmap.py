@@ -95,7 +95,7 @@ def test_mailmap():
 
             GitHub <noreply@github.com>                   dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
             GitHub <noreply@github.com>         GitHub <noreply@github.com>
-            """
+            """  # noqa: E501
         )
     )
 
@@ -105,7 +105,7 @@ def test_mailmap():
         GitHub <noreply@github.com>
         GitHub <noreply@github.com> dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
         GitHub <noreply@github.com>
-        github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com> GitHub Actions <actions@github.com>"""
+        github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com> GitHub Actions <actions@github.com>"""  # noqa: E501
     )
 
 

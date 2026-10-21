@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-"""Tests for `repomatic.release.prepare_release`: the release freeze and unfreeze edits."""
+"""Tests for `repomatic.release.prepare_release`: the freeze and unfreeze edits."""
 
 from __future__ import annotations
 
@@ -635,7 +635,7 @@ def temp_install(tmp_path: Path) -> Path:
             | **Linux**   | [Download `repomatic-linux-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-linux-arm64.bin) | [Download `repomatic-linux-x64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-linux-x64.bin) |
             | **macOS**   | [Download `repomatic-macos-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-macos-arm64.bin) | [Download `repomatic-macos-x64.bin`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-macos-x64.bin) |
             | **Windows** | [Download `repomatic-windows-arm64.exe`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-windows-arm64.exe) | [Download `repomatic-windows-x64.exe`](https://github.com/kdeldycke/repomatic/releases/latest/download/repomatic-windows-x64.exe) |
-            """),
+            """),  # noqa: E501
         encoding="UTF-8",
     )
     return install_md
@@ -656,7 +656,7 @@ def temp_install_frozen(tmp_path: Path) -> Path:
             | **Linux**   | [Download `repomatic-1.2.2-linux-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v1.2.2/repomatic-1.2.2-linux-arm64.bin) | [Download `repomatic-1.2.2-linux-x64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v1.2.2/repomatic-1.2.2-linux-x64.bin) |
             | **macOS**   | [Download `repomatic-1.2.2-macos-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v1.2.2/repomatic-1.2.2-macos-arm64.bin) | [Download `repomatic-1.2.2-macos-x64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v1.2.2/repomatic-1.2.2-macos-x64.bin) |
             | **Windows** | [Download `repomatic-1.2.2-windows-arm64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v1.2.2/repomatic-1.2.2-windows-arm64.exe) | [Download `repomatic-1.2.2-windows-x64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v1.2.2/repomatic-1.2.2-windows-x64.exe) |
-            """),
+            """),  # noqa: E501
         encoding="UTF-8",
     )
     return install_md
@@ -961,7 +961,7 @@ def temp_install_pinned(tmp_path: Path) -> Path:
 
             A distro package is available as `python-test-project==0.9` too.
             Development runs use `uvx --from git+https://example.com/repo -- test-project`.
-            """),
+            """),  # noqa: E501
         encoding="UTF-8",
     )
     return install_md

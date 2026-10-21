@@ -249,8 +249,8 @@ def _resolve_rules(
             isinstance(pattern, str) for pattern in raw_patterns
         ):
             logging.warning(
-                f"Skipping {kind} rule for label {label!r}: expected a list of strings, "
-                f"got {raw_patterns!r}."
+                f"Skipping {kind} rule for label {label!r}: expected a list of "
+                f"strings, got {raw_patterns!r}."
             )
             continue
         if raw_patterns:

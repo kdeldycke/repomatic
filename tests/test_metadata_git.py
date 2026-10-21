@@ -103,8 +103,9 @@ def test_push_creating_a_branch_has_no_range_start(shallow_push, tmp_path, monke
 
 
 def test_new_commits_degrades_when_git_fails(monkeypatch, caplog):
-    """A git failure degrades new_commits to None with git's stderr surfaced,
-    instead of crashing the whole `metadata` command.
+    """A git failure degrades new_commits to None and surfaces git's stderr.
+
+    The whole `metadata` command keeps running instead of crashing.
 
     Reproduces the compiled-binary self-test running inside a manylinux container
     over a checkout git refuses as "dubious ownership".

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterator
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
@@ -66,6 +65,10 @@ from tests.conftest import (
     assert_shipped_text_reads_true_downstream,
     load_workflow,
 )
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # Commit message prefix for post-release version bump.
 POST_RELEASE_COMMIT_PREFIX = f"{CHANGELOG_COMMIT_PREFIX}Post-release bump"
@@ -463,8 +466,9 @@ def test_every_job_caps_its_runtime() -> None:
 
 
 def test_job_timeouts_stay_within_bounds() -> None:
-    """No cap may be absent-by-another-name: zero, negative, or effectively the
-    platform default.
+    """No cap may be absent by another name.
+
+    Zero, negative, or effectively the platform default all count as absent.
 
     A cap above `MAX_JOB_TIMEOUT` buys back almost none of the runner
     time the requirement exists to reclaim, so it needs the ceiling raised
@@ -562,8 +566,9 @@ def test_deploy_gates_name_a_declared_target() -> None:
 
 @pytest.mark.parametrize("workflow_name", sorted(WORKFLOWS_IGNORING_VERSION_BUMPS))
 def test_version_bump_branches_ignored(workflow_name: str) -> None:
-    """Heavy PR-triggered workflows must list every VERSION_BUMP_BRANCHES
-    member under `pull_request.branches-ignore`.
+    """Heavy PR-triggered workflows ignore every VERSION_BUMP_BRANCHES member.
+
+    The list sits under `pull_request.branches-ignore`.
     """
     workflow = load_workflow(workflow_name)
     pr_trigger = workflow.get("on", {}).get("pull_request", {})
@@ -577,9 +582,10 @@ def test_version_bump_branches_ignored(workflow_name: str) -> None:
 
 @pytest.mark.parametrize("workflow_name", sorted(WORKFLOWS_IGNORING_VERSION_BUMPS))
 def test_metadata_gate_skips_version_bump_branches(workflow_name: str) -> None:
-    """The `metadata` job's `if:` expression must encode the same set of
-    branch names as VERSION_BUMP_BRANCHES via a `contains(fromJSON(...))`
-    check on `github.head_ref`.
+    """The `metadata` job's `if:` gate names the VERSION_BUMP_BRANCHES set.
+
+    It encodes the same branch names via a `contains(fromJSON(...))` check on
+    `github.head_ref`.
 
     All PR-triggered workflows that ignore version-bump PRs need this gate
     because `pull_request.branches-ignore` only filters the PR's *base*
@@ -601,11 +607,11 @@ def test_metadata_gate_skips_version_bump_branches(workflow_name: str) -> None:
 
 
 def test_tests_metadata_gate_skips_manual_bumps() -> None:
-    """`tests.yaml`'s `metadata` job must short-circuit on every
-    MANUAL_VERSION_BUMP_COMMIT_PREFIXES member, but must *not* gate on the
-    `[changelog] Post-release bump ` prefix: that push carries the release
-    commit, and the post-release-bump commit is the only post-merge test
-    point for the release-frozen tree.
+    """`tests.yaml` gates on every MANUAL_VERSION_BUMP_COMMIT_PREFIXES member.
+
+    Its `metadata` job must *not* gate on the `[changelog] Post-release bump `
+    prefix: that push carries the release commit, and the post-release-bump
+    commit is the only post-merge test point for the release-frozen tree.
     """
     jobs = load_workflow("tests.yaml").get("jobs", {})
     if_expr = jobs.get("metadata", {}).get("if", "")
@@ -627,11 +633,12 @@ def test_tests_metadata_gate_skips_manual_bumps() -> None:
 
 @pytest.mark.parametrize("workflow_name", sorted(WORKFLOWS_WITH_METADATA_GATE))
 def test_metadata_gate_skips_version_bump_commits(workflow_name: str) -> None:
-    """The `metadata` job's `if:` expression must short-circuit on the single
-    CHANGELOG_COMMIT_PREFIX clause, so post-merge `push` events with any
-    machine-authored version-machinery commit at their head skip the entire
-    job graph. The prefix stands in for every VERSION_BUMP_COMMIT_PREFIXES
-    member, which `test_changelog_prefix_is_the_machinery_invariant` holds.
+    """The `metadata` job short-circuits on the single CHANGELOG_COMMIT_PREFIX.
+
+    Post-merge `push` events with any machine-authored version-machinery commit
+    at their head then skip the entire job graph. The prefix stands in for every
+    VERSION_BUMP_COMMIT_PREFIXES member, which
+    `test_changelog_prefix_is_the_machinery_invariant` holds.
     """
     jobs = load_workflow(workflow_name).get("jobs", {})
     if_expr = jobs.get("metadata", {}).get("if", "")
@@ -682,7 +689,10 @@ def test_autofix_independent_jobs_repeat_version_bump_gate(job_name: str) -> Non
         "AUTOFIX_METADATA_INDEPENDENT_JOBS, the central gate covers it"
     )
     if_expr = job.get("if", "")
-    clause = f"!startsWith(github.event.head_commit.message || '', '{CHANGELOG_COMMIT_PREFIX}')"
+    clause = (
+        "!startsWith(github.event.head_commit.message || '', "
+        f"'{CHANGELOG_COMMIT_PREFIX}')"
+    )
     assert clause in if_expr, (
         f"autofix.yaml:{job_name}: if must repeat the version-bump gate "
         f"{clause!r}, got {if_expr!r}"
@@ -811,7 +821,7 @@ def test_version_increments_runs_on_expected_events() -> None:
 
 
 def test_prepare_release_runs_on_workflow_run() -> None:
-    """The prepare-release job must run on workflow_run events (the PR-refresh backstop).
+    """The prepare-release job runs on workflow_run events (the PR-refresh backstop).
 
     `workflow_run` fires after every "🚀 Build & release" — so after every push to
     `main` — and re-bases the release PR onto the current HEAD. Without it, a push
@@ -1657,8 +1667,7 @@ def test_all_workflows_have_symlinks_in_data() -> None:
 
 
 def test_only_workflows_agents_and_actions_are_symlinks_in_data() -> None:
-    """Verify only workflow, agent, and composite-action files are symlinks
-    in repomatic/data/.
+    """Only workflows, agents and composite actions are symlinks in repomatic/data/.
 
     Scoped to the top level of `repomatic/data/`. Skills live one directory
     down, as a folder per skill, and are covered by

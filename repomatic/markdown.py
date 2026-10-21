@@ -114,8 +114,9 @@ def sanitize_markdown_mentions(text: str) -> str:
     spans are temporarily replaced with unique placeholders before sanitization,
     then restored afterward. This avoids the fragile "sanitize then restore"
     pattern that caused bugs in both Dependabot (2019 code-fence regression,
-    [dependabot/dependabot-core#1421](https://github.com/dependabot/dependabot-core/issues/1421)) and Renovate
-    (ongoing restoration pass edge cases, [renovatebot/renovate#8823](https://github.com/renovatebot/renovate/issues/8823),
+    [dependabot/dependabot-core#1421](https://github.com/dependabot/dependabot-core/issues/1421))
+    and Renovate (ongoing restoration pass edge cases,
+    [renovatebot/renovate#8823](https://github.com/renovatebot/renovate/issues/8823),
     [renovatebot/renovate#2554](https://github.com/renovatebot/renovate/issues/2554)).
 
     Inserts a Unicode zero-width space (U+200B) after `@` and `#` to break
