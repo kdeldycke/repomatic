@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 from click_extra.testing import CliRunner
@@ -49,7 +47,7 @@ from tests.test_binary import (
 )
 
 
-def _machines_for(binary_format: BinaryFormat) -> set[str | int]:
+def _machines_for(binary_format: BinaryFormat) -> set[int]:
     """Every machine identifier recorded for one executable format."""
     return {
         machine
@@ -115,7 +113,7 @@ def test_elf_info_without_verneed(tmp_path):
     """A sectionless ELF reports its machine and no glibc requirement."""
     sample = tmp_path / "sample.bin"
     sample.write_bytes(make_elf(EM_X86_64))
-    assert _elf_info(sample) == ("EM_X86_64", None)
+    assert _elf_info(sample) == (EM_X86_64, None)
 
 
 def test_elf_info_skips_glibc_feature_versions(tmp_path):
@@ -124,50 +122,39 @@ def test_elf_info_skips_glibc_feature_versions(tmp_path):
     Files linked with packed relocations require it, like the Python
     interpreter Arch Linux ships.
     """
-
-    class FakeVerNeedSection:
-        def iter_versions(self):
-            names = ("GLIBC_2.34", "GLIBC_ABI_DT_RELR", "GLIBC_2.38")
-            yield None, [SimpleNamespace(name=name) for name in names]
-
-    class FakeELFFile:
-        def __init__(self, stream):
-            self.header = {"e_machine": "EM_X86_64"}
-
-        def iter_sections(self):
-            yield FakeVerNeedSection()
-
     sample = tmp_path / "sample.bin"
-    sample.write_bytes(make_elf(EM_X86_64))
-    with (
-        patch("repomatic.release.verify.ELFFile", FakeELFFile),
-        patch("repomatic.release.verify.GNUVerNeedSection", FakeVerNeedSection),
-    ):
-        assert _elf_info(sample) == ("EM_X86_64", "2.38")
+    versions = ("GLIBC_2.34", "GLIBC_ABI_DT_RELR", "GLIBC_2.38")
+    sample.write_bytes(make_elf(EM_X86_64, versions))
+    assert _elf_info(sample) == (EM_X86_64, "2.38")
 
 
 def test_elf_info_orders_glibc_versions_numerically(tmp_path):
     """`2.4` is older than `2.38`, which a comparison of strings gets wrong."""
-
-    class FakeVerNeedSection:
-        def iter_versions(self):
-            names = ("GLIBC_2.4", "GLIBC_2.38", "GLIBC_2.17")
-            yield None, [SimpleNamespace(name=name) for name in names]
-
-    class FakeELFFile:
-        def __init__(self, stream):
-            self.header = {"e_machine": "EM_X86_64"}
-
-        def iter_sections(self):
-            yield FakeVerNeedSection()
-
     sample = tmp_path / "sample.bin"
-    sample.write_bytes(make_elf(EM_X86_64))
-    with (
-        patch("repomatic.release.verify.ELFFile", FakeELFFile),
-        patch("repomatic.release.verify.GNUVerNeedSection", FakeVerNeedSection),
-    ):
-        assert _elf_info(sample) == ("EM_X86_64", "2.38")
+    sample.write_bytes(make_elf(EM_X86_64, ("GLIBC_2.4", "GLIBC_2.38", "GLIBC_2.17")))
+    assert _elf_info(sample) == (EM_X86_64, "2.38")
+
+
+@pytest.mark.parametrize(
+    ("wide", "big_endian"),
+    [(True, True), (False, False), (False, True)],
+    ids=["elf64-be", "elf32-le", "elf32-be"],
+)
+def test_elf_info_reads_both_classes_and_byte_orders(tmp_path, wide, big_endian):
+    """The parser follows the class and byte order the identification declares."""
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(
+        make_elf(EM_AARCH64, ("GLIBC_2.17",), wide=wide, big_endian=big_endian)
+    )
+    assert _elf_info(sample) == (EM_AARCH64, "2.17")
+
+
+def test_elf_info_rejects_a_truncated_header(tmp_path):
+    """A file cut inside its ELF header is reported, not read as sectionless."""
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(make_elf(EM_X86_64)[:40])
+    with pytest.raises(ValueError, match="Truncated ELF header"):
+        _elf_info(sample)
 
 
 def test_macho_info_fat_slices(tmp_path):
@@ -243,16 +230,13 @@ def test_floor_exceeded_macos(tmp_path):
 def test_floor_linux(tmp_path, measured, passes):
     """Linux floors compare the measured glibc requirement to the declared floor."""
     binary = tmp_path / "test.bin"
-    binary.write_bytes(make_elf(EM_X86_64))
+    binary.write_bytes(make_elf(EM_X86_64, (f"GLIBC_{measured}",)))
     target = NUITKA_BUILD_TARGETS["linux-x64"]
-    with patch(
-        "repomatic.release.verify._elf_info", return_value=("EM_X86_64", measured)
-    ):
-        if passes:
+    if passes:
+        verify_binary_floor(target, binary)
+    else:
+        with pytest.raises(ValueError, match="OS floor exceeded"):
             verify_binary_floor(target, binary)
-        else:
-            with pytest.raises(ValueError, match="OS floor exceeded"):
-                verify_binary_floor(target, binary)
 
 
 def test_floor_windows_is_documentation_only(tmp_path):

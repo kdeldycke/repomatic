@@ -167,10 +167,10 @@ Read through {attr}`BuildTarget.binary_format`, which is how every caller
 reaches it.
 """
 
-MACHINE_IDS: Final[dict[tuple[BinaryFormat, Architecture], str | int]] = {
-    # ELF `e_machine`, as decoded by pyelftools.
-    (BinaryFormat.ELF, AARCH64): "EM_AARCH64",
-    (BinaryFormat.ELF, X86_64): "EM_X86_64",
+MACHINE_IDS: Final[dict[tuple[BinaryFormat, Architecture], int]] = {
+    # ELF header `e_machine`.
+    (BinaryFormat.ELF, AARCH64): 183,
+    (BinaryFormat.ELF, X86_64): 62,
     # Mach-O header `cputype`.
     (BinaryFormat.MACHO, AARCH64): 0x0100000C,
     (BinaryFormat.MACHO, X86_64): 0x01000007,
@@ -182,8 +182,8 @@ MACHINE_IDS: Final[dict[tuple[BinaryFormat, Architecture], str | int]] = {
 
 One table rather than three, keyed the way
 {data}`~repomatic.tooling.registry.PlatformKey` keys the tool registry: the value
-is a pyelftools machine name on ELF and a raw header integer on Mach-O and PE,
-so a caller compares it against whatever the matching parser returns.
+is the raw header integer of each format, so a caller compares it against
+whatever the matching parser returns.
 """
 
 
@@ -282,7 +282,7 @@ class BuildTarget:
         return self.binary_format.extension
 
     @property
-    def expected_machine(self) -> str | int:
+    def expected_machine(self) -> int:
         """Machine identifier this target's binaries carry in their header."""
         return MACHINE_IDS[self.binary_format, self.arch]
 

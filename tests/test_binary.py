@@ -48,6 +48,7 @@ from repomatic.release.binary import (
     current_build_target,
     pack_binary_assets,
 )
+from repomatic.release.verify import SHT_GNU_VERNEED
 from tests.conftest import metadata_from_pyproject
 
 TYPE_CHECKING = False
@@ -57,13 +58,100 @@ if TYPE_CHECKING:
 EM_AARCH64 = 183
 EM_X86_64 = 62
 
+SHT_STRTAB = 3
+"""ELF section type of a string table."""
 
-def make_elf(machine: int) -> bytes:
-    """Craft a minimal 64-bit little-endian ELF header with no sections."""
-    ident = b"\x7fELF" + bytes([2, 1, 1, 0]) + bytes(8)
-    return ident + struct.pack(
-        "<HHIQQQIHHHHHH", 2, machine, 1, 0, 0, 0, 0, 64, 56, 0, 64, 0, 0
+
+def make_elf(
+    machine: int,
+    versions: tuple[str, ...] = (),
+    *,
+    wide: bool = True,
+    big_endian: bool = False,
+) -> bytes:
+    """Craft a minimal ELF file, requiring *versions* of libc when given.
+
+    Without *versions* the file holds a bare header and no section table. With
+    them it carries a `.dynstr` string table and a `.gnu.version_r` section
+    naming each one under a single `libc.so.6` requirement, the way the linker
+    writes them. *wide* picks ELF64 over ELF32, and *big_endian* the byte
+    order, as the identification bytes declare them.
+    """
+    order = ">" if big_endian else "<"
+    ident = b"\x7fELF" + bytes([2 if wide else 1, 2 if big_endian else 1, 1, 0])
+    ident += bytes(8)
+    header_layout = f"{order}HHIQQQIHHHHHH" if wide else f"{order}HHIIIIIHHHHHH"
+    section_layout = f"{order}IIQQQQIIQQ" if wide else f"{order}IIIIIIIIII"
+    header_size = len(ident) + struct.calcsize(header_layout)
+    section_size = struct.calcsize(section_layout)
+    if not versions:
+        header = struct.pack(
+            header_layout,
+            2,
+            machine,
+            1,
+            0,
+            0,
+            0,
+            0,
+            header_size,
+            0,
+            0,
+            section_size,
+            0,
+            0,
+        )
+        return ident + header
+    strings = b"\0"
+    offsets: dict[str, int] = {}
+    for name in ("libc.so.6", *versions):
+        offsets[name] = len(strings)
+        strings += name.encode() + b"\0"
+    verneed = struct.pack(
+        f"{order}HHIII", 1, len(versions), offsets["libc.so.6"], 16, 0
     )
+    for index, name in enumerate(versions):
+        next_aux = 0 if index == len(versions) - 1 else 16
+        verneed += struct.pack(
+            f"{order}IHHII", 0, 0, 2 + index, offsets[name], next_aux
+        )
+    strtab_offset = header_size
+    verneed_offset = strtab_offset + len(strings)
+    shoff = verneed_offset + len(verneed)
+    sections = struct.pack(section_layout, *([0] * 10))
+    sections += struct.pack(
+        section_layout, 0, SHT_STRTAB, 0, 0, strtab_offset, len(strings), 0, 0, 1, 0
+    )
+    sections += struct.pack(
+        section_layout,
+        0,
+        SHT_GNU_VERNEED,
+        0,
+        0,
+        verneed_offset,
+        len(verneed),
+        1,
+        1,
+        4,
+        0,
+    )
+    header = struct.pack(
+        header_layout,
+        2,
+        machine,
+        1,
+        0,
+        0,
+        shoff,
+        0,
+        header_size,
+        0,
+        0,
+        section_size,
+        3,
+        0,
+    )
+    return ident + header + strings + verneed + sections
 
 
 def pack_macho_version(version: str) -> int:
@@ -101,23 +189,18 @@ def make_pe(machine: int) -> bytes:
 
 
 def macho_cpu_type(arch: Architecture) -> int:
-    """The Mach-O `cputype` for an architecture, narrowed for the byte builders.
+    """The Mach-O `cputype` for an architecture, read for the byte builders.
 
-    {data}`~repomatic.release.binary.MACHINE_IDS` spans every format, so its values are
-    `str | int`: a pyelftools machine name on ELF, a raw header integer on the
-    other two. These two accessors carry that correspondence for the helpers
-    below, which write real header bytes and need the integer.
+    {data}`~repomatic.release.binary.MACHINE_IDS` spans every format. These two
+    accessors name the format for the helpers below, which write real header
+    bytes.
     """
-    value = MACHINE_IDS[BinaryFormat.MACHO, arch]
-    assert isinstance(value, int)
-    return value
+    return MACHINE_IDS[BinaryFormat.MACHO, arch]
 
 
 def pe_machine_id(arch: Architecture) -> int:
-    """The PE COFF `Machine` value for an architecture, narrowed to `int`."""
-    value = MACHINE_IDS[BinaryFormat.PE, arch]
-    assert isinstance(value, int)
-    return value
+    """The PE COFF `Machine` value for an architecture."""
+    return MACHINE_IDS[BinaryFormat.PE, arch]
 
 
 @pytest.mark.parametrize(

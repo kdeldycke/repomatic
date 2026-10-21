@@ -22,7 +22,7 @@ inside build containers.
 
 Only `verify-binary` reads headers. This module is kept apart from the build
 roster in {mod}`repomatic.release.binary`, which `metadata` loads on every
-workflow run, so `pyelftools` loads for the one command that needs it.
+workflow run.
 """
 
 from __future__ import annotations
@@ -31,9 +31,8 @@ import logging
 import re
 import struct
 from itertools import chain
+from typing import NamedTuple
 
-from elftools.elf.elffile import ELFFile
-from elftools.elf.gnuversions import GNUVerNeedSection
 from packaging.version import Version
 
 from .binary import MACHO_FAT_MAGICS, MACHO_MAGIC_64, BinaryFormat
@@ -55,6 +54,9 @@ LC_BUILD_VERSION: Final[int] = 0x32
 MACHO_PLATFORM_MACOS: Final[int] = 1
 """`platform` field value naming macOS inside an `LC_BUILD_VERSION` command."""
 
+SHT_GNU_VERNEED: Final[int] = 0x6FFFFFFE
+"""Section type of `.gnu.version_r`, the table of symbol versions a file needs."""
+
 _GLIBC_RELEASE_RE: Final[re.Pattern[str]] = re.compile(r"GLIBC_(\d+(?:\.\d+)*)")
 """A `.gnu.version_r` entry naming a glibc release, like `GLIBC_2.34`.
 
@@ -68,26 +70,120 @@ real-world DOS-stub offset to the COFF header without reading the whole
 binary."""
 
 
-def _elf_info(path: Path) -> tuple[str, str | None]:
-    """Return the machine and highest glibc requirement of an ELF file.
+class _SectionHeader(NamedTuple):
+    """One entry of the ELF section header table, in field order."""
+
+    name: int
+    type: int
+    flags: int
+    addr: int
+    offset: int
+    size: int
+    link: int
+    info: int
+    addralign: int
+    entsize: int
+
+
+def _elf_sections(
+    stream: IO[bytes], order: str, wide: bool, shoff: int, shentsize: int, shnum: int
+) -> list[_SectionHeader]:
+    """The section header table of an ELF file, empty when it has none.
+
+    A table cut short yields the entries the file does hold.
+
+    :param stream: The open ELF file.
+    :param order: The `struct` byte-order prefix, `<` or `>`.
+    :param wide: `True` for ELF64, `False` for ELF32.
+    :param shoff: File offset of the table, `0` when the file has none.
+    :param shentsize: Byte length of one entry.
+    :param shnum: Number of entries.
+    """
+    if not shoff or not shnum:
+        return []
+    layout = f"{order}IIQQQQIIQQ" if wide else f"{order}IIIIIIIIII"
+    size = struct.calcsize(layout)
+    stream.seek(shoff)
+    table = stream.read(shentsize * shnum)
+    return [
+        _SectionHeader(*struct.unpack_from(layout, table, index * shentsize))
+        for index in range(shnum)
+        if index * shentsize + size <= len(table)
+    ]
+
+
+def _verneed_names(
+    data: bytes, strings: bytes, order: str, count: int
+) -> Iterator[str]:
+    """Yield the version names a `.gnu.version_r` section requires.
+
+    *data* holds *count* `Elf_Verneed` entries, each chaining its `Elf_Vernaux`
+    children by relative offsets; both are 16 bytes in either ELF class. The
+    names live in *strings*, the table the section links to. Data cut short
+    ends the walk.
+    """
+    entry = 0
+    for _ in range(count):
+        if entry + 16 > len(data):
+            return
+        _, aux_count, _, aux_offset, next_entry = struct.unpack_from(
+            f"{order}HHIII", data, entry
+        )
+        aux = entry + aux_offset
+        for _ in range(aux_count):
+            if aux + 16 > len(data):
+                return
+            _, _, _, name_offset, next_aux = struct.unpack_from(
+                f"{order}IHHII", data, aux
+            )
+            end = strings.find(b"\0", name_offset)
+            name = strings[name_offset : end if end >= 0 else None]
+            yield name.decode("ASCII", errors="replace")
+            if not next_aux:
+                break
+            aux += next_aux
+        if not next_entry:
+            return
+        entry += next_entry
+
+
+def _elf_info(path: Path) -> tuple[int, str | None]:
+    """Return the `e_machine` code and highest glibc requirement of an ELF file.
 
     The glibc requirement is the maximum `GLIBC_x.y` entry of the
     `.gnu.version_r` section: the version table the dynamic loader checks
     before letting the file run, and so the file's effective glibc floor.
-    Feature entries like `GLIBC_ABI_DT_RELR` are skipped.
+    Feature entries like `GLIBC_ABI_DT_RELR` are skipped. Both ELF classes and
+    both byte orders are read, as the identification bytes declare them.
+
+    :raises ValueError: If the file ends inside its ELF header.
     """
-    versions = set()
     with path.open("rb") as stream:
-        elf = ELFFile(stream)
-        machine = str(elf.header["e_machine"])
-        for section in elf.iter_sections():
-            if not isinstance(section, GNUVerNeedSection):
+        ident = stream.read(16)
+        wide = ident[4:5] == b"\x02"
+        order = ">" if ident[5:6] == b"\x02" else "<"
+        layout = f"{order}HHIQQQIHHHHHH" if wide else f"{order}HHIIIIIHHHHHH"
+        header = stream.read(struct.calcsize(layout))
+        if len(ident) < 16 or len(header) < struct.calcsize(layout):
+            raise ValueError(f"Truncated ELF header in {path}")
+        fields = struct.unpack(layout, header)
+        machine = int(fields[1])
+        sections = _elf_sections(
+            stream, order, wide, shoff=fields[5], shentsize=fields[10], shnum=fields[11]
+        )
+        versions: set[str] = set()
+        for section in sections:
+            if section.type != SHT_GNU_VERNEED or section.link >= len(sections):
                 continue
-            for _verneed, aux_iter in section.iter_versions():
-                for aux in aux_iter:
-                    release = _GLIBC_RELEASE_RE.fullmatch(aux.name)
-                    if release:
-                        versions.add(release.group(1))
+            strtab = sections[section.link]
+            stream.seek(strtab.offset)
+            strings = stream.read(strtab.size)
+            stream.seek(section.offset)
+            data = stream.read(section.size)
+            for name in _verneed_names(data, strings, order, section.info):
+                release = _GLIBC_RELEASE_RE.fullmatch(name)
+                if release:
+                    versions.add(release.group(1))
     floor = max(versions, key=Version) if versions else None
     return machine, floor
 
@@ -189,11 +285,11 @@ def _pe_machine(path: Path) -> int | None:
 
 def read_header(
     binary_format: BinaryFormat, path: Path
-) -> tuple[frozenset[object], str | None]:
+) -> tuple[frozenset[int | None], str | None]:
     """Parse a binary's headers into its machine set and measured floor.
 
-    The machine element type follows the format (ELF machine names,
-    Mach-O CPU type integers, the PE machine id or `None` when
+    The machines are the raw header integers of the format (the ELF
+    `e_machine` code, Mach-O CPU types, the PE machine id or `None` when
     unparsable), matching what {data}`~repomatic.release.binary.MACHINE_IDS`
     records as the expectation. The floor is the measured requirement
     {func}`verify_binary_floor` compares against the declared one: always
@@ -251,7 +347,7 @@ def verify_binary_arch(target: BuildTarget, binary_path: Path) -> None:
 
     reported, _ = read_header(expected_format, binary_path)
 
-    expected: object = target.expected_machine
+    expected = target.expected_machine
     if expected not in reported:
         raise ValueError(
             f"Binary architecture mismatch!\n"
