@@ -100,6 +100,7 @@
 - Bump Nuitka from `4.3` to `4.3.1`, which stops a new kind of local variable from recompiling every C file of the binary.
 - The bundled `benchmark-update` skill now grades each cell ✅, 🟡 or ❌, links it to its evidence, and audits blank cells against quoted sources.
 - The bundled `repomatic-audit` skill now reads the CI state of the default branch, and checks that `[tool.gitleaks]` keeps the built-in rules.
+- The bundled `repomatic-deps` skill now flags, in its `explore` mode, thin dependencies that in-house code could replace.
 - The bundled `repomatic-upgrade` skill now runs the newly pinned `mypy` and `ruff` on the untouched tree, since the changelog often leaves a tool bump out.
 - The bundled `repomatic-upgrade` skill now tells a local edit that upstream already holds from one the upgrade drops, with a three-way merge.
 - The bundled `repomatic-upgrade` skill now reads the binary self-test of `Build & release` when an upgrade changes how binaries build.

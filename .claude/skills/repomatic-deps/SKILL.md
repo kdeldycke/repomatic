@@ -1,6 +1,6 @@
 ---
 name: repomatic-deps
-description: Generate dependency graphs. Audit pyproject.toml declarations against the version policy. Explore unused dependency APIs that could simplify code. Modernize code against the changelogs of upgraded dependencies.
+description: Generate dependency graphs. Audit pyproject.toml declarations against the version policy. Explore unused dependency APIs that could simplify code, and flag thin dependencies that in-house code could replace. Modernize code against the changelogs of upgraded dependencies.
 compatibility: 'Designed for Claude Code. Recommended model: Opus.'
 allowed-tools: Bash Read Grep Glob Agent Edit Write WebFetch
 argument-hint: '[graph [--level N]|review [all|runtime|dev|policy]|explore [<package>]|modernize [<package>]]'
@@ -31,7 +31,7 @@ You help users understand and maintain their project's dependencies. This skill 
 - No arguments: Run both `graph` and `review all`.
 - `graph`: Generate and analyze the dependency graph only.
 - `review [all|runtime|dev|policy]`: Audit `pyproject.toml` declarations only.
-- `explore [<package>]`: Search for unused dependency APIs that could simplify existing code.
+- `explore [<package>]`: Search for unused dependency APIs that could simplify existing code, and flag thin dependencies that in-house code could replace.
 - `modernize [<package>]`: Refactor code to adopt new features from upgraded dependencies, applying and test-gating each change.
 - If `$ARGUMENTS` starts with `--level` or a number, treat it as `graph` mode with those arguments.
 
@@ -294,6 +294,14 @@ Common false-positive patterns to reject early:
 - **Adding atomicity where none is needed.** `atomic_save` on files that are immediately git-committed or overwritten by CI.
 - **Unifying glob implementations.** stdlib `glob` and `wcmatch.glob` serve different purposes; not every `glob.glob()` call needs extended syntax.
 - **Replacing regex with structured parsing** when the regex is simpler. `re.match(r"extra\s*==\s*'([^']+)'", marker)` is more direct than navigating a `Marker` object's internal structure.
+
+### Removal candidates
+
+The usage catalog of step 1 also shows when the project uses a dependency so little that in-house code can replace it.
+
+- **Flag a thin dependency.** A package that a few call sites use, and that the standard library or a short function can replace, is a removal candidate.
+- **Check what else requires it.** Run `uv tree --invert --package {pkg}` before you report that the lockfile drops it. Another dependency can still require it: then only the direct entry and its type stubs leave the lock.
+- **Keep it installed as a reference until the replacement matches it.** Compare the two over a generated range of inputs, edge cases included, and remove the package only when no output differs.
 
 ---
 
