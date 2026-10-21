@@ -69,7 +69,7 @@ def test_matrix():
     assert matrix.matrix() == {"foo": ("a", "b", "c", "d")}
 
     assert str(matrix) == '{"foo": ["a", "b", "c", "d"]}'
-    assert repr(matrix) == "<Matrix: FrozenDict({'foo': ('a', 'b', 'c', 'd')})>"
+    assert repr(matrix) == "<Matrix: {'foo': ('a', 'b', 'c', 'd')}>"
 
     with pytest.raises(ValueError):
         matrix.add_variation("variation_1", None)  # type: ignore[arg-type]
@@ -328,8 +328,8 @@ def test_includes():
         '"include": [{"foo": "a", "bar": "1"}, {"foo": "b", "bar": "2"}]}'
     )
     assert (
-        repr(matrix) == "<Matrix: FrozenDict({'foo': ('a', 'b', 'c'), "
-        "'include': ({'foo': 'a', 'bar': '1'}, {'foo': 'b', 'bar': '2'})})>"
+        repr(matrix) == "<Matrix: {'foo': ('a', 'b', 'c'), "
+        "'include': ({'foo': 'a', 'bar': '1'}, {'foo': 'b', 'bar': '2'})}>"
     )
 
     # Multiple insertions.
@@ -385,8 +385,8 @@ def test_excludes():
         '"exclude": [{"foo": "a", "bar": "1"}, {"foo": "b", "bar": "2"}]}'
     )
     assert (
-        repr(matrix) == "<Matrix: FrozenDict({'foo': ('a', 'b', 'c'), "
-        "'exclude': ({'foo': 'a', 'bar': '1'}, {'foo': 'b', 'bar': '2'})})>"
+        repr(matrix) == "<Matrix: {'foo': ('a', 'b', 'c'), "
+        "'exclude': ({'foo': 'a', 'bar': '1'}, {'foo': 'b', 'bar': '2'})}>"
     )
 
     # Multiple insertions.

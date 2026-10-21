@@ -27,8 +27,6 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from boltons.iterutils import unique
-
 from .git_ops import list_contributor_identities
 
 MAILMAP_PATH = Path(".mailmap")
@@ -107,7 +105,7 @@ class Mailmap:
 
         assert len(identities), f"No identities found in {mapping!r}"
 
-        identities = list(unique(identities))
+        identities = list(dict.fromkeys(identities))
         return identities[0], set(identities[1:])
 
     def parse(self, content: str) -> None:

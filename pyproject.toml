@@ -87,10 +87,6 @@ dependencies = [
   # XXX Switch back to whenever once it grows a humanizer:
   # https://github.com/ariebovenberg/whenever/discussions/277
   "arrow>=1",
-  # boltons 19 is the first release whose iterutils imports on Python 3.11: 18.x
-  # still takes Mapping from collections. github/matrix.py and mailmap.py use its
-  # FrozenDict and unique().
-  "boltons>=19",
   # click-extra 9.3 added region_markers() to click_extra.blocks and the visible=
   # argument of OperationTrail. release/binaries_page.py imports the first and
   # deps/sync.py passes the second: on 9.2 no command starts.
@@ -198,11 +194,9 @@ docs = [
   # tests package fails to import and each of its pages renders empty.
   { include-group = "test" },
 ]
-# types-boltons: first stub release covering boltons 25.0 API (FrozenDict, unique, flatten,
-# strip_ansi). types-docutils: covers the docutils.nodes imports in docs/conf.py.
+# types-docutils: covers the docutils.nodes imports in docs/conf.py.
 # types-pyyaml: stub release covering PyYAML 6.0 (safe_load, safe_dump, full_load).
 typing = [
-  "types-boltons>=25.0.0.20250822",
   "types-docutils>=0.22.3.20251115",
   "types-pyyaml>=6.0.12.9",
 ]

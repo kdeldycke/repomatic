@@ -27,9 +27,6 @@ import json
 import logging
 from collections import Counter
 
-from boltons.dictutils import FrozenDict
-from boltons.iterutils import unique
-
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -107,10 +104,9 @@ class Matrix:
     - {meth}`add_includes`
     - {meth}`add_excludes`
 
-    {meth}`matrix` renders the result as an immutable
-    {class}`~boltons.dictutils.FrozenDict` for serialization, and `__getitem__`
-    reads a single axis, but the object itself is not a mapping: it holds axes,
-    includes and excludes as separate state.
+    {meth}`matrix` renders the result as a new `dict` for serialization, and
+    `__getitem__` reads a single axis, but the object itself is not a mapping:
+    it holds axes, includes and excludes as separate state.
 
     The implementation respects the order in which items were inserted. This provides a
     natural and visual sorting that should ease the inspection and debugging of large
@@ -124,17 +120,20 @@ class Matrix:
         self.include: tuple[dict[str, str], ...] = ()
         self.exclude: tuple[dict[str, str], ...] = ()
 
-    def matrix(self) -> FrozenDict[str, tuple[str, ...] | tuple[dict[str, str], ...]]:
+    def matrix(self) -> dict[str, tuple[str, ...] | tuple[dict[str, str], ...]]:
         """Returns a copy of the matrix, with its `include` and `exclude` directives.
 
-        A directive list that holds nothing is left out, as GitHub expects.
+        A directive list that holds nothing is left out, as GitHub expects. The
+        copy is detached from the model: changing it changes no axis here.
         """
-        dict_copy = self.variations.copy()
+        rendered: dict[str, tuple[str, ...] | tuple[dict[str, str], ...]] = dict(
+            self.variations
+        )
         if self.include:
-            dict_copy["include"] = self.include  # type: ignore[assignment]
+            rendered["include"] = self.include
         if self.exclude:
-            dict_copy["exclude"] = self.exclude  # type: ignore[assignment]
-        return FrozenDict(dict_copy)
+            rendered["exclude"] = self.exclude
+        return rendered
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}: {self.matrix()}>"
@@ -169,15 +168,14 @@ class Matrix:
         if any(type(v) is not str for v in new_values):
             raise ValueError(f"Only strings are accepted in {new_values}")
         self.variations[variation_id] = tuple(
-            unique((*self.variations.get(variation_id, ()), *new_values))
+            dict.fromkeys((*self.variations.get(variation_id, ()), *new_values))
         )
 
     def replace_variation_value(self, variation_id: str, old: str, new: str) -> None:
         """Replace a single value within a variation axis.
 
         The new value takes the position of the old value. If the new value
-        already exists elsewhere in the axis, the duplicate is removed by
-        {func}`boltons.iterutils.unique`.
+        already exists elsewhere in the axis, the later duplicate is removed.
 
         Silently skips if the axis does not exist or does not contain the
         old value, making the operation idempotent.
@@ -188,7 +186,7 @@ class Matrix:
         if old not in values:
             return
         values[values.index(old)] = new
-        self.variations[variation_id] = tuple(unique(values))
+        self.variations[variation_id] = tuple(dict.fromkeys(values))
 
     def remove_variation_value(self, variation_id: str, value: str) -> None:
         """Remove a single value from a variation axis.
@@ -265,7 +263,7 @@ class Matrix:
             for directive in self.include:
                 for key, value in directive.items():
                     collected.setdefault(key, []).append(value)
-        return {key: tuple(unique(values)) for key, values in collected.items()}
+        return {key: tuple(dict.fromkeys(values)) for key, values in collected.items()}
 
     def product(self) -> Iterator[dict[str, str]]:
         """Yield every combination of the declared axes, before any directive.

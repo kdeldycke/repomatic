@@ -36,7 +36,6 @@ import json
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
-from boltons.iterutils import get_path
 from click_extra import echo
 
 from . import api
@@ -297,6 +296,20 @@ def _is_unset(value: Any) -> bool:
     return value is MISSING or value is None or value == ""
 
 
+def _lookup(project: dict[str, Any], path: tuple[str, ...]) -> Any:
+    """The value *path* names in the live *project*, {data}`MISSING` if none.
+
+    Each key descends one level of the nested objects the API returns, so a
+    path stops at the first key its level does not hold.
+    """
+    node: Any = project
+    for key in path:
+        if not isinstance(node, dict) or key not in node:
+            return MISSING
+        node = node[key]
+    return node
+
+
 def _diff(
     project: dict[str, Any], settings: tuple[Setting, ...]
 ) -> tuple[list[Setting], list[tuple[Setting, Any]]]:
@@ -304,7 +317,7 @@ def _diff(
     matched: list[Setting] = []
     drifted: list[tuple[Setting, Any]] = []
     for setting in settings:
-        live = get_path(project, setting.path, default=MISSING)
+        live = _lookup(project, setting.path)
         # A setting asking for "nothing" is satisfied by every spelling of it,
         # so the one the API happens to use today cannot read as drift.
         if _is_unset(setting.desired) and _is_unset(live):

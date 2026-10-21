@@ -122,7 +122,7 @@ These conventions are derived from the `pyproject.toml` files across all `kdeldy
 06. **Prefer `[dependency-groups]`** (uv standard) over `[project.optional-dependencies]` for test, typing, and docs groups.
 07. **`>=` is preferred for dev deps too**, but `~=` is acceptable when stricter pinning reduces CI randomness. If a package also appears in runtime deps, the dev entry must use the same specifier style. The relaxation is about specifier *style* (`~=` allowed), not about floor *accuracy* — dev dep floors still need to be grounded in actual API or compatibility requirements, not adoption timestamps.
 08. **Standard group names:** `test`, `typing`, `docs` (lowercase, alphabetical).
-09. **Type stubs** go in the `typing` group with stub-specific versions: `"types-boltons>=25.0.0.20250822"`.
+09. **Type stubs** go in the `typing` group with stub-specific versions: `"types-pyyaml>=6.0.12.9"`.
 10. **Alphabetical order** within each group.
 
 #### General rules

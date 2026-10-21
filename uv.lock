@@ -1514,7 +1514,6 @@ version = "8.0.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "arrow" },
-    { name = "boltons" },
     { name = "click-extra" },
     { name = "extra-platforms" },
     { name = "packaging" },
@@ -1557,7 +1556,6 @@ test = [
     { name = "pytest-xdist", extra = ["psutil"] },
 ]
 typing = [
-    { name = "types-boltons" },
     { name = "types-docutils" },
     { name = "types-pyyaml" },
 ]
@@ -1568,7 +1566,6 @@ docs = ">=3.14"
 [package.metadata]
 requires-dist = [
     { name = "arrow", specifier = ">=1" },
-    { name = "boltons", specifier = ">=19" },
     { name = "click-extra", specifier = ">=9.3" },
     { name = "extra-platforms", specifier = ">=12.0.2" },
     { name = "packaging", specifier = ">=20" },
@@ -1611,7 +1608,6 @@ test = [
     { name = "pytest-xdist", extras = ["psutil"], specifier = ">=3.7" },
 ]
 typing = [
-    { name = "types-boltons", specifier = ">=25.0.0.20250822" },
     { name = "types-docutils", specifier = ">=0.22.3.20251115" },
     { name = "types-pyyaml", specifier = ">=6.0.12.9" },
 ]
@@ -1978,15 +1974,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/78/04/d8176d5bfe26d616819b215e3ed835f4539c50d96ed72616da0189b1dfd2/tomlrt-2.3.0.tar.gz", hash = "sha256:c2443a8d7aeb26a04474ffc04a6eeb17b16d7e0a37b9d801261d58d4bc82037c", size = 473530, upload-time = "2026-10-09T22:28:19.564Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3a/f8/a91b010c52ea67888b90b562931b1ec29609d37a665351a2e146dbad872a/tomlrt-2.3.0-py3-none-any.whl", hash = "sha256:72382e49ee3e8797a1ffbc4d971539226fa7da809186062362b1fc1f5cc565b0", size = 149893, upload-time = "2026-10-09T22:28:17.659Z" },
-]
-
-[[package]]
-name = "types-boltons"
-version = "26.1.0.20260907"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/aa/91/cd037b5bb9b355893e338872abd79c724c57a7628a1f388d89f78c1d2007/types_boltons-26.1.0.20260907.tar.gz", hash = "sha256:e0d9ac1b1246723c45fab0b6ddd479cd84b138fe113feea584c7a179c1f96c44", size = 22546, upload-time = "2026-09-07T06:43:29.067Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/17/f3/28d54710f427fe5ed9d7cba9b9374cb008be019b50913984f1314962b053/types_boltons-26.1.0.20260907-py3-none-any.whl", hash = "sha256:ba6ebda0e4ceb85edf28800d08a41d142cdd514403ae1e492b43a277a471b459", size = 28788, upload-time = "2026-09-07T06:43:28.104Z" },
 ]
 
 [[package]]

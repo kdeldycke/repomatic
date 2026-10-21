@@ -39,7 +39,7 @@ This page documents the version specifier conventions and dependency audit proce
 1. **Prefer `[dependency-groups]`** (uv standard) over `[project.optional-dependencies]` for test, typing, and docs groups.
 2. **`>=` is preferred for dev deps too**, but `~=` is acceptable when stricter pinning reduces CI randomness. If a package also appears in runtime deps, the dev entry must use the same specifier style.
 3. **Standard group names:** `test`, `typing`, `docs` (lowercase, alphabetical).
-4. **Type stubs** go in the `typing` group with stub-specific versions: `"types-boltons>=25.0.0.20250822"`.
+4. **Type stubs** go in the `typing` group with stub-specific versions: `"types-pyyaml>=6.0.12.9"`.
 5. **Alphabetical order** within each group.
 
 ### General rules

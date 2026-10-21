@@ -264,9 +264,8 @@ intersphinx_mapping = {
         "https://kdeldycke.github.io/click-extra",
         None,
     ),
-    # The API pages name types of these four in signatures and docstrings, like
+    # The API pages name types of these three in signatures and docstrings, like
     # `extra_platforms.Platform` and `packaging.version.Version`.
-    "boltons": ("https://boltons.readthedocs.io/en/latest", None),
     "extra-platforms": ("https://kdeldycke.github.io/extra-platforms", None),
     "packaging": ("https://packaging.pypa.io/en/stable", None),
     "pyproject-metadata": ("https://pep621.readthedocs.io/en/latest", None),
