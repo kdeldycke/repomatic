@@ -12,10 +12,6 @@
 - **Breaking:** Rename `show-metadata --format` to `--output-format`, like every other command. A workflow step passing `--format` needs the new name.
 - **Breaking:** `changelog` now writes in place at `changelog.location`, and its `--source` option becomes `--changelog`. Pass `-` to print instead.
 - **Breaking:** Remove `sync-binaries --backfill-records`, the `show-metadata --force` and `--replace` aliases, and the `GHA_PR_*` environment variables.
-- Drop the `boltons` dependency: the test matrix model, `sync-mailmap` and the Cloudflare Pages drift check use the standard library instead.
-- Drop the `arrow` dependency: relative times like `in 4 days` and the `unsubscribe` month cutoff are computed in-house, with the same wording.
-- Drop the `pyelftools` dependency: `verify-binary` reads ELF headers with its own parser, as it already did for Mach-O and PE.
-- Drop the `vt-py` dependency and the `aiohttp` stack beneath it: `scan-virustotal` calls the VirusTotal REST API through the standard library.
 - **Breaking:** `pr-body` and `pr-sync` read the diff table and the upgrade report only from `REPOMATIC_DIFF_TABLE_FILE` and `REPOMATIC_UPGRADE_REPORT_FILE`.
 - **Breaking:** Remove the `[tool.repomatic.flavor]` table and the `metrics.skip` and `cache.github-release-ttl` keys. A config that sets them gets an unknown-key warning.
 - **Breaking:** Remove the `new_commits`, `release_commits`, `release_notes`, `release_notes_with_admonition`, `minor_bump_allowed`, `major_bump_allowed`, `skip_binary_build` and `nuitka_extras` keys of `show-metadata`, which no workflow reads.
@@ -34,6 +30,10 @@
 - **Breaking:** `repomatic run pyproject-fmt` now exits 0 after a rewrite it verified, instead of 1.
 - **Breaking:** The bundled `zizmor.yaml` now requires hash pins for third-party actions.
 - **Breaking:** The bundled `labels.toml` no longer renames the `🎁 feature request` label, and `lychee.toml` no longer skips star-history.com links.
+- Drop the `boltons` dependency: the test matrix model, `sync-mailmap` and the Cloudflare Pages drift check use the standard library instead.
+- Drop the `arrow` dependency: relative times like `in 4 days` and the `unsubscribe` month cutoff are computed in-house, with the same wording.
+- Drop the `pyelftools` dependency: `verify-binary` reads ELF headers with its own parser, as it already did for Mach-O and PE.
+- Drop the `vt-py` dependency and the `aiohttp` stack beneath it: `scan-virustotal` calls the VirusTotal REST API through the standard library.
 - Enable the `D205`, `D209`, `E501`, `PLC0415` and `TC` ruff rules in the bundled `ruff.toml`.
 - Set `wrap = "no"` in the bundled `mdformat.toml`, so `format-markdown` joins the lines of a hard-wrapped paragraph.
 - `lint-changelog` warns on a Breaking or Deprecated entry filed after an ordinary one and on a `#N` naming no issue, and `--fix` strips a `v` tag prefix off a heading.
