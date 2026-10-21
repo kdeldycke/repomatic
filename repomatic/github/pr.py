@@ -63,10 +63,12 @@ from __future__ import annotations
 import logging
 from enum import StrEnum
 from typing import NamedTuple
+from urllib.parse import quote
 from uuid import uuid4
 
 from .. import git_ops
-from ..release.protocol import bump_branch
+from ..release.protocol import RELEASE_PR_BRANCH, VERSION_BUMP_BRANCHES, bump_branch
+from ..templating import PrTemplate, get_template_names
 from .event import get_default_branch
 from .gh import gh_api_pages, gh_json, parse_create_output, run_gh_command
 from .pr_body import fit_github_body, temp_body_file
@@ -102,6 +104,13 @@ TEMP_BRANCH_PREFIX = "repomatic/pr-sync-"
 Never pushed and deleted before the command returns. The candidate commit needs
 somewhere to live that is not the checked-out base branch, so that a base left
 untouched is what a failed run rolls back to.
+"""
+
+AUTOMATION_PR_LIMIT = 100
+"""How many open pull requests {func}`list_automation_prs` reads.
+
+Wider than {data}`OPEN_PR_LIMIT`, which reads one branch: the automation can
+hold one pull request per job open at once.
 """
 
 OPEN_PR_LIMIT = 10
@@ -167,6 +176,93 @@ def list_open_prs_by_branch(branch: str) -> list[dict[str, Any]]:
         or []
     )
     return prs
+
+
+def automation_branches() -> frozenset[str]:
+    """The head branches the bundled automation opens pull requests on.
+
+    A `pr-sync` job names its branch after its template, so the bundled
+    templates that front a pull request list them, beside the version-bump and
+    release branches. A template with no `title` fronts no pull request: an
+    admonition, a footer, an issue body.
+    """
+    templates = {
+        name for name in get_template_names() if PrTemplate.load(name).meta.get("title")
+    }
+    return frozenset(templates) | VERSION_BUMP_BRANCHES
+
+
+def behind_by(base: str, head: str) -> int | None:
+    """How many commits of *base* are missing from *head*.
+
+    :param base: The branch to measure against.
+    :param head: The branch measured.
+    :return: The count, or `None` when the comparison cannot be read.
+    """
+    endpoint = (
+        f"repos/{{owner}}/{{repo}}/compare/{quote(base, safe='')}"
+        f"...{quote(head, safe='')}"
+    )
+    compared = gh_json(["api", endpoint], soft=True)
+    if not isinstance(compared, dict):
+        return None
+    behind = compared.get("behind_by")
+    return behind if isinstance(behind, int) else None
+
+
+def list_automation_prs() -> list[dict[str, Any]]:
+    """The open pull requests of the automation, with how far each lags its base.
+
+    An unattended `sync-*`, `format-*` or `fix-*` pull request is a pending
+    write to the default branch nobody reviewed, and one that lags its base
+    describes a tree the branch has since moved past.
+
+    :return: One dict per pull request: the `gh pr list` fields `number`,
+        `headRefName`, `baseRefName`, `title`, `changedFiles`, `additions`,
+        `deletions` and `url`, plus `behindBy`.
+    """
+    prs: list[dict[str, Any]] = (
+        gh_json([
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            str(AUTOMATION_PR_LIMIT),
+            "--json",
+            "number,headRefName,baseRefName,title,changedFiles,additions,deletions,url",
+        ])
+        or []
+    )
+    branches = automation_branches()
+    rows = [pr for pr in prs if pr.get("headRefName") in branches]
+    for pr in rows:
+        pr["behindBy"] = behind_by(pr["baseRefName"], pr["headRefName"])
+    return rows
+
+
+def release_pr(base: str) -> dict[str, Any] | None:
+    """The open release pull request, with how far it lags *base*.
+
+    :param base: The branch the release merges into.
+    :return: The `gh pr view` fields `number`, `title`, `url`, `isDraft` and
+        `headRefOid`, plus `behindBy`, or `None` when no pull request is open
+        on {data}`~repomatic.release.protocol.RELEASE_PR_BRANCH`.
+    """
+    pr = gh_json(
+        [
+            "pr",
+            "view",
+            RELEASE_PR_BRANCH,
+            "--json",
+            "number,title,url,isDraft,headRefOid,state",
+        ],
+        soft=True,
+    )
+    if not isinstance(pr, dict) or pr.get("state") != "OPEN":
+        return None
+    pr["behindBy"] = behind_by(base, RELEASE_PR_BRANCH)
+    return pr
 
 
 def list_changed_files(number: int, repository: str = "") -> list[str]:

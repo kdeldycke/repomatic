@@ -32,10 +32,13 @@ from repomatic.github.ci_status import (
     CIStatus,
     JobStatus,
     RunStatus,
+    WatchState,
     latest_run,
     monitored_workflows,
     read_ci_status,
+    watch_ci_status,
     workflow_files,
+    write_failed_logs,
 )
 from repomatic.github.gh import GhOutputError
 from repomatic.github.outputs import AnnotationLevel
@@ -136,6 +139,21 @@ def test_a_matrix_never_expanded_is_required():
     )
     assert status.verdict == "cancelled (1 required job(s))"
     assert status.inconclusive is True
+
+
+def test_a_matrix_never_expanded_is_named_in_the_findings():
+    """The reader learns that no cell ran, not only that a job was cancelled."""
+    status = run(
+        job("🧬 Project metadata"),
+        job(UNEXPANDED_MATRIX_JOB, "cancelled"),
+        conclusion="cancelled",
+    )
+    assert status.unexpanded_jobs == (job(UNEXPANDED_MATRIX_JOB, "cancelled"),)
+    assert any(
+        level is AnnotationLevel.WARNING and "never evaluated" in message
+        for level, message in status.findings()
+    )
+    assert run(job("✅ ubuntu-26.04 / py3.11")).unexpanded_jobs == ()
 
 
 def test_a_failed_matrix_never_expanded_blocks():
@@ -825,3 +843,292 @@ def test_workflow_files_keeps_everything_with_runs_of_its_own(tmp_path):
 def test_workflow_files_missing_directory(tmp_path):
     """A repository with no workflow directory offers no workflow."""
     assert workflow_files(tmp_path / "absent") == ()
+
+
+# -- Failed-job logs ----------------------------------------------------------
+
+
+def test_write_failed_logs_writes_one_file_per_failed_required_job(tmp_path):
+    """Each failed required job lands in a file named after its workflow and job."""
+    failed = RunStatus(
+        workflow="🔬 Tests",
+        run_id=7,
+        head_sha=TIP_SHA,
+        status="completed",
+        conclusion="failure",
+        jobs=(
+            JobStatus("✅ ubuntu-26.04 / py3.11", "completed", "failure", job_id=101),
+            JobStatus("⁉️ ubuntu-26.04 / py3.15-dev", "completed", "failure", 102),
+            JobStatus("1️⃣ Run-once tests", "completed", "success", 103),
+        ),
+    )
+    status = CIStatus(branch="main", tip_sha=TIP_SHA, runs=[failed])
+    fetched = []
+
+    def fetch(job_id):
+        fetched.append(job_id)
+        return f"log of {job_id}\n"
+
+    written = write_failed_logs(status, tmp_path / "logs", fetch=fetch)
+    assert fetched == [101]
+    assert [path.name for path in written] == ["Tests--ubuntu-26.04-py3.11.log"]
+    assert written[0].read_text(encoding="UTF-8") == "log of 101\n"
+
+
+def test_write_failed_logs_skips_a_job_without_an_id(tmp_path, caplog):
+    """A listing with no job ID leaves the log unfetched, and says so."""
+    status = CIStatus(
+        branch="main",
+        tip_sha=TIP_SHA,
+        runs=[run(job("✅ a", "failure"), conclusion="failure")],
+    )
+    with caplog.at_level("WARNING"):
+        written = write_failed_logs(status, tmp_path, fetch=lambda job_id: "")
+    assert written == []
+    assert "no job ID" in caplog.text
+
+
+# -- Watch --------------------------------------------------------------------
+
+
+def _status(*runs: RunStatus, tip: str = TIP_SHA) -> CIStatus:
+    return CIStatus(branch="main", tip_sha=tip, runs=list(runs))
+
+
+def _tests_run(conclusion: str, sha: str = TIP_SHA, **job_kwargs) -> RunStatus:
+    status = "completed" if conclusion else "in_progress"
+    return RunStatus(
+        workflow="🔬 Tests",
+        run_id=1,
+        head_sha=sha,
+        status=status,
+        conclusion=conclusion,
+        jobs=(job("✅ a", conclusion, status),),
+    )
+
+
+def test_watch_state_reports_each_verdict_once(tmp_path):
+    """A verdict already in the file is not a change; a new one is, and is saved."""
+    path = tmp_path / "state.json"
+    state = WatchState.load(path)
+    first = state.record(_status(_tests_run("")))
+    assert [run.verdict for run in first] == ["1 job(s) still running"]
+    assert WatchState.load(path).seen == {
+        f"🔬 Tests@{TIP_SHA}": "1 job(s) still running"
+    }
+    assert state.record(_status(_tests_run(""))) == []
+    assert [run.verdict for run in state.record(_status(_tests_run("success")))] == [
+        "green"
+    ]
+    assert WatchState.load(path).seen[f"🔬 Tests@{TIP_SHA}"] == "green"
+
+
+def test_watch_state_survives_an_unreadable_file(tmp_path):
+    """A corrupt state file starts the watch from an empty baseline."""
+    path = tmp_path / "state.json"
+    path.write_text("not json", encoding="UTF-8")
+    assert WatchState.load(path).seen == {}
+
+
+def test_watch_ends_when_every_run_settled_on_the_tip():
+    """Polls go on while a run is live, and stop once the tip settled green."""
+    polls = iter([_status(_tests_run("")), _status(_tests_run("success"))])
+    slept: list[float] = []
+    with patch(
+        "repomatic.github.ci_status.read_ci_status", side_effect=lambda *a: next(polls)
+    ):
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=WatchState(),
+                interval=30,
+                sleep=slept.append,
+            )
+        )
+    assert [status.settled for status, _changed in seen] == [False, True]
+    assert slept == [30]
+    assert [run.verdict for run in seen[1][1]] == ["green"]
+
+
+def test_watch_ends_on_the_first_failed_required_job():
+    """A red required job is the moment to act, not one to wait through."""
+    polls = iter([_status(_tests_run("failure"))])
+    with patch(
+        "repomatic.github.ci_status.read_ci_status", side_effect=lambda *a: next(polls)
+    ):
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=WatchState(),
+                interval=30,
+                sleep=lambda delay: pytest.fail("slept after a failure"),
+            )
+        )
+    assert len(seen) == 1
+    assert seen[0][0].blocking
+
+
+def test_watch_keeps_polling_until_the_tip_has_a_run():
+    """A settled run of an older commit is not the tip's result."""
+    older = _tests_run("success", sha=PARENT_SHA)
+    polls = iter([_status(older), _status(older, _tests_run("success"))])
+    slept: list[float] = []
+    with patch(
+        "repomatic.github.ci_status.read_ci_status", side_effect=lambda *a: next(polls)
+    ):
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=WatchState(),
+                interval=10,
+                sleep=slept.append,
+            )
+        )
+    assert len(seen) == 2
+    assert slept == [10]
+
+
+def test_watch_until_change_stops_at_the_first_new_verdict():
+    """A re-armed watcher wakes once per event and never sleeps past it."""
+    polls = iter([_status(_tests_run(""))])
+    with patch(
+        "repomatic.github.ci_status.read_ci_status", side_effect=lambda *a: next(polls)
+    ):
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=WatchState(),
+                interval=10,
+                until_change=True,
+                sleep=lambda delay: pytest.fail("slept after a change"),
+            )
+        )
+    assert len(seen) == 1
+
+
+def test_watch_gives_up_at_the_timeout():
+    """A watch with a timeout ends once the clock passes it, whatever the state."""
+    polls = iter([_status(_tests_run("")), _status(_tests_run(""))])
+    ticks = iter([0, 40, 70])
+    with patch(
+        "repomatic.github.ci_status.read_ci_status", side_effect=lambda *a: next(polls)
+    ):
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=WatchState(),
+                interval=10,
+                timeout=60,
+                sleep=lambda delay: None,
+                clock=lambda: next(ticks),
+            )
+        )
+    assert len(seen) == 2
+
+
+def test_ci_status_command_waits_and_prints_each_change(tmp_path):
+    """Under --wait the command prints the changes, then the table of the last poll."""
+    polls = iter([_status(_tests_run("")), _status(_tests_run("success"))])
+    with (
+        patch("repomatic.cli.ci.monitored_workflows", return_value=["tests.yaml"]),
+        patch(
+            "repomatic.github.ci_status.read_ci_status",
+            side_effect=lambda *a: next(polls),
+        ),
+        patch("time.sleep") as sleep,
+    ):
+        result = CliRunner().invoke(
+            repomatic,
+            [
+                "ci-status",
+                "--wait",
+                "--interval",
+                "5",
+                "--state-file",
+                str(tmp_path / "s"),
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert f"⏱ 🔬 Tests ({TIP_SHA[:8]}): 1 job(s) still running" in result.output
+    assert f"⏱ 🔬 Tests ({TIP_SHA[:8]}): green" in result.output
+    assert sleep.call_args.args == (5,)
+    assert (tmp_path / "s").is_file()
+
+
+def test_ci_status_command_writes_the_failed_logs(tmp_path):
+    """--failed-logs names each file it wrote."""
+    failed = RunStatus(
+        workflow="🔬 Tests",
+        run_id=7,
+        head_sha=TIP_SHA,
+        status="completed",
+        conclusion="failure",
+        jobs=(JobStatus("✅ a", "completed", "failure", job_id=5),),
+    )
+    with (
+        patch("repomatic.cli.ci.monitored_workflows", return_value=["tests.yaml"]),
+        patch("repomatic.cli.ci.read_ci_status", return_value=_status(failed)),
+        patch("repomatic.github.ci_status.job_log", return_value="boom\n"),
+    ):
+        result = CliRunner().invoke(
+            repomatic, ["ci-status", "--no-fatal", "--failed-logs", str(tmp_path)]
+        )
+    assert result.exit_code == 0, result.output
+    log = tmp_path / "Tests--a.log"
+    assert f"📄 {log}" in result.output
+    assert log.read_text(encoding="UTF-8") == "boom\n"
+
+
+def test_ci_status_command_reports_the_automation_and_release_prs():
+    """The extra reads print one line per automation PR, and one for the release PR."""
+    with (
+        patch("repomatic.cli.ci.monitored_workflows", return_value=["tests.yaml"]),
+        patch(
+            "repomatic.cli.ci.read_ci_status",
+            return_value=_status(_tests_run("success")),
+        ),
+        patch(
+            "repomatic.cli.ci.list_automation_prs",
+            return_value=[
+                {
+                    "number": 12,
+                    "headRefName": "sync-uv-lock",
+                    "baseRefName": "main",
+                    "title": "Sync `uv.lock`",
+                    "changedFiles": 1,
+                    "additions": 4,
+                    "deletions": 4,
+                    "url": "https://example.test/pull/12",
+                    "behindBy": 3,
+                }
+            ],
+        ),
+        patch(
+            "repomatic.cli.ci.release_pr_status",
+            return_value={
+                "number": 13,
+                "title": "Release v1.2.3",
+                "url": "https://example.test/pull/13",
+                "isDraft": True,
+                "headRefOid": "feedfacefeedface",
+                "behindBy": 0,
+            },
+        ),
+    ):
+        result = CliRunner().invoke(
+            repomatic, ["ci-status", "--automation-prs", "--release-pr"]
+        )
+    assert result.exit_code == 0, result.output
+    assert (
+        "🔀 #12 sync-uv-lock: Sync `uv.lock` (1 file(s), +4/-4, 3 commit(s) behind"
+        " main) https://example.test/pull/12" in result.output
+    )
+    assert (
+        "🚀 Release PR #13 (draft): Release v1.2.3, head feedface, 0 commit(s)"
+        " behind main. https://example.test/pull/13" in result.output
+    )

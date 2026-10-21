@@ -30,6 +30,7 @@ from repomatic.github.runs import (
     RUN_LISTING_WINDOW,
     cancel_superseded_runs,
     commit_runs,
+    job_log,
     read_run,
     workflow_runs,
 )
@@ -277,3 +278,14 @@ def test_read_run_soft_swallows_a_failed_call():
         assert read_run(42, ("jobs",), soft=True) is None
         with pytest.raises(GhCommandError):
             read_run(42, ("jobs",))
+
+
+def test_job_log_reads_the_job_endpoint_and_strips_colours():
+    """A job's log is read by ID, with the escape sequences gone on arrival."""
+    raw = "2026-10-21T10:00:00Z \x1b[36;1mRun pytest\x1b[0m\n"
+    raw += "\x1b[31mFAILED\x1b[0m x\n"
+    with patch("repomatic.github.runs.run_gh_command", return_value=raw) as mock_gh:
+        assert job_log(42) == "2026-10-21T10:00:00Z Run pytest\nFAILED x\n"
+    args = mock_gh.call_args.args[0]
+    assert args[:2] == ["api", "repos/{owner}/{repo}/actions/jobs/42/logs"]
+    assert "--allow-escape-sequences" in args

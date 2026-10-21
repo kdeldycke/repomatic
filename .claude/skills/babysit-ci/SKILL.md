@@ -94,17 +94,15 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    **Gate 1 (local, ~30s):** if any local check fails, you already have the diagnosis: skip straight to step 5 without waiting for CI.
 
-   If local passes, poll CI every 60 seconds with:
+   If local passes, watch CI:
 
    ```shell-session
-   $ uv run repomatic ci-status --branch=<BRANCH> --no-fatal
+   $ uv run repomatic ci-status --branch=<BRANCH> --wait --no-fatal
    ```
 
-   It reads every workflow a push can start (derived from `.github/workflows/`, so its list is wider than the five above), reports each one's latest run, and names the failing jobs that actually gate a merge. Four traps it settles, so no hand-rolled `jq` has to: a run's own `status` lags its jobs (every monitored workflow can read `queued` while a dozen jobs have already finished, which is indistinguishable from the runner-cap saturation a busy account genuinely hits); a `continue-on-error` probe that crashed hides inside a `success` run conclusion; a run whose `conclusion` is `failure` with *no* failed job is a workflow-level error (an invalid `strategy.matrix` expression, malformed YAML, a missing secret) with no job log to read, which the command flags rather than letting you write off a persistently-red workflow as a known artifact; and a run that was cancelled, or that ran no job, has no failed job and still gives its commit no result, so its verdict reads `cancelled` or `skipped`, never `green`.
+   It reads every workflow a push can start (derived from `.github/workflows/`, so its list is wider than the five above), polls in-process at `--interval` (60 seconds by default, which keeps the REST quota intact), prints each run whose verdict changed, and returns the moment a required job fails, or once every run settled and the tip has a run of its own. A matrix job whose name still holds its `${{` template never evaluated, and the report says so. Four traps it settles, so no hand-rolled `jq` has to: a run's own `status` lags its jobs (every monitored workflow can read `queued` while a dozen jobs have already finished, which is indistinguishable from the runner-cap saturation a busy account genuinely hits); a `continue-on-error` probe that crashed hides inside a `success` run conclusion; a run whose `conclusion` is `failure` with *no* failed job is a workflow-level error (an invalid `strategy.matrix` expression, malformed YAML, a missing secret) with no job log to read, which the command flags rather than letting you write off a persistently-red workflow as a known artifact; and a run that was cancelled, or that ran no job, has no failed job and still gives its commit no result, so its verdict reads `cancelled` or `skipped`, never `green`.
 
    `ci-status` reads runs through the same `head_sha` endpoint, commit by commit back from the branch tip, and says when the tip has no run yet. A workflow that ran no job on the tip, like `tests.yaml` on a version-bump commit, is read on an earlier commit, and the command names it. A `cancelled` or `skipped` verdict is not a pass: see [§ When supersession never lets a run conclude](#when-supersession-never-lets-a-run-conclude). A workflow with no run on the newest commits falls back to its own run listing, filtered by creation date. Re-read a surprising red or green once before acting on it.
-
-   Run state *does* gate the run-scoped log read (step 4): `gh run view --log-failed` refuses to answer until the parent run reaches a terminal state. A completed job's own log is readable at once.
 
    **A queue is not a hang, and elapsed time alone cannot tell them apart.** A long stall invites the theory that some run is stuck and that cancelling it would free the pool, which is a conclusion worth reaching only on evidence, because acting on it destroys work that was progressing fine. Two readings settle it, and neither is the elapsed clock. Get a **baseline** from that workflow's recent successful runs (`gh api 'repos/<OWNER>/<REPO>/actions/workflows/<wf>/runs?status=success&created=>=<DATE>' --jq '.workflow_runs[] | [.created_at, .updated_at] | @tsv'`): a suite whose normal duration is two hours is not hung at ninety minutes. Then read **per-job `completedAt` timestamps** (`gh run view <id> --json jobs`) rather than an aggregate: a flat count of `in_progress` jobs is not evidence of a stall, since jobs finish and others start into the freed slots, holding the count steady while real progress continues. Watch for the self-contradiction that exposes the mistake, a report that the count "dropped from 11 to 9" *and* that nothing has changed. Two smaller traps live here too: `gh` reports a pending job's `conclusion` as `""`, not `null`, so a `select(.conclusion == null)` filter silently matches nothing and reads as "no pending jobs"; and jobs queue against the runner pool their `runs-on` names, so a stall confined to macOS cells says nothing about Linux capacity. **Never cancel another repository's run to free slots without the maintainer's explicit go-ahead**, and never ask for that go-ahead on a diagnosis you have not backed with a baseline and timestamps.
 
@@ -112,9 +110,9 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    **Gate 3 (tests.yaml, ~5-8 min):** once the first stable job fails, or all fast platforms (Linux, Windows) pass, proceed.
 
-   **Poll in-process; never detach a monitor.** Block on `gh run watch <RUN_ID>` or loop the polls within your own turn. A detached background monitor (a standalone process, a `run_in_background: true` Bash poller that re-invokes you when it exits, or a `Monitor`-tool stream that returns control on each tick) makes a parent-resumed run spawn *another* monitor per tick instead of driving to a terminal state; worse, a spawned sub-agent that detaches this way orphans the poll from its caller the moment it returns. Hold the turn until the run completes: starting a poller and handing back "to be notified" is the early return this loop must never make.
+   **Poll in-process; never detach a monitor.** `--wait` blocks inside your turn. A detached background monitor (a standalone process, a `run_in_background: true` Bash poller that re-invokes you when it exits, or a `Monitor`-tool stream that returns control on each tick) makes a parent-resumed run spawn *another* monitor per tick instead of driving to a terminal state; worse, a spawned sub-agent that detaches this way orphans the poll from its caller the moment it returns. Hold the turn until `--wait` returns: starting a poller and handing back "to be notified" is the early return this loop must never make.
 
-   **Every wait between polls must be a `sleep`, never a busy-wait.** A poll loop with no delay (`until gh run view ...; do true; done`) fires thousands of requests per minute and exhausts the REST quota (5,000/hour) within minutes. The harness blocking a bare foreground `sleep` is not a reason to drop the delay: put the `sleep 60` *inside* the loop command itself, which runs fine in both foreground and background. Exhaustion does not just blind your own polling — workflows authenticating with the same PAT start failing server-side with misleading errors (see [§ GitHub API rate-limit exhaustion](references/failure-patterns.md#github-api-rate-limit-exhaustion)).
+   **Never hand-roll a poll loop around `gh`.** A loop with no delay fires thousands of requests per minute and exhausts the REST quota (5,000/hour) within minutes. Exhaustion does not just blind your own polling: workflows authenticating with the same PAT start failing server-side with misleading errors (see [§ GitHub API rate-limit exhaustion](references/failure-patterns.md#github-api-rate-limit-exhaustion)).
 
 4. **On any CI failure**, cancel the branch's remaining runs to free runners:
 
@@ -124,30 +122,15 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    The command spares any run whose head commit carries `[changelog] Release`, mirroring the `cancel-in-progress` condition in every workflow's concurrency group. Cancelling a release run costs that version its binaries permanently, so never hand-roll the sweep with `gh run cancel`.
 
-   Then download logs from **all** failed jobs across the workflows (logs are retained after cancellation):
+   Then fetch the logs of **all** failed required jobs across the workflows (logs are retained after cancellation):
 
    ```shell-session
-   # Failed stable test jobs:
-   $ gh run view <TESTS_RUN_ID> --json jobs --jq '[.jobs[] | select(.conclusion == "failure" and (.name | contains("⁉️") | not))] | .[].databaseId'
-
-   # Failed lint jobs (especially "🛡️ Lint types" for mypy):
-   $ gh run view <LINT_RUN_ID> --json jobs --jq '[.jobs[] | select(.conclusion == "failure")] | .[].databaseId'
+   $ uv run repomatic ci-status --branch=<BRANCH> --no-fatal --failed-logs <DIR>
    ```
 
-   The first filter negates the unstable glyph rather than matching a `✅` prefix, mirroring `JobStatus.required` on every name GitHub expanded. `tests.yaml` runs four required jobs whose names carry no `✅` at all (`🧬 Project metadata`, `1️⃣ Run-once tests`, `📦 Package install`, `🖥️ Validate …`), and the release engine prefixes the workflow ahead of the glyph, so a prefix test silently drops a real failure from the batch.
+   One file per failed required job, control sequences stripped, readable the moment the job settled: a failed cell is diagnosed twenty minutes into its slowest sibling's build, since the job-scoped log endpoint answers at once where `gh run view --log-failed` waits for the whole run. Fix them as one batch: different sources surface different issues. Batch only what has *already failed*, never what might still fail. Once every harvested failure is root-caused and fixed, push immediately rather than waiting for undrained cells to surface more: the fresh run supersedes the stale one, and serially waiting out each full matrix is the slow path. Analyze following the [error triage discipline](#error-triage-discipline): stable-job `FAILED`/`AssertionError` lines only. Then match each failure against `references/failure-patterns.md` before fixing anything.
 
-   Fetch each failed job's log (`gh api repos/<OWNER>/<REPO>/actions/jobs/<JOB_ID>/logs --allow-escape-sequences`) and fix them as one batch: different sources surface different issues, and logs survive cancellation. Batch only what has *already failed*, never what might still fail. Once every harvested failure is root-caused and fixed, push immediately rather than waiting for undrained cells to surface more: the fresh run supersedes the stale one, and serially waiting out each full matrix is the slow path. Analyze following the [error triage discipline](#error-triage-discipline): stable-job `FAILED`/`AssertionError` lines only. Then match each failure against `references/failure-patterns.md` before fixing anything.
-
-   `gh run view --log-failed` writes its log cache under `~/.cache/gh`. A sandbox that denies that path answers `failed to get run log: creating cache entry ... operation not permitted`, which masquerades as a `gh` bug. Run the read in the sandbox first, and disable the sandbox for it only when that error appears.
-
-   **A completed job's log is readable while the rest of the run drains, but only with `--allow-escape-sequences`.** The run-scoped reads *are* gated on the whole run going terminal (`gh run view --log-failed` answers `run <id> is still in progress; logs will be available when it is complete`), while the job-scoped `gh api repos/<OWNER>/<REPO>/actions/jobs/<JOB_ID>/logs` answers a failed cell immediately, twenty minutes into its slowest sibling's build. What makes it look otherwise is a `gh` guard rather than the API: CI logs carry ANSI colour, so `gh` refuses to emit them and prints `the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway` — one line where a log was expected, indistinguishable from an empty body if the output went to a file. Pass the flag and strip the codes:
-
-   ```shell-session
-   $ gh api repos/<OWNER>/<REPO>/actions/jobs/<JOB_ID>/logs --allow-escape-sequences \
-       | sed 's/\x1b\[[0-9;]*m//g' > job.log
-   ```
-
-   So the diagnosis is minutes away, not an hour: harvest every failed cell as it lands and keep the run alive for the cells still to report. Cancelling to read logs is never the reason — logs survive cancellation, but they never needed it. **Make the run terminal only when you have a fix**, per the batch-and-push rule above: the stale run has no verification value left once superseded.
+   So the diagnosis is minutes away, not an hour: harvest every failed cell as it lands and keep the run alive for the cells still to report. Cancelling to read logs is never the reason: logs survive cancellation, but they never needed it. **Make the run terminal only when you have a fix**, per the batch-and-push rule above: the stale run has no verification value left once superseded.
 
 5. **Fix the root cause** using the combined picture from CI logs and local results. Fix the codebase, not the tests, unless the tests are genuinely wrong. Address mypy and ruff failures together (see [§ mypy/ruff fix oscillation](references/failure-patterns.md#mypy-ruff-fix-oscillation)).
 

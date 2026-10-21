@@ -53,7 +53,10 @@ exception: see {meth}`JobStatus.required`.
 
 from __future__ import annotations
 
+import json
 import logging
+import re
+import time
 from dataclasses import dataclass, field
 from urllib.parse import quote
 
@@ -61,12 +64,12 @@ from click_extra import ColumnSpec
 
 from .gh import GhOutputError, gh_json
 from .outputs import AnnotationLevel
-from .runs import commit_runs, read_run, workflow_runs
+from .runs import commit_runs, job_log, read_run, workflow_runs
 from .workflow_files import load_workflows, workflow_triggers
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
     from pathlib import Path
 
 TIP_HISTORY_DEPTH = 10
@@ -100,6 +103,9 @@ CI_STATUS_HEADER_DEFS: tuple[ColumnSpec, ...] = (
 )
 """Column definitions for the `ci-status` table, filled by {meth}`RunStatus.cells`."""
 
+LOG_NAME_RE = re.compile(r"[^\w.-]+")
+"""What a log filename drops from a workflow or job name: spaces, glyphs, slashes."""
+
 RUN_FIELDS = ("conclusion", "headSha", "jobs", "status", "workflowName")
 """The `gh run view --json` fields a {class}`RunStatus` is built from."""
 
@@ -116,6 +122,19 @@ class JobStatus:
 
     conclusion: str
     """`success`, `failure`, `cancelled`, `skipped`, or empty while running."""
+
+    job_id: int = 0
+    """The job's numeric ID, for its log endpoint. `0` when the listing had none."""
+
+    @property
+    def unexpanded(self) -> bool:
+        """Whether the job is a matrix GitHub never evaluated.
+
+        An expanded cell carries its values in its name. One that still holds
+        its `name:` expression, `${{` and all, is a stage the run never
+        reached: no cell of it ran, whatever the run's own conclusion says.
+        """
+        return "${{" in self.name
 
     @property
     def required(self) -> bool:
@@ -194,6 +213,11 @@ class RunStatus:
     def running_jobs(self) -> tuple[JobStatus, ...]:
         """Jobs that have not settled yet."""
         return tuple(job for job in self.jobs if job.running)
+
+    @property
+    def unexpanded_jobs(self) -> tuple[JobStatus, ...]:
+        """Matrix jobs the run never expanded into cells."""
+        return tuple(job for job in self.jobs if job.unexpanded)
 
     @property
     def workflow_level_failure(self) -> bool:
@@ -299,6 +323,15 @@ class RunStatus:
             yield (
                 AnnotationLevel.WARNING,
                 f"{self.workflow}: allowed-failure probe failed: {job.name}",
+            )
+        for job in self.unexpanded_jobs:
+            yield (
+                AnnotationLevel.WARNING,
+                (
+                    f"{self.workflow}: the matrix behind {job.name!r} never"
+                    " evaluated, so no cell of it ran and nothing it builds or"
+                    " tests has a result."
+                ),
             )
         if self.inconclusive:
             reason = (
@@ -439,6 +472,7 @@ def _run_status(run_id: int, workflow: str) -> RunStatus:
                 name=job.get("name") or "",
                 status=job.get("status") or "",
                 conclusion=job.get("conclusion") or "",
+                job_id=int(job.get("databaseId") or 0),
             )
             for job in detail.get("jobs") or []
         ),
@@ -575,3 +609,157 @@ def read_ci_status(workflows: Iterable[str], branch: str) -> CIStatus:
             continue
         status.runs.append(run)
     return status
+
+
+def _log_slug(name: str) -> str:
+    """A filename-safe spelling of a workflow or job name."""
+    return LOG_NAME_RE.sub("-", name).strip("-") or "job"
+
+
+def write_failed_logs(
+    status: CIStatus,
+    directory: Path,
+    *,
+    fetch: Callable[[int], str] | None = None,
+) -> list[Path]:
+    """Write the log of every failed required job of *status* under *directory*.
+
+    One file per job, named after its workflow and job, readable the moment the
+    job settled: a failed cell is diagnosed while its slowest sibling still
+    builds, instead of after the whole run drains. The control sequences are
+    stripped by {func}`~repomatic.github.runs.job_log`.
+
+    :param status: The runs to read the failed jobs from.
+    :param directory: Where the files go, created when missing.
+    :param fetch: Reads one job's log by ID. Defaults to
+        {func}`~repomatic.github.runs.job_log`, resolved at call time so a
+        test can stand in for it.
+    :return: The files written, in report order.
+    """
+    fetch = fetch or job_log
+    directory.mkdir(parents=True, exist_ok=True)
+    written = []
+    for run in status.runs:
+        for job in run.failed_required:
+            if not job.job_id:
+                logging.warning(
+                    f"{run.workflow}: no job ID for {job.name!r}, so its log cannot"
+                    " be fetched."
+                )
+                continue
+            path = directory / f"{_log_slug(run.workflow)}--{_log_slug(job.name)}.log"
+            path.write_text(fetch(job.job_id), encoding="UTF-8")
+            written.append(path)
+    return written
+
+
+@dataclass
+class WatchState:
+    """The verdicts a watch has reported, so a re-armed one repeats none.
+
+    Keyed by workflow and commit: a run moving from running to green is one
+    change, and the run of a newer commit is another.
+    """
+
+    path: Path | None = None
+    """The JSON file holding the verdicts across invocations.
+
+    `None` keeps them in memory, for the span of one watch.
+    """
+
+    seen: dict[str, str] = field(default_factory=dict)
+    """Verdict by `workflow@commit`."""
+
+    @classmethod
+    def load(cls, path: Path | None) -> WatchState:
+        """Read the verdicts *path* holds, or start empty.
+
+        A missing or unreadable file starts empty too: the first poll then
+        reports every run, which is the baseline a fresh watch wants.
+        """
+        state = cls(path=path)
+        if path is not None and path.is_file():
+            try:
+                loaded = json.loads(path.read_text(encoding="UTF-8"))
+            except ValueError:
+                loaded = None
+            if isinstance(loaded, dict):
+                state.seen = {str(key): str(value) for key, value in loaded.items()}
+        return state
+
+    def record(self, status: CIStatus) -> list[RunStatus]:
+        """Note the verdict of each run, and write the file when one is new.
+
+        :param status: The runs of one poll.
+        :return: The runs not seen before, or seen with another verdict.
+        """
+        changed = []
+        for run in status.runs:
+            key = f"{run.workflow}@{run.head_sha}"
+            if self.seen.get(key) != run.verdict:
+                self.seen[key] = run.verdict
+                changed.append(run)
+        if changed and self.path is not None:
+            self.path.write_text(
+                json.dumps(self.seen, indent=2, sort_keys=True) + "\n",
+                encoding="UTF-8",
+            )
+        return changed
+
+
+def watch_ci_status(
+    workflows: Iterable[str],
+    branch: str,
+    *,
+    state: WatchState,
+    interval: float,
+    until_change: bool = False,
+    timeout: float = 0,
+    sleep: Callable[[float], None] | None = None,
+    clock: Callable[[], float] | None = None,
+) -> Iterator[tuple[CIStatus, list[RunStatus]]]:
+    """Poll the runs of *branch* until something is worth acting on.
+
+    Each poll yields the status read and the runs whose verdict *state* had
+    not seen. The watch ends on the first poll where a run blocks a merge,
+    since that is the moment to act and never one to wait through, or where
+    every run settled and the tip has a run of its own. Until then GitHub may
+    still be creating the tip's runs, and a settled report would read as
+    green for a commit nothing has tested yet.
+
+    With *until_change*, it ends after the first poll reporting a change, so a
+    watcher re-armed on the same state file wakes once per event. With
+    *timeout*, it ends once that many seconds elapsed, whatever the state.
+
+    Every poll pays the REST quota of {func}`read_ci_status`, a handful of
+    calls, and *interval* is what keeps a long watch inside it.
+
+    :param workflows: Workflow filenames to read.
+    :param branch: Branch to read runs from.
+    :param state: The verdicts already reported, updated on each poll.
+    :param interval: Seconds between two polls.
+    :param until_change: Stop after the first poll that reports a change.
+    :param timeout: Seconds after which the watch stops, `0` for no limit.
+    :param sleep: Waits between two polls. Defaults to {func}`time.sleep`,
+        resolved at call time so a test can stand in for it.
+    :param clock: Reads a monotonic clock, for *timeout*. Defaults to
+        {func}`time.monotonic`, resolved the same way.
+    :yields: The status of each poll, and the runs whose verdict changed.
+    """
+    sleep = sleep or time.sleep
+    clock = clock or time.monotonic
+    names = list(workflows)
+    started = clock()
+    while True:
+        status = read_ci_status(names, branch)
+        changed = state.record(status)
+        yield status, changed
+        if status.blocking:
+            return
+        if status.settled and (status.runs_on_tip or not status.tip_sha):
+            return
+        if until_change and changed:
+            return
+        if timeout and clock() - started >= timeout:
+            return
+        sleep(interval)

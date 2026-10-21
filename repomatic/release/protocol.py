@@ -165,9 +165,16 @@ def bump_branch(part: str) -> str:
     return f"{part}-version-increment"
 
 
+RELEASE_PR_BRANCH: Final[str] = "prepare-release"
+"""The head branch of the release pull request.
+
+Named after the `prepare-release` job and template that open it, like every
+automation branch.
+"""
+
 VERSION_BUMP_BRANCHES: Final[frozenset[str]] = frozenset((
     *(bump_branch(part) for part in BUMP_PARTS),
-    "prepare-release",
+    RELEASE_PR_BRANCH,
 ))
 """PR branches that carry only automated version-bump and lockfile churn.
 

@@ -25,6 +25,7 @@ repository is resolved by the `gh` CLI from `GH_REPO` or the checkout.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote, urlencode
 
@@ -60,6 +61,9 @@ LIVE_RUN_STATUSES = ("in_progress", "queued")
 
 _RUNS_ENDPOINT = "repos/{owner}/{repo}/actions/runs"
 """The repository-wide runs listing, with the placeholders `gh api` fills in."""
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+"""A terminal control sequence, as a CI log colours its lines with."""
 
 
 def runs_created_since() -> str:
@@ -154,6 +158,27 @@ def read_run(
         ["run", "view", str(run_id), "--json", ",".join(fields)], soft=soft
     )
     return detail if isinstance(detail, dict) else None
+
+
+def job_log(job_id: int | str) -> str:
+    """The log of one job, control sequences stripped.
+
+    Readable the moment the job settles, while the rest of its run still goes:
+    the run-scoped `gh run view --log-failed` answers nothing until the whole
+    run is terminal. `gh` refuses to print a body holding terminal escape
+    sequences, which a CI log always does, unless told to, and the colour
+    codes are then stripped so a reader greps plain text.
+
+    :param job_id: The job's numeric ID, `databaseId` in a run's job listing.
+    :return: The log, one line per step line, timestamps kept.
+    :raises GhCommandError: When the `gh` call fails.
+    """
+    text = run_gh_command([
+        "api",
+        f"repos/{{owner}}/{{repo}}/actions/jobs/{job_id}/logs",
+        "--allow-escape-sequences",
+    ])
+    return ANSI_ESCAPE_RE.sub("", text)
 
 
 def live_runs(branch: str) -> list[dict[str, Any]]:

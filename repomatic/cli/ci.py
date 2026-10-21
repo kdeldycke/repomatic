@@ -26,10 +26,13 @@ from pathlib import Path
 from click_extra import (
     ClickException,
     EnumChoice,
+    FloatRange,
     SortByOption,
     UsageError,
     argument,
+    dir_path,
     echo,
+    file_path,
     get_tool_config,
     option,
     pass_context,
@@ -39,9 +42,12 @@ from ..github.ci_status import (
     CI_STATUS_HEADER_DEFS,
     STABLE_GLYPH,
     UNSTABLE_GLYPH,
+    WatchState,
     monitored_workflows,
     read_ci_status,
+    watch_ci_status,
     workflow_files,
+    write_failed_logs,
 )
 from ..github.job_timings import (
     JOB_TIMINGS_HEADER_DEFS,
@@ -50,6 +56,7 @@ from ..github.job_timings import (
     summarize,
 )
 from ..github.outputs import AnnotationLevel, report_finding
+from ..github.pr import list_automation_prs, release_pr as release_pr_status
 from ..github.runs import cancel_superseded_runs
 from ..github.workflow_files import WORKFLOW_DIR, literal_runners
 from ..matrix.axes import (
@@ -69,6 +76,7 @@ from ..matrix.runner_sync import (
 )
 from ..matrix.runners import fetch_catalog
 from ..metadata.core import Metadata
+from ..release.protocol import RELEASE_PR_BRANCH
 from ..upstream import is_source_repo
 from .main import (
     LazyChoice,
@@ -353,9 +361,82 @@ def cancel_runs(branch: str, current_run_id: str) -> None:
     default=True,
     help="Exit non-zero when a required job failed.",
 )
+@option(
+    "--wait/--no-wait",
+    default=False,
+    help=(
+        "Poll until a required job fails, or until every run settled and the tip"
+        " has a run of its own. Each poll prints the runs whose verdict changed."
+    ),
+)
+@option(
+    "--interval",
+    type=FloatRange(min=5),
+    default=60,
+    show_default=True,
+    help="Seconds between two polls under --wait.",
+)
+@option(
+    "--until-change",
+    is_flag=True,
+    help=(
+        "Under --wait, stop after the first poll reporting a verdict the state"
+        " file has not seen, so a re-armed watch wakes once per event."
+    ),
+)
+@option(
+    "--state-file",
+    type=file_path(writable=True, resolve_path=True),
+    help=(
+        "JSON file of the verdicts already reported: read before the first poll,"
+        " written on every change."
+    ),
+)
+@option(
+    "--timeout",
+    type=FloatRange(min=0),
+    default=0,
+    show_default=True,
+    help="Seconds after which --wait gives up, 0 for no limit.",
+)
+@option(
+    "--failed-logs",
+    type=dir_path(resolve_path=True),
+    help=(
+        "Write the log of every failed required job into this directory, control"
+        " sequences stripped. A settled job's log is readable while its run goes."
+    ),
+)
+@option(
+    "--automation-prs",
+    is_flag=True,
+    help=(
+        "Also list the open pull requests of the automation, with how many"
+        " commits each one lags its base."
+    ),
+)
+@option(
+    "--release-pr",
+    is_flag=True,
+    help=(
+        "Also report the open release pull request: its draft state, head and"
+        " how many commits it lags the branch."
+    ),
+)
 @pass_context
 def ci_status(
-    ctx: Context, branch: str, workflows: tuple[str, ...], fatal: bool
+    ctx: Context,
+    branch: str,
+    workflows: tuple[str, ...],
+    fatal: bool,
+    wait: bool,
+    interval: float,
+    until_change: bool,
+    state_file: Path | None,
+    timeout: float,
+    failed_logs: Path | None,
+    automation_prs: bool,
+    release_pr: bool,
 ) -> None:
     """Report the latest CI run of each workflow, and what is actually broken.
 
@@ -365,11 +446,18 @@ def ci_status(
 
     A job whose name carries the unstable glyph anywhere is allowed to fail
     and never affects the exit code. Every other job is required, including
-    the non-matrix ones that carry no glyph at all.
+    the non-matrix ones that carry no glyph at all. A matrix job whose name
+    still holds its template never evaluated: no cell of it ran.
 
     A run that was cancelled, or that ran no job, is reported as such and never
     as green: it has no result for its commit. A workflow that ran no job on
     the tip is read on the last commit whose run of it was not skipped.
+
+    --wait polls in-process, at --interval, and ends on the first failed
+    required job rather than at the end of the slowest matrix: that is the
+    moment to act. --until-change and --state-file turn it into a watch that
+    a scheduler re-arms, waking once per event. --failed-logs then fetches
+    the logs to read, one file per failed job.
     """
     names = list(workflows) or monitored_workflows(WORKFLOW_DIR)
     if not names:
@@ -377,7 +465,21 @@ def ci_status(
         ctx.exit(0)
 
     try:
-        status = read_ci_status(names, branch)
+        if wait:
+            state = WatchState.load(state_file)
+            polls = watch_ci_status(
+                names,
+                branch,
+                state=state,
+                interval=interval,
+                until_change=until_change,
+                timeout=timeout,
+            )
+            for status, changed in polls:
+                for run in changed:
+                    echo(f"⏱ {run.workflow} ({run.head_sha[:8]}): {run.verdict}")
+        else:
+            status = read_ci_status(names, branch)
     except RuntimeError as error:
         msg = f"Cannot read the CI runs of {branch!r}: {error}"
         raise ClickException(msg) from error
@@ -409,6 +511,38 @@ def ci_status(
         )
     if not status.settled:
         echo("… some jobs have not settled yet.")
+
+    if failed_logs is not None:
+        for path in write_failed_logs(status, failed_logs):
+            echo(f"📄 {path}")
+
+    if automation_prs:
+        rows = list_automation_prs()
+        if not rows:
+            echo("No automation pull request is open.")
+        for pr in rows:
+            lag = pr.get("behindBy")
+            behind = "lag unknown" if lag is None else f"{lag} commit(s) behind"
+            counts = f"+{pr['additions']}/-{pr['deletions']}"
+            echo(
+                f"🔀 #{pr['number']} {pr['headRefName']}: {pr['title']}"
+                f" ({pr['changedFiles']} file(s), {counts}, {behind}"
+                f" {pr['baseRefName']}) {pr['url']}"
+            )
+
+    if release_pr:
+        release = release_pr_status(branch)
+        if release is None:
+            echo(f"No release pull request is open on {RELEASE_PR_BRANCH!r}.")
+        else:
+            lag = release.get("behindBy")
+            behind = "lag unknown" if lag is None else f"{lag} commit(s) behind"
+            draft = "draft" if release.get("isDraft") else "ready for review"
+            head = str(release.get("headRefOid") or "")[:8]
+            echo(
+                f"🚀 Release PR #{release['number']} ({draft}): {release['title']},"
+                f" head {head}, {behind} {branch}. {release['url']}"
+            )
 
     ctx.exit(1 if status.blocking and fatal else 0)
 

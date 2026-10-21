@@ -30,12 +30,16 @@ from repomatic.github.pr import (
     PrOperation,
     PrSyncResult,
     _needs_push,
+    automation_branches,
+    behind_by,
     carry_pr_branch_paths,
     close_open_prs_on_branch,
     close_pr,
     close_stale_bump_prs,
+    list_automation_prs,
     list_changed_files,
     list_open_prs_by_branch,
+    release_pr,
     upsert_pr,
 )
 from repomatic.github.pr_body import PrContent
@@ -637,3 +641,91 @@ def test_carry_pr_branch_paths_restores_the_fetched_tip(monkeypatch):
     )
     assert carry_pr_branch_paths(BRANCH, ("store.csv",)) == ("store.csv",)
     assert seen == {"ref": "dee", "paths": ("store.csv",)}
+
+
+def test_automation_branches_are_the_pull_request_templates_and_bump_branches():
+    """Every template fronting a pull request names a branch; the others do not."""
+    branches = automation_branches()
+    assert {"sync-uv-lock", "format-python", "prepare-release"} <= branches
+    assert "minor-version-increment" in branches
+    assert "available-admonition" not in branches
+    assert "setup-guide" not in branches
+
+
+def test_behind_by_reads_the_comparison():
+    """The count comes off the compare endpoint, `None` when it cannot be read."""
+    with patch("repomatic.github.gh.run_gh_command") as mock_gh:
+        mock_gh.return_value = json.dumps({"behind_by": 3, "ahead_by": 1})
+        assert behind_by("main", "sync-uv-lock") == 3
+    assert mock_gh.call_args.args[0] == [
+        "api",
+        "repos/{owner}/{repo}/compare/main...sync-uv-lock",
+    ]
+    with patch("repomatic.github.gh.run_gh_command", return_value="{}"):
+        assert behind_by("main", "sync-uv-lock") is None
+
+
+def test_list_automation_prs_keeps_the_automation_branches_only():
+    """A hand-made branch is left out, and each kept row learns its lag."""
+    listing = [
+        {
+            "number": 1,
+            "headRefName": "sync-uv-lock",
+            "baseRefName": "main",
+            "title": "Sync",
+            "changedFiles": 1,
+            "additions": 1,
+            "deletions": 1,
+            "url": "u1",
+        },
+        {
+            "number": 2,
+            "headRefName": "my-fix",
+            "baseRefName": "main",
+            "title": "Fix",
+            "changedFiles": 1,
+            "additions": 1,
+            "deletions": 1,
+            "url": "u2",
+        },
+    ]
+
+    def fake_gh(args):
+        if args[:2] == ["pr", "list"]:
+            return json.dumps(listing)
+        return json.dumps({"behind_by": 2})
+
+    with patch("repomatic.github.gh.run_gh_command", side_effect=fake_gh):
+        rows = list_automation_prs()
+    assert [(row["number"], row["behindBy"]) for row in rows] == [(1, 2)]
+
+
+def test_release_pr_reads_the_open_pull_request_and_its_lag():
+    """A closed or missing release PR reads as none; an open one carries its lag."""
+    with patch(
+        "repomatic.github.gh.run_gh_command", return_value='{"state": "MERGED"}'
+    ):
+        assert release_pr("main") is None
+
+    def fake_gh(args):
+        if args[:2] == ["pr", "view"]:
+            return json.dumps({
+                "number": 9,
+                "title": "Release v1.0.0",
+                "url": "u",
+                "isDraft": True,
+                "headRefOid": "abc",
+                "state": "OPEN",
+            })
+        return json.dumps({"behind_by": 1})
+
+    with patch("repomatic.github.gh.run_gh_command", side_effect=fake_gh):
+        assert release_pr("main") == {
+            "number": 9,
+            "title": "Release v1.0.0",
+            "url": "u",
+            "isDraft": True,
+            "headRefOid": "abc",
+            "state": "OPEN",
+            "behindBy": 1,
+        }
