@@ -146,6 +146,9 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "is_python_package": (
         "Repository builds a distributable Python package, not a uv virtual project."
     ),
+    "changelog_has_entries": (
+        "The changelog section of the current version holds at least one entry."
+    ),
     "package_name": "Package name as published on PyPI.",
     "manpages_asset_name": (
         "Filename stem of the man-page tarball attached to a release."

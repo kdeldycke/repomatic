@@ -32,6 +32,7 @@ from typing import NamedTuple
 from packaging.version import Version
 from pyproject_metadata import ConfigurationError, StandardMetadata
 
+from ..changelog import Changelog, resolved_changelog_path
 from ..config import (
     Config,
     load_repomatic_config,
@@ -211,6 +212,23 @@ class ProjectMetadata:
         name` says, which a virtual project still declares.
         """
         return _is_python_package(pyproject_data=self.pyproject_toml)
+
+    @cached_property
+    def changelog_has_entries(self) -> bool:
+        """Whether the changelog section of the current version holds an entry.
+
+        The `prepare-release` job of `changelog.yaml` is gated on it: a release
+        cut from an empty section publishes empty release notes, so the release
+        pull request waits until a bullet names what moved, even on a
+        mechanical cycle. `False` with no changelog at `changelog.location`,
+        no current version, or no section for it.
+        """
+        path = resolved_changelog_path(self.config)
+        version = get_current_version()
+        if version is None or not path.is_file():
+            return False
+        changelog = Changelog(path.read_text(encoding="UTF-8"), current_version=version)
+        return bool(changelog.decompose_version(version).bullets)
 
     @cached_property
     def pyproject_toml(self) -> dict[str, Any]:

@@ -21,9 +21,12 @@ compares it with three sources: PyPI uploads, GitHub releases and git tags. A
 date that disagrees, a version published but never documented, and a section
 whose availability note is stale are reported, and repaired under `--fix`.
 
-Two content checks run beside it, and never change the exit code: a warning on
-over-long bullets in the unreleased section, and one on released sections that
-hold no entry.
+Four content checks run beside it and never change the exit code: a warning on
+over-long bullets in the unreleased section, on released sections that hold no
+entry, on a Breaking or Deprecated entry filed after an ordinary one, and on a
+`#N` naming no issue. A fifth, on a heading writing its version with the `v` of
+a git tag, is fatal, since no check reads such a heading. `--fix` strips the
+prefix instead.
 
 The changelog model these checks read and rewrite lives in
 {mod}`repomatic.changelog`.
@@ -48,12 +51,14 @@ from .changelog import (
 )
 from .file_ops import write_if_changed
 from .git_ops import GitError, get_all_version_tags
+from .github.gh import gh_json
 from .github.outputs import AnnotationLevel, emit_annotation
 from .github.releases import (
     GitHubRelease,
     GitHubReleasesUnavailable,
     get_github_releases,
 )
+from .github.urls import parse_github_repo
 from .pypi import (
     PYPI_PROJECT_URL,
     PyPIRelease,
@@ -67,6 +72,7 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
+    from typing import Final
 
 ReleaseT = TypeVar("ReleaseT")
 
@@ -96,13 +102,34 @@ PyPI link from the changelog. Re-runs of `lint-changelog --fix` against
 a healthy API restore the file.
 """
 
-LINT_DOCS_URL = "https://repomatic.net/workflows#fix-changelog-fix-changelog"
-"""Section of the published documentation on the two lint warnings.
+ENTRY_MARKS: Final[tuple[str, ...]] = ("**Breaking:**", "**Deprecated:**")
+"""The bold leads that open a section, in the order they lead it.
 
-{func}`warn_on_long_bullets` and {func}`warn_on_empty_sections` end their
-annotation on it. An annotation is read in a downstream repository, which
-holds no copy of this project's `claude.md`, so the link aims at the site.
+A reader scans a release for what breaks before anything else, so every
+`**Breaking:**` entry comes first, then every `**Deprecated:**` one, then the
+rest. {func}`warn_on_entry_order` holds the unreleased section to it.
 """
+
+LINT_DOCS_URL = "https://repomatic.net/workflows#fix-changelog-fix-changelog"
+"""Section of the published documentation on the content checks.
+
+Every check ends its annotation on it. An annotation is read in a downstream
+repository, which holds no copy of this project's `claude.md`, so the link
+aims at the site.
+"""
+
+REFERENCE_RE = re.compile(r"(?<![\w/#&])#(?P<number>\d+)\b")
+"""A bare `#N` in prose.
+
+The lookbehind leaves out the `owner/repo#N` slug, where the number follows a
+word character, and a URL fragment, where it follows a `#` or an `&`.
+"""
+
+CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
+"""An inline code span, which {func}`warn_on_positional_references` skips."""
+
+LINK_TARGET_RE = re.compile(r"\]\([^)]*\)")
+"""The target of a Markdown link, which a fragment like `#issuecomment-1` sits in."""
 
 REFUSED_EXIT_CODE = 2
 """Exit code of a `--fix` run that refuses to rewrite the changelog.
@@ -216,34 +243,17 @@ def _records_absence(admonition: str, label: str) -> bool:
     return label in admonition and f"[{label}](" not in admonition
 
 
-def split_changelog_bullets(changes: str) -> list[str]:
-    """Split a version section's change body into top-level bullet entries.
+def _unreleased_versions(changelog: Changelog) -> list[str]:
+    """The versions whose section is not released yet, newest first.
 
-    Each returned item is one entry: its `-` marker line plus any wrapped
-    continuation lines and indented sub-bullets, joined with newlines.
-    Blank lines and prose outside a bullet are dropped.
-
-    :param changes: The hand-written body of a version section, as captured
-        in {attr}`~repomatic.changelog.VersionElements.changes`.
-    :return: One string per top-level bullet, in document order.
+    Only these sections take a content check: a released section is immutable
+    history, and re-flagging it on every run would be noise.
     """
-    bullets: list[str] = []
-    current: list[str] = []
-    for line in changes.splitlines():
-        if re.match(r"^- ", line):
-            if current:
-                bullets.append("\n".join(current))
-            current = [line]
-        elif current and (not line.strip() or line[:1] in {" ", "\t"}):
-            # Wrapped continuation, indented sub-bullet, or interior blank line.
-            current.append(line)
-        elif current:
-            # A non-indented, non-bullet line closes the current entry.
-            bullets.append("\n".join(current))
-            current = []
-    if current:
-        bullets.append("\n".join(current))
-    return bullets
+    released = {version for version, _date in changelog.extract_all_releases()}
+    unreleased = changelog.extract_all_version_headings() - released
+    return sorted(
+        unreleased, key=lambda v: safe_version(v) or Version("0"), reverse=True
+    )
 
 
 def count_bullet_words(bullet: str) -> int:
@@ -272,13 +282,9 @@ def warn_on_long_bullets(changelog: Changelog, threshold: int) -> None:
     """
     if threshold <= 0:
         return
-    released = {version for version, _date in changelog.extract_all_releases()}
-    unreleased = changelog.extract_all_version_headings() - released
-    for version in sorted(
-        unreleased, key=lambda v: safe_version(v) or Version("0"), reverse=True
-    ):
+    for version in _unreleased_versions(changelog):
         elements = changelog.decompose_version(version)
-        for index, bullet in enumerate(split_changelog_bullets(elements.changes), 1):
+        for index, bullet in enumerate(elements.bullets, 1):
             words = count_bullet_words(bullet)
             if words > threshold:
                 logging.warning(
@@ -323,8 +329,7 @@ def warn_on_empty_sections(changelog: Changelog) -> None:
     for version, _date in sorted(
         changelog.extract_all_releases(), key=lambda r: Version(r[0]), reverse=True
     ):
-        elements = changelog.decompose_version(version)
-        if split_changelog_bullets(elements.changes):
+        if changelog.decompose_version(version).bullets:
             continue
         logging.warning(
             f"⚠ {version}: released section holds no entry. Add one naming what "
@@ -337,6 +342,143 @@ def warn_on_empty_sections(changelog: Changelog) -> None:
             f"body is rebuilt from it. Name what moved, even on a purely "
             f"mechanical cycle. See {LINT_DOCS_URL}",
         )
+
+
+def _entry_rank(bullet: str) -> int:
+    """Where *bullet* belongs in its section.
+
+    :return: The index of its {data}`ENTRY_MARKS` lead, or one past them for
+        an entry opening on no mark.
+    """
+    text = bullet.lstrip("- ").lstrip()
+    for rank, mark in enumerate(ENTRY_MARKS):
+        if text.startswith(mark):
+            return rank
+    return len(ENTRY_MARKS)
+
+
+def warn_on_entry_order(changelog: Changelog) -> None:
+    """Warn about a marked entry filed after an unmarked one, non-fatally.
+
+    The {data}`ENTRY_MARKS` lead a section in their order: every
+    `**Breaking:**` entry first, then every `**Deprecated:**` one, then the
+    rest. Only the unreleased section is inspected, per
+    {func}`_unreleased_versions`.
+
+    :param changelog: The parsed changelog to inspect.
+    """
+    for version in _unreleased_versions(changelog):
+        highest = 0
+        for index, bullet in enumerate(changelog.decompose_version(version).bullets, 1):
+            rank = _entry_rank(bullet)
+            if rank < highest:
+                mark = ENTRY_MARKS[rank]
+                logging.warning(
+                    f"⚠ {version}: changelog entry {index} opens on {mark} but "
+                    f"follows an entry that does not. Move it up: Breaking "
+                    f"entries lead the section, then Deprecated ones, then the "
+                    f"rest."
+                )
+                emit_annotation(
+                    AnnotationLevel.WARNING,
+                    f"Changelog entry {index} for {version} opens on {mark} but "
+                    f"follows an entry that does not. Breaking entries lead a "
+                    f"section, then Deprecated ones, then the rest. See "
+                    f"{LINT_DOCS_URL}",
+                )
+            highest = max(highest, rank)
+
+
+def _referenced_numbers(bullet: str) -> list[int]:
+    """The numbers of every bare `#N` *bullet* names in prose.
+
+    A code span and a link target are dropped first: a `#N` quoted there is
+    not a cross-reference GitHub renders.
+    """
+    prose = LINK_TARGET_RE.sub("]()", CODE_SPAN_RE.sub("", bullet))
+    return [int(match["number"]) for match in REFERENCE_RE.finditer(prose)]
+
+
+def warn_on_positional_references(changelog: Changelog) -> None:
+    """Warn about a `#N` in an unreleased entry naming no issue, non-fatally.
+
+    GitHub links every `#N` to the issue or pull request of that number, so a
+    positional `test #1` renders as a cross-reference to whatever carries the
+    number. Each number of the unreleased section is looked up on the
+    repository the comparison URLs name. The lookup is skipped, with an info
+    line, when `gh` cannot read that repository: absent, unauthenticated or
+    offline, which a local run often is.
+
+    :param changelog: The parsed changelog to inspect.
+    """
+    references = sorted({
+        (version, index, number)
+        for version in _unreleased_versions(changelog)
+        for index, bullet in enumerate(changelog.decompose_version(version).bullets, 1)
+        for number in _referenced_numbers(bullet)
+    })
+    if not references:
+        return
+    repo = parse_github_repo(changelog.extract_repo_url())
+    if repo is None:
+        logging.info(
+            "The changelog names no GitHub repository: #N references are not checked."
+        )
+        return
+    slug = "/".join(repo)
+    if gh_json(["api", f"repos/{slug}"], soft=True) is None:
+        logging.info(f"gh cannot read {slug}: #N references are not checked.")
+        return
+    for version, index, number in references:
+        if gh_json(["api", f"repos/{slug}/issues/{number}"], soft=True) is not None:
+            continue
+        logging.warning(
+            f"⚠ {version}: changelog entry {index} names #{number}, which is no "
+            f"issue or pull request of {slug}. Write a position in words, or "
+            f"link the thread meant."
+        )
+        emit_annotation(
+            AnnotationLevel.WARNING,
+            f"Changelog entry {index} for {version} names #{number}, which is no "
+            f"issue or pull request of {slug}, yet GitHub links it as one. Write "
+            f"a position in words, or link the thread meant. See {LINT_DOCS_URL}",
+        )
+
+
+def check_tag_prefixed_headings(changelog: Changelog, *, fix: bool) -> bool:
+    """Report each heading naming its version with a `v`, or strip it under *fix*.
+
+    A heading carrying the prefix of a git tag is one no check reads, per
+    {data}`~repomatic.changelog.TAG_PREFIXED_HEADING_RE`, so the finding is
+    fatal: left standing, the release behind it goes unverified. The rewrite
+    is mechanical, so `--fix` applies it rather than failing.
+
+    :param changelog: The parsed changelog to inspect, rewritten under *fix*.
+    :param fix: Strip the prefixes instead of reporting them.
+    :return: `True` when a prefixed heading is left standing.
+    """
+    versions = changelog.tag_prefixed_versions()
+    if not versions:
+        return False
+    if fix:
+        changelog.strip_tag_prefixes()
+        logging.info(
+            f"Stripped the v prefix off {len(versions)} heading(s): "
+            f"{', '.join(versions)}."
+        )
+        return False
+    for version in versions:
+        logging.error(
+            f"✗ v{version}: heading carries a tag prefix. Write the bare version, "
+            f"`{version}`, or no check reads the section."
+        )
+        emit_annotation(
+            AnnotationLevel.ERROR,
+            f"Changelog heading for {version} carries the v prefix of a git tag. "
+            f"A heading names the package version, bare: no check reads the "
+            f"section otherwise. See {LINT_DOCS_URL}",
+        )
+    return True
 
 
 @dataclass(frozen=True)
@@ -978,9 +1120,12 @@ def lint_changelog_dates(
     GitHub releases, or PyPI packages but have no corresponding changelog
     entry. Orphans are logged as warnings and cause a non-zero exit code.
 
-    Two non-fatal content checks run first and never affect the exit code:
-    {func}`warn_on_long_bullets` over the unreleased section, and
-    {func}`warn_on_empty_sections` over the released ones.
+    Four non-fatal content checks run first and never affect the exit code:
+    {func}`warn_on_long_bullets`, {func}`warn_on_entry_order` and
+    {func}`warn_on_positional_references` over the unreleased section, and
+    {func}`warn_on_empty_sections` over the released ones. A fifth,
+    {func}`check_tag_prefixed_headings`, fails the run on a heading no check
+    can read, and rewrites it under `fix`.
 
     When `fix` is enabled, date mismatches are corrected in-place and
     admonitions are added to the changelog:
@@ -1033,13 +1178,19 @@ def lint_changelog_dates(
         the existing changelog has substantial coverage on that platform.
     """
     changelog = Changelog(changelog_path.read_text(encoding="UTF-8"))
+    # First, since a heading no check reads hides its release from the rest.
+    prefixed_left = check_tag_prefixed_headings(changelog, fix=fix)
+    if fix and write_if_changed(changelog_path, changelog.content.rstrip() + "\n"):
+        logging.info(f"Updated {changelog_path}")
     warn_on_long_bullets(changelog, bullet_word_threshold)
     warn_on_empty_sections(changelog)
+    warn_on_entry_order(changelog)
+    warn_on_positional_references(changelog)
     releases = changelog.extract_all_releases()
 
     if not releases:
         logging.info("No released versions found in changelog.")
-        return 0
+        return 1 if prefixed_left else 0
 
     sources = _reconfirm_live(
         changelog,
@@ -1086,4 +1237,4 @@ def lint_changelog_dates(
     # having happened: a run that inserts one orphan but leaves another without
     # a comparison URL to link it from has not fixed the changelog, and letting
     # downstream steps proceed on that would publish the gap.
-    return 1 if has_mismatch and unfixed_problem else 0
+    return 1 if (has_mismatch and unfixed_problem) or prefixed_left else 0

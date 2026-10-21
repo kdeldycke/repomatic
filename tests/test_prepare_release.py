@@ -27,7 +27,10 @@ from textwrap import dedent
 import pytest
 
 from repomatic.claude_plugin import PLUGIN_ROOT
-from repomatic.release.prepare_release import PrepareRelease
+from repomatic.release.prepare_release import (
+    EmptyChangelogSectionError,
+    PrepareRelease,
+)
 from repomatic.release.self_pin import (
     add_cooldown_exemption,
     cooldown_exemption,
@@ -497,6 +500,33 @@ def test_prepare_release_without_workflows(
     # Changelog once, citation once.
     assert len(modified) == 2
     assert len(set(modified)) == 2
+
+
+def test_prepare_release_refuses_an_empty_section(
+    tmp_path: Path, temp_citation: Path
+) -> None:
+    """A section with no entry stops the freeze before any file moves."""
+    changelog = tmp_path / "changelog.md"
+    changelog.write_text(
+        dedent("""\
+            # Changelog
+
+            ## [1.2.3 (unreleased)](https://github.com/user/repo/compare/v1.2.2...main)
+
+            > [!IMPORTANT]
+            > This version is not released yet and is under active development.
+
+            ## [1.2.2 (2024-01-01)](https://github.com/user/repo/compare/v1.2.1...v1.2.2)
+
+            - Previous release.
+            """),
+        encoding="UTF-8",
+    )
+    prep = PrepareRelease(changelog_path=changelog, citation_path=temp_citation)
+    with pytest.raises(EmptyChangelogSectionError, match="holds no entry"):
+        prep.prepare_release(update_workflows=False)
+    assert "(unreleased)" in changelog.read_text(encoding="UTF-8")
+    assert prep.release_date not in temp_citation.read_text(encoding="UTF-8")
 
 
 def test_release_date_format() -> None:

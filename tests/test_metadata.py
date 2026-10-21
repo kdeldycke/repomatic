@@ -506,6 +506,7 @@ expected: dict[str, Any] = {
     "zsh_files": [],
     "is_python_project": True,
     "is_python_package": True,
+    "changelog_has_entries": True,
     "binaries_sync": True,
     "manpages_script": "repomatic.cli.main:repomatic",
     # The `<package-name>-manpages` default, `manpages.asset-name` being empty.
@@ -2879,3 +2880,26 @@ def test_github_json_keeps_a_list_of_mappings_as_an_array():
         "doc_files": '"readme.md"',
         "zsh_files": "",
     }
+
+
+def test_changelog_has_entries_reads_the_current_section(tmp_path, monkeypatch):
+    """The key is true only when the section of the current version holds a bullet."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "papaya"\nversion = "1.2.3"\n\n'
+        '[tool.bumpversion]\ncurrent_version = "1.2.3"\n',
+        encoding="UTF-8",
+    )
+    assert Metadata().changelog_has_entries is False
+    changelog = tmp_path / "changelog.md"
+    heading = (
+        "# Changelog\n\n"
+        "## [`1.2.3` (unreleased)](https://github.com/user/repo/compare/v1.2.2...main)\n"
+    )
+    changelog.write_text(heading, encoding="UTF-8")
+    # The singleton caches every key, so each reading starts from a fresh one.
+    Metadata.reset()
+    assert Metadata().changelog_has_entries is False
+    changelog.write_text(heading + "\n- Add a feature.\n", encoding="UTF-8")
+    Metadata.reset()
+    assert Metadata().changelog_has_entries is True

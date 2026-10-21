@@ -118,6 +118,14 @@ def json_version_rule(version: str) -> tuple[re.Pattern[str], str]:
     return (JSON_VERSION_RE, rf"\g<1>{version}\g<2>")
 
 
+class EmptyChangelogSectionError(RuntimeError):
+    """The changelog section to release holds no entry.
+
+    Raised by {meth}`PrepareRelease.prepare_release` before any file moves, so
+    a release never publishes empty release notes.
+    """
+
+
 class PrepareRelease:
     """Prepare files for a release by updating dates, URLs, and removing warnings."""
 
@@ -613,8 +621,11 @@ class PrepareRelease:
         :param update_workflows: If True, also freeze workflow URLs to versioned tag
             and freeze CLI invocations to the current version.
         :return: List of modified files.
+        :raises EmptyChangelogSectionError: When the changelog section of the
+            current version exists and holds no entry.
         """
         self.modified_files = []
+        self._refuse_an_empty_section()
 
         if Changelog.freeze_file(
             self.changelog_path,
@@ -639,6 +650,33 @@ class PrepareRelease:
             self.freeze_plugin_manifest_version(self.current_version)
 
         return self.modified_files
+
+    def _refuse_an_empty_section(self) -> None:
+        """Stop the freeze when the section to release holds no entry.
+
+        A release cut from an empty section publishes empty release notes.
+        The `prepare-release` job never reaches this point, since
+        `changelog.yaml` gates it on the `changelog_has_entries` metadata key,
+        so this guards a local run. A missing changelog, or a missing section,
+        is left to {meth}`~repomatic.changelog.Changelog.freeze_file`, which
+        warns about them.
+
+        :raises EmptyChangelogSectionError: When the section exists and holds
+            no bullet.
+        """
+        if not self.changelog_path.is_file():
+            return
+        changelog = Changelog(
+            self.changelog_path.read_text(encoding="UTF-8"),
+            current_version=self.current_version,
+        )
+        elements = changelog.decompose_version(self.current_version)
+        if elements.version and not elements.bullets:
+            raise EmptyChangelogSectionError(
+                f"The changelog section of {self.current_version} holds no entry: "
+                "add one naming what moved before releasing, even on a mechanical "
+                "cycle."
+            )
 
     def post_release(self, update_workflows: bool = False) -> list[Path]:
         """Run all unfreeze steps to prepare the post-release commit.

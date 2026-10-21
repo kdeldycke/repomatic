@@ -89,7 +89,7 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
-          release_commits_matrix
+          release_commits_matrix changelog_has_entries
 
   fix-changelog:
     name: 📋 Fix changelog
@@ -168,6 +168,10 @@ jobs:
 
   prepare-release:
     name: 🎬 Prepare release
+    needs:
+      - metadata
+    # Wait for a changelog entry: a release PR cut from an empty section would
+    # publish empty release notes, so none opens until a bullet names what moved.
     # Skip only schedule (that trigger exists for the bump-version job alone).
     # workflow_run is intentionally allowed: it fires after every "🚀 Build &
     # release" (so after every push to main) and re-bases the PR onto the current
@@ -176,7 +180,9 @@ jobs:
     # markdown file — which would otherwise leave the PR stale. It double-runs with the
     # push trigger on paths-matching commits, but create-pull-request no-ops when
     # the branch is already current, so the extra run is cheap and idempotent.
-    if: github.event_name != 'schedule'
+    if: >-
+      github.event_name != 'schedule'
+      && fromJSON(needs.metadata.outputs.metadata).changelog_has_entries
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:

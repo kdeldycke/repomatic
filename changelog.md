@@ -32,6 +32,8 @@
 - **Breaking:** The bundled `labels.toml` no longer renames the `🎁 feature request` label, and `lychee.toml` no longer skips star-history.com links.
 - Enable the `D205`, `D209`, `E501`, `PLC0415` and `TC` ruff rules in the bundled `ruff.toml`.
 - Set `wrap = "no"` in the bundled `mdformat.toml`, so `format-markdown` joins the lines of a hard-wrapped paragraph.
+- `lint-changelog` warns on a Breaking or Deprecated entry filed after an ordinary one and on a `#N` naming no issue, and `--fix` strips a `v` tag prefix off a heading.
+- The `prepare-release` job waits until the unreleased changelog section holds an entry, read from the new `changelog_has_entries` metadata key.
 - `repomatic` now imports only the module of the command it runs: `repomatic --version` starts in 0.3 s instead of 0.45 s.
 - Add the `sync-runner-images.sync` and `github-releases.sync` keys to turn off these two syncs.
 - Add the `bump-version`, `create-release`, `pack-manpages`, `squashed-release` and `wait-pypi` commands, which replace the shell steps of the release workflows.

@@ -770,3 +770,49 @@ def test_insert_version_section_ignores_unparsable_versions():
 def test_version_elements_queries(elements, has_body, tag_range):
     assert elements.has_body is has_body
     assert elements.tag_range == tag_range
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected"),
+    (
+        ("", []),
+        ("- Only one entry.", ["- Only one entry."]),
+        ("- One.\n- Two.\n- Three.", ["- One.", "- Two.", "- Three."]),
+        (
+            "- Wrapped entry that\n  continues on the next line.",
+            ["- Wrapped entry that\n  continues on the next line."],
+        ),
+        (
+            "- Parent entry.\n  - Child A.\n  - Child B.",
+            ["- Parent entry.\n  - Child A.\n  - Child B."],
+        ),
+        (
+            "Intro prose, not a bullet.\n\n- The only real bullet.",
+            ["- The only real bullet."],
+        ),
+    ),
+)
+def test_version_elements_bullets(changes, expected):
+    """Each top-level `-` starts one entry; wraps and sub-bullets fold into it."""
+    assert VersionElements(changes=changes).bullets == expected
+
+
+def test_tag_prefixed_headings_are_found_and_stripped():
+    """A heading written with the `v` of a tag is invisible until stripped."""
+    changelog = Changelog(
+        "# Changelog\n\n"
+        "## [`v1.2.3` (2026-02-14)]"
+        "(https://github.com/user/repo/compare/v1.2.2...v1.2.3)\n\n"
+        "- Add a feature.\n\n"
+        "## [v1.2.2 (2026-01-01)]"
+        "(https://github.com/user/repo/compare/v1.2.1...v1.2.2)\n"
+    )
+    assert changelog.extract_all_releases() == []
+    assert changelog.tag_prefixed_versions() == ["1.2.3", "1.2.2"]
+    assert changelog.strip_tag_prefixes() == 2
+    assert changelog.tag_prefixed_versions() == []
+    assert changelog.extract_all_releases() == [
+        ("1.2.3", "2026-02-14"),
+        ("1.2.2", "2026-01-01"),
+    ]
+    assert "compare/v1.2.2...v1.2.3" in changelog.content

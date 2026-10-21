@@ -257,6 +257,17 @@ Used by {meth}`Changelog.decompose_version` to populate the heading
 fields of {class}`VersionElements`.
 """
 
+TAG_PREFIXED_HEADING_RE = re.compile(
+    rf"^(?P<prefix>{SECTION_START}\s*\[`?)v(?P<version>{VERSION_TOKEN})\b",
+    re.MULTILINE,
+)
+"""A `##` heading naming its version with the `v` of a git tag.
+
+No scan reads such a heading: {data}`VERSION_TOKEN` opens on a digit, so the
+section stays invisible to every check, and its release goes unverified. The
+prefix belongs to the tag; a heading names the package version, bare.
+"""
+
 
 def _heading_fragment(version: str | None = None) -> str:
     """Regex fragment matching a `##` version heading up to its version token.
@@ -360,6 +371,32 @@ class VersionElements:
             self.editorial_admonition,
             self.yanked_admonition,
         ))
+
+    @property
+    def bullets(self) -> list[str]:
+        """The top-level entries of {attr}`changes`, one string per `-` bullet.
+
+        Each entry holds its marker line plus the wrapped continuation lines
+        and indented sub-bullets under it, joined with newlines. Blank lines
+        and prose outside a bullet are dropped.
+        """
+        bullets: list[str] = []
+        current: list[str] = []
+        for line in self.changes.splitlines():
+            if re.match(r"^- ", line):
+                if current:
+                    bullets.append("\n".join(current))
+                current = [line]
+            elif current and (not line.strip() or line[:1] in {" ", "\t"}):
+                # Wrapped continuation, indented sub-bullet, or interior blank line.
+                current.append(line)
+            elif current:
+                # A non-indented, non-bullet line closes the current entry.
+                bullets.append("\n".join(current))
+                current = []
+        if current:
+            bullets.append("\n".join(current))
+        return bullets
 
     @property
     def tag_range(self) -> str:
@@ -615,6 +652,27 @@ class Changelog:
         :return: Set of version strings found in headings.
         """
         return {match["version"] for match in _heading_re().finditer(self.content)}
+
+    def tag_prefixed_versions(self) -> list[str]:
+        """The versions of the `##` headings written with a `v` tag prefix.
+
+        :return: The bare versions, in document order.
+        """
+        return [
+            match["version"] for match in TAG_PREFIXED_HEADING_RE.finditer(self.content)
+        ]
+
+    def strip_tag_prefixes(self) -> int:
+        """Drop the `v` tag prefix off every `##` heading carrying one.
+
+        The comparison URL of the heading keeps its `v`: that one names a tag.
+
+        :return: The number of headings rewritten.
+        """
+        self.content, count = TAG_PREFIXED_HEADING_RE.subn(
+            r"\g<prefix>\g<version>", self.content
+        )
+        return count
 
     def insert_version_section(
         self,

@@ -101,7 +101,11 @@ from ..release.binary import (
     pack_binary_assets,
 )
 from ..release.manpages import MANPAGES_ARCHIVE_SUFFIX, pack_manpages
-from ..release.prepare_release import CITATION_PATH, PrepareRelease
+from ..release.prepare_release import (
+    CITATION_PATH,
+    EmptyChangelogSectionError,
+    PrepareRelease,
+)
 from ..release.protocol import (
     bump_branch,
     post_release_commit_message,
@@ -249,6 +253,13 @@ def lint_changelog(
     published release heading with nothing under it reads as broken to
     anyone scanning the notes for that version.
 
+    Warns, non-fatally, about an unreleased entry marked Breaking or
+    Deprecated that follows an unmarked one, and about an unreleased entry
+    naming a #N that is no issue or pull request of the repository.
+
+    Fails on a heading writing its version with the v of a git tag, which no
+    check reads. --fix strips the prefix instead.
+
     \b
     Output symbols:
         ✓  Dates match
@@ -258,6 +269,7 @@ def lint_changelog(
     \b
     With --fix, the command also:
         - Corrects mismatched dates to match the canonical source.
+        - Strips the v tag prefix off a heading.
         - Adds a PyPI link admonition under each released version.
         - Adds a CAUTION admonition for yanked releases.
         - Adds a WARNING admonition for versions not on PyPI.
@@ -471,7 +483,10 @@ def prepare_release(
         modified = prep.post_release(update_workflows=update_workflows)
         action = "Post-release"
     else:
-        modified = prep.prepare_release(update_workflows=update_workflows)
+        try:
+            modified = prep.prepare_release(update_workflows=update_workflows)
+        except EmptyChangelogSectionError as error:
+            raise ClickException(str(error)) from error
         action = "Release preparation"
 
     if modified:

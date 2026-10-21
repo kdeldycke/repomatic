@@ -34,9 +34,10 @@ from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
 from repomatic.lint_changelog import (
     count_bullet_words,
     lint_changelog_dates,
-    split_changelog_bullets,
     warn_on_empty_sections,
+    warn_on_entry_order,
     warn_on_long_bullets,
+    warn_on_positional_references,
 )
 from repomatic.pypi import PyPIRelease
 from tests.conftest import assert_shipped_text_reads_true_downstream
@@ -330,32 +331,6 @@ def test_lint_changelog_dates_ignores_prerelease_orphans(
 
 
 @pytest.mark.parametrize(
-    ("changes", "expected_count"),
-    (
-        ("", 0),
-        ("- Only one entry.", 1),
-        ("- One.\n- Two.\n- Three.", 3),
-        ("- Wrapped entry that\n  continues on the next line.", 1),
-        ("- Parent entry.\n  - Child A.\n  - Child B.", 1),
-        ("Intro prose, not a bullet.\n\n- The only real bullet.", 1),
-    ),
-)
-def test_split_changelog_bullets_count(changes, expected_count):
-    """Each top-level `-` starts one entry; wraps and sub-bullets fold in."""
-    assert len(split_changelog_bullets(changes)) == expected_count
-
-
-def test_split_changelog_bullets_folds_continuation_and_sub_bullets():
-    """A wrapped line and indented sub-bullets stay with their parent entry."""
-    changes = "- Parent entry\n  continues here.\n  - A sub-point.\n- Second entry."
-    bullets = split_changelog_bullets(changes)
-    assert bullets == [
-        "- Parent entry\n  continues here.\n  - A sub-point.",
-        "- Second entry.",
-    ]
-
-
-@pytest.mark.parametrize(
     ("bullet", "expected_words"),
     (
         ("- Add a feature.", 3),
@@ -490,6 +465,14 @@ def test_warn_on_empty_sections_counts_an_admonition_as_empty(caplog):
         ),
         pytest.param(
             warn_on_empty_sections, _released_changelog(""), id="empty-section"
+        ),
+        pytest.param(
+            warn_on_entry_order,
+            _unreleased_changelog(
+                "- Add the seasonal fruit basket.\n"
+                "- **Breaking:** Drop the apple crate."
+            ),
+            id="entry-order",
         ),
     ),
 )
@@ -1454,3 +1437,140 @@ def test_lint_tolerates_an_unreadable_tag_list(changelog_file, monkeypatch, capl
     with caplog.at_level(logging.WARNING):
         assert lint_changelog_dates(changelog_file) == 0
     assert "not a git repository" in caplog.text
+
+
+def test_warn_on_entry_order_flags_a_late_breaking_entry(caplog):
+    """A Breaking entry filed after an ordinary one is reported with its index."""
+    changelog = Changelog(
+        _unreleased_changelog(
+            "- Add the seasonal fruit basket.\n- **Breaking:** Drop the apple crate."
+        )
+    )
+    with caplog.at_level(logging.WARNING):
+        warn_on_entry_order(changelog)
+    assert "1.2.3: changelog entry 2 opens on **Breaking:**" in caplog.text
+
+
+def test_warn_on_entry_order_flags_a_deprecation_after_a_plain_entry(caplog):
+    """A Deprecated entry sits after the Breaking ones and before the rest."""
+    changelog = Changelog(
+        _unreleased_changelog(
+            "- **Breaking:** Drop the apple crate.\n"
+            "- Add the seasonal fruit basket.\n"
+            "- **Deprecated:** The pear crate goes in `2.0.0`."
+        )
+    )
+    with caplog.at_level(logging.WARNING):
+        warn_on_entry_order(changelog)
+    assert "1.2.3: changelog entry 3 opens on **Deprecated:**" in caplog.text
+
+
+def test_warn_on_entry_order_accepts_the_canonical_order(caplog):
+    """Breaking, then Deprecated, then the rest is the order the check wants."""
+    changelog = Changelog(
+        _unreleased_changelog(
+            "- **Breaking:** Drop the apple crate.\n"
+            "- **Deprecated:** The pear crate goes in `2.0.0`.\n"
+            "- Add the seasonal fruit basket."
+        )
+    )
+    with caplog.at_level(logging.WARNING):
+        warn_on_entry_order(changelog)
+    assert caplog.records == []
+
+
+def test_warn_on_entry_order_ignores_released_sections(caplog):
+    """A released section is immutable, so its order is never re-flagged."""
+    changelog = Changelog(
+        _released_changelog(
+            "- Add the seasonal fruit basket.\n- **Breaking:** Drop the apple crate."
+        )
+    )
+    with caplog.at_level(logging.WARNING):
+        warn_on_entry_order(changelog)
+    assert caplog.records == []
+
+
+def test_positional_reference_warns_when_no_thread_carries_the_number(
+    monkeypatch, caplog
+):
+    """A `#N` naming no issue or pull request is reported with its entry."""
+    calls = []
+
+    def fake_gh_json(args, *, soft=False):
+        calls.append(tuple(args))
+        return None if args[-1].endswith("/issues/1") else {"number": 42}
+
+    monkeypatch.setattr("repomatic.lint_changelog.gh_json", fake_gh_json)
+    changelog = Changelog(_unreleased_changelog("- Fix test #1 and close #42."))
+    with caplog.at_level(logging.WARNING):
+        warn_on_positional_references(changelog)
+    assert "1.2.3: changelog entry 1 names #1," in caplog.text
+    assert "names #42" not in caplog.text
+    assert ("api", "repos/user/repo") in calls
+    assert ("api", "repos/user/repo/issues/42") in calls
+
+
+def test_positional_reference_check_skips_when_gh_cannot_read_the_repo(
+    monkeypatch, caplog
+):
+    """An unreachable repository leaves every reference unjudged, with a note."""
+    monkeypatch.setattr(
+        "repomatic.lint_changelog.gh_json", lambda args, *, soft=False: None
+    )
+    changelog = Changelog(_unreleased_changelog("- Fix test #1."))
+    with caplog.at_level(logging.INFO):
+        warn_on_positional_references(changelog)
+    assert "#N references are not checked" in caplog.text
+    assert "names #1" not in caplog.text
+
+
+def test_positional_reference_check_reads_prose_only(monkeypatch):
+    """A `#N` in a code span, a link target or a slug is no cross-reference."""
+    monkeypatch.setattr(
+        "repomatic.lint_changelog.gh_json",
+        lambda args, *, soft=False: pytest.fail(f"unexpected gh call: {args}"),
+    )
+    changelog = Changelog(
+        _unreleased_changelog(
+            "- Read `test #1`, [the thread](https://github.com/user/repo/issues/7"
+            "#issuecomment-1) and user/repo#9."
+        )
+    )
+    warn_on_positional_references(changelog)
+
+
+def _tag_prefixed_changelog() -> str:
+    return dedent(
+        """\
+        # Changelog
+
+        ## [`v1.2.2` (2024-01-15)](https://github.com/user/repo/compare/v1.2.1...v1.2.2)
+
+        - Previous release.
+        """
+    )
+
+
+def test_tag_prefixed_heading_fails_the_lint(tmp_path, monkeypatch, caplog):
+    """A heading carrying the `v` of a tag is fatal without `--fix`."""
+    path = tmp_path / "changelog.md"
+    path.write_text(_tag_prefixed_changelog(), encoding="UTF-8")
+    _patch_sources(monkeypatch, pypi={"1.2.2": ("2024-01-15", False)})
+    with caplog.at_level(logging.ERROR):
+        assert lint_changelog_dates(path) == 1
+    assert "v1.2.2: heading carries a tag prefix" in caplog.text
+    assert path.read_text(encoding="UTF-8") == _tag_prefixed_changelog()
+
+
+def test_fix_strips_the_tag_prefix(tmp_path, monkeypatch):
+    """`--fix` rewrites the heading, and the release behind it is then checked."""
+    path = tmp_path / "changelog.md"
+    path.write_text(_tag_prefixed_changelog(), encoding="UTF-8")
+    _patch_sources(monkeypatch, pypi={"1.2.2": ("2024-01-15", False)}, github=["1.2.2"])
+    assert lint_changelog_dates(path, fix=True) == 0
+    content = path.read_text(encoding="UTF-8")
+    assert "## [`1.2.2` (2024-01-15)]" in content
+    assert "v1.2.2` (" not in content
+    assert "compare/v1.2.1...v1.2.2" in content
+    assert "> [!NOTE]" in content
