@@ -98,6 +98,7 @@
 - The bundled `repomatic-audit` skill now reads the CI state of the default branch, and checks that `[tool.gitleaks]` keeps the built-in rules.
 - The bundled `repomatic-upgrade` skill now runs the newly pinned `mypy` and `ruff` on the untouched tree, since the changelog often leaves a tool bump out.
 - The bundled `repomatic-upgrade` skill now tells a local edit that upstream already holds from one the upgrade drops, with a three-way merge.
+- The bundled `repomatic-upgrade` skill now reads the binary self-test of `Build & release` when an upgrade changes how binaries build.
 - Fix the YAML and workflow lint jobs running on every push: `yaml_changed`, `workflows_changed` and `zsh_changed` now read the commit range, shallow clones included.
 - Fix a later push cancelling the tests of a release push: they now run in a concurrency group of their own.
 - Fix a failed lychee run closing the "Broken links" issue.
