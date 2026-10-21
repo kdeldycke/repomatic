@@ -119,6 +119,7 @@
 - Fix `cancel-runs` matching the wrong runs for a branch name holding `+`, `&` or `#`.
 - Fix the thin-caller secrets check reading the first job with secrets instead of the job that calls the reusable workflow.
 - Fix the binaries leaving out the `prepare-release` and `release-sync-report` templates.
+- Fix the Linux binaries baking no git field: the build job now trusts the checkout inside the manylinux container.
 - Fix the file lists of `repomatic` commands including the files that `.git/info/exclude` ignores, like an agent worktree under `.claude/worktrees/`.
 
 ## [`7.18.0` (2026-10-13)](https://github.com/kdeldycke/repomatic/compare/v7.17.1...v7.18.0)

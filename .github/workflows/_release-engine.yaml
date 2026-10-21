@@ -98,6 +98,12 @@ jobs:
       # the wrapper carries the same value. Nuitka's internal clcache on MSVC
       # ignores it.
       CCACHE_COMPILERCHECK: content
+      # Inside the manylinux container, every `git` call after the checkout hits "dubious ownership": `prebake all`
+      # then bakes no git field, and the self-tested binary crashes. See the test-binaries job for why the
+      # environment carries safe.directory. Off-container it is a no-op.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: "*"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -204,15 +210,12 @@ jobs:
       # standalone test-binaries job only runs for release commits, so canary
       # and weekly-schedule builds still prove the binary works without paying
       # a second runner-queue slot. Env mirrors the test-binaries job; see its
-      # comments for the UTF-8 and safe.directory rationale.
+      # comments for the UTF-8 rationale. The job env carries safe.directory.
       - name: Self-test binary
         if: ${{ !fromJSON(inputs.metadata).release_commits_matrix }}
         env:
           BIN_NAME: ${{ matrix.bin_name }}
           PYTHONIOENCODING: utf8
-          GIT_CONFIG_COUNT: "1"
-          GIT_CONFIG_KEY_0: safe.directory
-          GIT_CONFIG_VALUE_0: "*"
         shell: bash
         run: >
           uv --no-progress run --frozen --
