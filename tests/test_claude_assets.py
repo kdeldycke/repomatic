@@ -320,6 +320,60 @@ def test_uvx_commands_carry_a_cooldown(asset_id: str, body: str) -> None:
         )
 
 
+CONTEXT_COMMAND_RE = re.compile(r"^!`")
+"""A line a skill runs as a shell command when it loads."""
+
+
+def adjacent_context_commands(body: str) -> list[int]:
+    """Line numbers of the `!` commands sitting right under another line.
+
+    Claude Code runs each line opening on `` !` `` as one command when the
+    skill loads. The bundled `mdformat.toml` sets `wrap = "no"`, so the
+    formatter joins the lines of a paragraph: a command written right under
+    another line lands on that line at the next autofix pass, and the skill
+    then loads one broken command. A blank line between two commands keeps
+    each one a paragraph of its own. A fenced block is left alone.
+    """
+    in_code = {number for number, _line in fenced_code_lines(body)}
+    lines = body.splitlines()
+    return [
+        number
+        for number, line in enumerate(lines, 1)
+        if number not in in_code
+        and CONTEXT_COMMAND_RE.match(line)
+        and number > 1
+        and lines[number - 2].strip()
+    ]
+
+
+def test_detector_flags_adjacent_context_commands() -> None:
+    """The detector reads a command under a command, and nothing else."""
+    body = (
+        "## Context\n"
+        "\n"
+        "!`echo apple`\n"
+        "!`echo banana`\n"
+        "\n"
+        "!`echo cherry`\n"
+        "\n"
+        "```shell-session\n"
+        "!`echo fig`\n"
+        "!`echo grape`\n"
+        "```\n"
+    )
+    assert adjacent_context_commands(body) == [4]
+
+
+@bundled_asset
+def test_context_commands_stand_alone(asset_id: str, body: str) -> None:
+    """Every `!` command of a skill's context section is its own paragraph."""
+    adjacent = adjacent_context_commands(body)
+    assert not adjacent, (
+        f"{asset_id}:{adjacent[0]} runs a `!` command right under another line, "
+        "which the formatter joins with it. Leave a blank line between them."
+    )
+
+
 @bundled_asset
 def test_self_pin_exemption_matches_constant(asset_id: str, body: str) -> None:
     """The repomatic self-pin bypass is quoted exactly as the freeze emits it.
