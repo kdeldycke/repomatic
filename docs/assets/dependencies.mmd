@@ -13,14 +13,13 @@ flowchart LR
         pyyaml{{"`pyyaml`"}}
         boltons{{"`boltons`"}}
         extra_platforms{{"`extra-platforms`"}}
-        backports_strenum{{"`backports-strenum`"}}
         pyelftools{{"`pyelftools`"}}
     end
 
     aiohttp(["`aiohttp`"])
-    typing_extensions(["`typing-extensions`"])
     pygments(["`pygments`"])
     requests(["`requests`"])
+    typing_extensions(["`typing-extensions`"])
     jinja2(["`jinja2`"])
     yarl(["`yarl`"])
     aiosignal(["`aiosignal`"])
@@ -28,15 +27,13 @@ flowchart LR
     cloup(["`cloup`"])
     docutils(["`docutils`"])
     markdown_it_py(["`markdown-it-py`"])
-    multidict(["`multidict`"])
-    tomli(["`tomli`"])
     accessible_pygments(["`accessible-pygments`"])
     click_0(["`click`"])
     colorama(["`colorama`"])
-    exceptiongroup(["`exceptiongroup`"])
     frozenlist(["`frozenlist`"])
     idna(["`idna`"])
     mdit_py_plugins(["`mdit-py-plugins`"])
+    multidict(["`multidict`"])
     pluggy(["`pluggy`"])
     propcache(["`propcache`"])
     python_dateutil(["`python-dateutil`"])
@@ -47,7 +44,6 @@ flowchart LR
     aiofiles(["`aiofiles`"])
     aiohappyeyeballs(["`aiohappyeyeballs`"])
     alabaster(["`alabaster`"])
-    async_timeout(["`async-timeout`"])
     attrs(["`attrs`"])
     babel(["`babel`"])
     bracex(["`bracex`"])
@@ -71,6 +67,7 @@ flowchart LR
     sphinxcontrib_jsmath(["`sphinxcontrib-jsmath`"])
     sphinxcontrib_qthelp(["`sphinxcontrib-qthelp`"])
     sphinxcontrib_serializinghtml(["`sphinxcontrib-serializinghtml`"])
+    tomli(["`tomli`"])
     tzdata(["`tzdata`"])
     urllib3(["`urllib3`"])
 
@@ -120,7 +117,6 @@ flowchart LR
     repomatic ==>|" >=0.3.1 "| py_walk
     repomatic ==>|" >=0.9 "| pyproject_metadata
     repomatic ==>|" >=2.2.4 "| tomlrt
-    repomatic ==>|" >=1 "| backports_strenum
     repomatic ==>|" >=0.33 "| pyelftools
     sphinx --> packaging
     sphinx --> pygments
@@ -143,7 +139,6 @@ flowchart LR
     click_extra --> pygments
     click_extra --> cloup
     click_extra --> docutils
-    click_extra --> tomli
     click_extra --> wcmatch
     click_extra --> boltons
     click_extra --> click_0
@@ -153,9 +148,7 @@ flowchart LR
     click_extra --> deepmerge
     pytest --> packaging
     pytest --> pygments
-    pytest --> tomli
     pytest --> colorama
-    pytest --> exceptiongroup
     pytest --> pluggy
     pytest --> iniconfig
     myst_parser --> sphinx
@@ -201,11 +194,10 @@ flowchart LR
     aiohttp --> typing_extensions
     aiohttp --> yarl
     aiohttp --> aiosignal
-    aiohttp --> multidict
     aiohttp --> frozenlist
+    aiohttp --> multidict
     aiohttp --> propcache
     aiohttp --> aiohappyeyeballs
-    aiohttp --> async_timeout
     aiohttp --> attrs
     requests --> idna
     requests --> certifi
@@ -218,18 +210,16 @@ flowchart LR
     cloup --> click_0
     markdown_it_py --> mdurl
     accessible_pygments --> pygments
-    exceptiongroup --> typing_extensions
     mdit_py_plugins --> markdown_it_py
     python_dateutil --> six
     sphinx_basic_ng --> sphinx
     sphinx_last_updated_by_git --> sphinx
     tabulate --> wcwidth
-    yarl --> multidict
     yarl --> idna
+    yarl --> multidict
     yarl --> propcache
     aiosignal --> typing_extensions
     aiosignal --> frozenlist
-    multidict --> typing_extensions
     repomatic -.-> grp_docs
     repomatic -.-> grp_test
     repomatic -.-> grp_typing
@@ -247,10 +237,8 @@ flowchart LR
     click aiosignal "https://pypi.org/project/aiosignal/" _blank
     click alabaster "https://pypi.org/project/alabaster/" _blank
     click arrow "https://pypi.org/project/arrow/" _blank
-    click async_timeout "https://pypi.org/project/async-timeout/" _blank
     click attrs "https://pypi.org/project/attrs/" _blank
     click babel "https://pypi.org/project/babel/" _blank
-    click backports_strenum "https://pypi.org/project/backports-strenum/" _blank
     click beautifulsoup4 "https://pypi.org/project/beautifulsoup4/" _blank
     click boltons "https://pypi.org/project/boltons/" _blank
     click bracex "https://pypi.org/project/bracex/" _blank
@@ -263,7 +251,6 @@ flowchart LR
     click coverage "https://pypi.org/project/coverage/" _blank
     click deepmerge "https://pypi.org/project/deepmerge/" _blank
     click docutils "https://pypi.org/project/docutils/" _blank
-    click exceptiongroup "https://pypi.org/project/exceptiongroup/" _blank
     click execnet "https://pypi.org/project/execnet/" _blank
     click extra_platforms "https://pypi.org/project/extra-platforms/" _blank
     click frozenlist "https://pypi.org/project/frozenlist/" _blank
@@ -339,7 +326,6 @@ flowchart LR
 
     style repomatic stroke-width:3px
     style arrow stroke-width:3px
-    style backports_strenum stroke-width:3px
     style boltons stroke-width:3px
     style click_extra stroke-width:3px
     style coverage stroke-width:3px
