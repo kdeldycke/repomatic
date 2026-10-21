@@ -216,8 +216,11 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 ### 🔗 Sync dependencies (`sync-deps`)
 
 One consolidated job runs four dependency updaters on a shared runner, sharing a single `actions/checkout`, `astral-sh/setup-uv`, and a cached `~/.cache/repomatic` directory (repomatic's TTL-gated HTTP cache of PyPI/GitHub/npm release metadata) across all four updaters.
+
 The job runs them through one [`repomatic sync-deps --pr-sync`](cli.md#repomatic-sync-deps) call. Each updater still opens its own pull request on its own branch (`sync-dep-sources`, `sync-uv-lock`, `sync-action-pins`, `sync-workflow-pins`), all labelled `🔗 dependencies`.
+
 The working tree goes back to `HEAD` before each updater so their diffs never bleed together, keeping review and revert independent. An updater with nothing to act on in the repository (no `uv.lock`, no workflow file, no git-tracked source) only closes a stale pull request. An updater that fails leaves its pull request as it is, never stops the others, and fails the job once all of them ran.
+
 To run all enabled updaters locally, or a named subset, use [`repomatic sync-deps`](cli.md#repomatic-sync-deps).
 
 #### 🔀 `sync-dep-sources` updater

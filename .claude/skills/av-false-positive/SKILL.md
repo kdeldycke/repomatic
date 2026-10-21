@@ -9,9 +9,13 @@ argument-hint: '[version]'
 ## Context
 
 !`gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null`
+
 !`gh release view --json tagName --jq '.tagName' 2>/dev/null`
+
 !`grep -m1 'license' pyproject.toml 2>/dev/null`
+
 !`grep -m1 'name' pyproject.toml 2>/dev/null`
+
 !`grep -A1 '\[project.urls\]' pyproject.toml 2>/dev/null | head -5`
 
 ## Instructions

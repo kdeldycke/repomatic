@@ -9,8 +9,11 @@ argument-hint: '[path-or-github-url ...]'
 ## Context
 
 !`[ -f repomatic/__init__.py ] && echo "CANONICAL_REPO" || echo "DOWNSTREAM"`
+
 !`[ -d docs ] && echo "docs/ exists" || echo "No docs/ directory"`
+
 !`[ -f docs/conf.py ] && head -5 docs/conf.py || echo "No docs/conf.py"`
+
 !`ls ../*/docs/conf.py 2>/dev/null | head -20 || echo "No sibling projects with docs/conf.py"`
 
 ## Instructions

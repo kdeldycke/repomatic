@@ -7,6 +7,11 @@
 # Apply consecutive numbering to ordered lists (1. 2. 3. instead of 1. 1. 1.).
 number = true
 
+# Join the lines of a paragraph, so prose is never hard-wrapped at a column: the
+# renderer wraps it to the reader's width, and a reflow then never shows up as a
+# diff of every line in the paragraph.
+wrap = "no"
+
 # Disable URL validation so mdformat-recover-urls can decode percent-encoded
 # non-ASCII characters in link destinations back to their original form.
 # See https://github.com/hukkin/mdformat/issues/312 and

@@ -9,8 +9,11 @@ argument-hint: '[audit|init|add <project>|refresh-badges]'
 ## Context
 
 !`[ -f pyproject.toml ] && grep '^name' pyproject.toml | head -1 || echo "No pyproject.toml"`
+
 !`[ -f docs/benchmark.md ] && head -15 docs/benchmark.md || echo "No docs/benchmark.md yet"`
+
 !`[ -f docs/benchmark.md ] && grep -c '^|' docs/benchmark.md || echo 0`
+
 !`[ -f CLAUDE.md ] && grep -i 'ordering\|benchmark\|comparison' CLAUDE.md | head -5 || echo "No ordering conventions found"`
 
 ## Instructions

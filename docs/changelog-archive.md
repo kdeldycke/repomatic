@@ -2541,8 +2541,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > `1.3.0` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v1.3.0).
 
 - Auto-format docstrings in Python files. Add dependency on `docformatter`.
-- Auto-format `JS`, `CSS`, `HTML` and `XML` code blocks in Markdown files. Add
-  dependency on `mdformat-web`.
+- Auto-format `JS`, `CSS`, `HTML` and `XML` code blocks in Markdown files. Add dependency on `mdformat-web`.
 - Lint Python docstrings. Add dependency on `pydocstyle`.
 - Use `isort` profile to aligns with `black`. Removes `.isort.cfg`.
 - Tweak `🙏 help wanted` label description.
@@ -2552,8 +2551,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!NOTE]
 > `1.2.1` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v1.2.1).
 
-- Fix Sphinx auto-detection by relying on static syntax analyzer instead of
-  trying to import the executable configuration.
+- Fix Sphinx auto-detection by relying on static syntax analyzer instead of trying to import the executable configuration.
 
 ## [`1.2.0` (2022-04-11)](https://github.com/kdeldycke/repomatic/compare/v1.1.0...v1.2.0)
 
@@ -2571,16 +2569,14 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!NOTE]
 > `1.1.0` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v1.1.0).
 
-- Dynamically add `⚖️ curation`, `🆕 new link` and `🩹 fix link` labels on
-  awesome list projects.
+- Dynamically add `⚖️ curation`, `🆕 new link` and `🩹 fix link` labels on awesome list projects.
 
 ## [`1.0.1` (2022-03-30)](https://github.com/kdeldycke/repomatic/compare/v1.0.0...v1.0.1)
 
 > [!NOTE]
 > `1.0.1` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v1.0.1).
 
-- Remove the title of the section containing the TOC in awesome lists to fix
-  the linter.
+- Remove the title of the section containing the TOC in awesome lists to fix the linter.
 
 ## [`1.0.0` (2022-03-30)](https://github.com/kdeldycke/repomatic/compare/v0.9.1...v1.0.0)
 
@@ -2595,8 +2591,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 - Update `❓ question` label to `❔ question`.
 - Let Pylint discover Python files and modules to lint.
 - Do not generate a `.gitignore` or `.mailmap` if none exist. Only update it.
-- Do not run the daily `prepare-release` job to reduce the number of
-  notifications. Add instructions on PR on how to refresh it.
+- Do not run the daily `prepare-release` job to reduce the number of notifications. Add instructions on PR on how to refresh it.
 - Auto-update TOC in Markdown. Add dependency on `mdformat-toc`.
 - Remove forbidden TOC entries in Markdown for awesome lists.
 - Remove wrapping of Markdown files to 79 characters.
@@ -2618,10 +2613,8 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 - Search for leaked tokens and credentials in code.
 - Add new `💣 security` label.
 - Adjust `🐛 bug` label color.
-- Add new `gitignore-location` and `gitignore-extra-categories` parameters to
-  `update-gitignore` workflow.
-- Fix usage of default values of reused workflows which are called naked. In
-  which case they're not fed with the default from input's definition.
+- Add new `gitignore-location` and `gitignore-extra-categories` parameters to `update-gitignore` workflow.
+- Fix usage of default values of reused workflows which are called naked. In which case they're not fed with the default from input's definition.
 
 ## [`0.8.6` (2022-03-04)](https://github.com/kdeldycke/repomatic/compare/v0.8.5...v0.8.6)
 
@@ -2642,16 +2635,14 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!NOTE]
 > `0.8.4` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v0.8.4).
 
-- Replace hard-coded PyPI package link in GitHub release text with dynamic
-  value from Poetry configuration.
+- Replace hard-coded PyPI package link in GitHub release text with dynamic value from Poetry configuration.
 
 ## [`0.8.3` (2022-02-13)](https://github.com/kdeldycke/repomatic/compare/v0.8.2...v0.8.3)
 
 > [!NOTE]
 > `0.8.3` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v0.8.3).
 
-- Allow the location of the dependency graph image to be set with the
-  `dependency-graph-output` parameter for reused workflow.
+- Allow the location of the dependency graph image to be set with the `dependency-graph-output` parameter for reused workflow.
 
 ## [`0.8.2` (2022-02-13)](https://github.com/kdeldycke/repomatic/compare/v0.8.1...v0.8.2)
 
@@ -2673,8 +2664,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!NOTE]
 > `0.8.0` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v0.8.0).
 
-- Add new workflow proposing PRs to modernize Python code for Poetry-based
-  projects.
+- Add new workflow proposing PRs to modernize Python code for Poetry-based projects.
 - Add new workflow to produce dependency graph of Poetry-based project.
 - Auto-detect minimal Python version targeted by Poetry projects.
 - Add dependency on `pipdeptree`, `pyupgrade` and `tomli`.
@@ -2705,8 +2695,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!WARNING]
 > `0.7.22` is **not available** on 🐙 GitHub.
 
-- Generate list of all new and release commits in the first job of the release
-  workflow.
+- Generate list of all new and release commits in the first job of the release workflow.
 
 ## [`0.7.21` (2022-01-13)](https://github.com/kdeldycke/repomatic/compare/v0.7.20...v0.7.21)
 
@@ -2720,10 +2709,8 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!WARNING]
 > `0.7.20` is **not available** on 🐙 GitHub.
 
-- Refactor release workflow to rely on a new matrix-based multi-commit
-  detection strategy.
-- Trigger tagging by monitoring `main` branch commit messages instead of
-  `prepare-release` PR merge event.
+- Refactor release workflow to rely on a new matrix-based multi-commit detection strategy.
+- Trigger tagging by monitoring `main` branch commit messages instead of `prepare-release` PR merge event.
 - Upload build artifacts for each commit.
 - Fix addition of PyPI link in GitHub release content.
 
@@ -2732,8 +2719,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!NOTE]
 > `0.7.19` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v0.7.19).
 
-- Secret token need to be passed explicitly in reused workflow for PyPI
-  publishing.
+- Secret token need to be passed explicitly in reused workflow for PyPI publishing.
 
 ## [`0.7.18` (2022-01-11)](https://github.com/kdeldycke/repomatic/compare/v0.7.17...v0.7.18)
 
@@ -2755,8 +2741,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > `0.7.16` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v0.7.16).
 
 - Remove temporary debug steps.
-- Do not trigger debugging and linters on `pull_request`: it duplicates the
-  `push` event.
+- Do not trigger debugging and linters on `pull_request`: it duplicates the `push` event.
 - Skip file-based labeller workflow for dependabot triggered PRs.
 
 ## [`0.7.15` (2022-01-10)](https://github.com/kdeldycke/repomatic/compare/v0.7.14...v0.7.15)
@@ -2773,8 +2758,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 
 - Use `actions/checkout` to fetch last 10 commits of PR during release tagging.
 - Use commit message to identify release commit.
-- Hard-code fetching of `main` branch on tagging to identify the release
-  commit.
+- Hard-code fetching of `main` branch on tagging to identify the release commit.
 - Attach the release commit to the GitHub release.
 
 ## [`0.7.13` (2022-01-10)](https://github.com/kdeldycke/repomatic/compare/v0.7.12...v0.7.13)
@@ -2782,9 +2766,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!WARNING]
 > `0.7.13` is **not available** on 🐙 GitHub.
 
-- Checkout tag within job to create a new GitHub release instead of relying on
-  previous job's SHA identification. The latter being different right after it
-  has been merged in `main`.
+- Checkout tag within job to create a new GitHub release instead of relying on previous job's SHA identification. The latter being different right after it has been merged in `main`.
 
 ## [`0.7.12` (2022-01-10)](https://github.com/kdeldycke/repomatic/compare/v0.7.11...v0.7.12)
 
@@ -2805,22 +2787,17 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!WARNING]
 > `0.7.10` is **not available** on 🐙 GitHub.
 
-- Trigger changelog workflow on any other workflow change to make sure
-  hard-coded versions in URLs are kept in sync.
-- Resort to explicit fetching of past commits to identify the first one of the
-  `prepare-release` PR on tagging.
-- Use `base_ref` variable instead of hard-coding `main` branch in release
-  workflow.
+- Trigger changelog workflow on any other workflow change to make sure hard-coded versions in URLs are kept in sync.
+- Resort to explicit fetching of past commits to identify the first one of the `prepare-release` PR on tagging.
+- Use `base_ref` variable instead of hard-coding `main` branch in release workflow.
 
 ## [`0.7.9` (2022-01-10)](https://github.com/kdeldycke/repomatic/compare/v0.7.8...v0.7.9)
 
 > [!WARNING]
 > `0.7.9` is **not available** on 🐙 GitHub.
 
-- Force fetching of past 10 commits to identify `prepare-release` PR's first
-  commit.
-- Do not fetch the final merge commit silently produced by `actions/checkout`
-  for PRs. Get `HEAD` instead.
+- Force fetching of past 10 commits to identify `prepare-release` PR's first commit.
+- Do not fetch the final merge commit silently produced by `actions/checkout` for PRs. Get `HEAD` instead.
 
 ## [`0.7.8` (2022-01-10)](https://github.com/kdeldycke/repomatic/compare/v0.7.7...v0.7.8)
 
@@ -2841,8 +2818,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!WARNING]
 > `0.7.6` is **not available** on 🐙 GitHub.
 
-- Merge the post-release version bump job into `prepare-release` branch
-  creation workflow, the result being a 2 commits PR.
+- Merge the post-release version bump job into `prepare-release` branch creation workflow, the result being a 2 commits PR.
 - Allow for empty release notes during the generation of a new changelog entry.
 
 ## [`0.7.5` (2022-01-09)](https://github.com/kdeldycke/repomatic/compare/v0.7.4...v0.7.5)
@@ -2865,8 +2841,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!WARNING]
 > `0.7.3` is **not available** on 🐙 GitHub.
 
-- Always execute the last `github-release` job in the release workflow, even if
-  the project is not Poetry-based.
+- Always execute the last `github-release` job in the release workflow, even if the project is not Poetry-based.
 - Catch `create` events so tagging triggers a post-release version bump job.
 
 ## [`0.7.2` (2022-01-09)](https://github.com/kdeldycke/repomatic/compare/v0.7.1...v0.7.2)
@@ -2874,10 +2849,8 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!WARNING]
 > `0.7.2` is **not available** on 🐙 GitHub.
 
-- Untie `git-tag` and `post-release-version-bump` events. Trigger the later on
-  Git tagging.
-- Move the detection logic of the `prepare-release` PR merge event to a
-  dedicated job.
+- Untie `git-tag` and `post-release-version-bump` events. Trigger the later on Git tagging.
+- Move the detection logic of the `prepare-release` PR merge event to a dedicated job.
 
 ## [`0.7.1` (2022-01-09)](https://github.com/kdeldycke/repomatic/compare/v0.7.0...v0.7.1)
 
@@ -2891,8 +2864,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!WARNING]
 > `0.7.0` is **not available** on 🐙 GitHub.
 
-- Detect Poetry-based project, then auto-build and publish packages on PyPI on
-  release.
+- Detect Poetry-based project, then auto-build and publish packages on PyPI on release.
 - Always test builds on each commit.
 - Add build artifacts to GitHub releases.
 
@@ -2924,8 +2896,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!NOTE]
 > `0.6.0` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v0.6.0).
 
-- Add a reusable workflow to automatically label issues and PRs depending on
-  changed files.
+- Add a reusable workflow to automatically label issues and PRs depending on changed files.
 - Allow extra labelling rules to be specified via custom input.
 - Let sponsor labelling workflow to be reused.
 
@@ -2941,8 +2912,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!NOTE]
 > `0.5.4` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v0.5.4).
 
-- Checkout repository before syncing labels so local extra definitions can be
-  used.
+- Checkout repository before syncing labels so local extra definitions can be used.
 
 ## [`0.5.3` (2022-01-05)](https://github.com/kdeldycke/repomatic/compare/v0.5.2...v0.5.3)
 
@@ -2999,8 +2969,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!NOTE]
 > `0.4.6` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v0.4.6).
 
-- Let GitHub release produced on tagging to be customized with user's content
-  and uploaded files.
+- Let GitHub release produced on tagging to be customized with user's content and uploaded files.
 - Expose tagged version from reusable `release` workflow.
 
 ## [`0.4.5` (2022-01-03)](https://github.com/kdeldycke/repomatic/compare/v0.4.4...v0.4.5)
@@ -3023,9 +2992,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 > [!NOTE]
 > `0.4.3` is available on [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v0.4.3).
 
-- Only match first occurrence of triple-backticks delimited block text in
-  `changelog.md` in `prepare-release` job. Also matches empty line within the
-  block.
+- Only match first occurrence of triple-backticks delimited block text in `changelog.md` in `prepare-release` job. Also matches empty line within the block.
 - Make GitHub changelog URL update more forgiving.
 
 ## [`0.4.2` (2022-01-03)](https://github.com/kdeldycke/repomatic/compare/v0.4.1...v0.4.2)
@@ -3071,8 +3038,7 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 ## [`0.3.2` (2021-12-30)](https://github.com/kdeldycke/repomatic/compare/v0.3.1...v0.3.2)
 
 - Refresh every day the date in `prepare-release` job.
-- Skip linting on `prepare-release` job as it does not points to tagged URLs
-  yet.
+- Skip linting on `prepare-release` job as it does not points to tagged URLs yet.
 - Reduce changelog PRs refresh rate based on changed files.
 - Rely on `create-pull-request` action default to set authorship.
 - Fix `autofix` workflow reusability.
@@ -3092,22 +3058,19 @@ Older releases (`5.14.1` and earlier). For `6.0.0` and later, see the [changelog
 - Add a reusable workflow to auto-format JSON files with `jsonlint`.
 - Add a reusable workflow to auto-update .gitignore file.
 - Add a reusable workflow to auto-update .mailmap file.
-- Force retargeting of workflow dependencies to `main` branch on post-release
-  version bump.
+- Force retargeting of workflow dependencies to `main` branch on post-release version bump.
 
 ## [`0.2.0` (2021-12-15)](https://github.com/kdeldycke/repomatic/compare/v0.1.0...v0.2.0)
 
 - Add autolock reusable workflow for closed issues and PRs.
 - Automate changelog and version management.
-- Add workflow to create ready-to-use PRs to prepare a release, post-release
-  version bump and minor & major version increments.
+- Add workflow to create ready-to-use PRs to prepare a release, post-release version bump and minor & major version increments.
 - Add a debug workflow to print action context and environment variables.
 - Set Pylint failure threshold at 80%.
 
 ## [`0.1.0` (2021-12-12)](https://github.com/kdeldycke/repomatic/compare/v0.0.1...v0.1.0)
 
-- Install project with Poetry before calling Pylint if `pyproject.toml`
-  presence is detected.
+- Install project with Poetry before calling Pylint if `pyproject.toml` presence is detected.
 - Hard-code tagged version in requirement URL for reusable workflows.
 - Document the release process.
 

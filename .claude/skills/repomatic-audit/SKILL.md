@@ -9,9 +9,13 @@ argument-hint: '[all|workflows|configs|upstream]'
 ## Context
 
 !`ls .github/workflows/*.yaml 2>/dev/null`
+
 !`grep -h 'uses:.*kdeldycke/repomatic' .github/workflows/*.yaml 2>/dev/null | head -5`
+
 !`grep -A5 '\[tool.repomatic\]' pyproject.toml 2>/dev/null || echo "No [tool.repomatic] section"`
+
 !`grep -E '^(subagents|skills|gitignore)\.location' pyproject.toml 2>/dev/null`
+
 !`[ -f repomatic/__init__.py ] && echo "CANONICAL_REPO" || echo "DOWNSTREAM"`
 
 ## Instructions

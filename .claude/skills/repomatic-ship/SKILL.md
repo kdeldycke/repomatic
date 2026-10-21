@@ -8,11 +8,17 @@ allowed-tools: Bash Read Grep Glob Skill Agent
 ## Context
 
 !`grep -m1 'version' pyproject.toml 2>/dev/null`
+
 !`awk '/^## \[/{n++} n==2{exit} {print}' changelog.md 2>/dev/null`
+
 !`git tag --sort=-v:refname | head -3 2>/dev/null`
+
 !`git log --oneline -25 2>/dev/null`
+
 !`git status --short 2>/dev/null`
+
 !`[ -f repomatic/__init__.py ] && echo "CANONICAL_REPO" || echo "DOWNSTREAM"`
+
 !`grep -rhoE 'kdeldycke/repomatic/[^@ ]+@[0-9a-f]{40} # v[0-9.]+' .github/workflows 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$' | sort -u | sed 's/^/WORKFLOW_PIN=/'`
 
 ## Instructions

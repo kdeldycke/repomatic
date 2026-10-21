@@ -9,6 +9,7 @@ argument-hint: '[review|add <axis>|drop <axis>]'
 ## Context
 
 !`grep -A20 '^\[tool.repomatic.test-matrix' pyproject.toml 2>/dev/null || echo "NO_TEST_MATRIX_CONFIG"`
+
 !`grep -E '^\s*requires-python' pyproject.toml 2>/dev/null || echo "NO_REQUIRES_PYTHON"`
 
 ## Instructions

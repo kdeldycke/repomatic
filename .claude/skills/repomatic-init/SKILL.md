@@ -9,7 +9,9 @@ argument-hint: '[component ...]'
 ## Context
 
 !`[ -f pyproject.toml ] && echo "pyproject.toml exists" || echo "No pyproject.toml"`
+
 !`ls .github/workflows/ 2>/dev/null || echo "No .github/workflows/ directory"`
+
 !`[ -f repomatic/__init__.py ] && echo "CANONICAL_REPO" || echo "DOWNSTREAM"`
 
 ## Instructions

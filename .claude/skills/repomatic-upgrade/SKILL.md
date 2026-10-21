@@ -9,9 +9,13 @@ argument-hint: '[vOLD vNEW]'
 ## Context
 
 !`grep -rhoE 'kdeldycke/repomatic/[^@]+@.*v[0-9]+\.[0-9]+\.[0-9]+' .github 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV | tail -1 | sed 's/^/ADOPTED_PIN /'`
+
 !`git diff HEAD -- .github 2>/dev/null | grep -E '^-.*kdeldycke/repomatic/.*v[0-9]+\.[0-9]+\.[0-9]+' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV | head -1 | sed 's/^/PREVIOUS_PIN_UNCOMMITTED /'`
+
 !`git log -1 --format='LAST_WORKFLOW_COMMIT %h %ad %s' --date=short -- .github/workflows 2>/dev/null`
+
 !`[ -d ../repomatic/.git ] && echo "SIBLING_CHECKOUT ../repomatic" || echo "NO_SIBLING_CHECKOUT"`
+
 !`[ -f repomatic/__init__.py ] && echo "CANONICAL_REPO" || echo "DOWNSTREAM"`
 
 ## Instructions

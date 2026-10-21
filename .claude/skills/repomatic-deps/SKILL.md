@@ -9,8 +9,11 @@ argument-hint: '[graph [--level N]|review [all|runtime|dev|policy]|explore [<pac
 ## Context
 
 !`[ -f uv.lock ] && echo "uv.lock exists" || echo "No uv.lock found"`
+
 !`[ -f pyproject.toml ] && head -5 pyproject.toml || echo "No pyproject.toml found"`
+
 !`grep -c '".*>=\|".*~=\|".*<\|".*==' pyproject.toml 2>/dev/null || echo "0"`
+
 !`[ -f repomatic/__init__.py ] && echo "CANONICAL_REPO" || echo "DOWNSTREAM"`
 
 ## Instructions
@@ -77,7 +80,9 @@ These conventions are derived from the `pyproject.toml` files across all `kdeldy
 #### Runtime dependencies (`[project].dependencies`)
 
 1. **Use `>=` (not `~=` or `==`).** Relaxed lower bounds give packagers freedom to release security hotfixes without waiting for an upstream bump. Upper bounds are forbidden per [https://iscinumpy.dev/post/bound-version-constraints/](https://iscinumpy.dev/post/bound-version-constraints/).
+
 2. **Every version bound needs a comment tying the floor to a concrete code dependency.** The comment goes on the line above the dependency and states which feature, method, or API from that version the project actually uses. Prefer referencing the call site or module that depends on it:
+
    ```toml
    dependencies = [
      # wcmatch 10.0 changed globbing semantics; our sync_gitignore() relies on
@@ -85,23 +90,31 @@ These conventions are derived from the `pyproject.toml` files across all `kdeldy
      "wcmatch>=10",
    ]
    ```
+
    A good floor comment answers: "if someone installed an older version, what would break and where?" If you cannot point to a concrete usage, the floor may be unnecessarily high.
+
    **A floor comment documents the floor as it stands, in one short paragraph.** It is not a record of how the floor got there. Left alone it drifts that way on its own: each bump appends a paragraph about the newly required version, nothing is deleted, and the comment becomes a private changelog of the dependency with the declared version buried under the floors it replaced. When raising a floor, **rewrite the comment rather than extending it**: keep what the new version buys (API, fix, `requires-python` alignment, the call site consuming it, a CVE or upstream issue identifier), delete every superseded floor (`git log -- pyproject.toml` keeps that history), and move out what is not about this floor (usage detail belongs in the module using it, a comparison against an alternative package in an `XXX` pointer to the upstream ticket). `lint-deps` warns past 40 words, which is the ceiling to write to even where it is not run.
+
    **Security fixes are also a valid floor bump reason.** A CVE or advisory in an older version justifies raising the floor even when the API is unchanged. The comment should cite the CVE or advisory:
+
    ```toml
    dependencies = [
      # requests 2.32.0 fixes CVE-2024-35195 (session credential leak on redirects).
      "requests>=2.32",
    ]
    ```
+
 3. **Python version support is not a valid reason to bump a floor.** The dependency resolver already picks the right version via `requires-python` metadata. If `mango>=2` works and mango 5 merely adds Python 3.13 support, keep `>=2` — the resolver handles it. **Exception:** when a dependency *drops* a Python version your project still supports (or your project drops one, aligning minimum `requires-python`), that alignment is a valid floor bump reason. The comment should state the version range alignment, not the Python support:
+
    ```toml
    dependencies = [
      # coverage 7.11.0 dropped Python 3.9, matching our requires-python >= 3.10.
      "coverage>=7.11",
    ]
    ```
+
 4. **Use conditional markers for Python-version-gated deps.** Example: `"tomli>=2; python_version<'3.11'"`. When a dep has a version marker, the floor rationale must make sense for the Python versions where the dep is actually installed — not for versions excluded by the marker.
+
 5. **Alphabetical order** within the list.
 
 #### Development dependencies (`[dependency-groups]`)
