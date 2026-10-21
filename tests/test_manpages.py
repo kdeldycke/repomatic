@@ -33,7 +33,7 @@ def man_dir(tmp_path):
     pages = tmp_path / "man"
     pages.mkdir()
     for name in ("papaya.1", "papaya-peel.1", "papaya-slice.1"):
-        (pages / name).write_bytes(f".TH {name}\n".encode("UTF-8"))
+        (pages / name).write_bytes(f".TH {name}\n".encode())
     return pages
 
 
