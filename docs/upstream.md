@@ -209,7 +209,7 @@ repomatic post-processes the output of `mdformat` to undo two `mdformat-myst` re
 
 ### Dependency cooldowns
 
-- [`uv#20995` - Allow sharing exclude-newer-package across workspaces: file reference, env var, or repo-level config](https://github.com/astral-sh/uv/issues/20995): uv has no configuration or environment knob for `--exclude-newer-package`, so repomatic adds the exemption to every frozen command line. Glob exemptions ([`uv#20788`](https://github.com/astral-sh/uv/issues/20788)) or pin-based bypasses ([`uv#19864`](https://github.com/astral-sh/uv/issues/19864), [`uv#18921`](https://github.com/astral-sh/uv/pull/18921)) would also remove the need.
+- [`uv#20995` - Allow sharing exclude-newer-package across workspaces: file reference, env var, or repo-level config](https://github.com/astral-sh/uv/issues/20995): `uvx` reads no project configuration, and uv has no environment variable for `--exclude-newer-package`, so repomatic adds the exemption to every frozen command line. Glob exemptions ([`uv#20788`](https://github.com/astral-sh/uv/issues/20788)) or pin-based bypasses ([`uv#19864`](https://github.com/astral-sh/uv/issues/19864), [`uv#18921`](https://github.com/astral-sh/uv/pull/18921)) would remove the need too, but only if `uvx` can read them.
 - [`uv#18792` - Prune stale `exclude-newer-package` entries on `uv lock`](https://github.com/astral-sh/uv/issues/18792): repomatic removes the stale entries itself after it relocks.
 
 ### Dependency graph
