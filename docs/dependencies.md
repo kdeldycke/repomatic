@@ -146,7 +146,7 @@ Four layers, ordered by how cheap the failure is:
 
 1. **Locally**, through the `/repomatic-ship` pre-push gate.
 
-2. **The release PR body**, regenerated on every push to `main`. A blocker replaces the checklist's "This PR is ready to be merged" opener with a `[!CAUTION]` block, one row per offending dependency, each linked to the line that declares it. This is the layer that matters: it reaches the maintainer at the moment they decide to merge, which is why it also carries the countdown below and why the checklist's other alert, the `Squash and merge` safeguard, ranks one level lower: `detect-squash-merge` catches that mistake after the fact, where merging a blocked release has no backstop.
+2. **The release PR body**, regenerated on every push to `main`. A blocker replaces the checklist's "This PR is ready to be merged" opener with a `[!CAUTION]` block, one row per offending dependency, each linked to the line that declares it. This is the layer that matters: it reaches the maintainer at the moment they decide to merge, which is why it also carries the countdown below and why the checklist's other alert, the `Squash and merge` safeguard, ranks one level lower: `squashed-release` catches that mistake after the fact, where merging a blocked release has no backstop.
 
    The `Clears` column says what the reader is waiting on, in the vocabulary the `sync-uv-lock` cooldown tables already use, and links to the pull request queue of the job that lifts it:
 

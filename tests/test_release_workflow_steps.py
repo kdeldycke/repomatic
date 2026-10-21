@@ -41,6 +41,7 @@ from repomatic.cli.main import repomatic
 from repomatic.github.gh import GhCommandError
 from repomatic.github.pr import PrOperation, PrSyncResult
 from repomatic.github.pr_body import PrContent
+from repomatic.github.threads import BOT_ISSUE_LABEL
 from repomatic.metadata.core import Metadata
 from repomatic.upstream import DEFAULT_REPO
 from tests.conftest import load_workflow
@@ -151,7 +152,7 @@ def invoke(argv: list[str]):
         pytest.param(f"[changelog] Release v{VERSION}", False, id="rebased"),
     ),
 )
-def test_detect_squash_merge_step(project, monkeypatch, message, reported):
+def test_squashed_release_step(project, monkeypatch, message, reported):
     """A squash-merged release PR reopens one issue and fails the job."""
     event = project / "event.json"
     event.write_text(
@@ -160,7 +161,7 @@ def test_detect_squash_merge_step(project, monkeypatch, message, reported):
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
     step = find_step(
         load_workflow("_release-build.yaml"),
-        "detect-squash-merge",
+        "squashed-release",
         "Open or update the squash-merge issue, then fail",
     )
 
@@ -176,7 +177,8 @@ def test_detect_squash_merge_step(project, monkeypatch, message, reported):
     assert result.exit_code == 1, result.output
     kwargs = lifecycle.call_args.kwargs
     assert kwargs["has_issues"] is True
-    assert kwargs["title"] == "🚨 Squash merge detected — release skipped"
+    assert kwargs["title"] == "🚨 Squashed release"
+    assert kwargs["labels"] == (BOT_ISSUE_LABEL,)
     assert "#42" in kwargs["body"]
     assert kwargs["repository"] == REPOSITORY
     assert kwargs["assignees"] == ("kevin",)

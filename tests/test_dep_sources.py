@@ -817,7 +817,7 @@ def test_release_pr_reserves_caution_for_the_unguarded_step(tmp_path: Path) -> N
     """The release PR's two alerts rank by what else would catch the mistake.
 
     `Squash and merge` is a warning because the release lane catches it
-    anyway: `detect-squash-merge` in `_release-build.yaml` fires on the
+    anyway: `squashed-release` in `_release-build.yaml` fires on the
     collapsed history and files the recovery. Merging a blocked release has no
     such backstop on the merge itself, and by the time `lint-deps` fails in the
     release lane the freeze commit is on `main` and the version has to be

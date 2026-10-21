@@ -85,7 +85,7 @@ jobs:
     # which actionlint rejects: https://github.com/rhysd/actionlint/issues/711
     uses: ./.github/workflows/_release-build.yaml # zizmor: ignore[self-repository]
     # The top-level `{}` grants a reusable-call job nothing, so name the union of
-    # the scopes its nested jobs request: detect-squash-merge needs issues:write,
+    # the scopes its nested jobs request: squashed-release needs issues:write,
     # build-package needs id-token:write (OIDC build provenance).
     permissions:
       id-token: write

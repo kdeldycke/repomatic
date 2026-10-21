@@ -586,9 +586,9 @@ Repomatic-only. This job is not part of the shape `repomatic init` generates: it
 
 The release **fast lane**: it runs the squash-merge guard and the dependency shippability gate, computes project metadata, and builds (and signs) the Python wheel and sdist. The entry `release.yaml` calls it first so the `publish-pypi` job can ship to PyPI the moment the wheel exists, without waiting for the engine's binary compilation. It exposes the `package_built` and `release_commits_matrix` outputs that `publish-pypi` consumes, and the `metadata` output the engine lane reads instead of computing its own.
 
-### 🧯 Detect squash merge (`detect-squash-merge`)
+### 🧯 Squashed release (`squashed-release`)
 
-- Detects squash-merged release PRs with `repomatic detect-squash-merge`, which opens a GitHub issue assigned to the workflow actor, then fails the workflow. A re-run updates that issue instead of opening a second one
+- Detects squash-merged release PRs with `repomatic squashed-release`, which opens a GitHub issue labeled `🤖 ci` and assigned to the workflow actor, then fails the workflow. A re-run updates that issue instead of opening a second one
 - Running it in the build lane fails fast: `release.yaml` gates the engine on `needs: build`, so a detected squash merge skips the engine (binaries, tag, release) entirely
 - The release is effectively skipped: `create-tag` only matches commits with the `[changelog] Release v` prefix, so no tag, PyPI publish, or GitHub release is created from a squash merge
 - The net effect of squashing freeze + unfreeze leaves `main` in a valid state for the next development cycle; the maintainer just releases the next version when ready
@@ -630,7 +630,7 @@ At a glance, the build lane feeds both the PyPI publish and this engine; the eng
 
 ```mermaid
 flowchart TD
-    push([Push to main]) --> squash{detect-squash-merge}
+    push([Push to main]) --> squash{squashed-release}
     squash -->|squashed release PR| fail[Open issue, fail run]
     squash -->|clean| deps{lint-deps}
     deps -->|unshippable dependency| blocked[Fail lane, nothing published]
@@ -1071,7 +1071,7 @@ stateDiagram-v2
 
 #### Squash merge safeguard
 
-The [`detect-squash-merge`](#github-workflows-release-build-yaml-jobs) job catches squash-merged release PRs by checking if the head commit message starts with `` Release `v `` (the PR title pattern) rather than `[changelog] Release v` (the canonical freeze commit pattern). When detected, it opens a GitHub issue assigned to the person who merged, then fails the workflow. A later squash merge, or a re-run, reopens or updates that one issue instead of opening another. Existing safeguards in `create-tag` prevent tagging, publishing, and releasing from a squashed commit.
+The [`squashed-release`](#github-workflows-release-build-yaml-jobs) job catches squash-merged release PRs by checking if the head commit message starts with `` Release `v `` (the PR title pattern) rather than `[changelog] Release v` (the canonical freeze commit pattern). When detected, it opens a GitHub issue assigned to the person who merged, then fails the workflow. A later squash merge, or a re-run, reopens or updates that one issue instead of opening another. Existing safeguards in `create-tag` prevent tagging, publishing, and releasing from a squashed commit.
 
 The net effect of squashing freeze + unfreeze leaves `main` in a valid state for the next development cycle: the maintainer releases the next version when ready.
 

@@ -85,7 +85,7 @@ CLI_TEMPLATES = tuple(sorted(set(get_template_names()) - PROGRAMMATIC_TEMPLATES)
 REFERENCE_WORKFLOWS = (
     ".github/workflows/autofix.yaml",
     ".github/workflows/changelog.yaml",
-    # The detect-squash-merge command runs in the build lane, not the
+    # The squashed-release command runs in the build lane, not the
     # release.yaml entry (which only calls the lanes and publishes).
     ".github/workflows/_release-build.yaml",
     # The scan-virustotal --template reference lives in the engine lane: that
@@ -102,7 +102,7 @@ REFERENCE_WORKFLOWS = (
 
 COMMAND_TEMPLATES: dict[str, str] = {
     "bump-version": "bump-version",
-    "detect-squash-merge": "detect-squash-merge",
+    "squashed-release": "squashed-release",
 }
 """Templates a command renders on its own, keyed by the command a workflow runs.
 

@@ -73,6 +73,7 @@ from ..github.releases import (
     release_exists,
     upload_release_files,
 )
+from ..github.threads import BOT_ISSUE_LABEL
 from ..github.urls import parse_github_repo
 from ..github.workflow_files import WORKFLOW_DIR
 from ..init.tool_config import init_config
@@ -577,11 +578,11 @@ def git_tag(
     examples=(
         (
             "Check the head commit of the current push event",
-            "repomatic detect-squash-merge",
+            "repomatic squashed-release",
         ),
         (
             "Check an explicit commit message",
-            "repomatic detect-squash-merge --message 'Release `v1.2.3` (#42)'",
+            "repomatic squashed-release --message 'Release `v1.2.3` (#42)'",
         ),
     ),
 )
@@ -594,13 +595,13 @@ def git_tag(
 )
 @repo_option("Repository to open the issue in.")
 @pass_context
-def detect_squash_merge(ctx: Context, commit_message: str | None, repo: str) -> None:
+def squashed_release(ctx: Context, commit_message: str | None, repo: str) -> None:
     """Open an issue when a release pull request was squash-merged, then fail.
 
     A release needs its freeze and unfreeze commits to land separately, through
     "Rebase and merge". Squashing them leaves no release commit to tag, so no
     tag, package or GitHub release is published. This reports that to the
-    maintainer in one issue, rendered from the detect-squash-merge template and
+    maintainer in one issue, rendered from the squashed-release template and
     assigned to the workflow actor, and exits with code 1.
 
     A re-run updates the open issue instead of opening a second one, and a
@@ -616,7 +617,7 @@ def detect_squash_merge(ctx: Context, commit_message: str | None, repo: str) -> 
         echo("No squash-merged release pull request.")
         return
 
-    template = PrTemplate.load("detect-squash-merge")
+    template = PrTemplate.load("squashed-release")
     try:
         content = render_pr(
             metadata, get_tool_config(ctx), template=template, pr_ref=pr_ref
@@ -627,7 +628,7 @@ def detect_squash_merge(ctx: Context, commit_message: str | None, repo: str) -> 
     number = manage_issue_lifecycle(
         has_issues=True,
         body=content.body,
-        labels=(),
+        labels=(BOT_ISSUE_LABEL,),
         title=content.title,
         repository=repo,
         assignees=(actor,) if actor else (),

@@ -309,7 +309,7 @@ When the context shows `CANONICAL_REPO`, there is no `../repomatic` and the boun
 
 ### Why "Rebase and merge", never squash
 
-The release PR carries exactly **two commits**: a **freeze commit** (`[changelog] Release vX.Y.Z`) that finalizes the changelog date and comparison URL and pins workflow refs and CLI invocations to the release version, and an **unfreeze commit** (`[changelog] Post-release bump`) that reverts those to `@main`, adds a fresh unreleased section, and bumps the patch version. The auto-tagging job locates the freeze commit **by its message**: squashing collapses both commits into one and breaks tagging. A `detect-squash-merge` safeguard opens an issue and fails the workflow when a squash is detected.
+The release PR carries exactly **two commits**: a **freeze commit** (`[changelog] Release vX.Y.Z`) that finalizes the changelog date and comparison URL and pins workflow refs and CLI invocations to the release version, and an **unfreeze commit** (`[changelog] Post-release bump`) that reverts those to `@main`, adds a fresh unreleased section, and bumps the patch version. The auto-tagging job locates the freeze commit **by its message**: squashing collapses both commits into one and breaks tagging. A `squashed-release` safeguard opens an issue and fails the workflow when a squash is detected.
 
 ### What a complete release looks like
 

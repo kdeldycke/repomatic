@@ -1798,11 +1798,11 @@ def test_release_lanes_split_jobs() -> None:
     engine_jobs = load_workflow("_release-engine.yaml")["jobs"]
 
     assert "build-package" in build_jobs
-    assert "detect-squash-merge" in build_jobs
+    assert "squashed-release" in build_jobs
     assert "metadata" in build_jobs
 
     assert "build-package" not in engine_jobs
-    assert "detect-squash-merge" not in engine_jobs
+    assert "squashed-release" not in engine_jobs
     # The engine reads the build lane's metadata rather than computing it again.
     assert "metadata" not in engine_jobs
     assert "compile-binaries" in engine_jobs
@@ -1981,16 +1981,16 @@ def test_engine_reads_the_build_lane_metadata() -> None:
 
 
 def test_squash_merge_gate_matches_the_protocol() -> None:
-    """The `detect-squash-merge` job gates on the prefix its command checks.
+    """The `squashed-release` job gates on the prefix its command checks.
 
     The gate keeps a runner off every ordinary push, and the command reads the
     same prefix back: the two drifting apart would either never run the check
     or run it on every push.
     """
-    job = load_workflow("_release-build.yaml")["jobs"]["detect-squash-merge"]
+    job = load_workflow("_release-build.yaml")["jobs"]["squashed-release"]
     assert f"'{SQUASHED_RELEASE_PREFIX}'" in job["if"]
     run = " ".join(step.get("run") or "" for step in job["steps"])
-    assert "repomatic detect-squash-merge" in run
+    assert "repomatic squashed-release" in run
 
 
 @pytest.mark.parametrize("lane", RELEASE_ENGINE_WORKFLOWS)

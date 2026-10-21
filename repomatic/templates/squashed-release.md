@@ -1,7 +1,7 @@
 ---
 args: [pr_ref]
-title: 🚨 Squash merge detected — release skipped
-docs: https://repomatic.net/workflows#detect-squash-merge-detect-squash-merge
+title: 🚨 Squashed release
+docs: https://repomatic.net/workflows#squashed-release-squashed-release
 footer: false
 ---
 

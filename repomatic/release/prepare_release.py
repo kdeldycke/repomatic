@@ -40,7 +40,7 @@ A release cycle produces exactly two commits that **must** be merged via
 The auto-tagging job in `release.yaml` depends on these being **separate
 commits**: it uses `release_commits_matrix` to identify and tag only the
 freeze commit. Squash-merging would collapse both into one, breaking the
-tagging logic. See the `detect-squash-merge` job for the safeguard.
+tagging logic. See the `squashed-release` job for the safeguard.
 
 ```{caution}
 Rebase-merging the two commits delivers them in a **single push**, and GitHub

@@ -20,18 +20,19 @@
 - **Breaking:** `init` no longer deletes the files of assets removed before `7.0.0`. A repository upgrading from `6.x` deletes them by hand.
 - **Breaking:** `scan-virustotal` and `sync-binaries` refuse a scan history kept only in the pre-`7.13.0` JSON file, and no longer migrate old binaries page markers.
 - **Breaking:** `cloudflare-r2 --offload` writes its report through the new `--output` option instead of `$GITHUB_STEP_SUMMARY`, and needs a project name like the other modes.
-- **Breaking:** Remove the `close-stale-bump-pr` command and the `pr-body --pr-ref` option. `bump-version` and `detect-squash-merge` do their work.
+- **Breaking:** Remove the `close-stale-bump-pr` command and the `pr-body --pr-ref` option. `bump-version` and `squashed-release` do their work.
 - **Breaking:** `broken-links` now runs lychee itself and drops `--lychee-exit-code` and `--body-file`. Pass `--no-lychee` to skip the crawl.
 - **Breaking:** `show-metadata` replaces `site_cloudflare_project` with `cloudflare_project`, which falls back to the repository name.
 - **Breaking:** The `github-json` format of `show-metadata` now writes a list of objects, like `build_targets`, as a JSON array. Drop the `fromJSON` that decoded it.
 - **Breaking:** The `_release-engine.yaml` reusable workflow takes the metadata of the build lane as a required `metadata` input, and loses its `🧬 Project metadata` job.
 - **Breaking:** `labels.yaml` merges its `sponsor-label` job into `apply-labels`. A required check that names the old job needs the new name.
+- **Breaking:** Rename the `detect-squash-merge` job of `_release-build.yaml` to `squashed-release`, and title its issue `🚨 Squashed release`.
 - **Breaking:** `repomatic run pyproject-fmt` now exits 0 after a rewrite it verified, instead of 1.
 - **Breaking:** The bundled `zizmor.yaml` now requires hash pins for third-party actions.
 - **Breaking:** The bundled `labels.toml` no longer renames the `🎁 feature request` label, and `lychee.toml` no longer skips star-history.com links.
 - `repomatic` now imports only the module of the command it runs: `repomatic --version` starts in 0.3 s instead of 0.45 s.
 - Add the `sync-runner-images.sync` and `github-releases.sync` keys to turn off these two syncs.
-- Add the `bump-version`, `create-release`, `detect-squash-merge`, `pack-manpages` and `wait-pypi` commands, which replace the shell steps of the release workflows.
+- Add the `bump-version`, `create-release`, `pack-manpages`, `squashed-release` and `wait-pypi` commands, which replace the shell steps of the release workflows.
 - Add `prepare-release --commit` and `--output`, `--upload-to` on `pack-attestation` and `pack-binaries`, and `pack-attestation --require-declared` and `--verify`.
 - Add `sync-deps --pr-sync`, which syncs each updater from a clean tree and opens or refreshes its own pull request.
 - Add the `show-metadata` keys `is_awesome`, `builds_sphinx`, `main_cli_script`, `import_name`, `latest_stable_python`, `is_release_push` and `release_commit`.
@@ -75,7 +76,7 @@
 - `sync-dev-release` fails instead of creating a duplicate draft when it cannot edit the listed draft.
 - `scan-virustotal` counts two API calls per upload and shares one rate budget with polling.
 - The `scan-virustotal` job now times out after 30 minutes instead of 15, and passes with its steps skipped when no API key is set.
-- The squash-merge issue now updates on a re-run instead of opening a duplicate, and reopens when a squash merge recurs.
+- The squashed release issue now carries the `🤖 ci` label, updates on a re-run instead of opening a duplicate, and reopens when a squash merge recurs.
 - Freeze and post-release commits are now authored by `github-actions[bot]` instead of the actor who triggered the run.
 - The generated autofix caller now grants `security-events: read`, so `fix-vulnerable-deps` reads Dependabot alerts with the workflow token.
 - The release workflows now pin `pypi-attestations`, and call the pinned `gh` of the tool registry instead of the runner's.

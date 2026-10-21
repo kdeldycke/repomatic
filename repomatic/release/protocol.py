@@ -106,7 +106,7 @@ match this pattern. A squash merge replaces them with the PR title
 (like ``Release `v1.2.3` (#42)``), which does **not** match. This mismatch
 is the mechanism by which squash merges are safely skipped: the `create-tag`
 job only processes commits matching this pattern, so no tag, PyPI publish, or
-GitHub release is created from a squash merge. The `detect-squash-merge`
+GitHub release is created from a squash merge. The `squashed-release`
 job of `_release-build.yaml` detects this and opens an issue to notify the
 maintainer.
 """
@@ -116,7 +116,7 @@ SQUASHED_RELEASE_PREFIX: Final[str] = "Release `v"
 
 A squash merge replaces the freeze and unfreeze commits with one commit named
 after the pull request, whose title the `prepare-release` template writes as
-``Release `vX.Y.Z` ``. The `detect-squash-merge` job gates on this prefix, and
+``Release `vX.Y.Z` ``. The `squashed-release` job gates on this prefix, and
 {func}`squashed_release_pr` reads the pull request reference that follows it.
 """
 

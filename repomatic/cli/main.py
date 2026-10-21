@@ -184,9 +184,6 @@ COMMANDS: dict[str, LazySubcommand] = {
     "create-release": LazySubcommand(
         "repomatic.cli.release.create_release_cmd", section=_section_release
     ),
-    "detect-squash-merge": LazySubcommand(
-        "repomatic.cli.release.detect_squash_merge", section=_section_release
-    ),
     "git-tag": LazySubcommand(
         "repomatic.cli.release.git_tag", section=_section_release
     ),
@@ -207,6 +204,9 @@ COMMANDS: dict[str, LazySubcommand] = {
     ),
     "scan-virustotal": LazySubcommand(
         "repomatic.cli.release.scan_virustotal", section=_section_release
+    ),
+    "squashed-release": LazySubcommand(
+        "repomatic.cli.release.squashed_release", section=_section_release
     ),
     "verify-binary": LazySubcommand(
         "repomatic.cli.release.verify_binary", section=_section_release

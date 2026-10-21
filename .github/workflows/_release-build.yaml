@@ -60,7 +60,7 @@ env:
 
 jobs:
 
-  detect-squash-merge:
+  squashed-release:
     name: 🧯 No squash on release
     # Detect squash merges on release PRs and open an issue instead of releasing. The gate is the cheap half of the
     # check, so ordinary pushes spin up no runner. See SQUASHED_RELEASE_PREFIX in repomatic/release/protocol.py.
@@ -79,7 +79,7 @@ jobs:
       - name: Open or update the squash-merge issue, then fail
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv --no-progress run --frozen -- repomatic detect-squash-merge
+        run: uv --no-progress run --frozen -- repomatic squashed-release
 
   metadata:
     name: 🧬 Project metadata
