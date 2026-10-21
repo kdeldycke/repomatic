@@ -27,8 +27,8 @@ This page documents the version specifier conventions and dependency audit proce
 5. **Python version support is not a valid reason to bump a floor.** The dependency resolver already picks the right version via `requires-python` metadata. If `mango>=2` works and mango 5 merely adds Python 3.13 support, keep `>=2`. **Exception:** when a dependency *drops* a Python version your project still supports (or your project drops one, aligning minimum `requires-python`), that alignment is a valid floor bump:
    ```toml
    dependencies = [
-     # coverage 7.11.0 dropped Python 3.9, matching our requires-python >= 3.10.
-     "coverage>=7.11",
+     # papaya 7.11.0 dropped Python 3.10, matching our requires-python >= 3.11.
+     "papaya>=7.11",
    ]
    ```
 6. **Use conditional markers for Python-version-gated deps.** Example: `"tomli>=2; python_version<'3.11'"`. When a dep has a version marker, the floor rationale must make sense for the Python versions where the dep is actually installed.

@@ -129,8 +129,10 @@ def test_today_utc_is_the_utc_date():
         ("", None),
         ("not-a-date", None),
         ("2026-06-24T10:00:00Z", "2026-06-24T10:00:00+00:00"),
-        # A `Z` suffix and nanosecond precision, which arrow parses.
-        ("2026-06-24T10:00:00.123456789Z", "2026-06-24T10:00:00.123457+00:00"),
+        # A `Z` suffix and a nanosecond fraction, truncated to microseconds.
+        ("2026-06-24T10:00:00.123456789Z", "2026-06-24T10:00:00.123456+00:00"),
+        # No offset reads as UTC.
+        ("2026-06-24T10:00:00", "2026-06-24T10:00:00+00:00"),
     ),
 )
 def test_parse_iso_datetime(value, expected):

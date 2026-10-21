@@ -81,6 +81,10 @@ The generic conventions bind every text artifact to ASD-STE100. Only part of tha
 
 A directive over the ceiling is nearly always two rules sharing a bullet, or a rule with its exception folded in. Split it; do not raise the number.
 
+### Python floor: 3.11
+
+`requires-python` is `>=3.11`, which overrides the generic Python 3.10 rule. Available here: `typing.Self`, `enum.StrEnum`, `tomllib` with no fallback, `except*` and `BaseException.add_note()`. Still unavailable: multi-line f-string expressions, the PEP 695 `type` statement and generics syntax, and `typing.override` (all 3.12+).
+
 ### Defaults: the `Config` dataclass surface
 
 Every configurable default lives in exactly one place: the `Config` dataclass in `repomatic/config.py`; all code derives it from there rather than repeating the literal.

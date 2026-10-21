@@ -26,6 +26,14 @@ start from.
 
 A leaf module with no project-internal imports, so any module can import it
 without risking a cycle.
+
+```{todo}
+Replace arrow with whenever once it grows a humanizer. arrow stays for the
+relative-time phrase behind {func}`format_countdown` and
+{func}`format_elapsed`, and for the calendar-month shift in
+{mod}`repomatic.github.unsubscribe`:
+[whenever#277](https://github.com/ariebovenberg/whenever/discussions/277).
+```
 """
 
 from __future__ import annotations
@@ -54,17 +62,10 @@ def parse_iso_datetime(value: str | None) -> datetime | None:
     it, so every consumer tolerates the same shapes. A JSON or TOML lookup that
     found no value hands over `None`, which reads as no timestamp.
 
-    Uses arrow, so a nanosecond fractional second and a `Z` suffix parse
-    cleanly; sub-microsecond precision is truncated to fit `datetime`.
-
-    arrow also supplies the `.humanize()` relative-time phrasing that
-    {func}`format_countdown` and {func}`format_elapsed` render.
-
-    ```{todo}
-    Switch this parser back to whenever, the prior implementation, once it
-    grows a humanizer:
-    [whenever#277](https://github.com/ariebovenberg/whenever/discussions/277).
-    ```
+    {meth}`~datetime.datetime.fromisoformat` reads a `Z` suffix and a
+    nanosecond fraction since Python 3.11, and truncates the digits `datetime`
+    cannot hold. An instant with no offset is read as UTC, the one zone the
+    services above write in.
 
     :param value: An ISO 8601 / RFC 3339 instant, or empty.
     :return: A timezone-aware {class}`~datetime.datetime`, or `None` when
@@ -73,9 +74,10 @@ def parse_iso_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return arrow.get(value).datetime
-    except (ValueError, TypeError):
+        instant = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
         return None
+    return instant if instant.tzinfo else instant.replace(tzinfo=UTC)
 
 
 def today_utc() -> date:

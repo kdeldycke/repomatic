@@ -108,8 +108,8 @@ These conventions are derived from the `pyproject.toml` files across all `kdeldy
 
    ```toml
    dependencies = [
-     # coverage 7.11.0 dropped Python 3.9, matching our requires-python >= 3.10.
-     "coverage>=7.11",
+     # papaya 7.11.0 dropped Python 3.10, matching our requires-python >= 3.11.
+     "papaya>=7.11",
    ]
    ```
 

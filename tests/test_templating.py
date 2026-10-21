@@ -22,6 +22,7 @@ import inspect
 import re
 from importlib.resources import files
 from pathlib import Path
+from string import Template
 
 import pytest
 import yaml
@@ -778,26 +779,12 @@ def test_template_file_policy(filename, name):
     assert "title" in meta, f"Template {name!r} is missing 'title' in frontmatter"
     assert meta["title"], f"Template {name!r} has an empty 'title'"
 
-    # If frontmatter has 'args', it must be a list with matching $variables in body
-    # or any other frontmatter field.
+    # If frontmatter has 'args', it must be a list. The placeholders it names
+    # are matched against the text by test_placeholders_match_declared_args.
     if "args" in meta:
         assert isinstance(meta["args"], list), (
             f"Template {name!r} 'args' must be a list, got {type(meta['args'])}"
         )
-        # Collect all string-valued frontmatter fields for variable reference checks.
-        frontmatter_text = " ".join(
-            v for k, v in meta.items() if k != "args" and isinstance(v, str)
-        )
-        for arg in meta["args"]:
-            # Both the bare (`$arg`) and braced (`${arg}`) substitution forms
-            # count as a reference; the braced form is needed when a
-            # placeholder abuts an identifier character (e.g. `${step}1.`).
-            markers = (f"${arg}", "${" + arg + "}")
-            haystack = body + " " + frontmatter_text
-            assert any(marker in haystack for marker in markers), (
-                f"Template {name!r} declares arg {arg!r}"
-                f" but neither body nor frontmatter references {markers[0]}"
-            )
 
     # PR body sections render as h2: no h3 heading may sneak in.
     assert "### " not in body, f"Template {name!r} body must use '##' section headings"
@@ -813,6 +800,32 @@ def test_template_file_policy(filename, name):
     anchor = docs.partition("#")[2]
     assert anchor in docs_heading_anchors("workflows"), (
         f"Template {name!r} docs anchor {anchor!r} matches no docs/workflows.md heading"
+    )
+
+
+@pytest.mark.parametrize("name", get_template_names())
+def test_placeholders_match_declared_args(name):
+    """A template's `$placeholders` and its `args:` frontmatter name one set.
+
+    `string.Template.get_identifiers()` lists the placeholders `substitute()`
+    fills, bare or braced, so a placeholder the text uses but never declares
+    fails here rather than as a `KeyError` in the job rendering it, and a
+    declared arg no text references fails the same way. `is_valid()` rejects
+    the stray `$` that `substitute()` would raise on.
+    """
+    template = PrTemplate.load(name)
+    texts = [
+        template.body,
+        *(value for value in template.meta.values() if isinstance(value, str)),
+    ]
+    used: set[str] = set()
+    for text in texts:
+        parsed = Template(text)
+        assert parsed.is_valid(), f"Template {name!r} holds an invalid placeholder"
+        used.update(parsed.get_identifiers())
+    assert used == set(template.args), (
+        f"Template {name!r} declares {sorted(template.args)}"
+        f" but its text renders {sorted(used)}"
     )
 
 
