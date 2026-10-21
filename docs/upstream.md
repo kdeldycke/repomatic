@@ -198,7 +198,13 @@ repomatic post-processes the output of `mdformat` to undo two `mdformat-myst` re
 [Nuitka integration](nuitka.md) details the workaround for each of these:
 
 - [`Nuitka#3909` - With `--project` the `[tool.nuitka]` section of `pyproject.toml` is ignored](https://github.com/Nuitka/Nuitka/issues/3909): since `4.2` Nuitka reads `[tool.nuitka]`, but only under `--project`, a mode repomatic cannot use, so the tool runner turns the section into command-line flags. [`Nuitka#2136`](https://github.com/Nuitka/Nuitka/issues/2136) asked for the same support earlier.
-- [`Nuitka#3996` - `ccache` never hits across CI machines](https://github.com/Nuitka/Nuitka/issues/3996): the tool runner installs Nuitka into the project virtualenv, whose path is the same on every runner. The release workflow also writes `base_dir` into `ccache.conf`. The fix, [Nuitka/Nuitka@381a18f17](https://github.com/Nuitka/Nuitka/commit/381a18f17ecef962c05cbf5d456ec84f04cb78e6), is on `develop` and keeps the original paths on Windows.
+
+- [`Nuitka#3996` - `ccache` never hits across CI machines](https://github.com/Nuitka/Nuitka/issues/3996): the tool runner installs Nuitka into the project virtualenv, whose path is the same on every runner. `repomatic run nuitka` also writes `base_dir` into `ccache.conf`. The fix, [Nuitka/Nuitka@381a18f17](https://github.com/Nuitka/Nuitka/commit/381a18f17ecef962c05cbf5d456ec84f04cb78e6), is on `develop` and keeps the original paths on Windows.
+
+  ```{todo}
+  Once the Nuitka pin moves to a release carrying [Nuitka/Nuitka@381a18f17](https://github.com/Nuitka/Nuitka/commit/381a18f17ecef962c05cbf5d456ec84f04cb78e6), delete the `ccache.conf` `base_dir` write of {func}`~repomatic.tooling.nuitka.prepare_compile_cache`, then move this entry to [](#upstreamed-from-repomatic). Keep the install into the project virtualenv: the fix keeps the original include paths on Windows.
+  ```
+
 - [`Nuitka#3997` - Tool downloads are fetched and executed without integrity verification](https://github.com/Nuitka/Nuitka/issues/3997): the macOS builds turn ccache off, which keeps its unverified download out of the build.
 
 ### Dependency cooldowns
