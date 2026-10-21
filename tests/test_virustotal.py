@@ -19,26 +19,29 @@
 from __future__ import annotations
 
 from functools import partial
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click_extra.testing import CliRunner
 
 from repomatic.cli.main import repomatic
+from repomatic.http import FetchError
 from repomatic.release.virustotal import (
     RELEASE_ASSET_POLL_ATTEMPTS,
     SCAN_HEADERS,
     UPLOAD_REQUESTS,
+    VIRUSTOTAL_API_URL,
     DetectionStats,
     RequestPacer,
     ScanRecord,
     ScanResult,
+    _multipart_body,
     download_release_binaries,
     load_scan_records,
     poll_detection_stats,
     records_from_results,
     scan_files,
+    upload_file,
     upsert_scan_records,
 )
 from tests.conftest import patch_gh as shared_patch_gh
@@ -71,21 +74,25 @@ def clock(monkeypatch):
     return fake
 
 
-def _vt_client(**stats: int) -> MagicMock:
-    """A `vt.Client` whose analyses report *stats*."""
-    client = MagicMock()
-    client.get_object.return_value = SimpleNamespace(
-        last_analysis_stats={
-            "malicious": 0,
-            "suspicious": 0,
-            "undetected": 0,
-            "harmless": 0,
-            **stats,
-        }
-    )
-    client.__enter__ = MagicMock(return_value=client)
-    client.__exit__ = MagicMock(return_value=False)
-    return client
+def _vt_api(**stats: int) -> MagicMock:
+    """A `get_json` answering the two VirusTotal reads: upload URLs and reports.
+
+    Every file report carries *stats*, over the four categories at zero.
+    """
+    report = {
+        "malicious": 0,
+        "suspicious": 0,
+        "undetected": 0,
+        "harmless": 0,
+        **stats,
+    }
+
+    def get_json(url, *, headers=None, timeout=None):
+        if url.endswith("/files/upload_url"):
+            return {"data": "https://upload.example/one-shot"}
+        return {"data": {"attributes": {"last_analysis_stats": report}}}
+
+    return MagicMock(side_effect=get_json)
 
 
 @pytest.fixture
@@ -320,17 +327,56 @@ def test_uploads_and_polls_share_one_budget(tmp_path, clock):
         path = tmp_path / name
         path.write_bytes(name.encode())
         files.append(path)
-    client = _vt_client(undetected=65, harmless=7)
-
-    with patch("repomatic.release.virustotal.vt.Client", return_value=client):
+    with (
+        patch(
+            "repomatic.release.virustotal.get_json",
+            _vt_api(undetected=65, harmless=7),
+        ),
+        patch("repomatic.release.virustotal.request") as post,
+    ):
         pacer = RequestPacer(per_minute=4)
         results = scan_files("key", files, pacer)
         enriched = poll_detection_stats("key", results, pacer, timeout=600)
 
-    assert client.scan_file.call_count == 2
+    assert post.call_count == 2
     # Two uploads of two calls each, then two polls of one call each.
     assert clock.sleeps == [30.0, 30.0, 15.0]
     assert all(result.detection_stats for result in enriched)
+
+
+def test_multipart_body_wraps_the_file_part():
+    """The body holds one `file` part, framed by the boundary the header names."""
+    body, content_type = _multipart_body("papaya.bin", b"\x00\x01binary")
+    boundary = content_type.removeprefix("multipart/form-data; boundary=")
+    assert boundary and boundary != content_type
+    head = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="papaya.bin"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+    ).encode()
+    assert body == head + b"\x00\x01binary" + f"\r\n--{boundary}--\r\n".encode()
+
+
+def test_upload_file_posts_to_the_single_use_url(tmp_path):
+    """An upload reads a one-shot URL, then posts the file there with the key."""
+    path = tmp_path / "papaya.bin"
+    path.write_bytes(b"binary")
+    reads = _vt_api()
+
+    with (
+        patch("repomatic.release.virustotal.get_json", reads),
+        patch("repomatic.release.virustotal.request") as post,
+    ):
+        upload_file("key", path)
+
+    assert reads.call_args.args == (f"{VIRUSTOTAL_API_URL}/files/upload_url",)
+    assert reads.call_args.kwargs["headers"] == {"x-apikey": "key"}
+    assert post.call_args.args == ("https://upload.example/one-shot",)
+    assert post.call_args.kwargs["method"] == "POST"
+    assert b"binary" in post.call_args.kwargs["data"]
+    headers = post.call_args.kwargs["headers"]
+    assert headers["x-apikey"] == "key"
+    assert headers["Content-Type"].startswith("multipart/form-data; boundary=")
 
 
 def test_poll_detection_stats():
@@ -342,10 +388,12 @@ def test_poll_detection_stats():
             analysis_url="https://www.virustotal.com/gui/file/" + "a" * 64,
         ),
     ]
-    client = _vt_client(undetected=65, harmless=7, **{"type-unsupported": 5})
 
     with (
-        patch("repomatic.release.virustotal.vt.Client", return_value=client),
+        patch(
+            "repomatic.release.virustotal.get_json",
+            _vt_api(undetected=65, harmless=7, **{"type-unsupported": 5}),
+        ),
         patch("repomatic.release.virustotal.time.sleep"),
     ):
         enriched = poll_detection_stats("key", results, timeout=60)
@@ -365,15 +413,32 @@ def test_poll_detection_stats_timeout(clock):
             analysis_url="https://www.virustotal.com/gui/file/" + "a" * 64,
         ),
     ]
-    # Analysis not ready: all zeros, until the deadline passes.
-    client = _vt_client()
 
-    with patch("repomatic.release.virustotal.vt.Client", return_value=client):
+    # Analysis not ready: all zeros, until the deadline passes.
+    with patch("repomatic.release.virustotal.get_json", _vt_api()):
         enriched = poll_detection_stats("key", results, timeout=60)
 
     assert len(enriched) == 1
     assert enriched[0].detection_stats is None
     assert clock.now >= 1060
+
+
+def test_poll_detection_stats_retries_an_unindexed_file(clock):
+    """A report VirusTotal has not indexed yet is polled again until the deadline."""
+    results = [
+        ScanResult(
+            filename="app.bin",
+            sha256="a" * 64,
+            analysis_url="https://www.virustotal.com/gui/file/" + "a" * 64,
+        ),
+    ]
+    missing = MagicMock(side_effect=FetchError("HTTP 404", status=404))
+
+    with patch("repomatic.release.virustotal.get_json", missing):
+        enriched = poll_detection_stats("key", results, timeout=60)
+
+    assert enriched[0].detection_stats is None
+    assert missing.call_count > 1
 
 
 def test_poll_detection_stats_empty():

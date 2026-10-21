@@ -45,13 +45,14 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from dataclasses import dataclass
 
-import vt
 from packaging.version import Version
 
 from ..github.gh import gh_json, run_gh_command
 from ..hashing import compute_file_sha256
+from ..http import FetchError, get_json, request
 from ..humanize import today_utc
 from ..tabular import load_records, render_csv, write_csv
 from ..versions import parse_tag_version
@@ -73,7 +74,7 @@ CLI default and {class}`RequestPacer` derive from it.
 UPLOAD_REQUESTS = 2
 """API calls one file upload costs.
 
-`vt.Client.scan_file` first asks for an upload URL, then posts the file to it.
+{func}`upload_file` first asks for an upload URL, then posts the file to it.
 """
 
 RELEASE_ASSET_POLL_ATTEMPTS = 6
@@ -99,6 +100,9 @@ the table reads left to right from what was scanned to what came back. Rows are
 ordered by release version rather than alphabetically, which a plain sort of
 the tag strings would get wrong past `v9`.
 """
+
+VIRUSTOTAL_API_URL = "https://www.virustotal.com/api/v3"
+"""Base URL of the VirusTotal REST API."""
 
 VIRUSTOTAL_GUI_URL = "https://www.virustotal.com/gui/file/{sha256}"
 """URL template for the VirusTotal file analysis page."""
@@ -289,6 +293,61 @@ def download_release_binaries(repository: str, tag: str, dest: Path) -> None:
     )
 
 
+def _multipart_body(filename: str, content: bytes) -> tuple[bytes, str]:
+    """Encode *content* as the single `file` part of a multipart form.
+
+    :param filename: The name the part declares for the file.
+    :param content: The file bytes.
+    :return: The body, and the `Content-Type` value naming its boundary.
+    """
+    boundary = uuid.uuid4().hex
+    head = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+    ).encode()
+    tail = f"\r\n--{boundary}--\r\n".encode()
+    return head + content + tail, f"multipart/form-data; boundary={boundary}"
+
+
+def upload_file(api_key: str, path: Path) -> None:
+    """Upload *path* to VirusTotal for analysis.
+
+    Two API calls, counted by {data}`UPLOAD_REQUESTS`: one for a single-use
+    upload URL, which takes a file of any size where `POST /files` stops at
+    32 MB, and one posting the file to it.
+
+    :param api_key: VirusTotal API key.
+    :param path: The file to upload.
+    :raises FetchError: When either call fails.
+    """
+    headers = {"x-apikey": api_key}
+    upload_url = get_json(f"{VIRUSTOTAL_API_URL}/files/upload_url", headers=headers)
+    body, content_type = _multipart_body(path.name, path.read_bytes())
+    request(
+        upload_url["data"],
+        method="POST",
+        data=body,
+        headers={**headers, "Accept": "application/json", "Content-Type": content_type},
+    )
+
+
+def analysis_stats(api_key: str, sha256: str) -> dict[str, int]:
+    """Read the `last_analysis_stats` of the file report for *sha256*.
+
+    :param api_key: VirusTotal API key.
+    :param sha256: The file's SHA-256, which names its report.
+    :return: Verdict counts keyed by category, like `malicious`.
+    :raises FetchError: While VirusTotal has no report for the file yet (an
+        HTTP 404 until the upload is indexed), or when the call fails.
+    """
+    report = get_json(
+        f"{VIRUSTOTAL_API_URL}/files/{sha256}", headers={"x-apikey": api_key}
+    )
+    stats = report["data"]["attributes"]["last_analysis_stats"]
+    return {str(key): int(value) for key, value in stats.items()}
+
+
 def scan_files(
     api_key: str,
     file_paths: list[Path],
@@ -296,8 +355,7 @@ def scan_files(
 ) -> list[ScanResult]:
     """Upload files to VirusTotal and return scan results.
 
-    Uses the synchronous `vt.Client` API, spacing the uploads through
-    *pacer* to respect the free-tier rate limit.
+    Spaces the uploads through *pacer* to respect the free-tier rate limit.
 
     :param api_key: VirusTotal API key.
     :param file_paths: Paths to binary files to upload.
@@ -309,26 +367,24 @@ def scan_files(
         pacer = RequestPacer()
     results: list[ScanResult] = []
 
-    with vt.Client(api_key) as client:
-        for path in sorted(file_paths):
-            pacer.wait(UPLOAD_REQUESTS)
-            sha256 = compute_file_sha256(path)
-            analysis_url = VIRUSTOTAL_GUI_URL.format(sha256=sha256)
+    for path in sorted(file_paths):
+        pacer.wait(UPLOAD_REQUESTS)
+        sha256 = compute_file_sha256(path)
+        analysis_url = VIRUSTOTAL_GUI_URL.format(sha256=sha256)
 
-            try:
-                logging.info(f"Uploading {path.name} to VirusTotal...")
-                with path.open("rb") as f:
-                    client.scan_file(f)
-                logging.info(f"Uploaded {path.name}: {analysis_url}")
-                results.append(
-                    ScanResult(
-                        filename=path.name,
-                        sha256=sha256,
-                        analysis_url=analysis_url,
-                    )
+        try:
+            logging.info(f"Uploading {path.name} to VirusTotal...")
+            upload_file(api_key, path)
+            logging.info(f"Uploaded {path.name}: {analysis_url}")
+            results.append(
+                ScanResult(
+                    filename=path.name,
+                    sha256=sha256,
+                    analysis_url=analysis_url,
                 )
-            except vt.APIError:
-                logging.exception(f"Failed to upload {path.name}, skipping.")
+            )
+        except FetchError:
+            logging.exception(f"Failed to upload {path.name}, skipping.")
 
     return results
 
@@ -364,32 +420,29 @@ def poll_detection_stats(
     stats: dict[str, DetectionStats] = {}
     pending = set(by_sha)
 
-    with vt.Client(api_key) as client:
-        while pending and time.monotonic() < deadline:
-            for sha256 in list(pending):
-                if time.monotonic() >= deadline:
-                    break
-                pacer.wait()
+    while pending and time.monotonic() < deadline:
+        for sha256 in list(pending):
+            if time.monotonic() >= deadline:
+                break
+            pacer.wait()
 
-                try:
-                    file_obj = client.get_object(f"/files/{sha256}")
-                    raw_stats = file_obj.last_analysis_stats
-                    # A freshly uploaded file may return all zeros before
-                    # analysis begins.
-                    if sum(raw_stats.values()) > 0:
-                        stats[sha256] = DetectionStats(
-                            malicious=raw_stats.get("malicious", 0),
-                            suspicious=raw_stats.get("suspicious", 0),
-                            undetected=raw_stats.get("undetected", 0),
-                            harmless=raw_stats.get("harmless", 0),
-                        )
-                        pending.discard(sha256)
-                        r = by_sha[sha256]
-                        logging.info(
-                            f"Analysis complete for {r.filename}: {stats[sha256]}"
-                        )
-                except vt.APIError:
-                    logging.debug(f"File {sha256[:12]}... not yet indexed, will retry.")
+            try:
+                raw_stats = analysis_stats(api_key, sha256)
+            except FetchError:
+                logging.debug(f"File {sha256[:12]}... not yet indexed, will retry.")
+                continue
+            # A freshly uploaded file may return all zeros before analysis
+            # begins.
+            if sum(raw_stats.values()) > 0:
+                stats[sha256] = DetectionStats(
+                    malicious=raw_stats.get("malicious", 0),
+                    suspicious=raw_stats.get("suspicious", 0),
+                    undetected=raw_stats.get("undetected", 0),
+                    harmless=raw_stats.get("harmless", 0),
+                )
+                pending.discard(sha256)
+                r = by_sha[sha256]
+                logging.info(f"Analysis complete for {r.filename}: {stats[sha256]}")
 
     if pending:
         filenames = [by_sha[s].filename for s in pending]

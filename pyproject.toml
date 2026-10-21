@@ -109,10 +109,6 @@ dependencies = [
   # which NativeFormat.serialize (tooling/tool_registry.py) relies on to turn a
   # [tool.X] section into a native config file.
   "tomlrt>=2.2.4",
-  # vt-py 0.18.3 fixed the RuntimeError its synchronous client raised outside an
-  # event loop. release/virustotal.py opens vt.Client that way for the
-  # scan-virustotal command.
-  "vt-py>=0.18.3",
   # wcmatch 10.0 fixed globbing inconsistencies with symlinks; our metadata
   # globbing uses iglob() with FOLLOW for symlink-aware file discovery.
   "wcmatch>=10",
@@ -408,7 +404,6 @@ overrides = [
   { module = [
     "py_walk.*",
     "sphinxcontrib.mermaid",
-    "vt",
   ], ignore_missing_imports = true },
 ]
 

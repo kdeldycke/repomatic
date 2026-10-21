@@ -15,6 +15,7 @@
 - Drop the `boltons` dependency: the test matrix model, `sync-mailmap` and the Cloudflare Pages drift check use the standard library instead.
 - Drop the `arrow` dependency: relative times like `in 4 days` and the `unsubscribe` month cutoff are computed in-house, with the same wording.
 - Drop the `pyelftools` dependency: `verify-binary` reads ELF headers with its own parser, as it already did for Mach-O and PE.
+- Drop the `vt-py` dependency and the `aiohttp` stack beneath it: `scan-virustotal` calls the VirusTotal REST API through the standard library.
 - **Breaking:** `pr-body` and `pr-sync` read the diff table and the upgrade report only from `REPOMATIC_DIFF_TABLE_FILE` and `REPOMATIC_UPGRADE_REPORT_FILE`.
 - **Breaking:** Remove the `[tool.repomatic.flavor]` table and the `metrics.skip` and `cache.github-release-ttl` keys. A config that sets them gets an unknown-key warning.
 - **Breaking:** Remove the `new_commits`, `release_commits`, `release_notes`, `release_notes_with_admonition`, `minor_bump_allowed`, `major_bump_allowed`, `skip_binary_build` and `nuitka_extras` keys of `show-metadata`, which no workflow reads.
