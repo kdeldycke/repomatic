@@ -23,16 +23,24 @@ a reason unrelated to the logic under test.
 
 from __future__ import annotations
 
+import ast
+import runpy
+from pathlib import Path
+
 import pytest
 from click_extra.testing import CliRunner
 
 from repomatic.cli.main import repomatic
+from repomatic.matrix.axes import KNOWN_RUNNERS, LINUX_X64_RUNNER
 from repomatic.matrix.runner_sync import (
+    AXES_SOURCE_PATH,
     ChangeKind,
+    RunnerChange,
     plan_runner_changes,
     render_change_table,
 )
 from repomatic.matrix.runners import RunnerCatalog, RunnerImage
+from tests.conftest import PACKAGE_FILES, PROJECT_ROOT
 
 CATALOG = RunnerCatalog((
     RunnerImage("Ubuntu 26.04", "x64", ("ubuntu-26.04",), True, False),
@@ -237,6 +245,67 @@ def test_apply_axes_retirement_moves_the_curated_tuple(tmp_path) -> None:
     assert not change.rewrite_axes(axes), "second run should be a no-op"
 
 
+def _code_strings(path: Path) -> list[str]:
+    """Every string literal of a module, docstrings left out."""
+    tree = ast.parse(path.read_text(encoding="UTF-8"))
+    docstrings = {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+    }
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+    ]
+
+
+@pytest.mark.parametrize("label", sorted(KNOWN_RUNNERS))
+def test_runner_label_is_spelled_once(label: str) -> None:
+    """Each runner label of the axes is one literal, in the axes module.
+
+    A retirement rewrites that module alone, so a copy of the label anywhere
+    else in the package stays on the retired image: the build fleet did, until
+    a hand edit made the retirement pull request pass.
+    """
+    spelled = {
+        path.relative_to(PROJECT_ROOT).as_posix(): count
+        for path in PACKAGE_FILES
+        if (count := _code_strings(path).count(label))
+    }
+    assert spelled == {AXES_SOURCE_PATH.as_posix(): 1}
+
+
+def test_retirement_moves_every_reader_of_the_axes(tmp_path) -> None:
+    """A retirement rewrite of the real axes module moves the slot it names.
+
+    The test axes and the build fleet both read the slot constant, so the one
+    literal the rewrite changes is all either of them sees.
+    """
+    axes = tmp_path / "axes.py"
+    axes.write_text(
+        (PROJECT_ROOT / AXES_SOURCE_PATH).read_text(encoding="UTF-8"),
+        encoding="UTF-8",
+    )
+    change = RunnerChange(
+        kind=ChangeKind.RETIREMENT,
+        label=LINUX_X64_RUNNER,
+        successor="ubuntu-28.04",
+        locations=(),
+        reason="Ubuntu 26.04 is deprecated",
+        alternative="",
+    )
+
+    assert change.rewrite_axes(axes)
+
+    moved = runpy.run_path(str(axes))
+    assert moved["LINUX_X64_RUNNER"] == "ubuntu-28.04"
+    assert "ubuntu-28.04" in moved["TEST_RUNNERS_FULL"]
+    assert LINUX_X64_RUNNER not in moved["TEST_RUNNERS_FULL"]
+
+
 def test_change_table_carries_the_reasoning() -> None:
     """The body says why, not just what, and names what was passed over."""
     changes = plan_runner_changes(
@@ -362,3 +431,37 @@ def test_sync_runner_images_command(tmp_path, monkeypatch, dry_run) -> None:
     written = workflow.read_text(encoding="UTF-8")
     assert ("runs-on: ubuntu-22.04" in written) is dry_run
     assert ("runs-on: ubuntu-24.04" in written) is not dry_run
+
+
+def test_sync_runner_images_switched_off(tmp_path, monkeypatch) -> None:
+    """`sync-runner-images.sync = false` reads no table and moves no job.
+
+    The proposal is still written, empty: the `pr-sync` step after the command
+    reads it whatever the command decides.
+    """
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    workflow = workflows / "tests.yaml"
+    workflow.write_text(
+        "jobs:\n  build:\n    runs-on: ubuntu-22.04\n    steps: []\n",
+        encoding="UTF-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "papaya"\n\n'
+        "[tool.repomatic]\nsync-runner-images.sync = false\n",
+        encoding="UTF-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    def unreachable():
+        raise AssertionError("a switched-off sync reads no image table")
+
+    monkeypatch.setattr("repomatic.cli.ci.fetch_catalog", unreachable)
+
+    result = CliRunner().invoke(
+        repomatic, ["sync-runner-images", "--output", "proposal.md"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "proposal.md").read_text(encoding="UTF-8") == "\n"
+    assert "runs-on: ubuntu-22.04" in workflow.read_text(encoding="UTF-8")

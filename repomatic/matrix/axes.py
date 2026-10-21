@@ -30,25 +30,49 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from typing import Final
 
+LINUX_ARM64_RUNNER: Final = "ubuntu-26.04-arm"
+"""GitHub-hosted image of the ARM Linux slot."""
+
+LINUX_X64_RUNNER: Final = "ubuntu-26.04"
+"""GitHub-hosted image of the x86 Linux slot."""
+
+MACOS_ARM64_RUNNER: Final = "macos-26"
+"""GitHub-hosted image of the Apple-silicon macOS slot."""
+
+MACOS_X64_RUNNER: Final = "macos-26-intel"
+"""GitHub-hosted image of the Intel macOS slot."""
+
+WINDOWS_ARM64_RUNNER: Final = "windows-11-arm"
+"""GitHub-hosted image of the ARM Windows slot."""
+
+WINDOWS_X64_RUNNER: Final = "windows-2025"
+"""GitHub-hosted image of the x86 Windows slot."""
+
 TEST_RUNNERS_FULL = (
-    "ubuntu-26.04-arm",
-    "ubuntu-26.04",
-    "macos-26",
-    "macos-26-intel",
-    "windows-11-arm",
-    "windows-2025",
+    LINUX_ARM64_RUNNER,
+    LINUX_X64_RUNNER,
+    MACOS_ARM64_RUNNER,
+    MACOS_X64_RUNNER,
+    WINDOWS_ARM64_RUNNER,
+    WINDOWS_X64_RUNNER,
 )
 """GitHub-hosted runners for the full test matrix.
 
 Two variants per platform (one per architecture). See
 [available images](https://github.com/actions/runner-images#available-images).
 
+Each label is spelled once, in the slot constants above, which the test axes
+and the Nuitka build fleet
+({data}`~repomatic.release.binary.NUITKA_BUILD_TARGETS`) both read.
+`sync-runner-images` moves a retiring label by rewriting its one literal, so
+both follow.
+
 ```{note} Preview images are adopted on measurement, not on GitHub's label
 An image counts as stable here once it has been validated against this suite,
 not once a vendor relabels it. GitHub's *preview* label gates whether an image
 can sit behind the `-latest` aliases, and this project never uses those aliases:
 a floating alias re-points with no commit to review, and
-{func}`~repomatic.lint_repo.check_runner_images` rejects one outright. The
+{func}`~repomatic.lint_repo.workflows.check_runner_images` rejects one outright. The
 Ubuntu 26.04 pair was adopted that way while still in preview, before GitHub
 declared it generally available on 2026-09-17. Measured over consecutive runs
 before the swap, `ubuntu-26.04-arm` beat `ubuntu-24.04-arm` by 16% on Python
@@ -68,9 +92,9 @@ re-provisioned, so re-confirm against your own job timings.
 """
 
 TEST_RUNNERS_PR = (
-    "ubuntu-26.04-arm",
-    "macos-26",
-    "windows-2025",
+    LINUX_ARM64_RUNNER,
+    MACOS_ARM64_RUNNER,
+    WINDOWS_X64_RUNNER,
 )
 """Reduced runner set for pull request test matrices.
 
@@ -163,7 +187,7 @@ reaches the job `name:` alone. Writing it into a
 ```
 """
 
-SINGLE_RUNNER_PYTHON_VERSIONS: Final[dict[str, str]] = {"3.15t": "ubuntu-26.04-arm"}
+SINGLE_RUNNER_PYTHON_VERSIONS: Final[dict[str, str]] = {"3.15t": LINUX_ARM64_RUNNER}
 """Released Python build flavors smoke-tested on a single runner, mapped to it.
 
 A free-threaded build (the `t` suffix, made officially supported in 3.14 by

@@ -17,11 +17,12 @@
 """GitHub Releases API client.
 
 The single home for reading GitHub Releases: raw cached API access (tags,
-versions, single bodies), tag-to-version extraction, tag-to-SHA resolution, and
-the range-to-release-notes fetch shared by the dependency updaters. The
-{mod}`repomatic.deps.pins` adapters and {mod}`repomatic.deps.report`
-release-notes helper build on top of these reads, and so do the review steps of
-the prepare-release checklist ({func}`release_review_steps`).
+versions), tag-to-version extraction, tag-to-SHA resolution, and the
+range-to-release-notes fetch every dependency report shares
+({func}`fetch_github_release_notes`). The {mod}`repomatic.deps.pins` adapters
+and the {mod}`repomatic.deps.report` release-notes helper build on top of these
+reads, and so do the review steps of the prepare-release checklist
+({func}`release_review_steps`).
 
 One write helper lives here too: {func}`edit_release_notes`, the shared
 `gh release edit` path behind the dev pre-release sync
@@ -46,6 +47,8 @@ from .urls import parse_github_repo
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from packaging.version import Version
 
 GITHUB_API_RELEASES_URL = "https://api.github.com/repos/{owner}/{repo}/releases"
@@ -58,11 +61,6 @@ GITHUB_API_TAG_REF_URL = (
 
 GITHUB_API_TAG_OBJECT_URL = "https://api.github.com/repos/{owner}/{repo}/git/tags/{sha}"
 """GitHub API URL for dereferencing an annotated tag object to its commit."""
-
-GITHUB_API_RELEASE_BY_TAG_URL = (
-    "https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
-)
-"""GitHub API URL for fetching a single release by tag name."""
 
 RELEASES_PAGE_SIZE = 100
 """Releases per page of a listing, the most the REST API serves."""
@@ -508,92 +506,93 @@ def edit_release_notes(
     return True
 
 
-def get_github_release_body(repo_url: str, version: str) -> tuple[str, str]:
-    """Fetch the release notes body for a specific version from GitHub.
+class ReleaseNotesRequest(NamedTuple):
+    """One version bump whose GitHub release notes a report shows."""
 
-    Tries ``v{version}`` first (most common for Python packages), then the bare
-    ``{version}`` tag.
+    name: str
+    """The name the report keys the notes by: a tool, a package, an action."""
 
-    :param repo_url: GitHub repository URL.
-    :param version: The version string (e.g. `7.13.5`).
-    :return: A tuple of `(tag, body)` where `tag` is the matched tag name and
-        `body` is the release notes markdown. Both are empty strings if no
-        release is found.
+    repo_url: str
+    """The GitHub repository publishing the releases."""
+
+    old: str
+    """The bare version the bump leaves. Empty for a new dependency, whose
+    notes are those of {attr}`new` alone."""
+
+    new: str
+    """The bare version the bump adopts."""
+
+    tag_pattern: str | None = None
+    """A regex with a `version` group, reading the version out of a tag. `None`
+    for the `vX.Y.Z` scheme, which also passes a bare `X.Y.Z` tag through."""
+
+    skip: frozenset[str] = frozenset()
+    """Versions left out of the notes, like the releases a registry yanked: a
+    pulled release has no notes worth showing."""
+
+
+def in_bump_range(version: Version, old: Version | None, new: Version) -> bool:
+    """Whether the notes of a bump from *old* to *new* cover *version*.
+
+    The half-open range `(old, new]`. A pre-release inside it is left out, the
+    way the sweep that picks *new* leaves it out. *new* itself is kept, even as
+    a pre-release. With no *old*, the range is *new* alone.
+
+    :param version: The version of a release.
+    :param old: The version the bump leaves, or `None` for a new dependency.
+    :param new: The version the bump adopts.
     """
-    parsed = parse_github_repo(repo_url)
-    if not parsed:
-        return "", ""
-    owner, repo = parsed
-
-    # Cache keyed by version, not tag, since both tag spellings are tried.
-    cache_key = f"{owner}/{repo}/{version}"
-    ttl = load_repomatic_config().cache.github_release_ttl
-    cached = get_cached_response("github-release", cache_key, ttl)
-    if cached is not None:
-        try:
-            data = json.loads(cached)
-            return data["tag"], data["body"]
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
-
-    for tag in (f"v{version}", version):
-        url = GITHUB_API_RELEASE_BY_TAG_URL.format(owner=owner, repo=repo, tag=tag)
-        try:
-            data = get_json(url, headers=api_headers())
-        except FetchError:
-            continue
-        body = data.get("body", "")
-        if ttl > 0:
-            store_response(
-                "github-release",
-                cache_key,
-                json.dumps({"tag": tag, "body": body}).encode(),
-            )
-        return tag, body
-    logging.debug(f"No GitHub release found for {repo_url} version {version}.")
-    return "", ""
+    if old is None:
+        return version == new
+    return old < version <= new and (not version.is_prerelease or version == new)
 
 
 def fetch_github_release_notes(
-    items: list[tuple[str, str, str, str, str | None]],
+    requests: Iterable[ReleaseNotesRequest],
 ) -> dict[str, tuple[str, list[tuple[str, str]]]]:
-    """Fetch GitHub release notes for a batch of version bumps.
+    """Fetch the GitHub release notes of a batch of version bumps.
 
-    For each item, lists the repository's releases (a cached call, already warm
-    from a prior candidate sweep) and keeps those whose extracted version lands
-    in the half-open range `(old, new]`, oldest first. Non-GitHub datasources
-    (npm, PyPI workflow literals) contribute no item here and render no notes.
+    For each request, lists the releases of the repository once (a cached
+    call, often warm from a prior candidate sweep) and keeps those
+    {func}`in_bump_range` covers, oldest first. A repository costs one listing
+    per page of {data}`RELEASES_PAGE_SIZE` releases, however many versions the
+    bump spans. Non-GitHub datasources (npm, PyPI workflow literals) make no
+    request here and render no notes.
 
-    :param items: One `(name, repo_url, old, new, tag_pattern)` tuple per bumped
-        pin, where *old* and *new* are bare versions and *tag_pattern* is the
-        per-tool extraction regex (or `None` for the `vX.Y.Z` scheme).
-    :return: A dict mapping names to `(repo_url, versions)` tuples, the same
-        shape {func}`repomatic.deps.report.fetch_release_notes` returns, so
-        {func}`repomatic.deps.report.format_release_notes` renders it unchanged. Only
-        entries with at least one non-empty release body are included.
+    :param requests: One request per bump.
+    :return: A dict mapping names to `(repo_url, versions)` tuples, where
+        `versions` holds a `(tag, body)` pair per release. Only names with at
+        least one non-empty release body are included.
     """
     notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
-    for name, repo_url, old, new, tag_pattern in items:
+    for request in requests:
         try:
-            tags = get_release_tags(repo_url)
+            tags = get_release_tags(request.repo_url)
         except GitHubReleasesUnavailable as exc:
-            logging.warning(f"Skipping release notes for {name}: {exc}")
+            logging.warning(f"Skipping release notes for {request.name}: {exc}")
             continue
-        old_version = parse_tag_version(old)
-        new_version = parse_tag_version(new)
-        if old_version is None or new_version is None:
+        old_version = parse_tag_version(request.old) if request.old else None
+        new_version = parse_tag_version(request.new)
+        if new_version is None or (request.old and old_version is None):
             continue
+        skipped = {parse_tag_version(version) for version in request.skip}
         fetched: list[tuple[Version, str, str]] = []
         for tag, release in tags.items():
-            version = extract_version(tag, tag_pattern)
+            version = extract_version(tag, request.tag_pattern)
             if not version or not release.body:
                 continue
             parsed = parse_tag_version(version)
-            if parsed is None:
+            if (
+                parsed is None
+                or parsed in skipped
+                or not in_bump_range(parsed, old_version, new_version)
+            ):
                 continue
-            if old_version < parsed <= new_version:
-                fetched.append((parsed, tag, release.body))
+            fetched.append((parsed, tag, release.body))
         if fetched:
             fetched.sort(key=lambda entry: entry[0])
-            notes[name] = (repo_url, [(tag, body) for _v, tag, body in fetched])
+            notes[request.name] = (
+                request.repo_url,
+                [(tag, body) for _version, tag, body in fetched],
+            )
     return notes

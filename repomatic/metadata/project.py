@@ -52,6 +52,8 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from typing import Any, Final, Literal
 
+    import packaging.version
+
 
 MYPY_VERSION_MIN = (3, 10)
 """Earliest Python dialect the pinned mypy accepts for `--python-version`.
@@ -80,10 +82,12 @@ the regex in {meth}`ProjectMetadata.script_entries`.
 class BumpBaseline(NamedTuple):
     """The two versions a version-bump gate compares."""
 
-    current: Version
+    # Spelled in full: Sphinx renders the signature of a named tuple from
+    # its generated `__new__`, which reads no import of this module.
+    current: packaging.version.Version
     """The version the bump-my-version configuration declares now."""
 
-    released: Version
+    released: packaging.version.Version
     """The latest release, read from its tag or from its release commit."""
 
     @classmethod

@@ -35,6 +35,7 @@ from click_extra.testing import CliRunner
 from extra_platforms import is_windows
 from packaging.version import Version
 
+from repomatic.changelog import Changelog, availability_admonition
 from repomatic.cli.ci import (
     CELL_STATE_SEPARATOR,
     EMPTY_CELL,
@@ -53,7 +54,8 @@ from repomatic.config import (
     publish_config,
 )
 from repomatic.file_inventory import FileInventory
-from repomatic.github.event import NULL_SHA, WorkflowEvent
+from repomatic.git_ops import NULL_SHA
+from repomatic.github.event import WorkflowEvent
 from repomatic.github.outputs import MAX_STEP_OUTPUT_BYTES
 from repomatic.matrix.axes import (
     PRERELEASE_LABEL_SUFFIX,
@@ -2788,3 +2790,50 @@ def test_current_version_reads_the_most_recent_commit(monkeypatch):
     )
     monkeypatch.setattr(Metadata, "new_commits_matrix", matrix)
     assert Metadata().current_version == "5.0.1.dev0"
+
+
+RELEASE_SECTIONS = {
+    "1.1.0": (
+        "## [`1.1.0` (2026-02-10)](https://github.com/user/repo/compare/v1.0.0...v1.1.0)"
+        "\n\n- Second release.\n"
+    ),
+    "1.0.0": (
+        "## [`1.0.0` (2026-01-15)](https://github.com/user/repo/compare/v0.9.0...v1.0.0)"
+        "\n\n- Initial release.\n"
+    ),
+}
+"""Released changelog sections, newest first, keyed by their version."""
+
+
+@pytest.mark.parametrize(
+    ("released", "first"),
+    (
+        pytest.param(("1.0.0",), True, id="first-release"),
+        pytest.param(("1.1.0", "1.0.0"), False, id="later-release"),
+    ),
+)
+def test_draft_release_notes_word_availability_like_the_changelog(released, first):
+    """The draft release body states availability the way the changelog will.
+
+    `lint-changelog --fix` writes the *first version* wording into the section
+    of a project's first release. The draft body is baked before that fix runs,
+    so it has to reach the same wording on its own, or the two disagree.
+    """
+    version = released[0]
+    content = "# Changelog\n\n" + "\n".join(RELEASE_SECTIONS[v] for v in released)
+    metadata = Metadata()
+    metadata.__dict__["_release_changelog"] = (version, Changelog(content))
+    metadata.__dict__["package_name"] = "papaya"
+
+    notes = metadata.release_notes_with_admonition
+
+    assert notes is not None
+    expected = availability_admonition(
+        version,
+        pypi_url=f"https://pypi.org/project/papaya/{version}/",
+        github_url=f"https://github.com/user/repo/releases/tag/v{version}",
+        first_on_pypi=first,
+        first_on_github=first,
+    )
+    assert expected in notes
+    assert ("is the *first version* available on" in notes) is first

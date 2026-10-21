@@ -44,7 +44,6 @@ from repomatic.matrix.axes import KNOWN_RUNNERS, TEST_PYTHON_FULL
 from repomatic.metadata.core import Metadata
 from repomatic.metadata.output import format_github_value
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
-from repomatic.release.prepare_release import LOCAL_CLI_INVOCATION
 from repomatic.release.protocol import (
     CHANGELOG_COMMIT_PREFIX,
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
@@ -53,7 +52,9 @@ from repomatic.release.protocol import (
     VERSION_BUMP_BRANCHES,
     VERSION_BUMP_COMMIT_PREFIXES,
 )
+from repomatic.release.self_pin import local_cli_invocation
 from repomatic.templating import PrTemplate
+from repomatic.upstream import UPSTREAM_PACKAGE
 from repomatic.versions import BUMP_PARTS
 from tests.conftest import (
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,
@@ -2019,10 +2020,12 @@ def test_arch_aliases_mirror_extra_platforms() -> None:
     )
 
 
+LOCAL_CLI = local_cli_invocation(UPSTREAM_PACKAGE)
+"""How every workflow of this repository runs the CLI between releases."""
+
 CLI_INVOCATION_RE = re.compile(
     # `\s+` spans the newline plus continuation indent a folded scalar inserts.
-    r"uvx\s+--no-progress\s+--from\s+\.\s+repomatic|"
-    + LOCAL_CLI_INVOCATION.replace(" ", r"\s+")
+    r"uvx\s+--no-progress\s+--from\s+\.\s+repomatic|" + LOCAL_CLI.replace(" ", r"\s+")
 )
 """Any way a workflow can invoke this project's CLI from the local checkout."""
 
@@ -2051,7 +2054,7 @@ def test_local_cli_invocation_is_contiguous(workflow: str) -> None:
     assert not offenders, (
         f"{workflow}: {len(offenders)} CLI invocation(s) the freeze cannot "
         f"rewrite: {offenders}. Use the contiguous "
-        f"`{LOCAL_CLI_INVOCATION}` and wrap the line after it."
+        f"`{LOCAL_CLI}` and wrap the line after it."
     )
 
 
@@ -2059,7 +2062,7 @@ def test_local_cli_invocation_is_contiguous(workflow: str) -> None:
 LOCAL_CLI_JOBS = [
     (workflow_name, job_name)
     for workflow_name, job_name, steps in iter_jobs_with_steps()
-    if any(LOCAL_CLI_INVOCATION in (step.get("run") or "") for step in steps)
+    if any(LOCAL_CLI in (step.get("run") or "") for step in steps)
 ]
 
 
@@ -2067,7 +2070,7 @@ LOCAL_CLI_JOBS = [
 def test_local_cli_jobs_discovered() -> None:
     """The local-CLI matcher must find jobs (guards against a dead constant)."""
     assert LOCAL_CLI_JOBS, (
-        f"No job runs `{LOCAL_CLI_INVOCATION}`. The constant likely drifted "
+        f"No job runs `{LOCAL_CLI}`. The constant likely drifted "
         "from what the workflows spell: every lane dogfoods the CLI somewhere."
     )
 
@@ -2095,7 +2098,7 @@ def test_local_cli_job_checks_out_repo(workflow_name: str, job_name: str) -> Non
     assert any(
         str(step.get("uses", "")).startswith("actions/checkout@") for step in steps
     ), (
-        f"{workflow_name} ({job_name}): runs `{LOCAL_CLI_INVOCATION}` but never "
+        f"{workflow_name} ({job_name}): runs `{LOCAL_CLI}` but never "
         "checks out the repository, so uv has no project to resolve the CLI "
         "from. Add an `actions/checkout@` step."
     )

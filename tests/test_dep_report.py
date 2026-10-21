@@ -28,8 +28,12 @@ drift a `in x` assertion sails past.
 from __future__ import annotations
 
 import ast
+import json
+from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -43,6 +47,7 @@ from repomatic.deps.report import (
     HeldBackPackage,
     build_comparison_urls,
     build_held_back,
+    fetch_release_notes,
     format_bypass_section,
     format_diff_table,
     format_exclude_newer_note,
@@ -50,9 +55,9 @@ from repomatic.deps.report import (
     format_release_notes,
     format_released,
     format_upload_date,
-    parse_iso_datetime,
     pypi_name_urls,
 )
+from tests.conftest import FakeResponse
 
 CHANGES = [
     ("apricot", "1.2.0", "1.3.0"),
@@ -65,21 +70,6 @@ CHANGES = [
 # ---------------------------------------------------------------------------
 # Date parsing and formatting
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    (
-        ("", None),
-        ("not-a-date", None),
-        ("2026-06-24T10:00:00Z", "2026-06-24T10:00:00+00:00"),
-        # A `Z` suffix and nanosecond precision, which arrow parses.
-        ("2026-06-24T10:00:00.123456789Z", "2026-06-24T10:00:00.123457+00:00"),
-    ),
-)
-def test_parse_iso_datetime(value, expected):
-    parsed = parse_iso_datetime(value)
-    assert (parsed.isoformat() if parsed else None) == expected
 
 
 @pytest.mark.parametrize(
@@ -444,3 +434,63 @@ def test_format_release_notes_nests_headings():
     assert "###### Texture" in section
     assert "\n## Flavor" not in section
     assert format_release_notes({}) == ""
+
+
+# ---------------------------------------------------------------------------
+# Release notes
+# ---------------------------------------------------------------------------
+
+PAPAYA_RELEASES = {
+    "1.0.0": False,
+    "1.1.0": False,
+    "1.2.0": True,
+    "1.3.0rc1": False,
+    "1.3.0": False,
+}
+"""Releases of the `papaya` fixture package, mapped to whether PyPI yanked them."""
+
+
+def _papaya_urlopen(calls: Counter[str]):
+    """A `urlopen` serving PyPI and GitHub for `papaya`, counting each host."""
+    pypi = {
+        "info": {"project_urls": {"Source": "https://github.com/orchard/papaya"}},
+        "releases": {
+            version: [{"upload_time": "2026-01-01T00:00:00", "yanked": yanked}]
+            for version, yanked in PAPAYA_RELEASES.items()
+        },
+    }
+    releases = [
+        {
+            "tag_name": f"v{version}",
+            "published_at": "2026-01-01T00:00:00Z",
+            "body": f"Notes of {version}.",
+        }
+        for version in PAPAYA_RELEASES
+    ]
+
+    def urlopen(request, timeout=None):
+        host = urlsplit(request.full_url).hostname
+        calls[host] += 1
+        payload = pypi if host == "pypi.org" else releases
+        return FakeResponse(json.dumps(payload).encode())
+
+    return urlopen
+
+
+def test_fetch_release_notes_lists_each_repository_once(cache_env):
+    """One listing of the releases serves every version the bump covers.
+
+    A yanked release and a pre-release inside the range are left out, the way
+    the selection sweeps leave them out.
+    """
+    calls: Counter[str] = Counter()
+    with patch("repomatic.http.urlopen", side_effect=_papaya_urlopen(calls)):
+        notes = fetch_release_notes([("papaya", "1.0.0", "1.3.0")])
+
+    assert notes == {
+        "papaya": (
+            "https://github.com/orchard/papaya",
+            [("v1.1.0", "Notes of 1.1.0."), ("v1.3.0", "Notes of 1.3.0.")],
+        )
+    }
+    assert calls == {"pypi.org": 1, "api.github.com": 1}

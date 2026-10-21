@@ -127,7 +127,7 @@ from repomatic.lint_repo.workflows import (
 from repomatic.matrix.axes import UNSTABLE_PYTHON_VERSIONS
 from repomatic.metadata.core import METADATA_VALUE_OPTIONS, requested_metadata_keys
 from repomatic.pypi import TrustedPublisher
-from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from repomatic.release.self_pin import cooldown_exemption
 from repomatic.tooling.registry import (
     ArchiveFormat,
     BinarySpec,
@@ -3045,14 +3045,14 @@ def test_self_pin_exemption_flags_unexempt_pin():
     result = check_self_pin_cooldown_exemption(ctx)
     assert result.passed is False
     assert "tests.yaml" in result.message
-    assert SELF_PIN_COOLDOWN_EXEMPTION in result.message
+    assert cooldown_exemption("repomatic") in result.message
 
 
 def test_self_pin_exemption_accepts_exempt_pin():
     """The spelling both writers emit passes."""
     ctx = _workflows(
         tests=_COOLDOWN_ENV
-        + f"      - run: uvx --no-progress {SELF_PIN_COOLDOWN_EXEMPTION}"
+        + f"      - run: uvx --no-progress {cooldown_exemption('repomatic')}"
         " 'repomatic==7.11.0' metadata\n"
     )
     result = check_self_pin_cooldown_exemption(ctx)

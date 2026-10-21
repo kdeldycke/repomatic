@@ -42,26 +42,25 @@ from packaging.version import Version
 from .changelog import (
     GITHUB_LABEL,
     GITHUB_RELEASE_URL,
+    PYPI_LABEL,
     Changelog,
-    build_release_admonition,
-    build_unavailable_admonition,
+    availability_admonition,
 )
 from .file_ops import write_if_changed
 from .git_ops import GitError, get_all_version_tags
 from .github.outputs import AnnotationLevel, emit_annotation
-from .github.pr_body import render_template
 from .github.releases import (
     GitHubRelease,
     GitHubReleasesUnavailable,
     get_github_releases,
 )
 from .pypi import (
-    PYPI_LABEL,
     PYPI_PROJECT_URL,
     PyPIRelease,
     pypi_release_dates,
 )
 from .pyproject import get_project_name
+from .templating import render_template
 from .versions import safe_version
 
 TYPE_CHECKING = False
@@ -924,44 +923,19 @@ def _rebuild_admonitions(
             else ""
         )
 
-        # "First version" wording applies when every listed platform is a
-        # first appearance for that platform.
+        # Only gaps warn: versions that postdate the first release on that
+        # platform but are absent from it.
+        pypi_gap, github_gap = sources.platform_gaps(version)
         parsed = Version(version)
-        is_first_pypi = (
-            on_pypi
-            and sources.first_pypi_version is not None
-            and parsed == sources.first_pypi_version
-        )
-        is_first_github = (
-            on_github
-            and sources.first_github_version is not None
-            and parsed == sources.first_github_version
-        )
-        first_on_all = (
-            (is_first_pypi or not on_pypi)
-            and (is_first_github or not on_github)
-            and (is_first_pypi or is_first_github)
-        )
-
-        note = build_release_admonition(
+        elements.availability_admonition = availability_admonition(
             version,
             pypi_url=pypi_url,
             github_url=github_url,
-            first_on_all=first_on_all,
-        )
-
-        # Build the WARNING admonition for platforms where missing. Only gaps
-        # warn: versions that postdate the first release on that platform but
-        # are absent from it.
-        pypi_gap, github_gap = sources.platform_gaps(version)
-        warning = build_unavailable_admonition(
-            version,
+            first_on_pypi=on_pypi and parsed == sources.first_pypi_version,
+            first_on_github=on_github and parsed == sources.first_github_version,
             missing_pypi=pypi_gap,
             missing_github=github_gap,
         )
-        # Both admonitions appear when a version is on one platform but not
-        # the other.
-        elements.availability_admonition = "\n\n".join(a for a in (note, warning) if a)
 
         if is_yanked:
             # PyPI accepts a yank with no reason, so the clause carrying it is

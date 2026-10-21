@@ -258,9 +258,8 @@ def emit_plan_report(
 def _enabled_operation(ctx: Context, name: str) -> tuple[SyncOperation, Config]:
     """Look an updater up, exiting when its `[tool.repomatic]` flag is off."""
     op = OPERATIONS_BY_NAME[name]
-    config = get_tool_config(ctx)
-    exit_if_disabled(ctx, op.is_enabled(config), op.config_key)
-    return op, config
+    exit_if_disabled(ctx, op.config_key)
+    return op, get_tool_config(ctx)
 
 
 def _run_version_sync(
@@ -402,7 +401,7 @@ def audit(
 
     if fix:
         # vulnerable-deps.sync gates the autofix (mutation), not reporting.
-        exit_if_disabled(ctx, config.vulnerable_deps.sync, "vulnerable-deps.sync")
+        exit_if_disabled(ctx, "vulnerable-deps.sync")
 
         result = fix_vulnerable_deps(lockfile, repo=repo, sources=sources)
         if not result.has_fixes:
@@ -714,7 +713,7 @@ def update_dep_graph(
     as edge labels.
     """
     config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.dependency_graph.update, "dependency-graph.update")
+    exit_if_disabled(ctx, "dependency-graph.update")
 
     # Auto-detect package name from [project].name.
     if package is None:

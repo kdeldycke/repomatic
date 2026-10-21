@@ -55,7 +55,7 @@ click_extra is both a runtime dependency and the framework whose release pipelin
 
 ### Cooldown: consuming repomatic from the lockfile
 
-Workflows on `main` run the CLI from the lockfile rather than resolving it fresh: {data}`repomatic.release.prepare_release.LOCAL_CLI_INVOCATION` says why. See [`docs/dependencies.md` § `exclude-newer-package` cooldown overrides](https://repomatic.net/dependencies#exclude-newer-package-cooldown-overrides) for what an index resolution leaves reachable.
+Workflows on `main` run the CLI from the lockfile rather than resolving it fresh: {func}`repomatic.release.self_pin.local_cli_invocation` says why. See [`docs/dependencies.md` § `exclude-newer-package` cooldown overrides](https://repomatic.net/dependencies#exclude-newer-package-cooldown-overrides) for what an index resolution leaves reachable.
 
 Running from the lockfile creates its own hazard: **a floor inside the window is now invisible here and breaks only the people installing the release** (downstream repos running a frozen workflow's `uvx 'repomatic==X.Y.Z'`, and `uvx repomatic` users). `tests/test_dep_sources.py` is what catches it, so treat that test failing as "this release is not shippable yet", not as a local annoyance to wait out.
 
@@ -98,7 +98,7 @@ Release-specific design rationale for `kdeldycke/repomatic` (the `workflow_run` 
 
 ### Pin uv: enforcement internals
 
-`tests/test_workflows.py` fails on a `setup-uv` step without `with: version:`, or on two steps naming different versions. {func}`repomatic.deps.uv.sync_uv_lock` says why `uv.lock` stays stable across uv minors.
+`tests/test_workflows.py` fails on a `setup-uv` step without `with: version:`, or on two steps naming different versions. {func}`repomatic.deps.cooldown.sync_uv_lock` says why `uv.lock` stays stable across uv minors.
 
 `repomatic init uv` writes both policy pins (`required-version`, `exclude-newer`) from the bundled `uv.toml`, and `sync-uv-lock` re-applies them while leaving every other `[tool.uv]` key untouched.
 

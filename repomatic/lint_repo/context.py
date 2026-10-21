@@ -34,7 +34,7 @@ from functools import cached_property
 from pathlib import Path
 
 from ..changelog import resolved_changelog_path
-from ..cloudflare.r2 import PAGES_MAX_FILE_SIZE
+from ..cloudflare.r2 import oversized_files
 from ..config import Config, deploys_to
 from ..github.gh import gh_json
 from ..github.labels import LabelConfigError, declared_label_names
@@ -312,13 +312,11 @@ class LintContext:
         """Tracked files over the Cloudflare Pages limit, `.gitignore` honoured.
 
         Built trees stay out, like the `_redirects` inventory above: the deploy
-        step reads those, and it names each file it moves or drops.
+        step reads those, and it names each file it moves or drops. The size
+        rule is the one the deploy applies, from
+        {func}`~repomatic.cloudflare.r2.oversized_files`.
         """
-        return [
-            path
-            for path in self.files.glob_files("**/*")
-            if path.stat().st_size > PAGES_MAX_FILE_SIZE
-        ]
+        return oversized_files(self.files.glob_files("**/*"))
 
     @property
     def has_wrangler_toml(self) -> bool:

@@ -73,6 +73,7 @@ from ..upstream import is_source_repo
 from .main import (
     LazyChoice,
     dry_run_option,
+    exit_if_disabled,
     output_option,
     subcommand,
     write_output,
@@ -638,6 +639,13 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
     `[tool.repomatic.sync-runner-images] ignore`: closing the pull request
     alone brings it back on the next run.
     """
+    if output:
+        # An empty proposal until one is planned: the workflow step feeding it
+        # to `pr-sync` reads it whatever this run decides, a switched-off sync
+        # included, and should not have to branch on whether it exists.
+        write_output("runner image proposal", "", output)
+    exit_if_disabled(ctx, "sync-runner-images.sync")
+
     config = get_tool_config(ctx)
     literal = literal_runners()
     changes = plan_runner_changes(
@@ -648,10 +656,6 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
     )
     if not changes:
         echo("No runner image change to propose.")
-        if output:
-            # An empty proposal rather than none: the workflow step feeding it
-            # to `pr-sync` should not have to branch on whether it exists.
-            write_output("runner image proposal", "", output)
         ctx.exit(0)
 
     # Only a checkout of repomatic itself holds the curated axes. Downstream

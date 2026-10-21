@@ -53,10 +53,8 @@ from ..components import (
     WorkflowComponent,
     parse_component_entries,
 )
-from ..deps.pins import apply_self_pin_exemption
 from ..file_ops import normalize_text, unlink_with_empty_parents, write_if_changed
 from ..github.labels import extra_label_filename
-from ..github.pr_body import render_template
 from ..github.urls import repo_name
 from ..github.workflow_files import WORKFLOW_DIR, parse_workflow_texts
 from ..github.workflow_sync import (
@@ -72,8 +70,9 @@ from ..pyproject import (
     read_pyproject_toml,
     resolve_source_paths,
 )
-from ..release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from ..release.self_pin import add_cooldown_exemption, align_inline_pins
 from ..skills import AUDIT_SKILL, UPGRADE_SKILL, skill_launcher
+from ..templating import render_template
 from ..tooling.runner import find_unmodified_configs
 from ..upstream import DEFAULT_REPO, is_awesome_repo, is_source_repo
 from ..versions import is_newer
@@ -822,7 +821,7 @@ def _write_workflows(
     run.result.adopted_pin = pin.version.removeprefix("v")
 
     paths_spec = PathsSpec(
-        source_paths=run.source_paths,
+        source_paths=tuple(run.source_paths or ()),
         extra_paths=list(config.workflow.extra_paths),
         ignore_paths=list(config.workflow.ignore_paths),
         workflow_paths={k: list(v) for k, v in config.workflow.paths.items()},
@@ -863,7 +862,9 @@ def _write_workflows(
         if existing is None:
             continue
         try:
-            canonical_header = generate_workflow_header(filename, paths_spec=paths_spec)
+            canonical_header = generate_workflow_header(
+                filename, paths_spec=paths_spec, config=config
+            )
         except (ValueError, FileNotFoundError):
             logging.warning(f"Cannot extract header for {filename}. Skipping.")
             continue
@@ -889,29 +890,32 @@ def _realign_inline_pins(run: _InitRun, version: str) -> None:
     A workflow that reaches the upstream toolkit from a `run:` shell command
     (`uvx 'repomatic==1.2.3' show-metadata`) must keep that version in lockstep
     with the SHA-pinned `uses:` refs above it, which
-    {func}`~repomatic.lint_repo.check_inline_pins_match_upstream` enforces.
+    {func}`~repomatic.lint_repo.pins.check_inline_pins_match_upstream` enforces.
     `init` writes those refs and is the only writer of them, so it is also the
     only place that knows the pin changed. Realigning the literal here leaves no
     window, between the two, where that lint is red.
 
-    Rewrites in either direction, like
-    {func}`~repomatic.deps.sync._resolve_workflow_pins` does: the refs are the
-    source of truth, and a literal ahead of them is drift the same way one
-    behind them is.
+    Rewrites in either direction, through
+    {func}`~repomatic.release.self_pin.align_inline_pins`, the rewrite
+    `sync-workflow-pins` runs too: the refs are the source of truth, and a
+    literal ahead of them is drift the same way one behind them is.
 
     Scope is every workflow file, not only the ones `init` generated. A
     downstream repository carries the literal inside job bodies it owns (the
     `pr-body` calls of a release workflow), which header-only sync never
     touches; that is exactly where the lag hides.
 
-    Also splices in the per-package cooldown escape hatch
-    ({data}`~repomatic.release.prepare_release.SELF_PIN_COOLDOWN_EXEMPTION`)
-    wherever a `uvx` command pinning the package lacks it. Every workflow exports
-    a `UV_EXCLUDE_NEWER` covering all resolution, and the pin this function
-    writes routinely names a release younger than that window, so realigning it
-    without the exemption produces a command that cannot resolve at all.
-    `--no-cooldown` makes that the normal case rather than the rare one: it
-    adopts the running version the day it is published.
+    Also splices in the cooldown exemption of the package
+    ({func}`~repomatic.release.self_pin.cooldown_exemption`) wherever a `uvx`
+    command pinning it lacks one. Every workflow exports a `UV_EXCLUDE_NEWER`
+    covering all resolution, and the pin this function writes routinely names a
+    release younger than that window, so realigning it without the exemption
+    produces a command that cannot resolve at all. `--no-cooldown` makes that
+    the normal case rather than the rare one: it adopts the running version the
+    day it is published.
+
+    The package is the name of the `--upstream-repo`, for the pin and its
+    exemption alike, so a renamed fork gets an exemption naming its own package.
 
     ```{note}
     The exemption's own single-`=` literal (`repomatic=P0D`) is untouched by the
@@ -924,15 +928,14 @@ def _realign_inline_pins(run: _InitRun, version: str) -> None:
         tag spelling.
     """
     package = repo_name(run.repo)
-    pin_re = re.compile(rf"\b{re.escape(package)}==[0-9]+(?:\.[0-9]+)*")
-    # A `uses:` ref names a git tag and keeps the `v`; a requirement specifier
-    # names the PyPI package and must not carry it. Same number, two namespaces.
-    replacement = f"{package}=={version.removeprefix('v')}"
 
     for target, content in run.workflow_texts().items():
-        new_content = apply_self_pin_exemption(
-            pin_re.sub(replacement, content), package, SELF_PIN_COOLDOWN_EXEMPTION
+        # A `uses:` ref names a git tag and keeps the `v`; a requirement
+        # specifier names the PyPI package and must not carry it.
+        aligned, _changes = align_inline_pins(
+            content, package, version.removeprefix("v")
         )
+        new_content = add_cooldown_exemption(aligned, package)
         if new_content == content:
             continue
         run.write(

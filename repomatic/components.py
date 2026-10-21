@@ -399,7 +399,7 @@ class ToolConfigComponent(Component):
     """Template entries every repository is expected to replace with its own.
 
     Only meaningful when `sync_mode` is `BOOTSTRAP`, where
-    {func}`~repomatic.lint_repo.check_bootstrap_config_drift` reports what a
+    {func}`~repomatic.lint_repo.tool_config.check_bootstrap_config_drift` reports what a
     seeded section never received. A placeholder the template tells the reader
     to change is absent from every *correctly* customized section, so
     reporting it would put a permanent warning on the one knob the template
@@ -415,7 +415,7 @@ class ToolConfigComponent(Component):
     Only meaningful when `sync_mode` is `BOOTSTRAP`. pytest reads
     `[tool.pytest.ini_options]` as well as the native `[tool.pytest]` keys the
     template carries, which need pytest 9.0, and refuses a file holding both.
-    {func}`~repomatic.lint_repo.check_bootstrap_config_drift` measures a section
+    {func}`~repomatic.lint_repo.tool_config.check_bootstrap_config_drift` measures a section
     that keeps its keys in this sub-table against the sub-table, so it never
     reports them missing or asks for a native twin the tool would reject.
     """
@@ -533,7 +533,7 @@ class RemovedAsset:
       (version pin, `paths:` filters), so they carry no fixed content. The file
       is deleted only when it is a repomatic-lineage thin-caller for this
       workflow (its `uses:` line references an upstream slug, see
-      {data}`UPSTREAM_REPO_SLUGS`) with no extra downstream jobs.
+      {data}`~repomatic.upstream.UPSTREAM_REPO_SLUGS`) with no extra downstream jobs.
 
     Either way, a locally modified orphan is reported for manual review, never
     deleted. When {attr}`target` is already gone but the asset shipped as a

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import urllib.request
 from contextlib import contextmanager
 from email.message import Message
 from http.client import IncompleteRead, RemoteDisconnected
@@ -29,6 +30,7 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
+from repomatic import http
 from repomatic.http import (
     ERROR_BODY_EXCERPT,
     USER_AGENT,
@@ -380,3 +382,14 @@ def test_suite_refuses_an_unmocked_fetch():
     """
     with pytest.raises(FetchError, match="not reached for real"):
         get_text("https://repomatic.invalid/")
+
+
+@pytest.mark.real_http
+def test_real_http_marker_lifts_the_refusal():
+    """A test marked `real_http` reaches the real `urlopen`.
+
+    The opt-out of the tests that run a registry tool for real: on a cold cache
+    their probe downloads the pinned binary through this module. See
+    `skip_unless_tool_runs` in `tests/conftest.py`.
+    """
+    assert http.urlopen is urllib.request.urlopen

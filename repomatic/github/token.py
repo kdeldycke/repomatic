@@ -72,49 +72,16 @@ Token permission mapping:
 
 from __future__ import annotations
 
-import functools
 import json
 import logging
 from collections import UserDict
 from typing import NamedTuple
-
-from click_extra import ClickException
 
 from ..checks import CheckResult
 from ..http import FetchError, request
 from .gh import GhCommandError, api_headers, resolve_gh_token, run_gh_command
 from .status import with_status_annotation
 from .urls import split_slug
-
-TYPE_CHECKING = False
-if TYPE_CHECKING:
-    from collections.abc import Callable
-    from types import ModuleType
-    from typing import Any
-
-
-def require_token(
-    module: ModuleType, attr: str
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator that runs a token validator before the Click command body.
-
-    Uses late-bound `getattr(module, attr)` so that
-    `unittest.mock.patch` can replace the module attribute after import
-    and the decorator sees the mock at call time.
-    """
-
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            try:
-                getattr(module, attr)()
-            except RuntimeError as exc:
-                raise ClickException(str(exc))
-            return func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
 
 
 def _classify_pat_error(error: GhCommandError, missing_permission_msg: str) -> str:

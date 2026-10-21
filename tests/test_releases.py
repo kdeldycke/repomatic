@@ -30,6 +30,7 @@ from repomatic.github.releases import (
     RELEASES_PAGE_SIZE,
     GitHubRelease,
     GitHubReleasesUnavailable,
+    ReleaseNotesRequest,
     dev_release_url_and_previous_version,
     edit_release_notes,
     extract_version,
@@ -321,7 +322,9 @@ def test_fetch_github_release_notes_filters_range_and_sorts():
     }
     with patch("repomatic.github.releases.get_release_tags", return_value=fake):
         notes = fetch_github_release_notes([
-            ("checkout", "https://github.com/actions/checkout", "1.0.0", "1.2.0", None)
+            ReleaseNotesRequest(
+                "checkout", "https://github.com/actions/checkout", "1.0.0", "1.2.0"
+            )
         ])
     repo_url, versions = notes["checkout"]
     assert repo_url == "https://github.com/actions/checkout"
@@ -333,7 +336,7 @@ def test_fetch_github_release_notes_skips_empty_bodies():
     fake = {"v2.0.0": GitHubRelease(date="2026-02-01", body="")}
     with patch("repomatic.github.releases.get_release_tags", return_value=fake):
         notes = fetch_github_release_notes([
-            ("x", "https://github.com/o/x", "1.0.0", "2.0.0", None)
+            ReleaseNotesRequest("x", "https://github.com/o/x", "1.0.0", "2.0.0")
         ])
     assert notes == {}
 
@@ -344,7 +347,7 @@ def test_fetch_github_release_notes_graceful_when_unavailable():
         side_effect=GitHubReleasesUnavailable("boom"),
     ):
         notes = fetch_github_release_notes([
-            ("x", "https://github.com/o/x", "1.0.0", "2.0.0", None)
+            ReleaseNotesRequest("x", "https://github.com/o/x", "1.0.0", "2.0.0")
         ])
     assert notes == {}
 
@@ -356,7 +359,7 @@ def test_fetch_github_release_notes_honors_tag_pattern():
     }
     with patch("repomatic.github.releases.get_release_tags", return_value=fake):
         notes = fetch_github_release_notes([
-            (
+            ReleaseNotesRequest(
                 "lychee",
                 "https://github.com/lycheeverse/lychee",
                 "0.23.0",
@@ -591,3 +594,59 @@ def test_release_review_steps_unavailable(monkeypatch, repo_url):
     )
 
     assert release_review_steps(repo_url, "1.2.3") == ("", "")
+
+
+RANGE_RELEASES = {
+    "v1.0.0": GitHubRelease(date="2026-01-01", body="notes 1.0.0"),
+    "v1.1.0": GitHubRelease(date="2026-02-01", body="notes 1.1.0"),
+    "v1.2.0": GitHubRelease(date="2026-03-01", body="notes 1.2.0"),
+    "v1.3.0rc1": GitHubRelease(date="2026-04-01", body="notes 1.3.0rc1"),
+    "v1.3.0": GitHubRelease(date="2026-05-01", body="notes 1.3.0"),
+    "v2.0.0b1": GitHubRelease(date="2026-06-01", body="notes 2.0.0b1"),
+}
+"""Releases of one repository, two pre-releases among them."""
+
+
+@pytest.mark.parametrize(
+    ("request_", "expected"),
+    (
+        pytest.param(
+            ReleaseNotesRequest("fig", "https://github.com/o/fig", "1.0.0", "1.3.0"),
+            ["v1.1.0", "v1.2.0", "v1.3.0"],
+            id="pre-release-inside",
+        ),
+        pytest.param(
+            ReleaseNotesRequest("fig", "https://github.com/o/fig", "1.3.0", "2.0.0b1"),
+            ["v2.0.0b1"],
+            id="pre-release-adopted",
+        ),
+        pytest.param(
+            ReleaseNotesRequest(
+                "fig",
+                "https://github.com/o/fig",
+                "1.0.0",
+                "1.3.0",
+                skip=frozenset({"1.2.0"}),
+            ),
+            ["v1.1.0", "v1.3.0"],
+            id="skipped",
+        ),
+        pytest.param(
+            ReleaseNotesRequest("fig", "https://github.com/o/fig", "", "1.2.0"),
+            ["v1.2.0"],
+            id="new-dependency",
+        ),
+    ),
+)
+def test_fetch_github_release_notes_covers_the_bump(request_, expected):
+    """A bump shows the notes of the releases it covers, and of no others.
+
+    Pre-releases inside the range are left out: the sweep never adopts one, so
+    the bump never stood on it. The adopted version is kept whatever it is.
+    """
+    with patch(
+        "repomatic.github.releases.get_release_tags", return_value=RANGE_RELEASES
+    ):
+        notes = fetch_github_release_notes([request_])
+    _repo, versions = notes["fig"]
+    assert [tag for tag, _body in versions] == expected

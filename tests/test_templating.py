@@ -649,7 +649,7 @@ def test_template_config_options_are_real_keys(name: str) -> None:
     assert keys == sorted(keys), f"{name} config options are not sorted: {keys}"
 
 
-SWITCH_KEY_RE = re.compile(r'exit_if_disabled\(.*?"(?P<key>[\w.-]+)",?\s*\)', re.DOTALL)
+SWITCH_KEY_RE = re.compile(r'exit_if_disabled\(ctx, "(?P<key>[\w.-]+)"\)')
 """The `[tool.repomatic]` key a command hands to `exit_if_disabled`."""
 
 

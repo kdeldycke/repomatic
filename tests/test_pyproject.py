@@ -23,7 +23,7 @@ from textwrap import dedent
 import pytest
 import tomlrt
 
-from repomatic.deps.lockfile import _read_lock
+from repomatic.deps.lockfile import LockFile
 from repomatic.pyproject import (
     cached_toml,
     dependency_group_names,
@@ -266,9 +266,9 @@ def test_read_pyproject_toml_and_the_lock_share_the_cache(tmp_path):
     lock = tmp_path / "uv.lock"
     lock.write_text("version = 1\n", encoding="UTF-8")
     assert read_pyproject_toml(tmp_path) is cached_toml(tmp_path / "pyproject.toml")
-    assert _read_lock(lock) is cached_toml(lock)
+    assert LockFile.load(lock).data is cached_toml(lock)
     assert read_pyproject_toml(tmp_path / "missing") == {}
-    assert _read_lock(tmp_path / "missing.lock") == {}
+    assert LockFile.load(tmp_path / "missing.lock").data == {}
 
 
 def test_load_pyproject_doc_is_private_and_editable(tmp_path):

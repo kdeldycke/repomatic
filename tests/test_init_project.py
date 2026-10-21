@@ -1561,6 +1561,19 @@ def test_upgrade_command_without_a_window():
     assert command[command.index("--exclude-newer-package") + 1] == "repomatic=P0D"
 
 
+def test_upgrade_command_exempts_the_package_of_a_renamed_fork():
+    """A fork under another name runs with an exemption naming its own package.
+
+    An exemption naming `repomatic` admits nothing the fork installs, so the
+    child would wait out the cooldown on the release it was asked to run.
+    """
+    command = upgrade_command(
+        "7.15.0", [], config=Config(), repo="orchard/fig", today=_UPGRADE_TODAY
+    )
+    assert command[command.index("--exclude-newer-package") + 1] == "fig=P0D"
+    assert command[command.index("--from") + 1] == "fig==7.15.0"
+
+
 def _upgraded_tree(tmp_path: Path, previous: str | None, adopted: str) -> UpgradeTarget:
     """Pin the tree at *adopted* as a finished run would, and return its target."""
     _write_caller(tmp_path / ".github" / "workflows" / "lint.yaml", adopted, "d" * 40)
@@ -2013,6 +2026,56 @@ def test_init_syncs_header_and_keeps_downstream_jobs(tmp_path, monkeypatch):
     assert "concurrency:" in content
     assert "my-tests:" in content
     assert "echo hello" in content
+
+
+def test_init_exempts_the_package_of_a_renamed_fork(tmp_path, monkeypatch):
+    """A fork under another name gets an exemption naming its own package.
+
+    `--upstream-repo` sets the package the inline pin names. An exemption naming
+    `repomatic` beside it admits nothing, and the realigned pin cannot resolve
+    under the cooldown.
+    """
+    target = tmp_path / ".github" / "workflows" / "tests.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        _DOWNSTREAM_TESTS_YAML.replace("echo hello", "uvx 'fig==7.4.1' show-metadata"),
+        encoding="UTF-8",
+    )
+    monkeypatch.setattr(init_upgrade, "__version__", "7.4.2")
+    monkeypatch.setattr(init_upgrade, "__git_tag_sha__", "a" * 40)
+
+    run_init(
+        output_dir=tmp_path,
+        components=("workflows/tests.yaml",),
+        cooldown=False,
+        config=Config(),
+        repo="orchard/fig",
+    )
+
+    content = target.read_text(encoding="UTF-8")
+    assert "uvx --exclude-newer-package fig=P0D 'fig==7.4.2' show-metadata" in content
+    assert "repomatic=P0D" not in content
+
+
+@pytest.mark.parametrize("filename", ("release.yaml", "tests.yaml"))
+def test_init_writes_the_configured_cooldown(tmp_path, monkeypatch, filename):
+    """Both generated shapes export the cooldown window of their repository.
+
+    `release.yaml` is rendered whole, and `tests.yaml` gets its header synced.
+    Either way the `env:` block lands downstream under a comment saying its
+    literal equals `[tool.repomatic] minimum-release-age`.
+    """
+    target = tmp_path / ".github" / "workflows" / filename
+    target.parent.mkdir(parents=True)
+    target.write_text(_DOWNSTREAM_TESTS_YAML, encoding="UTF-8")
+
+    content = _init_workflow(
+        tmp_path, monkeypatch, filename, Config(minimum_release_age="2 weeks")
+    )
+
+    assert content is not None
+    assert 'UV_EXCLUDE_NEWER: "2 weeks"' in content
+    assert 'UV_EXCLUDE_NEWER: "1 week"' not in content
 
 
 def test_init_skips_a_non_reusable_workflow_absent_downstream(tmp_path, monkeypatch):
@@ -3625,6 +3688,7 @@ def test_typos_merged_inline_tables_use_pyproject_fmt_spacing(tmp_path: Path) ->
     assert identifiers_line.endswith(" }")
 
 
+@pytest.mark.real_http
 def test_typos_skips_svg_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """A word split across two `<text>` runs survives a real `fix-typos` pass.
 

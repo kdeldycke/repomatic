@@ -50,6 +50,7 @@ from ..upstream import DEFAULT_REPO
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    import pathlib
     from typing import Any, Final
 
     from ..metadata.core import Metadata
@@ -183,7 +184,9 @@ def check_workflow_permissions(ctx: LintContext) -> list[CheckResult]:
 class UpstreamLane(NamedTuple):
     """One job of a thin caller, calling an upstream reusable workflow."""
 
-    path: Path
+    # Spelled in full: Sphinx renders the signature of a named tuple from
+    # its generated `__new__`, which reads no import of this module.
+    path: pathlib.Path
     """The caller's workflow file."""
 
     job_id: str

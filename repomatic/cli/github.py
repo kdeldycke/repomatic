@@ -21,8 +21,10 @@ under its help section.
 
 from __future__ import annotations
 
+import functools
 import logging
 from pathlib import Path
+from typing import cast
 
 from click_extra import (
     STDOUT_SENTINEL,
@@ -39,7 +41,7 @@ from click_extra import (
 
 from ..broken_links import manage_combined_broken_links_issue
 from ..config import Config
-from ..github import token as _token_mod, unsubscribe as _unsub_mod
+from ..github import token as _token_mod
 from ..github.event import (
     get_default_author,
     get_default_number,
@@ -63,7 +65,6 @@ from ..github.threads import (
     add_labels,
     lock_stale_threads,
 )
-from ..github.token import require_token
 from ..github.unsubscribe import (
     render_report,
     unsubscribe_threads,
@@ -105,6 +106,30 @@ SPONSOR_LABEL = "💖 sponsor"
 """The label `sponsor-label` applies, as `repomatic/data/labels.toml` names it."""
 
 
+def require_token(validator: str) -> Callable[[FC], FC]:
+    """Run a token validator of {mod}`repomatic.github.token` before a command.
+
+    The validator is read with a late `getattr`, so a test patching it on that
+    module after import reaches the command too. A validator raising
+    `RuntimeError` ends the command with its message.
+
+    :param validator: The name of the validator, like `validate_gh_token_env`.
+    """
+
+    def decorator(func: FC) -> FC:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                getattr(_token_mod, validator)()
+            except RuntimeError as exc:
+                raise ClickException(str(exc)) from exc
+            return func(*args, **kwargs)
+
+        return cast("FC", wrapper)
+
+    return decorator
+
+
 def thread_options(func: FC) -> FC:
     """`--number` and `--pr/--issue`, read from the event payload when absent.
 
@@ -129,7 +154,7 @@ def resolve_thread(number: int | None, is_pr: bool | None) -> tuple[int, ThreadK
     :param number: The `--number` value, read from the event when `None`.
     :param is_pr: The `--pr/--issue` value, read from the event when `None`.
     :return: The thread number and kind.
-    :raises UsageError: When neither the option nor the event names a thread.
+    :raises click.UsageError: When neither the option nor the event names a thread.
     """
     if number is None:
         number = get_default_number()
@@ -213,7 +238,7 @@ def resolve_template(
 ) -> PrTemplate | None:
     """The template `--template` or `--template-file` names, if either does.
 
-    :raises UsageError: When both are given.
+    :raises click.UsageError: When both are given.
     """
     if template and template_file:
         msg = "--template and --template-file are mutually exclusive."
@@ -230,7 +255,7 @@ def parse_template_args(
     The files are read after the inline pairs, so a file wins on a key given
     both ways.
 
-    :raises UsageError: On a malformed pair, or a file that cannot be read.
+    :raises click.UsageError: On a malformed pair, or a file that cannot be read.
     """
     args: dict[str, str] = {}
     for entry in template_args_cli:
@@ -269,7 +294,7 @@ def parse_template_args(
 @thread_options
 @repo_option()
 @dry_run_option(default=True)
-@require_token(_token_mod, "validate_gh_token_env")
+@require_token("validate_gh_token_env")
 @pass_context
 def apply_labels_cmd(
     ctx: Context,
@@ -353,7 +378,7 @@ def apply_labels_cmd(
     "Example: https://github.com/owner/repo/blob/<sha>/docs",
 )
 @repo_name_option
-@require_token(_token_mod, "validate_gh_token_env")
+@require_token("validate_gh_token_env")
 def broken_links(
     lychee_exit_code: int | None,
     body_file: Path | None,
@@ -490,7 +515,7 @@ def close_stale_bump_pr(part: str) -> None:
 )
 @repo_option()
 @dry_run_option(default=True)
-@require_token(_token_mod, "validate_gh_token_env")
+@require_token("validate_gh_token_env")
 @pass_context
 def lock_threads(
     ctx: Context,
@@ -827,7 +852,7 @@ def pr_sync(
 @has_pat_option
 @has_virustotal_key_option
 @repo_option(detect=False)
-@require_token(_token_mod, "validate_gh_token_env")
+@require_token("validate_gh_token_env")
 @pass_context
 def setup_guide(
     ctx: Context,
@@ -854,7 +879,7 @@ def setup_guide(
     Requires the gh CLI to be authenticated.
     """
     config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.setup_guide, "setup-guide")
+    exit_if_disabled(ctx, "setup-guide")
 
     manage_setup_guide(
         LintContext.from_project(
@@ -901,7 +926,7 @@ def setup_guide(
     default=SPONSOR_LABEL,
     help="Label to add if author is a sponsor.",
 )
-@require_token(_token_mod, "validate_gh_token_env")
+@require_token("validate_gh_token_env")
 def sponsor_label(
     owner: str | None,
     author: str | None,
@@ -961,7 +986,7 @@ def sync_labels(ctx: Context, repo: str) -> None:
     the tool registry.
     """
     config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.labels.sync, "labels.sync")
+    exit_if_disabled(ctx, "labels.sync")
     try:
         apply_labels(config, repo, is_awesome=is_awesome_repo(repo_name(repo)))
     except RuntimeError as error:
@@ -999,7 +1024,7 @@ def sync_labels(ctx: Context, repo: str) -> None:
     help="Maximum unsubscribes per phase. Inspection is not capped.",
 )
 @dry_run_option(default=True)
-@require_token(_unsub_mod, "_validate_notifications_token")
+@require_token("validate_notifications_token")
 def unsubscribe_threads_cmd(months: int, max_unsubscribes: int, dry_run: bool) -> None:
     """Unsubscribe from closed, inactive GitHub notification threads.
 

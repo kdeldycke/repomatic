@@ -400,17 +400,9 @@ def _biome_json_indent(root: Path) -> str:
     :return: The literal string one level of indentation is written with.
     """
     config: Mapping[str, Any] = {}
-    # Probe every filename the registry declares for Biome, in its order, so a
-    # repository configured through `biome.jsonc` gets the indent `format-json`
-    # applies rather than the one of `[tool.biome]`.
-    native = next(
-        (
-            candidate
-            for name in TOOL_REGISTRY["biome"].native_config_files
-            if (candidate := root / name).is_file()
-        ),
-        None,
-    )
+    # The native file the runner would pick, `biome.jsonc` included, so the
+    # indent is the one `format-json` applies rather than that of `[tool.biome]`.
+    native = TOOL_REGISTRY["biome"].find_native_config(root)
     if native is not None:
         try:
             loaded = json.loads(native.read_text(encoding="UTF-8"))

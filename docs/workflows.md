@@ -103,6 +103,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 - **Requires**:
   - `REPOMATIC_PAT` secret with workflows write permission: the pull request rewrites `.github/workflows/*.yaml`, which the default `GITHUB_TOKEN` cannot push
 - **Skipped if**:
+  - `sync-runner-images.sync = false` in `[tool.repomatic]`, for a repository that moves its runner images by hand
   - A label is named in `[tool.repomatic.sync-runner-images] ignore`, which is how a declined proposal stays declined: a `sync-*` job regenerates on every run, so closing its pull request alone brings the proposal back
   - The *Available Images* table cannot be read or parsed, which fails closed
 

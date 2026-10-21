@@ -29,6 +29,7 @@ from repomatic.humanize import (
     format_countdown,
     format_elapsed,
     format_file_size,
+    parse_iso_datetime,
     today_utc,
     utc_midnight,
 )
@@ -119,3 +120,20 @@ def test_today_utc_is_the_utc_date():
     today = today_utc()
     assert before <= today <= datetime.now(UTC).date()
     assert type(today) is date
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    (
+        (None, None),
+        ("", None),
+        ("not-a-date", None),
+        ("2026-06-24T10:00:00Z", "2026-06-24T10:00:00+00:00"),
+        # A `Z` suffix and nanosecond precision, which arrow parses.
+        ("2026-06-24T10:00:00.123456789Z", "2026-06-24T10:00:00.123457+00:00"),
+    ),
+)
+def test_parse_iso_datetime(value, expected):
+    """An instant parses to an aware datetime; nothing, or garbage, to `None`."""
+    parsed = parse_iso_datetime(value)
+    assert (parsed.isoformat() if parsed else None) == expected

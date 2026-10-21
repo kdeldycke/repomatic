@@ -32,6 +32,15 @@ from enum import Enum
 
 from extra_platforms import AARCH64, LINUX, MACOS, WINDOWS, X86_64
 
+from ..matrix.axes import (
+    LINUX_ARM64_RUNNER,
+    LINUX_X64_RUNNER,
+    MACOS_ARM64_RUNNER,
+    MACOS_X64_RUNNER,
+    WINDOWS_ARM64_RUNNER,
+    WINDOWS_X64_RUNNER,
+)
+
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from pathlib import Path
@@ -297,7 +306,7 @@ NUITKA_BUILD_TARGETS: Final[dict[str, BuildTarget]] = {
     for target in (
         BuildTarget(
             id="linux-arm64",
-            runner="ubuntu-26.04-arm",
+            runner=LINUX_ARM64_RUNNER,
             platform=LINUX,
             arch=AARCH64,
             floor="2.28",
@@ -305,7 +314,7 @@ NUITKA_BUILD_TARGETS: Final[dict[str, BuildTarget]] = {
         ),
         BuildTarget(
             id="linux-x64",
-            runner="ubuntu-26.04",
+            runner=LINUX_X64_RUNNER,
             platform=LINUX,
             arch=X86_64,
             floor="2.28",
@@ -313,7 +322,7 @@ NUITKA_BUILD_TARGETS: Final[dict[str, BuildTarget]] = {
         ),
         BuildTarget(
             id="macos-arm64",
-            runner="macos-26",
+            runner=MACOS_ARM64_RUNNER,
             platform=MACOS,
             arch=AARCH64,
             # First Apple-silicon macOS, and the python-build-standalone target.
@@ -321,7 +330,7 @@ NUITKA_BUILD_TARGETS: Final[dict[str, BuildTarget]] = {
         ),
         BuildTarget(
             id="macos-x64",
-            runner="macos-26-intel",
+            runner=MACOS_X64_RUNNER,
             platform=MACOS,
             arch=X86_64,
             # The python-build-standalone x86_64 deployment target.
@@ -329,14 +338,14 @@ NUITKA_BUILD_TARGETS: Final[dict[str, BuildTarget]] = {
         ),
         BuildTarget(
             id="windows-arm64",
-            runner="windows-11-arm",
+            runner=WINDOWS_ARM64_RUNNER,
             platform=WINDOWS,
             arch=AARCH64,
             floor="11",
         ),
         BuildTarget(
             id="windows-x64",
-            runner="windows-2025",
+            runner=WINDOWS_X64_RUNNER,
             platform=WINDOWS,
             arch=X86_64,
             floor="10",
@@ -360,7 +369,10 @@ macOS 26 Tahoe and keeps running it, so those users still want the binary.
 Drop the target once `sync-runner-images` reports the image deprecated, and
 not before. Removing one is a single change across two files: this roster and
 {data}`~repomatic.matrix.axes.TEST_RUNNERS_FULL` are held equal by
-`tests/test_workflows.py::test_binary_build_targets_are_the_test_axes`.
+`tests/test_workflows.py::test_binary_build_targets_are_the_test_axes`. A
+retirement onto a successor image needs no edit here: each target reads its
+runner from a slot constant of {mod}`repomatic.matrix.axes`, which is what
+`sync-runner-images` rewrites.
 ```
 """
 

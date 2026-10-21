@@ -59,18 +59,12 @@ class CacheConfig:
     precedence over this setting.
     """
 
-    github_release_ttl: int = 604800
-    """Freshness TTL for cached single-release bodies (seconds).
-
-    GitHub release bodies are immutable once published, so a long TTL (7 days)
-    is safe. Set to `0` to disable caching for single-release lookups.
-    """
-
     github_releases_ttl: int = 86400
     """Freshness TTL for cached all-releases responses (seconds).
 
     New releases can appear at any time, so a shorter TTL (24 hours) balances
-    freshness with API savings.
+    freshness with API savings. The release notes of a dependency report read
+    the same cached listing.
     """
 
     max_age: int = 30
@@ -621,6 +615,13 @@ class SyncRunnerImagesConfig:
     nor proposed as a successor when something retires onto it.
     """
 
+    sync: bool = True
+    """Whether the `sync-runner-images` job proposes runner image changes.
+
+    Set to `false` for a repository that moves its runner images by hand: the
+    command then reads no image table and proposes nothing.
+    """
+
 
 @dataclass
 class TestMatrixConfig:
@@ -979,6 +980,17 @@ class Config:
 
     Affects `repomatic init`, `workflow sync`, and `workflow create`.
     Explicit CLI positional arguments override this list.
+    """
+
+    github_releases_sync: bool = field(
+        default=True,
+        metadata={CONFIG_PATH_METADATA_KEY: "github-releases.sync"},
+    )
+    """Whether `sync-github-releases` rewrites drifted GitHub release notes.
+
+    The command rebuilds the body of each GitHub release from its section of
+    the changelog. Set to `false` for a project that edits its release notes on
+    GitHub by hand: the command then reads and writes no release.
     """
 
     gitignore: GitignoreConfig = field(default_factory=GitignoreConfig)

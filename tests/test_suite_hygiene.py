@@ -46,10 +46,17 @@ from __future__ import annotations
 import ast
 import importlib
 import re
+from unittest.mock import patch
 
 import pytest
 
-from tests.conftest import PROJECT_ROOT
+from repomatic.tooling.binaries import ChecksumMismatchError
+from repomatic.tooling.registry import (
+    BinaryInstallError,
+    ToolInstallError,
+    UnsupportedPlatformError,
+)
+from tests.conftest import PROJECT_ROOT, REAL_HTTP_MARKER, skip_unless_tool_runs
 
 TESTS_DIR = PROJECT_ROOT / "tests"
 """Root of the test suite."""
@@ -338,8 +345,8 @@ calling this has declared that reaching the network is the point, and is
 skipped wholesale on a runner where the tool cannot run.
 """
 
-BINARY_INSTALL_MOCK = "_install_binary"
-"""The `tool_runner` internal a hermetic `run_tool` test has to patch."""
+BINARY_INSTALL_MOCK = "install_binary"
+"""The `repomatic.tooling.binaries` function a hermetic `run_tool` test patches."""
 
 
 def _installing_tools() -> frozenset[str]:
@@ -392,10 +399,83 @@ def test_run_tool_calls_mock_the_binary_install(test_file) -> None:
                 violations.append(f"{func.name} runs {node.args[0].value!r}")
     assert not violations, (
         f"{test_file.name} runs a downloading tool without patching"
-        f" `repomatic.tooling.runner.{BINARY_INSTALL_MOCK}`: {'; '.join(violations)}."
-        " Patch it, or gate the test on"
+        f" `repomatic.tooling.binaries.{BINARY_INSTALL_MOCK}`:"
+        f" {'; '.join(violations)}. Patch it, or gate the test on"
         f" `{INTEGRATION_TOOL_GUARD}` if the download is the point."
     )
+
+
+PROBE_RUNNER = "tests.conftest.run_tool"
+"""The `run_tool` the tool probe calls, which a test of the probe stubs."""
+
+
+def _calls(func: ast.AST, name: str) -> bool:
+    """Whether *func* calls the plain name *name* anywhere in its body."""
+    return any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == name
+        for node in ast.walk(func)
+    )
+
+
+def _stubs_the_probe_runner(func: ast.AST) -> bool:
+    """Whether *func* names {data}`PROBE_RUNNER`, as a literal or by its name."""
+    return any(
+        (isinstance(node, ast.Constant) and node.value == PROBE_RUNNER)
+        or (isinstance(node, ast.Name) and node.id == "PROBE_RUNNER")
+        for node in ast.walk(func)
+    )
+
+
+@pytest.mark.parametrize("test_file", TEST_FILES, ids=lambda p: p.name)
+def test_tool_running_tests_opt_out_of_the_http_refusal(test_file) -> None:
+    """A test gated on the tool probe carries the `real_http` marker.
+
+    The probe installs the tool, and a binary download goes through
+    `repomatic.http`, which `_no_real_http` refuses in every test it does not
+    exempt. CI starts from a cold binary cache, so an unmarked test would skip
+    there every time and check nothing. A test stubbing {data}`PROBE_RUNNER`
+    downloads nothing, and needs no marker.
+    """
+    tree = ast.parse(test_file.read_text(encoding=FILE_ENCODING))
+    marker = f"pytest.mark.{REAL_HTTP_MARKER}"
+    unmarked = [
+        func.name
+        for func in ast.walk(tree)
+        if isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and _calls(func, INTEGRATION_TOOL_GUARD)
+        and not _stubs_the_probe_runner(func)
+        and marker not in {ast.unparse(decorator) for decorator in func.decorator_list}
+    ]
+    assert not unmarked, (
+        f"{test_file.name} probes a tool without `@{marker}`:"
+        f" {', '.join(unmarked)}. Its download is refused, so it always skips."
+    )
+
+
+@pytest.mark.parametrize(
+    "error",
+    (
+        ToolInstallError("npm is missing"),
+        BinaryInstallError("Cannot download the archive"),
+        ChecksumMismatchError("SHA-256 mismatch"),
+        UnsupportedPlatformError("No binary for windows-arm64"),
+        FileNotFoundError("uvx"),
+    ),
+    ids=lambda error: type(error).__name__,
+)
+def test_tool_probe_skips_a_tool_that_cannot_install(error: Exception) -> None:
+    """A tool the machine cannot install skips the test rather than failing it.
+
+    Every install failure of the runner is a `ToolInstallError`, and a missing
+    `uvx` is an `OSError`.
+    """
+    with (
+        patch(PROBE_RUNNER, side_effect=error),
+        pytest.raises(pytest.skip.Exception, match="is unavailable"),
+    ):
+        skip_unless_tool_runs("typos")
 
 
 @pytest.mark.parametrize("test_file", TEST_FILES, ids=lambda p: p.name)

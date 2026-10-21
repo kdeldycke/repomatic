@@ -44,14 +44,15 @@ SECONDS_PER_DAY = 86400
 """Divisor turning an mtime delta into whole days."""
 
 
-def parse_iso_datetime(value: str) -> datetime | None:
+def parse_iso_datetime(value: str | None) -> datetime | None:
     """Parse an ISO 8601 / RFC 3339 timestamp into a timezone-aware datetime.
 
     The package-wide parser for any timestamp an external service writes:
-    {mod}`repomatic.deps.report` reads PyPI upload times, {mod}`repomatic.deps.uv`
-    lock timestamps, {mod}`repomatic.cloudflare.pages` token expiries and
-    {mod}`repomatic.github.job_timings` job clocks through it, so every
-    consumer tolerates the same shapes.
+    {mod}`repomatic.deps.report` reads PyPI upload times,
+    {mod}`repomatic.deps.lockfile` lock timestamps, {mod}`repomatic.cloudflare.api`
+    token expiries and {mod}`repomatic.github.job_timings` job clocks through
+    it, so every consumer tolerates the same shapes. A JSON or TOML lookup that
+    found no value hands over `None`, which reads as no timestamp.
 
     Uses arrow, so a nanosecond fractional second and a `Z` suffix parse
     cleanly; sub-microsecond precision is truncated to fit `datetime`.

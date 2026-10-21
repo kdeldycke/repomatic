@@ -27,8 +27,7 @@ from repomatic.changelog import (
     AVAILABLE_VERB,
     NOT_AVAILABLE_VERB,
     Changelog,
-    build_release_admonition,
-    build_unavailable_admonition,
+    availability_admonition,
 )
 from repomatic.git_ops import GitError
 from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
@@ -46,7 +45,7 @@ from tests.test_changelog import MULTI_RELEASE_CHANGELOG
 
 @pytest.fixture
 def changelog_file(tmp_path):
-    """A changelog on disk carrying {data}`MULTI_RELEASE_CHANGELOG`.
+    """A changelog on disk carrying {data}`~tests.test_changelog.MULTI_RELEASE_CHANGELOG`.
 
     A test needing other content writes over the returned path.
     """
@@ -756,7 +755,7 @@ def test_lint_fix_removes_stale_unavailable_warning(tmp_path, monkeypatch):
     """Test that --fix removes stale 'is **not available** on' warnings when
     the version becomes available."""
     # Pre-seed 1.0.0 with a stale unavailable warning.
-    stale = build_unavailable_admonition(
+    stale = availability_admonition(
         "1.0.0",
         missing_pypi=True,
     )
@@ -790,7 +789,7 @@ def _changelog_claiming_1_1_0_available(tmp_path):
     The starting point for the retraction tests: a correct, already-published
     section that a stale lookup would want to demote to "not available".
     """
-    note = build_release_admonition(
+    note = availability_admonition(
         "1.1.0",
         pypi_url="https://pypi.org/project/my-package/1.1.0/",
         github_url="https://github.com/user/repo/releases/tag/v1.1.0",
@@ -883,7 +882,7 @@ def test_lint_leaves_a_recorded_gap_to_the_cache(tmp_path, monkeypatch):
     from one run to the next: re-fetching it on every run would defeat the
     cache.
     """
-    warning = build_unavailable_admonition("1.1.0", missing_github=True)
+    warning = availability_admonition("1.1.0", missing_github=True)
     path = tmp_path / "changelog.md"
     path.write_text(
         MULTI_RELEASE_CHANGELOG.replace(

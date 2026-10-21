@@ -69,7 +69,7 @@ from click_extra import ColumnSpec, field_docstrings
 from ..changelog import (
     GITHUB_RELEASE_URL,
     Changelog,
-    build_release_admonition,
+    availability_admonition,
     resolved_changelog_path,
 )
 from ..config import Config
@@ -91,6 +91,7 @@ from .project import ProjectMetadata
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    import pathlib
     from collections.abc import Iterator, Mapping
     from typing import Any, Final, Self
 
@@ -351,7 +352,9 @@ def requested_metadata_keys(command: str, package: str) -> list[str]:
 class MetadataRequest(NamedTuple):
     """The metadata one workflow step asks for."""
 
-    path: Path
+    # Spelled in full: Sphinx renders the signature of a named tuple from
+    # its generated `__new__`, which reads no import of this module.
+    path: pathlib.Path
     """The workflow file holding the step."""
 
     job_id: str
@@ -541,7 +544,10 @@ class Metadata(
 
         Builds the same body as {attr}`release_notes`, but injects a
         `> [!NOTE]` admonition linking to PyPI and GitHub even before
-        `fix-changelog` has a chance to update `changelog.md`.
+        `fix-changelog` has a chance to update `changelog.md`. The admonition
+        comes from {func}`~repomatic.changelog.availability_admonition`, the
+        renderer `fix-changelog` writes the section with, so both word it the
+        same way.
 
         The engine's `create-release` job bakes this body into the GitHub
         release at draft-creation time, so the admonition is present from the
@@ -565,18 +571,19 @@ class Metadata(
         if not repo_url:
             return None
 
-        pypi_url = PYPI_PROJECT_URL.format(
-            package=self.package_name,
-            version=version,
-        )
-        github_url = GITHUB_RELEASE_URL.format(
-            repo_url=repo_url,
-            version=version,
-        )
-        admonition = build_release_admonition(
+        # The draft cannot ask the platforms which release came first: the PyPI
+        # upload runs beside it, and a failed lookup reads like an empty one.
+        # The changelog answers instead, as `lint-changelog` will once both
+        # platforms carry the release.
+        first = changelog.is_first_release(version)
+        admonition = availability_admonition(
             version,
-            pypi_url=pypi_url,
-            github_url=github_url,
+            pypi_url=PYPI_PROJECT_URL.format(
+                package=self.package_name, version=version
+            ),
+            github_url=GITHUB_RELEASE_URL.format(repo_url=repo_url, version=version),
+            first_on_pypi=first,
+            first_on_github=first,
         )
         notes = build_expected_body(
             changelog,

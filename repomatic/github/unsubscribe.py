@@ -49,7 +49,6 @@ from ..humanize import format_elapsed, parse_iso_datetime
 from ..tabular import ReportAction, render_markdown_table
 from ..templating import render_template
 from .gh import gh_api_pages, gh_graphql, gh_json, iter_graphql_nodes, run_gh_command
-from .token import validate_classic_pat_scope
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -539,25 +538,6 @@ def _unsubscribe_rest_thread(thread_id: str) -> bool:
         return False
 
     return True
-
-
-def _validate_notifications_token() -> None:
-    """Validate that the current token can access the notifications API.
-
-    Delegates to {func}`validate_classic_pat_scope` for generic checks,
-    then warns if the token has more scopes than needed.
-
-    :raises RuntimeError: If validation fails.
-    """
-    scope_list = validate_classic_pat_scope("notifications")
-
-    # Notifications-specific: warn about extra scopes.
-    if scope_list != ["notifications"]:
-        scopes_header = ", ".join(scope_list)
-        logging.warning(
-            f"GH_TOKEN has more scopes than needed: '{scopes_header}'. Only "
-            "'notifications' is required."
-        )
 
 
 def _get_authenticated_username() -> str:

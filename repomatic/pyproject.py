@@ -87,7 +87,8 @@ def cached_toml(path: Path) -> Any:
     :param path: The TOML file to read.
     :return: The parsed document.
     :raises OSError: When the file is missing or cannot be read.
-    :raises tomlrt.TOMLParseError: When the file is not valid TOML.
+    :raises ValueError: When the file is not valid TOML: a
+        `tomlrt.TOMLParseError`.
     """
     path = path.absolute()
     stat = path.stat()

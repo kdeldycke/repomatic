@@ -608,7 +608,7 @@ def _names_in_labelmaker_config(
 
     A `rename-from` entry is deliberately **not** a declaration: it names a
     label expected to stop existing, so counting it would hide the very
-    orphan {func}`~repomatic.lint_repo.check_undeclared_labels` looks for.
+    orphan {func}`~repomatic.lint_repo.repo.check_undeclared_labels` looks for.
 
     :param text: Contents of a labelmaker config.
     :param profiles: IDs of the profiles to read, like the `--profile` values
@@ -644,7 +644,7 @@ def declared_label_names(
     """Every label name the configured sources declare for a repository.
 
     Reads the {func}`label_sources` that {func}`apply_labels` applies, which is
-    what lets {func}`~repomatic.lint_repo.check_undeclared_labels` call
+    what lets {func}`~repomatic.lint_repo.repo.check_undeclared_labels` call
     anything outside this set an orphan.
 
     :param config: The resolved `[tool.repomatic]` configuration.

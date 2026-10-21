@@ -481,7 +481,7 @@ def gh_graphql(
         only in part with the `data` it could resolve, beside its `errors`, and
         `gh` then exits non-zero. With *partial*, that `data` is returned when
         the failed command printed one: the fields that failed read as `null`.
-    :param variables: Query variables. See {func}`_graphql_args` for how each
+    :param variables: Query variables. See `_graphql_args` for how each
         type travels.
     :return: The response's `data` object, unwrapped.
     :raises GhCommandError: When the `gh` invocation fails (see
@@ -531,7 +531,7 @@ def iter_graphql_nodes(
     :param connection_path: Keys from the response's `data` object down to
         the connection (like `("search",)` or `("user",
         "sponsorshipsAsMaintainer")`).
-    :param variables: Query variables. See {func}`_graphql_args` for how each
+    :param variables: Query variables. See `_graphql_args` for how each
         type travels.
     :param page_size_var: When set, inject the page size into this query
         variable on every request (the query then controls `first:` with

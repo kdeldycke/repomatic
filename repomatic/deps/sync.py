@@ -71,13 +71,16 @@ from click_extra import OperationTrail, run_jobs
 
 from ..components import BUNDLED_VERBATIM_TARGETS
 from ..file_ops import write_if_changed
-from ..github.releases import fetch_github_release_notes, resolve_tag_to_sha
+from ..github.releases import (
+    ReleaseNotesRequest,
+    fetch_github_release_notes,
+    resolve_tag_to_sha,
+)
 from ..github.workflow_files import github_yaml_paths
 from ..humanize import format_countdown, utc_midnight
 from ..init.tool_config import init_config
 from ..init.upgrade import upgrade_invite
 from ..pypi import PYPI_PACKAGE_URL, get_source_url
-from ..release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from ..templating import PrTemplate
 from ..tooling import registry as tool_registry
 from ..tooling.checksums import update_registry_checksums
@@ -300,6 +303,13 @@ class ToolVersionExtras:
 
     actionlint_version: str | None = None
     """New actionlint version, for the matcher-URL realignment."""
+
+    jobs: int = 1
+    """How many artifact downloads of the checksum recompute run at once.
+
+    The `--jobs` width the CLI resolved, carried from the resolve: the apply
+    runs with no Click context to read it from.
+    """
 
 
 @dataclass
@@ -687,10 +697,7 @@ def _pinned_with_packages() -> list[tuple[str, str]]:
     """
     pins: dict[str, str] = {}
     for spec in TOOL_REGISTRY.values():
-        for entry in spec.with_packages:
-            package, separator, version = entry.partition("==")
-            if not separator:
-                continue
+        for package, version in spec.with_package_pins:
             if package not in pins or is_newer(pins[package], version):
                 pins[package] = version
     return sorted(pins.items())
@@ -740,7 +747,7 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
     # drift silently: a plugin pin ages out, or a second copy of a tool the main
     # registry has already moved on from goes stale.
     package_urls: dict[str, str] = {}
-    package_notes: list[tuple[str, str, str, str, str | None]] = []
+    package_notes: list[ReleaseNotesRequest] = []
     for (package, pinned), candidates in zip(packages, package_releases):
         pypi_url = PYPI_PACKAGE_URL.format(package=package)
         latest = select_latest(candidates, rc.min_age, rc.today)
@@ -758,7 +765,9 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
         source = get_source_url(package)
         package_urls[package] = source or pypi_url
         if source:
-            package_notes.append((package, source, pinned, latest.version, None))
+            package_notes.append(
+                ReleaseNotesRequest(package, source, pinned, latest.version)
+            )
 
     plan.changes = changes
     plan.note_cooldown(rc.config.minimum_release_age, rc.min_age, rc.today)
@@ -772,6 +781,7 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
         if TOOL_REGISTRY[name].binary is not None
     }
     plan.tool_versions.actionlint_version = overrides.get("actionlint")
+    plan.tool_versions.jobs = rc.jobs
     # `changes` now mixes registry tools with bare `with_packages` pins, so every
     # TOOL_REGISTRY lookup below has to tolerate a name that is not a tool.
     plan.name_urls = {
@@ -783,7 +793,7 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
 
     if rc.release_notes:
         tool_notes = [
-            (name, src, old, new, TOOL_REGISTRY[name].tag_pattern)
+            ReleaseNotesRequest(name, src, old, new, TOOL_REGISTRY[name].tag_pattern)
             for name, old, new in changes
             if name in TOOL_REGISTRY
             and (src := TOOL_REGISTRY[name].source_url)
@@ -807,7 +817,9 @@ def _apply_tool_versions(plan: SyncPlan) -> None:
         # edited, not reimported.
         if plan.tool_versions.binary_overrides:
             update_registry_checksums(
-                path, version_overrides=plan.tool_versions.binary_overrides
+                path,
+                version_overrides=plan.tool_versions.binary_overrides,
+                jobs=plan.tool_versions.jobs,
             )
     if plan.tool_versions.actionlint_version:
         _sync_actionlint_matcher_url(plan.tool_versions.actionlint_version)
@@ -973,13 +985,12 @@ def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
 
     if rc.release_notes:
         # Actions tag as `vX.Y.Z`, so no per-tool extraction pattern is needed.
-        notes_items: list[tuple[str, str, str, str, str | None]] = [
-            (
+        notes_items = [
+            ReleaseNotesRequest(
                 slug,
                 f"https://github.com/{slug}",
                 old.removeprefix("v"),
                 new.removeprefix("v"),
-                None,
             )
             for slug, old, new in plan.changes
         ]
@@ -1087,9 +1098,12 @@ def _docs_marker(marker: str) -> str:
 def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
     """Bump npm and PyPI version literals embedded in workflow YAML.
 
-    The upstream toolkit's inline pin (``repomatic==X.Y.Z``) is the exception:
+    The upstream toolkit's inline pin (`repomatic==X.Y.Z`) is the exception:
     it is aligned to the newest `uses:` ref version instead of the newest
-    cooldown-eligible PyPI release. The refs are its source of truth: they are
+    cooldown-eligible PyPI release, in every shape
+    {func}`~repomatic.release.self_pin.inline_pin_re` matches, quoted or not.
+    The `lint-repo` lockstep check reads the same shapes, so it never flags a
+    pin this cannot fix. The refs are its source of truth: they are
     written by `repomatic init` alone, which weighs the cooldown itself (see
     {func}`~repomatic.init.upgrade.resolve_default_pin` and
     {func}`~repomatic.init.upgrade.resolve_upgrade_target`) and is skipped here
@@ -1109,7 +1123,7 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
     # Highest currently-pinned version per (ecosystem, package).
     current: dict[tuple[Ecosystem, str], str] = {}
     for text in file_data.values():
-        for literal in find_workflow_literals(text):
+        for literal in find_workflow_literals(text, self_pin=UPSTREAM_PACKAGE):
             key = (literal.ecosystem, literal.package)
             if key not in current or is_newer(literal.version, current[key]):
                 current[key] = literal.version
@@ -1192,7 +1206,7 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
     # the release freeze splices it into this repository's own workflows.
     rewriter = partial(
         apply_workflow_literals,
-        self_pin=(UPSTREAM_PACKAGE, SELF_PIN_COOLDOWN_EXEMPTION),
+        self_pin=UPSTREAM_PACKAGE,
     )
     _plan_file_rewrites(plan, rc, file_data, rewriter, resolved)
     # A moved upstream pin is the one bump with a review to run behind it: the

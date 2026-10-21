@@ -36,14 +36,6 @@ if TYPE_CHECKING:
     from typing import Any
 
 
-NULL_SHA = "0" * 40
-"""The null SHA used by Git to represent a non-existent commit.
-
-GitHub sends this value as the `before` SHA when a tag is created, since there is no
-previous commit to compare against.
-"""
-
-
 class WorkflowEvent(StrEnum):
     """Workflow events that cause a workflow to run.
 

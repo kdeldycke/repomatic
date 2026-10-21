@@ -143,7 +143,7 @@ def test_tool_spec_integrity(name, spec):
         )
 
     # path_tools names another registry entry that ships a downloadable binary:
-    # the runner installs each one through _install_binary to put it on PATH, so
+    # the runner installs each one through install_binary to put it on PATH, so
     # a uvx- or npm-backed entry has no binary to expose and would fail at run
     # time rather than here.
     for companion in spec.path_tools:
@@ -1922,6 +1922,7 @@ def test_run_tool_mypy_no_lockfile_falls_back_isolated(
 
 
 @pytest.mark.once
+@pytest.mark.real_http
 def test_mypy_version_floor_matches_the_pinned_mypy(tmp_path, monkeypatch):
     """The pinned mypy accepts `MYPY_VERSION_MIN` and refuses the release before.
 

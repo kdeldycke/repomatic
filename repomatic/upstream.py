@@ -38,7 +38,7 @@ INSTALL_GUIDE_PATH = "docs/install.md"
 """Install guide the release freeze pins download URLs in.
 
 Shared by {class}`~repomatic.release.prepare_release.PrepareRelease`, which
-rewrites those URLs, and {func}`~repomatic.lint_repo.check_install_guide_downloads`,
+rewrites those URLs, and {func}`~repomatic.lint_repo.repo.check_install_guide_downloads`,
 which verifies the release they name actually carries the files.
 """
 

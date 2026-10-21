@@ -994,7 +994,7 @@ def sync_gitignore(ctx: Context, output: Path | None, drop_orphans: bool) -> Non
     gitignore-extra-content to keep it, or pass --drop-orphans to let it go.
     """
     config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.gitignore.sync, "gitignore.sync")
+    exit_if_disabled(ctx, "gitignore.sync")
 
     content = build_gitignore(config)
 
@@ -1068,8 +1068,7 @@ def sync_mailmap(
     The destination defaults to the source file (in-place update). Pass -
     to print to stdout instead.
     """
-    config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.mailmap_sync, "mailmap.sync")
+    exit_if_disabled(ctx, "mailmap.sync")
 
     # Default destination to source path (in-place update).
     if destination_mailmap is None:
@@ -1187,7 +1186,7 @@ def sample_metrics(
     is sampled forward, one reading per run.
     """
     config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.metrics.sync, "metrics.sync")
+    exit_if_disabled(ctx, "metrics.sync")
 
     if not config.metrics.subjects:
         echo("No repository in [tool.repomatic.metrics] subjects, nothing to sample.")

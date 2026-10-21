@@ -113,14 +113,15 @@ a file. `tests/test_workflows.py` holds the anchor to a heading of
 """
 
 
-def cooldown_env_block() -> str:
+def cooldown_env_block(config: Config | None = None) -> str:
     """Render the supply-chain cooldown `env:` block every workflow carries.
 
     Rendered from {attr}`~repomatic.config.Config.minimum_release_age` rather
     than written by hand, so the literal in the YAML has exactly one source. The
-    same text is asserted verbatim against every checked-in workflow by
-    `tests/test_workflows.py`, and emitted into the downstream `release.yaml`
-    caller by `_generate_release_caller`.
+    default block is asserted verbatim against every checked-in workflow by
+    `tests/test_workflows.py`. A downstream repository gets the block of its own
+    window: in the `release.yaml` caller `_generate_release_caller` writes, and
+    in the headers {func}`generate_workflow_header` syncs.
 
     ```{caution}
     The comment travels into every downstream repository, so it must read true
@@ -139,10 +140,12 @@ def cooldown_env_block() -> str:
     leave that bootstrap install ungated.
     ```
 
+    :param config: The configuration of the repository the block lands in, or
+        `None` for the default window.
     :return: The comment and `env:` mapping, newline-terminated, ready to splice
         above a workflow's `jobs:` line.
     """
-    window = Config.minimum_release_age
+    window = (Config if config is None else config).minimum_release_age
     return (
         "# Supply-chain cooldown: no package published within the window can be"
         " resolved by\n"
@@ -201,7 +204,7 @@ def _pin_ref(version: str, commit_sha: str | None) -> str:
 def _extract_raw_section(content: str, section_name: str) -> str | None:
     """Extract a top-level YAML section as raw text.
 
-    Finds a line matching ``{section_name}:`` at column 0 and returns it along
+    Finds a line matching `{section_name}:` at column 0 and returns it along
     with all indented continuation lines (including comments). Returns `None`
     if the section is not found.
 
@@ -346,7 +349,7 @@ def extract_trigger_info(filename: str) -> WorkflowTriggerInfo:
 
     ```{caution}
     The returned `WorkflowTriggerInfo` holds mutable dicts taken from the
-    shared parse of {func}`_canonical`: treat it as read-only, the way every
+    shared parse of `_canonical`: treat it as read-only, the way every
     reader does today.
     ```
 
@@ -402,7 +405,7 @@ def _render_trigger_value(value: Any, indent: int) -> str:
         lines = []
         for item in value:
             if isinstance(item, dict):
-                # Inline dict items like ``{cron: "..."}`` rendered as mapping.
+                # Inline dict items like `{cron: "..."}` rendered as mapping.
                 first = True
                 for k, v in item.items():
                     if first:
@@ -499,24 +502,24 @@ class PathsSpec:
     """Bundle of downstream `paths:` adaptation knobs.
 
     Each field maps to a `[tool.repomatic.workflow]` option.
-
-    :param source_paths: Substituted in for the canonical `repomatic/**` glob
-        in every workflow that references it. `None` drops the glob without
-        substitution.
-    :param extra_paths: Appended to every workflow's `paths:` list (after
-        source substitution and `ignore_paths` filtering, before render).
-        Skipped for workflows listed in *workflow_paths*.
-    :param ignore_paths: Removed from every workflow's `paths:` list by exact
-        string match. Skipped for workflows listed in *workflow_paths*.
-    :param workflow_paths: Per-workflow override keyed by filename. The value
-        is treated as the complete `paths:` list for that workflow; the other
-        knobs do not apply.
     """
 
-    source_paths: list[str] | None = None
+    source_paths: tuple[str, ...] = ()
+    """Substituted in for the canonical `repomatic/**` glob in every workflow
+    that references it. Empty drops the glob without substitution."""
+
     extra_paths: list[str] = field(default_factory=list)
+    """Appended to every workflow's `paths:` list, after the source substitution
+    and the {attr}`ignore_paths` filter. Skipped for the workflows of
+    {attr}`workflow_paths`."""
+
     ignore_paths: list[str] = field(default_factory=list)
+    """Removed from every workflow's `paths:` list by exact string match.
+    Skipped for the workflows of {attr}`workflow_paths`."""
+
     workflow_paths: dict[str, list[str]] = field(default_factory=dict)
+    """Per-workflow override keyed by filename. The value is the complete
+    `paths:` list of that workflow, and the other knobs do not apply to it."""
 
 
 def _apply_paths_spec(
@@ -528,7 +531,7 @@ def _apply_paths_spec(
 
     Order of operations (skipped when a per-workflow override is set):
 
-    1. Substitute {data}`UPSTREAM_SOURCE_GLOB` with ``{sp}/**`` for each
+    1. Substitute {data}`UPSTREAM_SOURCE_GLOB` with `{sp}/**` for each
        *source_paths* entry, drop other {data}`UPSTREAM_SOURCE_PREFIX` paths
        and {data}`UPSTREAM_ASSET_GLOB`.
     2. Strip *ignore_paths* entries (exact string match).
@@ -543,7 +546,7 @@ def _apply_paths_spec(
     if filename in spec.workflow_paths:
         return list(spec.workflow_paths[filename])
 
-    result = _substitute_source_paths(paths, spec.source_paths or [])
+    result = _substitute_source_paths(paths, spec.source_paths)
 
     if spec.ignore_paths:
         ignored = set(spec.ignore_paths)
@@ -582,7 +585,7 @@ def _adapt_trigger_paths(
             del result["paths"]
     if "paths-ignore" in result:
         adapted_ignore = _substitute_source_paths(
-            result["paths-ignore"], spec.source_paths or []
+            result["paths-ignore"], spec.source_paths
         )
         if adapted_ignore:
             result["paths-ignore"] = adapted_ignore
@@ -593,14 +596,14 @@ def _adapt_trigger_paths(
 
 def _substitute_source_paths(
     paths: list[str],
-    source_paths: list[str],
+    source_paths: Sequence[str],
 ) -> list[str]:
     """Replace upstream source directory paths with downstream source paths.
 
     For each path in the canonical workflow's `paths:` list:
 
     - {data}`UPSTREAM_SOURCE_GLOB` (`repomatic/**`) is replaced with
-      ``{source}/**`` for each entry in *source_paths*; when *source_paths*
+      `{source}/**` for each entry in *source_paths*; when *source_paths*
       is empty the glob is dropped entirely.
     - Other paths starting with {data}`UPSTREAM_SOURCE_PREFIX` are dropped
       (upstream-specific files like `repomatic/data/labels.toml`), and so is
@@ -609,8 +612,8 @@ def _substitute_source_paths(
       are kept as-is.
 
     :param paths: Original paths list from a canonical workflow trigger.
-    :param source_paths: Downstream source directory names. Empty list
-        drops the upstream source glob without substitution.
+    :param source_paths: Downstream source directory names. Empty drops
+        the upstream source glob without substitution.
     :return: New paths list with substitutions applied.
     """
     result: list[str] = []
@@ -719,6 +722,9 @@ def generate_thin_caller(
     :param existing: The parsed downstream file, when it already exists. Only
         `release.yaml` reads it, to carry over the extra `needs:` edges of its
         `release` lane; every other caller regenerates whole.
+    :param config: The target repository's configuration, which sets the
+        defaults of the configurable inputs and the cooldown window of
+        `release.yaml`. `None` renders the canonical defaults.
     :return: Complete YAML content for the thin caller workflow.
     :raises ValueError: If the workflow does not support `workflow_call`.
     """
@@ -727,7 +733,11 @@ def generate_thin_caller(
     # caller and rewriting its local `uses:` refs. See _generate_release_caller.
     if filename == "release.yaml":
         return _generate_release_caller(
-            repo=repo, version=version, commit_sha=commit_sha, existing=existing
+            repo=repo,
+            version=version,
+            commit_sha=commit_sha,
+            existing=existing,
+            config=config,
         )
 
     spec = paths_spec if paths_spec is not None else PathsSpec()
@@ -877,6 +887,8 @@ def render_thin_caller_for_target(
     :param version: Version reference for the `uses:` refs.
     :param commit_sha: Full 40-character commit SHA for SHA-pinned refs.
     :param paths_spec: Full paths-adaptation spec; defaults to no adaptation.
+    :param config: The target repository's configuration, see
+        {func}`generate_thin_caller`.
     :return: The content to write, and the current content of *target* (`None`
         when it does not exist yet) so a caller can skip an unchanged write.
     :raises ValueError: If *filename* declares no `workflow_call` trigger.
@@ -926,7 +938,7 @@ def _job_body_end(
     survives with that job rather than being swallowed by the managed one.
 
     :param lines: The workflow's lines.
-    :param start: Index of the ``  {job}:`` key line.
+    :param start: Index of the `  {job}:` key line.
     :param claim_indent_comments: Whether a job-indent comment counts as body.
     :return: Index of the body's last line; *start* itself for an empty body.
     """
@@ -950,14 +962,14 @@ def _job_body_end(
 def _extract_raw_job(content: str, job_name: str) -> str | None:
     """Extract a single job mapping from a workflow as raw text.
 
-    Finds the ``  {job_name}:`` line at the two-space job indent and returns it
+    Finds the `  {job_name}:` line at the two-space job indent and returns it
     with all of the job's indented body, stopping at the next sibling job key
     (or end of file). Preserves comments and formatting, consistent with the
     rest of this module.
 
     :param content: Full workflow file content.
-    :param job_name: Job key to extract (e.g., ``"publish-pypi"``).
-    :return: Raw text of the job, or ``None`` if the job is absent.
+    :param job_name: Job key to extract, like `publish-pypi`.
+    :return: Raw text of the job, or `None` if the job is absent.
     """
     key = f"  {job_name}:"
     lines = content.split("\n")
@@ -975,7 +987,7 @@ _LOCAL_PUBLISH_PYPI_ACTION: Final[str] = "./.github/actions/publish-pypi"
 """Relative composite-action ref the canonical `release.yaml` dogfoods.
 
 The canonical entry runs the in-tree action via this local ref (checking
-itself out first). :func:`_render_publish_pypi_job` rewrites it to the pinned
+itself out first). `_render_publish_pypi_job` rewrites it to the pinned
 cross-repo form (``{repo}/.github/actions/publish-pypi@{ref}``) for downstream
 callers, whose OIDC `job_workflow_ref` must resolve to their own release.yaml.
 """
@@ -1010,7 +1022,7 @@ def _render_publish_pypi_job(
       and needs no checkout. Dropping it also keeps the generated workflow free
       of third-party action SHA pins, which `sync-action-pins` would not see
       (it scans `.yaml`, not this `.py`).
-    - **Rewrite the local action ref** :data:`_LOCAL_PUBLISH_PYPI_ACTION` to the
+    - **Rewrite the local action ref** `_LOCAL_PUBLISH_PYPI_ACTION` to the
       pinned cross-repo form so the caller's OIDC `job_workflow_ref` resolves to
       its own `release.yaml` (see pypi/warehouse#11096).
 
@@ -1220,6 +1232,7 @@ def _generate_release_caller(
     version: str,
     commit_sha: str | None,
     existing: Mapping[str, Any] | None = None,
+    config: Config | None = None,
 ) -> str:
     """Generate the downstream `release.yaml` caller from the canonical entry.
 
@@ -1241,12 +1254,12 @@ def _generate_release_caller(
       carries it, so a downstream job added below the managed lanes starts with
       no scopes instead of inheriting the repository default.
     - **Downstream `needs:` edges preserved** on the `release` lane (see
-      :func:`_downstream_release_needs`), so a consumer gating the engine on its
+      `_downstream_release_needs`), so a consumer gating the engine on its
       own asset-building job keeps that edge across a sync.
     - **Local `uses: ./` refs rewritten** to the pinned cross-repo form
       (`{repo}/.github/workflows/{name}@{ref}`) for the `build` and `release`
       lanes, with their repomatic-specific comments stripped.
-    - **The `publish-pypi` job reshaped** by :func:`_render_publish_pypi_job`
+    - **The `publish-pypi` job reshaped** by `_render_publish_pypi_job`
       (checkout dropped, action ref pinned). Keeping it in `release.yaml` is what
       makes the OIDC `job_workflow_ref` resolve to each repo's own `release.yaml`
       (see pypi/warehouse#11096).
@@ -1260,6 +1273,9 @@ def _generate_release_caller(
         `@sha # version`).
     :param existing: The parsed downstream `release.yaml`, read before
         generating so its extra `needs:` edges survive; `None` when creating it.
+    :param config: The downstream repository's configuration, whose
+        `minimum-release-age` the cooldown block exports. `None` for the default
+        window.
     :return: Complete YAML content for the downstream `release.yaml` caller.
     :raises RuntimeError: If the canonical `release.yaml` no longer exposes the
         expected `build` and `release` jobs, meaning the entry changed in a way
@@ -1319,7 +1335,7 @@ def _generate_release_caller(
     # The publish-pypi job below runs on the downstream runner, so it needs its
     # own cooldown: a workflow-level `env:` does not cross into the reusable
     # lanes this caller invokes, nor back out of them.
-    lines.append(cooldown_env_block())
+    lines.append(cooldown_env_block(config))
     lines.extend([
         "jobs:",
         "",
@@ -1357,9 +1373,10 @@ def canonical_workflow(data: Mapping[str, Any], repo: str = DEFAULT_REPO) -> str
 
     # A multi-lane caller (release.yaml: build + engine) references several
     # upstream workflows. Return the LAST match: for release.yaml that is the
-    # engine lane, which declares the secrets, so check_secrets_passed validates
-    # the meaningful lane. Single-lane thin callers have exactly one match, so
-    # last == first and behavior is unchanged.
+    # engine lane, which declares the secrets, so
+    # repomatic.lint_repo.workflows.check_thin_caller_secrets validates the
+    # meaningful lane. Single-lane thin callers have exactly one match, so
+    # last == first.
     canonical: str | None = None
     for job_config in jobs.values():
         if not isinstance(job_config, dict):
@@ -1520,11 +1537,12 @@ Inline comments inside the entry block would terminate the match early.
 def generate_workflow_header(
     filename: str,
     paths_spec: PathsSpec | None = None,
+    config: Config | None = None,
 ) -> str:
     """Return the raw header of a canonical workflow.
 
     The header is everything before the `jobs:` line: `name`, `on`
-    triggers, `concurrency`, and any comments.
+    triggers, `concurrency`, the cooldown `env:` block, and any comments.
 
     Each `paths:` block in the header is rewritten using *paths_spec*:
     upstream source references substituted, optional extras appended,
@@ -1534,15 +1552,22 @@ def generate_workflow_header(
     the rewritten blocks are preserved verbatim; comments inside an
     entry block are not supported.
 
+    The cooldown block is rendered for *config*: the canonical header carries
+    the default window, and the downstream copy exports its own.
+
     :param filename: Canonical workflow filename (e.g., `tests.yaml`).
     :param paths_spec: Full paths-adaptation spec; defaults to no adaptation.
+    :param config: The target repository's configuration, or `None` for the
+        default cooldown window.
     :return: Raw header text.
     :raises FileNotFoundError: If the workflow file is not bundled.
     :raises ValueError: If no `jobs:` line is found.
     """
     spec = paths_spec if paths_spec is not None else PathsSpec()
     content = get_data_content(filename)
-    header = _extract_raw_header(content)
+    header = _extract_raw_header(content).replace(
+        cooldown_env_block(), cooldown_env_block(config)
+    )
 
     def _rewrite(match: re.Match[str]) -> str:
         key_indent = match.group(1)
@@ -1593,7 +1618,7 @@ def _split_yaml_quote(scalar: str) -> tuple[str, str]:
     """Split a YAML scalar from its surrounding quote.
 
     :param scalar: Raw scalar text as it appears in the YAML source.
-    :return: ``(value, quote_char)`` where *quote_char* is `"` or `'` for
+    :return: `(value, quote_char)` where *quote_char* is `"` or `'` for
         quoted scalars and the empty string for plain ones.
     """
     if len(scalar) >= 2 and scalar[0] == scalar[-1] and scalar[0] in ('"', "'"):

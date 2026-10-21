@@ -25,8 +25,10 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 import pytest
+from click_extra.testing import CliRunner
 
 from repomatic.checks import CheckResult
+from repomatic.cli.main import repomatic
 from repomatic.github.gh import GhCommandError
 from repomatic.github.token import (
     GITHUB_RATE_LIMIT_URL,
@@ -149,6 +151,22 @@ def test_validate_notifications_token_propagates():
         pytest.raises(RuntimeError, match="bad scope"),
     ):
         validate_notifications_token()
+
+
+def test_unsubscribe_threads_runs_the_notifications_validator():
+    """`unsubscribe-threads` stops on the validator of this module, and says why."""
+    with (
+        patch(
+            "repomatic.github.token.validate_notifications_token",
+            side_effect=RuntimeError("bad scope"),
+        ),
+        patch("repomatic.cli.github.unsubscribe_threads") as unsubscribe,
+    ):
+        result = CliRunner().invoke(repomatic, ["unsubscribe-threads", "--dry-run"])
+
+    assert result.exit_code == 1
+    assert "bad scope" in result.output
+    unsubscribe.assert_not_called()
 
 
 @pytest.mark.parametrize("probe", PAT_PERMISSION_PROBES, ids=lambda p: p.field)

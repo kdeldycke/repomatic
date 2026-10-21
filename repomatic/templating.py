@@ -119,7 +119,7 @@ def footer_opted_out(meta: Mapping[str, object]) -> bool:
     string are honored: the frontmatter is YAML, so a bare `false` parses as a
     boolean, but a downstream template may well have quoted it, and the two
     spellings mean the same thing to whoever wrote them. An absent field keeps
-    the footer. {func}`repomatic.lint_repo.check_pr_templates` applies the same
+    the footer. {func}`repomatic.lint_repo.workflows.check_pr_templates` applies the same
     rule, so it never flags a spelling the renderer honors.
 
     :param meta: Parsed frontmatter of one template.
@@ -313,7 +313,7 @@ def render_template(*refs: str | Path | PrTemplate, **kwargs: str | None) -> str
     The footer's version is `__version__` as read from the working tree, which
     makes it cosmetically wrong on the version-machinery PRs. That is accepted
     rather than fixed. Upstream runs the CLI from its own checkout
-    ({data}`~repomatic.release.prepare_release.LOCAL_CLI_INVOCATION`), and both the
+    ({func}`~repomatic.release.self_pin.local_cli_invocation`), and both the
     `bump-version` and `prepare-release` jobs rewrite `__version__` with
     `bump-my-version` before this renders, so each of those bodies advertises
     the version its own PR produces (the `minor` or `major` bump target, or

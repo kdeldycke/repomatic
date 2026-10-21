@@ -71,7 +71,7 @@ def detect_removed_assets(
 
     A tombstoned file that is already gone is not the end of it: an asset that
     shipped as a folder leaves that folder standing, and an empty one is
-    prunable on its own. See {func}`_empty_owned_dir`.
+    prunable on its own. See `_empty_owned_dir`.
 
     :param output_dir: Root directory of the target repository.
     :param config: Repomatic config for `skills.location` / `subagents.location`

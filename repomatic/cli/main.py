@@ -60,7 +60,6 @@ from click_extra import (
     Section,
     UsageError,
     command,
-    echo,
     file_path,
     get_tool_config,
     is_stdout,
@@ -68,11 +67,11 @@ from click_extra import (
     lazy_group,
     option,
     pass_context,
-    prep_path,
 )
 
 from ..changelog import resolved_changelog_path
 from ..config import Config, publish_config
+from ..github.outputs import write_text_output
 from ..metadata.core import Metadata
 
 TYPE_CHECKING = False
@@ -292,18 +291,22 @@ def subcommand(
     return command(params=list(params), **kwargs)
 
 
-def exit_if_disabled(ctx: Context, enabled: bool, key: str) -> None:
+def exit_if_disabled(ctx: Context, key: str) -> None:
     """Exit successfully when a `[tool.repomatic]` feature flag is off.
 
     The shared guard of every sync command: a disabled feature is a normal,
     configured state, so the command logs the flag and exits `0` instead of
     failing the workflow that invoked it.
 
-    :param ctx: The Click context to exit through.
-    :param enabled: The resolved feature flag value.
-    :param key: The `[tool.repomatic]` key, in kebab-case, for the log line.
+    Reads the flag through {meth}`~repomatic.config.Config.is_enabled`, so a
+    call site names the key once, as the user writes it.
+
+    :param ctx: The Click context to read the configuration from and exit
+        through.
+    :param key: The dotted `[tool.repomatic]` key, like `labels.sync`.
+    :raises ValueError: When *key* names no setting.
     """
-    if not enabled:
+    if not get_tool_config(ctx).is_enabled(key):
         logging.info(f"[tool.repomatic] {key} is disabled. Skipping.")
         ctx.exit(0)
 
@@ -328,22 +331,16 @@ def log_output_target(subject: str, output: Path) -> None:
 def write_output(subject: str, content: str, output: Path) -> None:
     """Write *content* to an `--output` path, then close the file.
 
-    Logs the destination first, through {func}`log_output_target`. For `-`,
-    `prep_path` returns the live `sys.stdout` when stdout has no file
-    descriptor, as under a test runner. Only a stream it opened is closed:
-    closing the live one would end every later write of the run.
+    Logs the destination first, through {func}`log_output_target`, then hands
+    the write to {func}`~repomatic.github.outputs.write_text_output`, the one
+    function that owns how an `--output` stream is opened and closed.
 
     :param subject: What is being written, as a noun phrase, for the log line.
     :param content: The text to write. A trailing newline is added.
     :param output: The destination path, or `-` for stdout.
     """
     log_output_target(subject, output)
-    stream = prep_path(output)
-    try:
-        echo(content, file=stream)
-    finally:
-        if stream is not sys.stdout:
-            stream.close()
+    write_text_output(content, output)
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +408,7 @@ def dry_run_option(*, default: bool) -> Callable[[FC], FC]:
 def _resolve_repo(ctx: ClickContext, param: Parameter, value: str | None) -> str:
     """Fall back to the repository of the current checkout.
 
-    :raises UsageError: Neither `--repo`, `$GITHUB_REPOSITORY` nor the checkout
+    :raises click.UsageError: Neither `--repo`, `$GITHUB_REPOSITORY` nor the checkout
         names a repository.
     """
     repo = value or Metadata().repo_slug

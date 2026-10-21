@@ -236,7 +236,8 @@ def show(ctx: Context) -> None:
 @option(
     "--namespace",
     default=None,
-    help="Only remove HTTP entries in this namespace (e.g., pypi, github-releases).",
+    help="Only remove HTTP entries in this namespace, like pypi or"
+    " github-release-tags.",
 )
 @option(
     "--max-age",

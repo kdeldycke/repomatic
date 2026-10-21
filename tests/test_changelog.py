@@ -27,10 +27,9 @@ import pytest
 from repomatic.changelog import (
     Changelog,
     VersionElements,
-    build_release_admonition,
-    build_unavailable_admonition,
+    availability_admonition,
 )
-from repomatic.github.pr_body import render_template
+from repomatic.templating import render_template
 from repomatic.tooling.runner import verify_via_write_path
 from tests.conftest import skip_unless_tool_runs
 
@@ -641,6 +640,7 @@ def test_freeze_already_frozen_stays_silent(caplog):
 
 
 @pytest.mark.once
+@pytest.mark.real_http
 def test_rendered_sections_are_an_mdformat_fixed_point(tmp_path, monkeypatch):
     """Every section this module renders must survive `format-markdown` intact.
 
@@ -678,12 +678,11 @@ def test_rendered_sections_are_an_mdformat_fixed_point(tmp_path, monkeypatch):
     # The composition fix-changelog performs: a NOTE for the platforms carrying
     # the version, a WARNING for the one that is missing it.
     elements = changelog.decompose_version("1.2.2")
-    elements.availability_admonition = "\n\n".join((
-        build_release_admonition(
-            "1.2.2", pypi_url="https://pypi.org/project/papaya/1.2.2/"
-        ),
-        build_unavailable_admonition("1.2.2", missing_github=True),
-    ))
+    elements.availability_admonition = availability_admonition(
+        "1.2.2",
+        pypi_url="https://pypi.org/project/papaya/1.2.2/",
+        missing_github=True,
+    )
     assert changelog.replace_section(
         "1.2.2", render_template("release-notes", **asdict(elements))
     )

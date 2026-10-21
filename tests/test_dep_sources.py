@@ -51,9 +51,8 @@ from repomatic.deps.sources import (
     strip_dev_bounds,
     tracked_git_overrides,
 )
-from repomatic.github.pr_body import render_template
 from repomatic.pypi import PyPIRelease
-from repomatic.templating import get_template_names
+from repomatic.templating import get_template_names, render_template
 
 PYPROJECT = """\
 [project]

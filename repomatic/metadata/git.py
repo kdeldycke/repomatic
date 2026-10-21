@@ -45,7 +45,11 @@ from ..git_ops import (
 )
 from ..github.event import WorkflowEvent
 from ..matrix.model import Matrix
-from ..pyproject import resolve_source_paths
+from ..pyproject import (
+    BUMPVERSION_SOURCES,
+    bumpversion_current_version,
+    resolve_source_paths,
+)
 from ..release.protocol import (
     BINARY_AFFECTING_PATHS,
     MANUAL_VERSION_BUMP_COMMIT_PREFIXES,
@@ -56,29 +60,18 @@ from ..release.protocol import (
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
-    from typing import Any, Final
+    from typing import Any
 
     from ..config import Config
     from ..file_inventory import FileInventory
 
 
-BUMPVERSION_SOURCES: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
-    (".bumpversion.toml", ()),
-    ("pyproject.toml", ("tool", "bumpversion")),
-)
-"""Files bump-my-version reads `current_version` from, in lookup order.
-
-Each file comes with the path of the table holding the key: the top level of
-`.bumpversion.toml`, `[tool.bumpversion]` of `pyproject.toml`.
-"""
-
-
 def version_at(ref: str) -> str | None:
     """Return the version bump-my-version manages, as committed at *ref*.
 
-    Reads {data}`BUMPVERSION_SOURCES` from the object store, so a past commit
-    is read without a checkout. A file that is absent at *ref*, or does not
-    parse, is skipped like a file without the key.
+    Reads {data}`~repomatic.pyproject.BUMPVERSION_SOURCES` from the object
+    store, so a past commit is read without a checkout. A file that is absent
+    at *ref*, or does not parse, is skipped like a file without the key.
 
     :param ref: The commit to read.
     :return: The `current_version` value, or `None` when no source holds one.
@@ -88,18 +81,13 @@ def version_at(ref: str) -> str | None:
         if content is None:
             continue
         try:
-            table: Any = tomlrt.loads(content)
+            document = tomlrt.loads(content)
         except tomlrt.TOMLParseError:
             logging.debug(f"{filename} does not parse at {ref}.")
             continue
-        for key in table_path:
-            table = table.get(key)
-            if not isinstance(table, dict):
-                break
-        else:
-            version = table.get("current_version")
-            if version is not None:
-                return str(version)
+        version = bumpversion_current_version(document, table_path)
+        if version is not None:
+            return version
     return None
 
 
@@ -497,13 +485,6 @@ class GitMetadata:
         return commit_matrix(tuple(commit.hash for commit in self.new_commits))
 
     @cached_property
-    def new_commits_hash(self) -> tuple[str, ...] | None:
-        """List all hashes of new commits."""
-        if not self.new_commits:
-            return None
-        return tuple(commit.hash for commit in self.new_commits)
-
-    @cached_property
     def release_commits(self) -> tuple[Commit, ...] | None:
         """Returns list of `Commit` objects to be tagged within the triggering event.
 
@@ -538,10 +519,3 @@ class GitMetadata:
         if not self.release_commits:
             return None
         return commit_matrix(tuple(commit.hash for commit in self.release_commits))
-
-    @cached_property
-    def release_commits_hash(self) -> tuple[str, ...] | None:
-        """List all hashes of release commits."""
-        if not self.release_commits:
-            return None
-        return tuple(commit.hash for commit in self.release_commits)

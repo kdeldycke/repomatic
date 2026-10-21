@@ -361,7 +361,7 @@ def install_binary(
 
     The download goes through a staging directory. When the binary stays out
     of the cache, the staging copy is returned, and its directory lasts as long
-    as the process: see {data}`_STAGING_DIRS`.
+    as the process: see `_STAGING_DIRS`.
 
     :param spec: Tool specification with `binary` set.
     :param skip_checksum: Skip SHA-256 verification when `True`.

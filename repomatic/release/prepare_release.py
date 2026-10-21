@@ -46,11 +46,12 @@ tagging logic. See the `detect-squash-merge` job for the safeguard.
 Rebase-merging the two commits delivers them in a **single push**, and GitHub
 Actions reads workflow files from that push's head: the unfreeze commit. So the
 release lane of this repository always executes the **unfrozen** workflow
-content, running {data}`LOCAL_CLI_INVOCATION` against `uv.lock`, even while
-building the freeze commit named in `release_commits_matrix`. Every job calling
-the CLI therefore needs its own checkout of `matrix.commit`, and a job written
-on the assumption that the frozen `uvx 'repomatic==X.Y.Z'` form is what runs
-will fail with `Failed to spawn: repomatic`.
+content, running {func}`~repomatic.release.self_pin.local_cli_invocation`
+against `uv.lock`, even while building the freeze commit named in
+`release_commits_matrix`. Every job calling the CLI therefore needs its own
+checkout of `matrix.commit`, and a job written on the assumption that the frozen
+`uvx 'repomatic==X.Y.Z'` form is what runs will fail with
+`Failed to spawn: repomatic`.
 
 Only downstream repositories, which call the reusable workflow at its `vX.Y.Z`
 tag, ever execute the frozen form. `tests/test_workflows.py` locks the checkout
@@ -71,7 +72,6 @@ from pathlib import Path
 from ..changelog import Changelog, resolved_changelog_path
 from ..claude_plugin import MARKETPLACE_PATH, REPO_MANIFEST_PATH
 from ..config import load_repomatic_config
-from ..deps.pins import frozen_cli_invocation
 from ..file_ops import write_if_changed
 from ..github.workflow_files import WORKFLOW_DIR, workflow_paths
 from ..humanize import today_utc
@@ -79,6 +79,7 @@ from ..metadata.core import Metadata
 from ..pyproject import get_current_version
 from ..upstream import INSTALL_GUIDE_PATH, UPSTREAM_PACKAGE
 from .binary import binary_filename_re
+from .self_pin import frozen_cli_invocation, frozen_cli_re, local_cli_invocation
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -100,73 +101,6 @@ JSON_VERSION_RE = re.compile(r'("version":\s*")[\d.]+(")')
 Ratchets forward on release, unlike {data}`MARKETPLACE_REF_RE` beside it: it
 names the last release rather than the ref serving the content, and it is the
 string the app compares to decide whether an update is due.
-"""
-
-SELF_PIN_COOLDOWN_EXEMPTION = f"--exclude-newer-package {UPSTREAM_PACKAGE}=P0D"
-"""uv escape hatch letting a just-published repomatic install under the cooldown.
-
-Every workflow exports a `UV_EXCLUDE_NEWER` covering all package resolution (see
-`docs/workflows.md` § Install-time cooldown), and it applies to the frozen
-`'repomatic==X.Y.Z'` self-pin like any other requirement. That pin moves in
-lockstep with the `uses:` refs pointing at the same tag, so the version it names
-is always minutes old: without an exemption every downstream repo would fail to
-resolve it until the window elapsed. A zero-length window sets that one package's
-cutoff to "now", leaving the rest of the tree gated.
-
-uv exposes no environment variable for `--exclude-newer-package`, so the
-exemption has to ride on the command line, which is why the freeze splices it in
-beside the pin instead of the workflows declaring it once.
-
-```{note}
-A `uvx` resolution reads no project configuration at all, so moving the
-exemption into `[tool.uv]` or an adjacent `uv.toml` would not work either:
-both are ignored (verified against uv `0.12.3`). The one knob that does reach
-it, `--config-file` / `UV_CONFIG_FILE`, replaces discovered configuration instead
-of merging with it: set for a whole CI environment, it silently drops
-`required-version`, `exclude-newer`, `dependency-groups` and `build-backend`
-from every other uv command there, unless a complete mirror of `[tool.uv]` sits
-beside it.
-```
-
-```{todo}
-Declare the exemption once, instead of splicing it onto every frozen command
-line, as soon as uv grows a configuration or environment knob for
-`--exclude-newer-package`:
-[uv#20995](https://github.com/astral-sh/uv/issues/20995). Glob exemptions
-([astral-sh/uv#20788](https://github.com/astral-sh/uv/issues/20788)) and
-pin-based bypasses
-([astral-sh/uv#19864](https://github.com/astral-sh/uv/issues/19864),
-[astral-sh/uv#18921](https://github.com/astral-sh/uv/pull/18921)) could settle it too.
-```
-
-Spelled as the ISO 8601 `P0D` rather than the `"0 day"` used in
-`pyproject.toml`'s `exclude-newer-package` table: the flag travels through YAML
-folded scalars into a shell, where the space in `0 day` would need quoting that
-survives both. `P0D` needs none.
-
-```{caution}
-Every character here lands on 80-odd already-long workflow lines at freeze time.
-`tests/test_prepare_release.py` simulates a freeze and fails if the result
-breaches yamllint's 120-column cap, so lengthening this string means reflowing
-the workflows that no longer fit.
-```
-"""
-
-LOCAL_CLI_INVOCATION = "uv --no-progress run --frozen -- repomatic"
-"""How every workflow on `main` runs the CLI, before the freeze rewrites it.
-
-Resolving from `uv.lock` rather than from the index is what keeps the cooldown
-off the critical path here. A lockfile entry is pinned *and* hash-verified, so
-it is strictly stronger than a publication-age gate, and it cannot be made
-unsatisfiable by one: `uvx --from .` re-resolves `[project.dependencies]` on
-every call, and reads neither `uv.lock` nor `[tool.uv] exclude-newer-package`,
-so a floor naming a release younger than the window took every workflow down at
-once with nowhere to record the bypass.
-
-`--frozen` uses the lockfile as-is instead of asserting it is current, which is
-deliberate: `--locked` would fail every job the moment `pyproject.toml` drifted
-ahead of `uv.lock`, including the `sync-uv-lock` job whose whole purpose is to
-close that gap.
 """
 
 
@@ -617,21 +551,21 @@ class PrepareRelease:
         for this project, so its copy has to resolve the published package from
         the index, which is what `uvx` does.
 
-        The pin is spliced in behind {data}`SELF_PIN_COOLDOWN_EXEMPTION`, which
-        is what keeps a release installable the minute it is published despite
-        the workflow-wide cooldown. Local source needs no exemption, so `main`
+        The pin is spliced in behind the exemption of
+        {func}`~repomatic.release.self_pin.cooldown_exemption`, which is what
+        keeps a release installable the minute it is published despite the
+        workflow-wide cooldown. Local source needs no exemption, so `main`
         carries none between releases.
 
         :param version: The PyPI version to freeze to.
         :return: Number of files modified.
         """
-        yaml_replace = frozen_cli_invocation(
-            UPSTREAM_PACKAGE, version, SELF_PIN_COOLDOWN_EXEMPTION
-        )
+        local = local_cli_invocation(UPSTREAM_PACKAGE)
+        frozen = frozen_cli_invocation(UPSTREAM_PACKAGE, version)
 
         return self._rewrite_workflows(
             lambda content: self._map_noncomment_lines(
-                content, lambda line: line.replace(LOCAL_CLI_INVOCATION, yaml_replace)
+                content, lambda line: line.replace(local, frozen)
             )
         )
 
@@ -639,25 +573,23 @@ class PrepareRelease:
         """Replace frozen PyPI CLI invocations with local source.
 
         This is part of the **unfreeze** step: it reverts `repomatic`
-        invocations back to {data}`LOCAL_CLI_INVOCATION`, which runs the CLI
-        from the lockfile, for the next development cycle on `main`.
+        invocations back to
+        {func}`~repomatic.release.self_pin.local_cli_invocation`, which runs
+        the CLI from the lockfile, for the next development cycle on `main`.
 
         Replaces the `uvx --no-progress` invocation {meth}`freeze_cli_version`
-        writes, {data}`SELF_PIN_COOLDOWN_EXEMPTION` included: the lockfile
-        resolves from the working tree, so it never needs the escape hatch.
+        writes, cooldown exemption included: the lockfile resolves from the
+        working tree, so it never needs the escape hatch.
         Comment lines are skipped (see {meth}`freeze_cli_version`).
 
         :return: Number of files modified.
         """
-        yaml_pattern = re.compile(
-            r"uvx --no-progress "
-            rf"{re.escape(SELF_PIN_COOLDOWN_EXEMPTION)} "
-            rf"'{re.escape(UPSTREAM_PACKAGE)}==[\d.]+'"
-        )
+        frozen = frozen_cli_re(UPSTREAM_PACKAGE)
+        local = local_cli_invocation(UPSTREAM_PACKAGE)
 
         return self._rewrite_workflows(
             lambda content: self._map_noncomment_lines(
-                content, lambda line: yaml_pattern.sub(LOCAL_CLI_INVOCATION, line)
+                content, lambda line: frozen.sub(local, line)
             )
         )
 

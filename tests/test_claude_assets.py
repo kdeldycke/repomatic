@@ -72,7 +72,8 @@ from repomatic.bundle import get_data_content
 from repomatic.components import COMPONENTS_BY_NAME, SKILL_FILENAME
 from repomatic.config import Config
 from repomatic.frontmatter import split_frontmatter
-from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from repomatic.release.self_pin import cooldown_exemption
+from repomatic.upstream import UPSTREAM_PACKAGE
 
 from .conftest import PROJECT_ROOT, WORKFLOWS_DIR, docs_heading_slug
 
@@ -328,9 +329,10 @@ def test_self_pin_exemption_matches_constant(asset_id: str, body: str) -> None:
     """
     if "--exclude-newer-package" not in body:
         pytest.skip("asset declares no per-package cooldown exemption")
-    assert SELF_PIN_COOLDOWN_EXEMPTION in body, (
+    exemption = cooldown_exemption(UPSTREAM_PACKAGE)
+    assert exemption in body, (
         f"{asset_id} carries a per-package cooldown exemption that is not "
-        f"{SELF_PIN_COOLDOWN_EXEMPTION!r} verbatim."
+        f"{exemption!r} verbatim."
     )
 
 

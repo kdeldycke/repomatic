@@ -297,10 +297,12 @@ def test_audit_fix_no_fixable_exits_zero(monkeypatch, default_config, no_github_
     assert "No fixable vulnerabilities found." in result.output
 
 
-def test_audit_fix_skipped_when_sync_disabled(monkeypatch, no_github_repo):
-    config = Config()
-    config.vulnerable_deps.sync = False
-    monkeypatch.setattr(cli_deps, "get_tool_config", lambda ctx: config)
+def test_audit_fix_skipped_when_sync_disabled(tmp_path, monkeypatch, no_github_repo):
+    """`vulnerable-deps.sync = false` in `pyproject.toml` turns the fix off."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.repomatic]\nvulnerable-deps.sync = false\n", encoding="UTF-8"
+    )
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli_deps, "fix_vulnerable_deps", _fail)
     result = CliRunner().invoke(
         repomatic, ["--no-color", "audit", "--fix"], catch_exceptions=False

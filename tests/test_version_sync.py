@@ -31,6 +31,7 @@ from repomatic.cli.main import repomatic
 from repomatic.deps import pins as vs
 from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
 from repomatic.pypi import PyPIRelease
+from repomatic.release.self_pin import cooldown_exemption
 from repomatic.tooling.registry import TOOL_REGISTRY
 
 TODAY = date(2026, 6, 27)
@@ -437,7 +438,8 @@ def test_apply_workflow_literals():
     assert "papaya-cli==12.0.0" in new_content
 
 
-EXEMPTION = "--exclude-newer-package repomatic=P0D"
+EXEMPTION = cooldown_exemption("repomatic")
+"""The cooldown exemption of the self-pin, as the freeze writes it."""
 
 
 @pytest.mark.parametrize(
@@ -466,7 +468,7 @@ def test_apply_workflow_literals_self_pin_exemption(content, expected):
     new_content, _changes = vs.apply_workflow_literals(
         content,
         {("pypi", "repomatic"): "7.6.0"},
-        self_pin=("repomatic", EXEMPTION),
+        self_pin="repomatic",
     )
     assert new_content == expected
 
@@ -477,7 +479,7 @@ def test_apply_workflow_literals_leaves_other_packages_unexempted():
     new_content, _changes = vs.apply_workflow_literals(
         content,
         {("pypi", "papaya-cli"): "12.0.0"},
-        self_pin=("repomatic", EXEMPTION),
+        self_pin="repomatic",
     )
     assert EXEMPTION not in new_content
     assert "papaya-cli==12.0.0" in new_content

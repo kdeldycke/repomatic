@@ -36,7 +36,6 @@ from datetime import UTC, datetime
 from click_extra import TableFormat, render_table
 
 from .github.issue import manage_issue_lifecycle
-from .github.pr_body import render_template
 from .github.threads import BOT_ISSUE_LABEL
 from .lint_repo.settings import (
     check_branch_ruleset_on_default,
@@ -50,6 +49,7 @@ from .pypi import (
     PYPI_TRUSTED_PUBLISHER_WORKFLOW,
     pypi_trusted_publisher_settings_url,
 )
+from .templating import render_template
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:

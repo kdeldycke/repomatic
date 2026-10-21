@@ -151,17 +151,16 @@ def test_summary_table_links_to_its_sections(built_docs, page, anchor):
 def test_intersphinx_click_resolves(built_docs):
     """Click cross-references resolve to the upstream documentation site.
 
-    Read from the module's own page rather than the CLI guide: a Click link is
+    Read from the API reference rather than the CLI guide: a Click link is
     emitted by a rendered signature or docstring, and the generated API
     reference lives only on the `repomatic.*` pages. The guide keeps the
     `{click:tree}` output, which links within this site and would pass this
-    assertion for the wrong reason.
-
-    `--separate` gives each module its own page, so this names
-    `repomatic.cli.main` rather than the `repomatic.cli` package page, which
-    documents only the package's `__init__` and carries no signature.
+    assertion for the wrong reason. Any API page qualifies, because which
+    module renders a Click type changes as the code moves.
     """
-    html = read_html(built_docs, "repomatic.cli.main.html")
-    assert "https://click.palletsprojects.com" in html, (
-        "no intersphinx link to Click found; the mapping may be broken"
-    )
+    pages = sorted(built_docs.glob("repomatic.*.html"))
+    assert pages, "no API reference page was built"
+    assert any(
+        "https://click.palletsprojects.com" in page.read_text(encoding="UTF-8")
+        for page in pages
+    ), "no intersphinx link to Click found; the mapping may be broken"

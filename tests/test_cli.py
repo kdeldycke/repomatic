@@ -27,6 +27,7 @@ from __future__ import annotations
 import ast
 import io
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -54,6 +55,8 @@ from repomatic.cli.main import (
     subcommand,
     write_output,
 )
+from repomatic.config import config_key_paths
+from repomatic.github import outputs
 
 CLI_PACKAGE = Path(cli_main.__file__).parent
 
@@ -217,16 +220,57 @@ def test_every_output_option_accepts_stdout():
     assert not offenders, f"--output options refusing '-': {offenders}"
 
 
+FEATURE_GATE_RE = re.compile(r'exit_if_disabled\(ctx, "(?P<key>[\w.-]+)"\)')
+"""A command gating itself on a `[tool.repomatic]` flag, named as a literal."""
+
+FEATURE_GATES = sorted(
+    (path.name, match["key"])
+    for path in CLI_PACKAGE.glob("*.py")
+    for match in FEATURE_GATE_RE.finditer(path.read_text(encoding="UTF-8"))
+)
+"""Every `(module, key)` pair the commands gate on."""
+
+
+def test_feature_gates_are_found():
+    """The scan sees the gates, so the check over them proves something."""
+    assert FEATURE_GATES
+
+
+@pytest.mark.parametrize(("module", "key"), FEATURE_GATES)
+def test_feature_gate_names_a_real_key(module: str, key: str):
+    """Every key a command gates on is a `[tool.repomatic]` setting.
+
+    `exit_if_disabled` reads the flag through `Config.is_enabled`, which raises
+    on a key it does not know: a typo would break the command on its first run.
+    """
+    assert key in config_key_paths(), f"{module} gates on unknown key {key!r}"
+
+
+def test_feature_gate_exits_cleanly_when_off(tmp_path, monkeypatch):
+    """A flag switched off in `pyproject.toml` ends the command with success."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.repomatic]\ngitignore.sync = false\n", encoding="UTF-8"
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(repomatic, ["--verbosity", "INFO", "sync-gitignore"])
+
+    assert result.exit_code == 0, result.output
+    assert "gitignore.sync is disabled" in result.output
+    assert not (tmp_path / ".gitignore").exists()
+
+
 def test_write_output_closes_the_file_it_opens(tmp_path, monkeypatch):
+    """The stream opened for an `--output` path is closed once written."""
     opened = []
-    real_prep_path = cli_main.prep_path
+    real_prep_path = outputs.prep_path
 
     def spy(path):
         stream = real_prep_path(path)
         opened.append(stream)
         return stream
 
-    monkeypatch.setattr(cli_main, "prep_path", spy)
+    monkeypatch.setattr(outputs, "prep_path", spy)
     target = tmp_path / "harvest.md"
 
     write_output("harvest", "mango\nkiwi", target)

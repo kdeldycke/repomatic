@@ -280,10 +280,12 @@ include-data-dir = [
 ]
 include-data-files = [
   "repomatic/templates/*.md=repomatic/templates/",
+  "repomatic/templates/*.noformat=repomatic/templates/",
 ]
-# The CLI group imports its command modules by name, from strings Nuitka cannot
-# follow, so the whole package is compiled in.
-include-package = [ "repomatic.cli" ]
+# The CLI group imports its command modules by name, and the template loader
+# names its package in a constant: Nuitka follows neither string, so both
+# packages are compiled in.
+include-package = [ "repomatic.cli", "repomatic.templates" ]
 # click-extra ships themes.toml as package data loaded via importlib.resources;
 # Nuitka does not auto-bundle non-Python data files, so the binary crashes on
 # startup unless it is declared here.

@@ -33,7 +33,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from ..github.releases import get_github_release_body
+from ..github.releases import ReleaseNotesRequest, fetch_github_release_notes
 from ..humanize import (
     format_countdown,
     format_elapsed,
@@ -48,7 +48,6 @@ from ..pypi import (
     pypi_release_dates,
 )
 from ..tabular import render_markdown_table
-from ..versions import safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -599,53 +598,26 @@ def format_bypass_section(
 # ---------------------------------------------------------------------------
 
 
-def _versions_in_range(package: str, old: str, new: str) -> list[str]:
-    """Return PyPI versions of *package* in the half-open range `(old, new]`.
-
-    Versions are sorted in ascending order. Falls back to `[new]` if no
-    intermediate versions are found or PyPI is unreachable. Yanked and
-    prerelease versions are skipped, matching the selection sweeps: a pulled
-    release has no notes worth advertising, and the sweep that produced *new*
-    never picked a prerelease either.
-    """
-    releases = pypi_release_dates(package)
-    if not releases:
-        return [new]
-    old_v = safe_version(old)
-    new_v = safe_version(new)
-    if old_v is None or new_v is None:
-        return [new]
-    intermediate = []
-    for version_str, release in releases.items():
-        v = safe_version(version_str)
-        if v is None or release.yanked or (v.is_prerelease and v != new_v):
-            continue
-        if old_v < v <= new_v:
-            intermediate.append((v, version_str))
-    if not intermediate:
-        return [new]
-    intermediate.sort()
-    return [s for _, s in intermediate]
-
-
 def fetch_release_notes(
     changes: list[tuple[str, str, str]],
 ) -> dict[str, tuple[str, list[tuple[str, str]]]]:
-    """Fetch release notes for all updated packages.
+    """Fetch release notes for all updated PyPI packages.
 
     For each package with a new version, discovers the GitHub repository via
-    PyPI and fetches the release notes from GitHub Releases for all versions
-    in the range `(old, new]`. Falls back to a changelog link from PyPI
-    `project_urls` when no GitHub Release exists.
+    PyPI, and reads the release notes of the versions the bump covers through
+    {func}`~repomatic.github.releases.fetch_github_release_notes`, which lists
+    the releases of a repository once. A version PyPI marks yanked is left out:
+    a pulled release has no notes worth advertising. Falls back to a changelog
+    link from PyPI `project_urls` when no GitHub release has notes.
 
     :param changes: List of `(name, old_version, new_version)` tuples.
     :return: A dict mapping package names to `(repo_url, versions)` tuples
-        where `versions` is a list of `(tag, body)` pairs sorted ascending.
-        Only packages with at least one non-empty body are included. When a
-        changelog URL is used as fallback, `tag` is empty and `body`
-        contains a markdown link.
+        where `versions` is a list of `(tag, body)` pairs sorted ascending,
+        in the order of *changes*. Only packages with at least one non-empty
+        body are included. When a changelog URL is used as fallback, `tag` is
+        empty and `body` contains a markdown link.
     """
-    notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
+    requests = []
     for name, old, new in changes:
         if not new:
             # Skip removed packages.
@@ -654,27 +626,33 @@ def fetch_release_notes(
         if not repo_url:
             logging.debug(f"No GitHub URL found for {name}.")
             continue
+        yanked = frozenset(
+            version
+            for version, release in pypi_release_dates(name).items()
+            if release.yanked
+        )
+        requests.append(ReleaseNotesRequest(name, repo_url, old, new, skip=yanked))
 
-        # Discover all versions in the range (old, new].
-        versions_to_fetch = _versions_in_range(name, old, new) if old else [new]
-
-        fetched: list[tuple[str, str]] = []
-        for version in versions_to_fetch:
-            tag, body = get_github_release_body(repo_url, version)
-            if body:
-                fetched.append((tag, body))
-
-        if not fetched:
-            # Fallback: link to a changelog page from PyPI project_urls.
-            changelog_url = get_pypi_changelog_url(name)
-            if changelog_url:
-                fetched.append(("", f"[Changelog]({changelog_url})"))
-                logging.debug(f"Using PyPI changelog URL for {name}: {changelog_url}")
-            else:
-                logging.debug(f"No release body or changelog for {name} {new}.")
-
-        if fetched:
-            notes[name] = (repo_url, fetched)
+    found = fetch_github_release_notes(requests)
+    notes: dict[str, tuple[str, list[tuple[str, str]]]] = {}
+    for request in requests:
+        if request.name in found:
+            notes[request.name] = found[request.name]
+            continue
+        # Fallback: link to a changelog page from PyPI project_urls.
+        changelog_url = get_pypi_changelog_url(request.name)
+        if changelog_url:
+            notes[request.name] = (
+                request.repo_url,
+                [("", f"[Changelog]({changelog_url})")],
+            )
+            logging.debug(
+                f"Using PyPI changelog URL for {request.name}: {changelog_url}"
+            )
+        else:
+            logging.debug(
+                f"No release body or changelog for {request.name} {request.new}."
+            )
     return notes
 
 

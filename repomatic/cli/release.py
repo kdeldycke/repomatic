@@ -797,8 +797,7 @@ def sync_binaries(
     missing; only its chart region is rewritten afterwards, so the prose can
     be edited per repository.
     """
-    config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.binaries_sync, "binaries.sync")
+    exit_if_disabled(ctx, "binaries.sync")
 
     try:
         releases = get_releases_with_assets(f"https://github.com/{repo}")
@@ -829,8 +828,7 @@ def sync_bumpversion(ctx: Context) -> None:
     sync-bumpversion autofix job. The repomatic init bumpversion command
     remains available for interactive bootstrapping.
     """
-    config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.bumpversion_sync, "bumpversion.sync")
+    exit_if_disabled(ctx, "bumpversion.sync")
 
     pyproject_path = Path("pyproject.toml")
     merged = init_config("bumpversion", pyproject_path)
@@ -887,7 +885,7 @@ def sync_dev_release_cmd(
     it. This is used during real releases to clean up.
     """
     config = get_tool_config(ctx)
-    exit_if_disabled(ctx, config.dev_release_sync, "dev-release.sync")
+    exit_if_disabled(ctx, "dev-release.sync")
 
     if delete and upload_assets:
         raise UsageError("--delete and --upload-assets are mutually exclusive.")
@@ -942,6 +940,7 @@ def sync_github_releases_cmd(ctx: Context, dry_run: bool) -> None:
     Compares each GitHub release body against the corresponding
     changelog.md section and updates any that have drifted.
     """
+    exit_if_disabled(ctx, "github-releases.sync")
     loaded = load_changelog_repo(get_tool_config(ctx))
     if loaded is None:
         return

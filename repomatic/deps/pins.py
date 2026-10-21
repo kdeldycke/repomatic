@@ -53,6 +53,11 @@ from ..http import FetchError, get_text
 from ..humanize import SECONDS_PER_DAY
 from ..npm import NPM_PACKAGE_URL, npm_release_dates
 from ..pypi import PYPI_PACKAGE_URL, pypi_release_dates
+from ..release.self_pin import (
+    add_cooldown_exemption,
+    align_inline_pins,
+    find_inline_pins,
+)
 from ..tooling.registry import ToolBackend
 from ..versions import is_newer, safe_version
 
@@ -720,8 +725,18 @@ def apply_action_pins(
     return ACTION_PIN_RE.sub(replace, content), changes
 
 
-def find_workflow_literals(content: str) -> list[WorkflowLiteral]:
-    """Find npm and PyPI version literals embedded in a workflow file."""
+def find_workflow_literals(
+    content: str, self_pin: str | None = None
+) -> list[WorkflowLiteral]:
+    """Find npm and PyPI version literals embedded in a workflow file.
+
+    :param content: The workflow file text.
+    :param self_pin: The package of the upstream toolkit. Its pin is read in
+        every shape {func}`~repomatic.release.self_pin.inline_pin_re` matches,
+        the shapes the `lint-repo` lockstep check reads, rather than in the
+        quoted `uvx` and `--with` shapes alone.
+    :return: One literal per pin found.
+    """
     literals = [
         WorkflowLiteral(Ecosystem.NPM, m.group("package"), m.group("version"))
         for m in _NPM_LITERAL_RE.finditer(content)
@@ -729,7 +744,13 @@ def find_workflow_literals(content: str) -> list[WorkflowLiteral]:
     literals.extend(
         WorkflowLiteral(Ecosystem.PYPI, m.group("package"), m.group("version"))
         for m in _PYPI_LITERAL_RE.finditer(content)
+        if m.group("package") != self_pin
     )
+    if self_pin:
+        literals.extend(
+            WorkflowLiteral(Ecosystem.PYPI, self_pin, version)
+            for version in find_inline_pins(content, self_pin)
+        )
     literals.extend(
         WorkflowLiteral(Ecosystem.PYPI, SETUP_UV_PACKAGE, m.group("version"))
         for m in _SETUP_UV_VERSION_RE.finditer(content)
@@ -737,75 +758,20 @@ def find_workflow_literals(content: str) -> list[WorkflowLiteral]:
     return literals
 
 
-@cache
-def self_pin_exemption_re(package: str) -> re.Pattern[str]:
-    """Match a `uvx` command pinning *package*, capturing the flags before it.
-
-    Memoized: the splice runs once per workflow file for the same package.
-    """
-    return re.compile(
-        r"(?P<prefix>uvx\s+)(?P<flags>[^'\n]*)"
-        rf"(?P<pin>'{re.escape(package)}(?:\[[^\]]+\])?==[0-9][0-9.]*')"
-    )
-
-
-def frozen_cli_invocation(package: str, version: str, exemption: str) -> str:
-    """Render the frozen, cooldown-exempt `uvx` invocation of *package*.
-
-    The one spelling both writers emit: the release freeze
-    (`PrepareRelease.freeze_cli_version`) writes it wholesale, and
-    {func}`apply_self_pin_exemption` converges an exemption-less command onto
-    the same byte sequence, so the unfreeze pattern has exactly one shape to
-    recognize.
-    """
-    return f"uvx --no-progress {exemption} '{package}=={version}'"
-
-
-def apply_self_pin_exemption(content: str, package: str, exemption: str) -> str:
-    """Splice a cooldown exemption into every `uvx` command pinning *package*.
-
-    The upstream toolkit's inline pin moves in lockstep with the `uses:` refs,
-    regardless of the cooldown, so the version it names can be minutes old.
-    Every workflow exports a `UV_EXCLUDE_NEWER` covering all resolution, and
-    `uvx` reads no per-package exemption from the environment or from
-    `pyproject.toml`, so without the flag on the command line the freshly
-    aligned pin fails to resolve until the window elapses.
-
-    Idempotent: a command already carrying the exemption is left untouched.
-
-    :param content: The workflow file text.
-    :param package: The self-pinned distribution name.
-    :param exemption: The flag to splice in, ahead of the quoted requirement.
-    :return: The updated text.
-    """
-
-    def splice(match: re.Match[str]) -> str:
-        if exemption in match.group("flags"):
-            return match.group(0)
-        # The exemption lands after the existing flags, right before the pin,
-        # so the result is byte-identical to what the release freeze writes
-        # (see {func}`frozen_cli_invocation`) and the unfreeze pattern only
-        # ever meets one spelling.
-        return (
-            f"{match.group('prefix')}{match.group('flags')}"
-            f"{exemption} {match.group('pin')}"
-        )
-
-    return self_pin_exemption_re(package).sub(splice, content)
-
-
 def apply_workflow_literals(
     content: str,
     resolved: Mapping[tuple[str, str], str],
-    self_pin: tuple[str, str] | None = None,
+    self_pin: str | None = None,
 ) -> tuple[str, list[tuple[str, str, str]]]:
     """Rewrite npm/PyPI version literals to their resolved version.
 
     :param content: The workflow file text.
     :param resolved: Mapping of `(ecosystem, package)` to the new version.
-    :param self_pin: Optional `(package, exemption_flag)` for the upstream
-        toolkit's own pin, whose rewrite bypasses the cooldown and therefore
-        needs {func}`apply_self_pin_exemption` on the resulting command.
+    :param self_pin: The package of the upstream toolkit. Its pin is rewritten
+        in every shape {func}`find_workflow_literals` reads it in, and its
+        `uvx` commands get the exemption of
+        {func}`~repomatic.release.self_pin.add_cooldown_exemption`: the rewrite
+        bypasses the cooldown, so the version it writes can be minutes old.
     :return: The updated text and a list of `(package, old_version,
         new_version)` changes actually applied.
 
@@ -825,7 +791,7 @@ def apply_workflow_literals(
             package = match.group("package")
             new_version = resolved.get((ecosystem, package))
             old_version = match.group("version")
-            if not new_version or new_version == old_version:
+            if package == self_pin or not new_version or new_version == old_version:
                 return match.group(0)
             changes.append((package, old_version, new_version))
             return match.group(0).replace(f"{sep}{old_version}", f"{sep}{new_version}")
@@ -849,10 +815,14 @@ def apply_workflow_literals(
     content = _NPM_LITERAL_RE.sub(replace(Ecosystem.NPM, "@"), content)
     content = _PYPI_LITERAL_RE.sub(replace(Ecosystem.PYPI, "=="), content)
     content = _SETUP_UV_VERSION_RE.sub(replace_setup_uv, content)
-    # After the pin itself moved, so the exemption lands on the new version and a
-    # file the rewrite left alone still gets a missing flag backfilled.
     if self_pin:
-        content = apply_self_pin_exemption(content, *self_pin)
+        version = resolved.get((Ecosystem.PYPI, self_pin))
+        if version:
+            content, pin_changes = align_inline_pins(content, self_pin, version)
+            changes.extend(pin_changes)
+        # After the pin itself moved, so the exemption lands on the new version
+        # and a file the rewrite left alone still gets a missing flag backfilled.
+        content = add_cooldown_exemption(content, self_pin)
     return content, changes
 
 

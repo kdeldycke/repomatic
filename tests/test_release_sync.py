@@ -18,11 +18,14 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
+from click_extra.testing import CliRunner
 
 from repomatic.changelog import Changelog
+from repomatic.cli.main import repomatic
+from repomatic.github.gh import GhCommandError
 from repomatic.github.release_sync import (
     SyncResult,
     SyncRow,
@@ -325,6 +328,37 @@ def test_sync_live_failure(changelog_path):
     assert len(failed_rows) == 1
 
 
+def test_sync_live_error_moves_on_to_the_next_release(changelog_path):
+    """A failed edit counts against its release, and the sync goes on.
+
+    `edit_release_notes` raises on any failure but a missing release. Left
+    uncaught, one transient error would abort the run and leave every release
+    after it drifted.
+    """
+    edit = Mock(side_effect=[GhCommandError("HTTP 502: Bad Gateway"), True])
+    with (
+        patch(
+            "repomatic.github.release_sync.get_github_releases",
+            return_value={
+                "2.0.0": GitHubRelease(date="2026-01-15", body="old body"),
+                "1.0.0": GitHubRelease(date="2026-01-01", body="stale content"),
+            },
+        ),
+        patch("repomatic.github.release_sync.edit_release_notes", edit),
+    ):
+        result = sync_github_releases(
+            "https://github.com/user/repo", changelog_path, dry_run=False
+        )
+
+    assert edit.call_count == 2
+    assert result.failed == 1
+    assert result.updated == 1
+    assert [(row.version, row.action) for row in result.rows] == [
+        ("2.0.0", ReportAction.FAILED),
+        ("1.0.0", ReportAction.UPDATED),
+    ]
+
+
 def test_render_sync_report_dry_run():
     """Report format for dry-run mode."""
     result = SyncResult(
@@ -391,3 +425,29 @@ def test_render_sync_report_live():
     assert "live" in report
     assert "Updated | 1" in report
     assert "Failed | 1" in report
+
+
+@pytest.mark.parametrize(
+    ("setting", "synced"),
+    (
+        pytest.param("", True, id="default"),
+        pytest.param("github-releases.sync = false\n", False, id="switched-off"),
+    ),
+)
+def test_sync_github_releases_command_honors_its_switch(
+    tmp_path, monkeypatch, setting, synced
+):
+    """`github-releases.sync = false` reads and writes no release."""
+    (tmp_path / "pyproject.toml").write_text(
+        f"[tool.repomatic]\n{setting}", encoding="UTF-8"
+    )
+    (tmp_path / "changelog.md").write_text(SAMPLE_CHANGELOG, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+
+    with patch(
+        "repomatic.cli.release.sync_github_releases", return_value=SyncResult()
+    ) as sync:
+        result = CliRunner().invoke(repomatic, ["sync-github-releases", "--live"])
+
+    assert result.exit_code == 0, result.output
+    assert sync.called is synced

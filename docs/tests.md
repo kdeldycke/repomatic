@@ -81,6 +81,7 @@
    tests.test_runner_catalog
    tests.test_runner_sync
    tests.test_runs
+   tests.test_self_pin
    tests.test_setup_guide
    tests.test_skills
    tests.test_sphinx_crossrefs

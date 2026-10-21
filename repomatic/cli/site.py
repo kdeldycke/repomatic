@@ -57,7 +57,7 @@ def _one_mode(given: Mapping[ModeT, bool]) -> ModeT:
 
     :param given: Whether the flag of each mode is on, keyed by the mode,
         which is named after its flag.
-    :raises UsageError: When no flag, or more than one, is on.
+    :raises click.UsageError: When no flag, or more than one, is on.
     """
     selected = [mode for mode, active in given.items() if active]
     if len(selected) != 1:
@@ -71,7 +71,7 @@ def _one_mode(given: Mapping[ModeT, bool]) -> ModeT:
 def _project(ctx: Context, project: str | None) -> str:
     """Name the Pages project a command acts on.
 
-    :raises UsageError: When neither `--project`, the configuration nor the
+    :raises click.UsageError: When neither `--project`, the configuration nor the
         repository names one.
     """
     resolved = resolve_project(get_tool_config(ctx), project)

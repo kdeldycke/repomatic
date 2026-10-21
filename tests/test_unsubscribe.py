@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 from datetime import UTC, datetime, timedelta, timezone
 from functools import partial
@@ -49,7 +48,6 @@ from repomatic.github.unsubscribe import (
     _iter_closed_items,
     _render_detail_table,
     _unsubscribe_rest_thread,
-    _validate_notifications_token,
     render_report,
     unsubscribe_threads,
 )
@@ -741,47 +739,6 @@ def test_iter_closed_items_delegates_to_paginator():
     # No node budget: the cap counts unsubscribes, and GitHub's search stops at
     # a thousand results on its own.
     assert "max_nodes" not in kw_args
-
-
-# -- _validate_notifications_token --------------------------------------------
-
-
-def test_validate_notifications_token_exact_scope(caplog):
-    """A token scoped to exactly 'notifications' passes without a warning."""
-    with (
-        patch(
-            f"{_MODULE}.validate_classic_pat_scope",
-            return_value=["notifications"],
-        ),
-        caplog.at_level(logging.WARNING),
-    ):
-        _validate_notifications_token()
-    assert "more scopes than needed" not in caplog.text
-
-
-def test_validate_notifications_token_extra_scopes_warns(caplog):
-    """Extra scopes on the token log a least-privilege warning."""
-    with (
-        patch(
-            f"{_MODULE}.validate_classic_pat_scope",
-            return_value=["notifications", "repo"],
-        ),
-        caplog.at_level(logging.WARNING),
-    ):
-        _validate_notifications_token()
-    assert "more scopes than needed" in caplog.text
-
-
-def test_validate_notifications_token_propagates():
-    """A validation failure propagates to the CLI entry point."""
-    with (
-        patch(
-            f"{_MODULE}.validate_classic_pat_scope",
-            side_effect=RuntimeError("bad scope"),
-        ),
-        pytest.raises(RuntimeError, match="bad scope"),
-    ):
-        _validate_notifications_token()
 
 
 # -- unsubscribe_threads: phase 1 (REST) --------------------------------------

@@ -137,9 +137,6 @@ def pypi_trusted_publisher_settings_url(
     return f"{base}?{query}"
 
 
-PYPI_LABEL = "🐍 PyPI"
-"""Display label for PyPI releases in admonitions."""
-
 # Keys in PyPI `project_urls` that typically point to a changelog, checked in
 # priority order. Lowercase, because they are looked up in a lowercased index
 # of the project's own keys: see the note on `_SOURCE_URL_KEYS`.

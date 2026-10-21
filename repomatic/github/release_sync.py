@@ -29,7 +29,8 @@ from pathlib import Path
 
 from ..changelog import GITHUB_RELEASE_URL, Changelog
 from ..tabular import ReportAction, render_markdown_table
-from .pr_body import render_template
+from ..templating import render_template
+from .gh import GhCommandError
 from .releases import (
     GitHubReleasesUnavailable,
     edit_release_notes,
@@ -199,8 +200,14 @@ def sync_github_releases(
             )
             continue
 
-        # Live mode: update the release body.
-        if edit_release_notes(f"v{version}", repository, expected):
+        # Live mode: update the release body. A failed edit is counted against
+        # its release and the run goes on: one transient error must not leave
+        # every release after it drifted.
+        try:
+            edited = edit_release_notes(f"v{version}", repository, expected)
+        except GhCommandError:
+            edited = False
+        if edited:
             result.updated += 1
             result.rows.append(
                 SyncRow(

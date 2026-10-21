@@ -45,6 +45,7 @@ from repomatic.github.workflow_sync import (
     _substitute_source_paths,
     canonical_caller_permissions,
     canonical_workflow,
+    cooldown_env_block,
     extract_extra_jobs,
     extract_trigger_info,
     extras_define_jobs,
@@ -309,6 +310,7 @@ def _materialize_thin_callers(root: Path) -> list[str]:
 
 
 @pytest.mark.once
+@pytest.mark.real_http
 def test_generated_callers_pass_yamllint(tmp_path: Path) -> None:
     """Generated thin callers must clear the yamllint rules CI enforces.
 
@@ -340,6 +342,7 @@ def test_generated_callers_pass_yamllint(tmp_path: Path) -> None:
 
 
 @pytest.mark.once
+@pytest.mark.real_http
 def test_generated_callers_pass_actionlint(tmp_path: Path) -> None:
     """Generated thin callers must be workflows GitHub will actually accept.
 
@@ -1316,7 +1319,7 @@ def test_substitute_source_paths(
         pytest.param(
             {"branches": ["main"], "paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml"]},
             "tests.yaml",
-            PathsSpec(source_paths=["extra_platforms"]),
+            PathsSpec(source_paths=("extra_platforms",)),
             {"branches": ["main"], "paths": ["extra_platforms/**", "pyproject.toml"]},
             id="source-paths-substituted",
         ),
@@ -1349,7 +1352,7 @@ def test_substitute_source_paths(
         pytest.param(
             {"branches": ["main"]},
             "tests.yaml",
-            PathsSpec(source_paths=["extra_platforms"]),
+            PathsSpec(source_paths=("extra_platforms",)),
             {"branches": ["main"]},
             id="no-paths-key-passes-through",
         ),
@@ -1357,7 +1360,7 @@ def test_substitute_source_paths(
             {"paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml"]},
             "tests.yaml",
             PathsSpec(
-                source_paths=["my_pkg"],
+                source_paths=("my_pkg",),
                 # The already-present entry is deduped rather than repeated.
                 extra_paths=["install.sh", "pyproject.toml"],
             ),
@@ -1367,7 +1370,7 @@ def test_substitute_source_paths(
         pytest.param(
             {"paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml", "uv.lock"]},
             "tests.yaml",
-            PathsSpec(source_paths=["my_pkg"], ignore_paths=["uv.lock"]),
+            PathsSpec(source_paths=("my_pkg",), ignore_paths=["uv.lock"]),
             {"paths": ["my_pkg/**", "pyproject.toml"]},
             id="ignore-paths-stripped",
         ),
@@ -1375,7 +1378,7 @@ def test_substitute_source_paths(
             {"paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml", "uv.lock"]},
             "tests.yaml",
             PathsSpec(
-                source_paths=["my_pkg"],
+                source_paths=("my_pkg",),
                 extra_paths=["never-applied.sh"],
                 ignore_paths=["pyproject.toml"],
                 workflow_paths={"tests.yaml": ["install.sh", "packages.toml"]},
@@ -1387,7 +1390,7 @@ def test_substitute_source_paths(
             {"paths": [UPSTREAM_SOURCE_GLOB, "pyproject.toml"]},
             "lint.yaml",
             PathsSpec(
-                source_paths=["my_pkg"],
+                source_paths=("my_pkg",),
                 workflow_paths={"tests.yaml": ["install.sh"]},
             ),
             {"paths": ["my_pkg/**", "pyproject.toml"]},
@@ -1414,7 +1417,7 @@ def test_thin_caller_release_with_source_paths() -> None:
     so ``source_paths`` has no effect.
     """
     content = generate_thin_caller(
-        "release.yaml", paths_spec=PathsSpec(source_paths=["extra_platforms"])
+        "release.yaml", paths_spec=PathsSpec(source_paths=("extra_platforms",))
     )
     data = yaml.safe_load(content)
     triggers = workflow_triggers(data)
@@ -1431,7 +1434,7 @@ def test_thin_caller_changelog_with_source_paths() -> None:
     beyond keeping all paths intact.
     """
     content = generate_thin_caller(
-        "changelog.yaml", paths_spec=PathsSpec(source_paths=["extra_platforms"])
+        "changelog.yaml", paths_spec=PathsSpec(source_paths=("extra_platforms",))
     )
     data = yaml.safe_load(content)
     triggers = workflow_triggers(data)
@@ -1443,7 +1446,7 @@ def test_thin_caller_changelog_with_source_paths() -> None:
 def test_thin_caller_lint_no_paths_with_source_paths() -> None:
     """Verify workflows without paths don't gain paths from source_paths."""
     content = generate_thin_caller(
-        "lint.yaml", paths_spec=PathsSpec(source_paths=["extra_platforms"])
+        "lint.yaml", paths_spec=PathsSpec(source_paths=("extra_platforms",))
     )
     data = yaml.safe_load(content)
     triggers = workflow_triggers(data)
@@ -1460,7 +1463,7 @@ def test_thin_caller_lint_no_paths_with_source_paths() -> None:
 def test_header_with_source_paths_substitutes() -> None:
     """Verify header generation replaces upstream source paths."""
     header = generate_workflow_header(
-        "tests.yaml", paths_spec=PathsSpec(source_paths=["my_pkg"])
+        "tests.yaml", paths_spec=PathsSpec(source_paths=("my_pkg",))
     )
     assert "my_pkg/**" in header
     assert UPSTREAM_SOURCE_GLOB not in header
@@ -1483,7 +1486,7 @@ def test_tests_yaml_runs_on_bundled_assets_upstream_only() -> None:
         assert UPSTREAM_ASSET_GLOB in triggers[trigger]["paths"]
 
     header = generate_workflow_header(
-        "tests.yaml", paths_spec=PathsSpec(source_paths=["my_pkg"])
+        "tests.yaml", paths_spec=PathsSpec(source_paths=("my_pkg",))
     )
     assert UPSTREAM_ASSET_GLOB not in header
     assert "my_pkg/**" in header
@@ -1810,7 +1813,7 @@ def test_header_preserves_canonical_quote_style() -> None:
     """Header rewriter preserves quote style for unmodified entries."""
     # `tests.yaml` uses unquoted entries throughout. Substituting source paths
     # must not introduce quotes around the new entries.
-    spec = PathsSpec(source_paths=["my_pkg"])
+    spec = PathsSpec(source_paths=("my_pkg",))
     header = generate_workflow_header("tests.yaml", paths_spec=spec)
     assert "      - my_pkg/**" in header
     assert '      - "my_pkg/**"' not in header
@@ -2125,11 +2128,45 @@ def test_configured_input_reaches_the_generated_caller() -> None:
     assert "months: ${{ inputs.months }}" in caller
 
 
-def test_default_config_leaves_the_caller_untouched() -> None:
+@pytest.mark.parametrize("filename", ("release.yaml", "unsubscribe.yaml"))
+def test_default_config_leaves_the_caller_untouched(filename: str) -> None:
     """Configuring nothing churns no caller: the two renders are identical."""
-    assert generate_thin_caller("unsubscribe.yaml", config=Config()) == (
-        generate_thin_caller("unsubscribe.yaml")
+    assert generate_thin_caller(filename, config=Config()) == (
+        generate_thin_caller(filename)
     )
+
+
+# --- Cooldown window of the generated files ---
+
+TWO_WEEK_COOLDOWN = Config(minimum_release_age="2 weeks")
+"""A repository whose cooldown window is not the default one."""
+
+
+def test_release_caller_carries_the_configured_cooldown(tmp_path: Path) -> None:
+    """The generated `release.yaml` exports the window of its own repository.
+
+    Its `env:` comment says the literal equals `[tool.repomatic]
+    minimum-release-age`, so a repository set to two weeks gets two weeks, not
+    the default the canonical workflows carry.
+    """
+    content, _existing = render_thin_caller_for_target(
+        "release.yaml", tmp_path / "release.yaml", config=TWO_WEEK_COOLDOWN
+    )
+    assert 'UV_EXCLUDE_NEWER: "2 weeks"' in content
+    assert "NPM_CONFIG_MIN_RELEASE_AGE: 14" in content
+    assert cooldown_env_block(TWO_WEEK_COOLDOWN) in content
+
+
+@pytest.mark.parametrize("filename", sorted(NON_REUSABLE_WORKFLOWS))
+def test_synced_header_carries_the_configured_cooldown(filename: str) -> None:
+    """A header synced into a downstream workflow exports its own window too.
+
+    The canonical header holds the default block, and `repomatic init` rewrites
+    the whole header of the downstream copy.
+    """
+    header = generate_workflow_header(filename, config=TWO_WEEK_COOLDOWN)
+    assert cooldown_env_block(TWO_WEEK_COOLDOWN) in header
+    assert cooldown_env_block() not in header
 
 
 @pytest.mark.parametrize(

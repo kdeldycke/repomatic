@@ -710,7 +710,7 @@ def floors_inside_cooldown(
     ```{caution}
     This repository cannot feel the breakage it would ship. Its own workflows
     install from `uv.lock` (see
-    {data}`repomatic.release.prepare_release.LOCAL_CLI_INVOCATION`), which resolves
+    {func}`repomatic.release.self_pin.local_cli_invocation`), which resolves
     through the local `exclude-newer-package` exemption and stays green. The
     failure lands only on whoever installs the release, which is why it needs a
     gate here rather than a red CI run to catch it.

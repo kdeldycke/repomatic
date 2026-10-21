@@ -124,9 +124,8 @@ from textwrap import indent
 from packaging.version import Version
 
 from .file_ops import write_if_changed
-from .github.pr_body import render_template
 from .humanize import today_utc
-from .pypi import PYPI_LABEL
+from .templating import render_template
 from .versions import safe_version
 
 TYPE_CHECKING = False
@@ -188,6 +187,9 @@ GITHUB_RELEASE_URL = "{repo_url}/releases/tag/v{version}"
 
 NOT_AVAILABLE_VERB = "is **not available** on"
 """Verb phrase for versions missing from a platform."""
+
+PYPI_LABEL = "🐍 PyPI"
+"""Display label for PyPI in admonitions."""
 
 SECTION_START = "##"
 """Markdown heading level for changelog version sections."""
@@ -589,6 +591,19 @@ class Changelog:
         """
         return RELEASED_VERSION_PATTERN.findall(self.content)
 
+    def is_first_release(self, version: str) -> bool:
+        """Whether no released section of the changelog predates *version*.
+
+        :param version: Version string (like `1.2.3`).
+        :return: `False` when *version* does not parse, or when an older version
+            carries a dated section.
+        """
+        parsed = safe_version(version)
+        return parsed is not None and not any(
+            (released := safe_version(other)) is not None and released < parsed
+            for other, _date in self.extract_all_releases()
+        )
+
     def extract_all_version_headings(self) -> set[str]:
         """Extract all version strings from `##` headings.
 
@@ -806,10 +821,9 @@ def _platform_admonition(
 ) -> str:
     """Render a GFM admonition naming the platforms a version stands on.
 
-    The shared body of {func}`build_release_admonition` and
-    {func}`build_unavailable_admonition`: both state the same sentence about
-    the same version over a different set of platforms, and both render nothing
-    when that set is empty.
+    The shared body of the two blocks {func}`availability_admonition` renders:
+    both state the same sentence about the same version over a different set
+    of platforms, and both render nothing when that set is empty.
 
     :param template: Template name supplying the alert type and sentence.
     :param version: Version string (e.g. `1.2.3`).
@@ -828,58 +842,62 @@ def _platform_admonition(
     )
 
 
-def build_release_admonition(
+def availability_admonition(
     version: str,
     *,
     pypi_url: str = "",
     github_url: str = "",
-    first_on_all: bool = False,
-) -> str:
-    """Build a GFM release admonition with available distribution links.
-
-    :param version: Version string (e.g. `1.2.3`).
-    :param pypi_url: PyPI project URL, or empty if not on PyPI.
-    :param github_url: GitHub release URL, or empty if no release exists.
-    :param first_on_all: Whether every listed platform is a first appearance.
-        When `True`, uses "is the *first version* available on" wording.
-    :return: A `> [!NOTE]` admonition block, or empty string if neither
-        URL is provided.
-    """
-    links = [
-        f"[{label}]({url})"
-        for label, url in ((PYPI_LABEL, pypi_url), (GITHUB_LABEL, github_url))
-        if url
-    ]
-    return _platform_admonition(
-        "available-admonition",
-        version,
-        FIRST_AVAILABLE_VERB if first_on_all else AVAILABLE_VERB,
-        links,
-    )
-
-
-def build_unavailable_admonition(
-    version: str,
-    *,
+    first_on_pypi: bool = False,
+    first_on_github: bool = False,
     missing_pypi: bool = False,
     missing_github: bool = False,
 ) -> str:
-    """Build a GFM warning admonition for platforms missing a version.
+    """Render the availability admonitions of a release section.
 
-    :param version: Version string (e.g. `1.2.3`).
+    The one renderer of {attr}`VersionElements.availability_admonition`. Two
+    writers share it, so a release reads the same in both: `lint-changelog
+    --fix` writes it into the changelog, and the draft GitHub release body
+    bakes it in before that fix runs.
+
+    A `> [!NOTE]` links the platforms carrying the version. It uses the
+    *first version* wording when the version is the first one on every
+    platform it links. A `> [!WARNING]` names the platforms missing the
+    version. Both blocks appear when a version is on one platform and missing
+    from the other.
+
+    :param version: Version string (like `1.2.3`).
+    :param pypi_url: PyPI page of the version, empty to leave PyPI out of the
+        note.
+    :param github_url: GitHub release page of the version, empty to leave
+        GitHub out of the note.
+    :param first_on_pypi: Whether the version is the first one on PyPI.
+    :param first_on_github: Whether the version is the first GitHub release.
     :param missing_pypi: Whether the version is missing from PyPI.
     :param missing_github: Whether the version is missing from GitHub.
-    :return: A `> [!WARNING]` admonition block, or empty string if
-        neither platform is missing.
+    :return: The admonition blocks, separated by a blank line. Empty when the
+        version is neither linked nor missing anywhere.
     """
-    names = [
-        label
-        for label, missing in (
-            (PYPI_LABEL, missing_pypi),
-            (GITHUB_LABEL, missing_github),
+    linked = [
+        (f"[{label}]({url})", first)
+        for label, url, first in (
+            (PYPI_LABEL, pypi_url, first_on_pypi),
+            (GITHUB_LABEL, github_url, first_on_github),
         )
-        if missing
+        if url
     ]
-    return _platform_admonition(
-        "unavailable-admonition", version, NOT_AVAILABLE_VERB, names
+    first_on_all = bool(linked) and all(first for _link, first in linked)
+    note = _platform_admonition(
+        "available-admonition",
+        version,
+        FIRST_AVAILABLE_VERB if first_on_all else AVAILABLE_VERB,
+        [link for link, _first in linked],
     )
+    missing = [
+        label
+        for label, gap in ((PYPI_LABEL, missing_pypi), (GITHUB_LABEL, missing_github))
+        if gap
+    ]
+    warning = _platform_admonition(
+        "unavailable-admonition", version, NOT_AVAILABLE_VERB, missing
+    )
+    return "\n\n".join(block for block in (note, warning) if block)

@@ -169,16 +169,6 @@ def wrangler_config_paths() -> tuple[Path, ...]:
     return tuple(paths)
 
 
-def _parse_timestamp(value: object) -> datetime | None:
-    """Read one of Cloudflare's or wrangler's timestamps, or `None` if unreadable.
-
-    A coercing front on {func}`~repomatic.humanize.parse_iso_datetime`: both
-    callers hand over whatever a JSON or TOML lookup answered, `None`
-    included.
-    """
-    return parse_iso_datetime(str(value)) if value else None
-
-
 def api_token() -> str:
     """Find the credential every call sends.
 
@@ -202,7 +192,7 @@ def api_token() -> str:
         # hands the API a dead credential. Cloudflare answers that with a bare
         # `403` on whichever call comes first, which reads as a scope problem
         # and sends the reader auditing permissions that were never wrong.
-        expiry = _parse_timestamp(stored.get("expiration_time"))
+        expiry = parse_iso_datetime(stored.get("expiration_time"))
         if expiry and expiry <= datetime.now(UTC):
             msg = (
                 f"The `wrangler login` session in {config_path} expired on "
@@ -344,7 +334,7 @@ def token_expiry_warning(token: str, account_id: str) -> str | None:
             continue
         # A verified token with no expiry recorded never expires, so there is
         # nothing to count down to.
-        expiry = _parse_timestamp((result or {}).get("expires_on"))
+        expiry = parse_iso_datetime((result or {}).get("expires_on"))
         if expiry is None:
             return None
         now = datetime.now(UTC)

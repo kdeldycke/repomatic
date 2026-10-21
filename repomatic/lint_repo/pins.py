@@ -23,7 +23,6 @@ cooldown, and the click-extra version the man pages render with.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,14 +39,17 @@ from ..deps.pins import (
     find_upstream_ref_versions,
     parse_min_age,
     pinned_release_date,
-    self_pin_exemption_re,
     setup_uv_verified_versions,
     tool_candidates,
 )
 from ..github.urls import repo_name
 from ..github.workflow_files import iter_steps
 from ..humanize import format_countdown, utc_midnight
-from ..release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from ..release.self_pin import (
+    cooldown_exemption,
+    cooldown_exemptions,
+    find_inline_pins,
+)
 from ..tooling.registry import TOOL_REGISTRY
 from ..upstream import DEFAULT_REPO
 
@@ -136,18 +138,19 @@ def check_inline_pins_match_upstream(ctx: LintContext) -> CheckResult:
     a symbol the newer refs rely on, the metadata job fails and a release can
     publish to PyPI yet never tag (the toolkit chicken-and-egg). Flag the
     drift so the lint fails before a release does.
+
+    Reads the pins through {func}`~repomatic.release.self_pin.inline_pin_re`,
+    the matcher both rewriters use, so every pin flagged here is one they fix.
     """
     package = repo_name(DEFAULT_REPO)
     if not ctx.workflow_texts:
         return CheckResult(None, f"Inline {package} pin check: skipped (no workflows).")
 
-    pin_re = re.compile(rf"\b{re.escape(package)}==(?P<version>[0-9]+(?:\.[0-9]+)*)")
-
     upstream_versions: set[str] = set()
     pins_by_file: dict[str, set[str]] = {}
     for wf, content in ctx.workflow_texts.items():
         upstream_versions.update(find_upstream_ref_versions(content, DEFAULT_REPO))
-        found = {m["version"] for m in pin_re.finditer(content)}
+        found = set(find_inline_pins(content, package))
         if found:
             pins_by_file[wf.name] = found
 
@@ -177,10 +180,10 @@ def check_self_pin_cooldown_exemption(ctx: LintContext) -> CheckResult:
     A workflow pinning the upstream toolkit in a `run:` command
     (`uvx 'repomatic==1.2.3' show-metadata`) resolves under the workflow-wide
     `UV_EXCLUDE_NEWER`, and that pin moves in lockstep with the `uses:` refs, so
-    it routinely names a release published hours ago. Without
-    {data}`~repomatic.release.prepare_release.SELF_PIN_COOLDOWN_EXEMPTION` on the
-    command line, `uvx` cannot resolve it at all. `uvx` reads no project
-    configuration, so there is nowhere else the bypass could live.
+    it routinely names a release published hours ago. Without the exemption of
+    {func}`~repomatic.release.self_pin.cooldown_exemption` on the command line,
+    `uvx` cannot resolve it at all. `uvx` reads no project configuration, so
+    there is nowhere else the bypass could live.
 
     The failure is total rather than partial, which is why this is worth a
     dedicated check: the pin usually sits in the `metadata` job, every other job
@@ -199,27 +202,25 @@ def check_self_pin_cooldown_exemption(ctx: LintContext) -> CheckResult:
             None, f"{package} cooldown exemption: skipped (no workflows)."
         )
 
-    exemption_re = self_pin_exemption_re(package)
     unexempt: list[str] = []
     pinned = 0
     for wf, content in ctx.workflow_texts.items():
         # A workflow with no cooldown resolves the pin fine as-is.
         if "UV_EXCLUDE_NEWER" not in content:
             continue
-        for match in exemption_re.finditer(content):
-            pinned += 1
-            if SELF_PIN_COOLDOWN_EXEMPTION not in match.group("flags"):
-                unexempt.append(wf.name)
-                break
+        exempt = cooldown_exemptions(content, package)
+        pinned += len(exempt)
+        if not all(exempt):
+            unexempt.append(wf.name)
 
     if not pinned:
         return CheckResult(None, f"{package} cooldown exemption: no inline pin found.")
     if unexempt:
-        files = ", ".join(sorted(set(unexempt)))
+        files = ", ".join(sorted(unexempt))
         return CheckResult(
             False,
             f"Inline {package} pin resolves under a cooldown without"
-            f" `{SELF_PIN_COOLDOWN_EXEMPTION}`, so it cannot resolve once the pin"
+            f" `{cooldown_exemption(package)}`, so it cannot resolve once the pin"
             f" names a release younger than the window: {files}.",
         )
     return CheckResult(

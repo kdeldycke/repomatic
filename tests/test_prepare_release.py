@@ -27,20 +27,25 @@ from textwrap import dedent
 import pytest
 
 from repomatic.claude_plugin import PLUGIN_ROOT
-from repomatic.deps.pins import (
-    apply_self_pin_exemption,
+from repomatic.release.prepare_release import PrepareRelease
+from repomatic.release.self_pin import (
+    add_cooldown_exemption,
+    cooldown_exemption,
     frozen_cli_invocation,
+    local_cli_invocation,
 )
-from repomatic.release.prepare_release import (
-    LOCAL_CLI_INVOCATION,
-    SELF_PIN_COOLDOWN_EXEMPTION,
-    PrepareRelease,
-)
+from repomatic.upstream import UPSTREAM_PACKAGE
 from tests.conftest import PROJECT_ROOT
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+LOCAL_CLI = local_cli_invocation(UPSTREAM_PACKAGE)
+"""How the workflows of this repository run the CLI between releases."""
+
+EXEMPTION = cooldown_exemption(UPSTREAM_PACKAGE)
+"""The cooldown exemption the freeze splices beside the self-pin."""
 
 
 @pytest.fixture
@@ -374,7 +379,7 @@ def test_freeze_cli_version(temp_workflows_with_cli: Path) -> None:
     assert count == 2
     for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
         content = workflow_file.read_text(encoding="UTF-8")
-        assert LOCAL_CLI_INVOCATION not in content
+        assert LOCAL_CLI not in content
         assert "'repomatic==1.0.0'" in content
 
 
@@ -422,7 +427,7 @@ def test_post_release_unfreezes_cli(temp_workflows_with_cli: Path) -> None:
     for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
         content = workflow_file.read_text(encoding="UTF-8")
         assert "'repomatic==" not in content
-        assert LOCAL_CLI_INVOCATION in content
+        assert LOCAL_CLI in content
 
 
 def test_prepare_release_full(
@@ -474,7 +479,7 @@ def test_prepare_release_freezes_cli(
 
     for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
         content = workflow_file.read_text(encoding="UTF-8")
-        assert LOCAL_CLI_INVOCATION not in content
+        assert LOCAL_CLI not in content
         assert "'repomatic==1.2.3'" in content
 
 
@@ -559,7 +564,7 @@ def test_unfreeze_cli_version(temp_workflows_with_cli: Path) -> None:
     for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
         content = workflow_file.read_text(encoding="UTF-8")
         assert "'repomatic==" not in content
-        assert LOCAL_CLI_INVOCATION in content
+        assert LOCAL_CLI in content
 
 
 def test_spliced_exemption_round_trips_through_unfreeze(
@@ -567,22 +572,20 @@ def test_spliced_exemption_round_trips_through_unfreeze(
 ) -> None:
     """A pin exempted by `sync-workflow-pins` unfreezes like a frozen one.
 
-    The freeze and `apply_self_pin_exemption` are two writers of the same
+    The freeze and `add_cooldown_exemption` are two writers of the same
     command line: they must converge on one byte sequence, or the unfreeze
     pattern silently skips whichever spelling it does not recognize.
     """
     prep = PrepareRelease(workflow_dir=temp_workflows_with_cli)
-    frozen = frozen_cli_invocation("repomatic", "1.0.0", SELF_PIN_COOLDOWN_EXEMPTION)
+    frozen = frozen_cli_invocation("repomatic", "1.0.0")
 
     for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
         # An exemption-less pin, as an older freeze wrote it, spliced by the
         # sync path: the result must equal the current freeze spelling.
         bare = workflow_file.read_text(encoding="UTF-8").replace(
-            LOCAL_CLI_INVOCATION, "uvx --no-progress 'repomatic==1.0.0'"
+            LOCAL_CLI, "uvx --no-progress 'repomatic==1.0.0'"
         )
-        spliced = apply_self_pin_exemption(
-            bare, "repomatic", SELF_PIN_COOLDOWN_EXEMPTION
-        )
+        spliced = add_cooldown_exemption(bare, "repomatic")
         assert frozen in spliced
         workflow_file.write_text(spliced, encoding="UTF-8")
 
@@ -592,8 +595,8 @@ def test_spliced_exemption_round_trips_through_unfreeze(
     for workflow_file in temp_workflows_with_cli.glob("*.yaml"):
         content = workflow_file.read_text(encoding="UTF-8")
         assert "'repomatic==" not in content
-        assert SELF_PIN_COOLDOWN_EXEMPTION not in content
-        assert LOCAL_CLI_INVOCATION in content
+        assert EXEMPTION not in content
+        assert LOCAL_CLI in content
 
 
 def test_unfreeze_workflow_urls(temp_workflows: Path) -> None:
@@ -1100,7 +1103,7 @@ def test_freeze_exempts_self_pin_from_cooldown(tmp_path: Path) -> None:
     for path in sorted(_freeze_repo_workflows(tmp_path).glob("*.yaml")):
         for num, line in enumerate(path.read_text(encoding="UTF-8").splitlines(), 1):
             if "'repomatic==1.2.3'" in line and not line.lstrip().startswith("#"):
-                assert SELF_PIN_COOLDOWN_EXEMPTION in line, (
+                assert EXEMPTION in line, (
                     f"{path.name}:{num} pins repomatic without the cooldown "
                     f"exemption: {line.strip()}"
                 )

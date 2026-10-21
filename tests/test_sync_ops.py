@@ -33,7 +33,7 @@ from datetime import date, timedelta
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -60,6 +60,7 @@ from repomatic.deps.sync import (
     SyncPlan,
     UvProjectExtras,
     _apply_file_writes,
+    _apply_tool_versions,
     _gate_uv_on_checksums,
     _pinned_with_packages,
     _plan_file_rewrites,
@@ -74,7 +75,6 @@ from repomatic.deps.sync import (
 )
 from repomatic.github.labels import DEFAULT_CONTENT_RULES, DEFAULT_FILE_RULES
 from repomatic.pypi import PyPIRelease
-from repomatic.release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
 from repomatic.templating import PrTemplate, get_template_names
 from repomatic.tooling.registry import TOOL_REGISTRY
 from repomatic.versions import is_newer
@@ -522,6 +522,48 @@ def test_sync_tool_versions_routes_npm_tools_to_the_npm_registry(monkeypatch) ->
     assert not plan.has_changes
 
 
+def test_tool_versions_plan_carries_the_jobs_width(monkeypatch) -> None:
+    """A binary bump keeps the `--jobs` width for the checksum recompute.
+
+    The apply runs with no Click context, so the width the CLI resolved has to
+    travel on the plan.
+    """
+
+    def candidates(spec):
+        if spec.name == "typos":
+            return [Candidate("99.0.0", "2025-12-01", "v99.0.0")]
+        return []
+
+    monkeypatch.setattr("repomatic.deps.sync.tool_candidates", candidates)
+    monkeypatch.setattr("repomatic.deps.pins.pypi_candidates", lambda _: [])
+
+    plan = _resolve_tool_versions(
+        ResolveContext(config=Config(), today=date(2026, 1, 1), jobs=6)
+    )
+
+    assert plan.tool_versions.binary_overrides == {"typos": "99.0.0"}
+    assert plan.tool_versions.jobs == 6
+
+
+def test_tool_versions_apply_downloads_with_the_jobs_width(tmp_path, monkeypatch):
+    """The checksum recompute downloads as wide as the plan says."""
+    registry = tmp_path / "registry.py"
+    plan = SyncPlan(operation="sync-tool-versions", subject="Tool", heading="Tools")
+    plan.changes = [("typos", "1.0.0", "99.0.0")]
+    plan.file_writes = {registry: "rewritten"}
+    plan.tool_versions.binary_overrides = {"typos": "99.0.0"}
+    plan.tool_versions.jobs = 6
+    recompute = Mock(return_value=[])
+    monkeypatch.setattr("repomatic.deps.sync.update_registry_checksums", recompute)
+
+    _apply_tool_versions(plan)
+
+    recompute.assert_called_once_with(
+        registry, version_overrides={"typos": "99.0.0"}, jobs=6
+    )
+    assert registry.read_text(encoding="UTF-8") == "rewritten"
+
+
 @pytest.mark.parametrize(
     ("changes", "expected"),
     (
@@ -848,7 +890,7 @@ def _rewrite_plan(tmp_path, text: str, resolved: dict) -> tuple[SyncPlan, Path]:
     plan = SyncPlan(operation="sync-workflow-pins", subject="Pin", heading="Updated")
     rewriter = partial(
         apply_workflow_literals,
-        self_pin=("repomatic", SELF_PIN_COOLDOWN_EXEMPTION),
+        self_pin="repomatic",
     )
     rc = ResolveContext(config=Config(), today=date(2026, 8, 14), held_back=False)
     _plan_file_rewrites(plan, rc, {path: text}, rewriter, resolved)

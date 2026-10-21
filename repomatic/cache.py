@@ -343,7 +343,7 @@ class HttpCacheEntry(CachedFile):
     """A single cached HTTP response with its metadata."""
 
     namespace: str
-    """Cache namespace (e.g., `pypi`, `github-releases`)."""
+    """Cache namespace, like `pypi` or `github-release-tags`."""
 
     key: str
     """Cache key within the namespace (e.g., `requests`, `astral-sh/ruff`)."""
@@ -531,7 +531,7 @@ def get_cached_response(
 ) -> bytes | None:
     """Return a cached HTTP response if it exists and is fresh.
 
-    :param namespace: Cache namespace (e.g., `pypi`, `github-releases`).
+    :param namespace: Cache namespace, like `pypi` or `github-release-tags`.
     :param key: Cache key, may contain `/` for nested paths.
     :param max_age_seconds: Maximum age in seconds. Entries with mtime older
         than this are considered stale and ignored. `<= 0` disables the

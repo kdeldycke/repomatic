@@ -29,7 +29,6 @@ from urllib.error import URLError
 
 import pytest
 import yaml
-from click_extra import ClickException
 
 from repomatic import pypi, pyproject
 from repomatic.bundle import get_data_content
@@ -40,6 +39,7 @@ from repomatic.github.token import PatPermissionResults
 from repomatic.github.workflow_sync import _canonical
 from repomatic.metadata.core import Metadata
 from repomatic.tooling.binaries import ensure_binary
+from repomatic.tooling.registry import ToolInstallError
 from repomatic.tooling.runner import run_tool
 
 TYPE_CHECKING = False
@@ -76,6 +76,14 @@ SITE_ANCHOR_RE = re.compile(
 
 WORKFLOWS_DIR = PROJECT_ROOT / ".github" / "workflows"
 """Directory holding this repository's own workflow files."""
+
+REAL_HTTP_MARKER = "real_http"
+"""Marks a test that runs a registry tool for real, downloads included.
+
+The `_no_real_http` fixture leaves such a test alone, so the probe of
+{func}`skip_unless_tool_runs` can download the pinned binary on a cold cache.
+`tests/test_suite_hygiene.py` holds every caller of that probe to the marker.
+"""
 
 
 def docs_heading_slug(title: str) -> str:
@@ -139,7 +147,7 @@ def assert_shipped_text_reads_true_downstream(origin: str, text: str) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Register the marker local to this suite.
+    """Register the markers local to this suite.
 
     Not in `[tool.pytest] markers`, which must match the template bundled in
     `repomatic/data/pytest.toml`.
@@ -148,6 +156,11 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "repo_maintenance: Tests checking this repository's own checkout (git history, "
         "development-state workflows, symlinks), skipped outside a git checkout.",
+    )
+    config.addinivalue_line(
+        "markers",
+        f"{REAL_HTTP_MARKER}: Tests running a registry tool for real, downloads "
+        "included, which the HTTP refusal of the suite lets through.",
     )
 
 
@@ -200,14 +213,19 @@ def skip_unless_tool_runs(name: str) -> None:
     returns afterwards is the tool's opinion of the content rather than a fetch
     failure misread as a defect in the generator.
 
-    Only a developer with no network ever takes the skip: CI is the enforcement
-    point, and a tool it cannot fetch fails the job long before this runs.
+    The probe installs the tool, and a binary tool or companion downloads
+    through {mod}`repomatic.http` on a cold cache. The caller carries the
+    {data}`REAL_HTTP_MARKER` marker so `_no_real_http` lets that download
+    through: CI starts from a cold cache, and it is the enforcement point.
+
+    Only a developer with no network ever takes the skip. A failed download, a
+    platform the tool publishes no binary for, and a missing `uvx` all skip.
 
     :param name: Registry key of the tool the caller is about to invoke.
     """
     try:
         exit_code = run_tool(name, extra_args=("--version",))
-    except (ClickException, OSError) as exc:
+    except (ToolInstallError, OSError) as exc:
         pytest.skip(f"{name} is unavailable: {exc}")
     if exit_code != 0:
         pytest.skip(f"{name} cannot run here: `--version` exited {exit_code}")
@@ -294,7 +312,7 @@ def _no_real_gh_subprocess():
 
 
 @pytest.fixture(autouse=True)
-def _no_real_http():
+def _no_real_http(request: pytest.FixtureRequest):
     """Refuse every unmocked fetch made through {mod}`repomatic.http`.
 
     The suite runs offline. A fetch that no test stubbed fails here the way it
@@ -305,8 +323,12 @@ def _no_real_http():
     API.
 
     A test wanting a response patches `repomatic.http.urlopen` itself, or a
-    higher layer. Either shadows this stub for its duration.
+    higher layer. Either shadows this stub for its duration. A test marked
+    {data}`REAL_HTTP_MARKER` runs a tool for real and gets no stub at all.
     """
+    if request.node.get_closest_marker(REAL_HTTP_MARKER):
+        yield
+        return
     refused = URLError("HTTP is not reached for real in the test suite.")
     with patch("repomatic.http.urlopen", side_effect=refused):
         yield

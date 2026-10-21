@@ -56,15 +56,19 @@ from ..deps.report import (
     format_release_notes,
 )
 from ..deps.uv import uvx_cmd
-from ..github.pr_body import render_template
-from ..github.releases import fetch_github_release_notes, resolve_tag_to_sha
+from ..github.releases import (
+    ReleaseNotesRequest,
+    fetch_github_release_notes,
+    resolve_tag_to_sha,
+)
 from ..github.urls import repo_name
 from ..github.workflow_files import github_yaml_paths
 from ..humanize import today_utc
 from ..markdown import sanitize_markdown_mentions
 from ..pypi import PYPI_PACKAGE_URL
-from ..release.prepare_release import SELF_PIN_COOLDOWN_EXEMPTION
+from ..release.self_pin import cooldown_exemption
 from ..skills import UPGRADE_SKILL, skill_launcher
+from ..templating import render_template
 from ..upstream import DEFAULT_REPO, is_source_repo
 from ..versions import is_newer, parse_tag_version, safe_version, strip_dev_suffix
 
@@ -552,7 +556,7 @@ def upgrade_command(
     cutoff = exclude_newer_cutoff(config.minimum_release_age, today)
     return [
         *uvx_cmd(exclude_newer=cutoff),
-        *SELF_PIN_COOLDOWN_EXEMPTION.split(),
+        *cooldown_exemption(package).split(),
         "--from",
         f"{package}=={version}",
         package,
@@ -758,7 +762,9 @@ def upgrade_report(
         name_urls={package: package_url},
         heading="Upgraded release",
     )
-    notes = fetch_github_release_notes([(package, repo_url, previous, adopted, None)])
+    notes = fetch_github_release_notes([
+        ReleaseNotesRequest(package, repo_url, previous, adopted)
+    ])
     held_back = ""
     if target.held_back is not None:
         held_back = format_held_back_table(
