@@ -122,6 +122,33 @@ jobs:
           HAS_VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY && 'true' || '' }}
         run: uv --no-progress run --frozen -- repomatic lint-repo
 
+  lint-python:
+    name: 🐍 Lint Python
+    needs:
+      - metadata
+    # Skip when no Python files are present. Version-bump PRs are already
+    # filtered upstream by the metadata job's `if:` gate.
+    if: fromJSON(needs.metadata.outputs.metadata).python_files
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.0"
+      - name: Apply the safe fixes
+        # The autofix workflow's `format-python` job lands these as a pull request,
+        # so a finding it clears never reddens this job. Applied here first, the
+        # step below reports only what no safe fix reaches: a rule with no fix, or
+        # one whose fix is unsafe, which that job annotates and never gates.
+        run: uv --no-progress run --frozen -- repomatic run ruff -- check --fix-only
+      - name: Run Ruff
+        # No file list: the tool runner resolves ruff's targets from the same
+        # inventory this workflow's `python_files` comes from.
+        run: >
+          uv --no-progress run --frozen -- repomatic run ruff --
+          check --no-fix --output-format github
+
   lint-types:
     name: 🛡️ Lint types
     needs:

@@ -490,6 +490,14 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - **Requires**:
   - Python package (with a `pyproject.toml` file)
 
+### 🐍 Lint Python (`lint-python`)
+
+- Lints Python code with [`ruff`](https://github.com/astral-sh/ruff), and fails on every finding no safe fix clears. The safe fixes are applied first, since [`format-python`](#format-python-format-python) lands those as a pull request: this job reddens only on a rule with no fix, or one whose fix is unsafe, which that job annotates and never gates
+- **Requires**:
+  - Python files (`**/*.{py,pyi,pyw,pyx,ipynb}`) in the repository
+- **Skipped for**:
+  - `prepare-release` branch
+
 ### 🔤 Lint types (`lint-types`)
 
 - Type-checks Python code using [`mypy`](https://github.com/python/mypy)
