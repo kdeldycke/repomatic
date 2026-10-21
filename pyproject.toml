@@ -238,7 +238,7 @@ exclude-newer = "1 week"
 # `repomatic run` cannot resolve that pin, and every job that needs the tool
 # fails. `sync-uv-lock` prunes such an entry once the window has passed its
 # cutoff.
-exclude-newer-package = { nuitka = "2026-10-18T00:00:00Z", repomatic = "0 day" }
+exclude-newer-package = { certifi = "2026-10-22T00:00:00Z", nuitka = "2026-10-18T00:00:00Z", repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 build-backend.source-exclude = [
