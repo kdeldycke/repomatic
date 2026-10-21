@@ -333,6 +333,10 @@ format.docstring-code-format = true
 #   `typing` import at runtime.
 #   See: https://docs.astral.sh/ruff/rules/#flake8-type-checking-tc
 lint.extend-select = [ "D205", "D209", "E501", "PLC0415", "PLW1514", "TC" ]
+# D401 and D403 stay out of the selection above, since the rewrite each asks
+#   for is wrong here: D401 rejects the noun-phrase docstring a property or a
+#   getter opens with (`The options that pick a template`), and D403
+#   capitalizes a tool name opening one (`uv`, `macOS`, `ruff`).
 # D301: Use `r"""` if any backslashes in a docstring.
 #   A Click command's docstring is its `--help` text, and `\b` marks a paragraph
 #   Click must not rewrap. The raw prefix this rule asks for turns that backspace
