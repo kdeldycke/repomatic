@@ -483,15 +483,16 @@ xfail_strict = true
 [tool.coverage]
 run.source = [ "repomatic" ]
 run.branch = true
-# Coverage ratchet: the suite fails below this. The matrix floor sits near
-# 81.6%, since the only cell-dependent tests (tests/test_sphinx_crossrefs.py)
-# run on Linux + Python 3.15 alone and push that cell *up*; the package holds
-# four platform-conditional lines total, so the OS spread is noise. ~1.6 points
-# of margin absorbs that without waving a real regression through.
+# Coverage ratchet: the suite fails below this. Keep it about one point under
+# the lowest matrix cell, and raise it when the cells climb. The cells agree
+# within a tenth of a point, so a drop larger than the margin is a regression.
+# A run from the sdist skips the repo_maintenance tests, and lands a quarter
+# point under the matrix cells.
 #
-# The `once-tests` workflow job overrides this to 0, covering ~22% on its own
-# by design. A focused local run trips it too, so pair those with `--no-cov`.
-report.fail_under = 80
+# The `once-tests` workflow job overrides this to 0: its slice covers only part
+# of the package. A focused local run trips it too, so pair those with
+# `--no-cov`.
+report.fail_under = 93
 report.precision = 2
 
 [tool.bumpversion]

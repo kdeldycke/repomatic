@@ -240,7 +240,7 @@ jobs:
         # checks) behave identically on every OS and Python, so the matrix
         # `tests` job excludes them and this single runner is their only
         # executor. `--cov-fail-under=0` opts this slice out of the
-        # `[tool.coverage] report.fail_under` ratchet: it covers ~22% of the
+        # `[tool.coverage] report.fail_under` ratchet: it covers only part of the
         # package on its own by design, and the matrix job above is what holds
         # the floor.
         run: uv --no-progress run --frozen -- pytest -m once --cov-fail-under=0
