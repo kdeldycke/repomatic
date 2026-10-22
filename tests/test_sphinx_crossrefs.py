@@ -22,7 +22,8 @@ release is anchored on its version, and that intersphinx references to Click
 resolve to the upstream site. This catches drift the moment a
 ``{click:config}`` or ``{click:tree}`` directive stops wiring its anchors, or
 an ``intersphinx_mapping`` URL goes stale, neither of which a mock-based test
-would notice.
+would notice. The same build also shows whether a pickled page carries the
+whole build environment.
 """
 
 from __future__ import annotations
@@ -60,6 +61,14 @@ pytestmark = [
 ]
 
 PROJECT_ROOT = Path(__file__).parent.parent
+
+DOCTREES_TO_ENVIRONMENT_RATIO = 10
+"""Ceiling on the pickled pages of a build, in sizes of its pickled environment.
+
+A clean build writes its pages in about two such sizes. A page that carries the
+build environment adds a copy of it, so a leak across every API page takes the
+ratio past a hundred.
+"""
 
 
 @pytest.fixture(scope="module")
@@ -164,3 +173,19 @@ def test_intersphinx_click_resolves(built_docs):
         "https://click.palletsprojects.com" in page.read_text(encoding="UTF-8")
         for page in pages
     ), "no intersphinx link to Click found; the mapping may be broken"
+
+
+def test_pickled_pages_carry_no_build_environment(built_docs):
+    """The pickled pages stay small next to the build environment.
+
+    A node that keeps a throwaway document as its own pickles that document's
+    settings with the page, build environment included. See
+    `rehome_moved_nodes` in `docs/conf.py`.
+    """
+    doctrees = built_docs / ".doctrees"
+    environment = (doctrees / "environment.pickle").stat().st_size
+    pages = sum(path.stat().st_size for path in doctrees.glob("*.doctree"))
+    assert pages < DOCTREES_TO_ENVIRONMENT_RATIO * environment, (
+        f"pickled pages take {pages} bytes, {pages / environment:.1f} times the"
+        f" {environment}-byte environment"
+    )

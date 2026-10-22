@@ -231,6 +231,12 @@ A dependency can stand in for a feature that a preferred library lacks:
 
 - [`furo#921`](https://github.com/pradyunsg/furo/discussions/921) (discussion): Furo shows no icons in toctree entries. repomatic's documentation adds them with CSS.
 
+- [`MyST-Parser#1212` - Nested rendering of fragments from another source](https://github.com/executablebooks/MyST-Parser/issues/1212), third item: MyST-Parser parses an `{eval-rst}` block into a throwaway document, and the nodes it moves into the page keep that document. Each API page then pickles the whole Sphinx build environment, about 15 MB, and a full build writes gigabytes of doctrees. `docs/conf.py` points the moved nodes back at their page.
+
+  ```{todo}
+  Once MyST-Parser renders an `{eval-rst}` block into the page's own document, delete `rehome_moved_nodes` from `docs/conf.py`, then this entry. Keep `test_pickled_pages_carry_no_build_environment` in `tests/test_sphinx_crossrefs.py`: it shows whether the upstream change holds.
+  ```
+
 ## Declined by upstream
 
 Pull requests and features that upstream maintainers rejected.

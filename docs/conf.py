@@ -11,6 +11,11 @@ from docutils.transforms import Transform
 from docutils.transforms.references import PropagateTargets
 from sphinxcontrib.mermaid import MermaidClassDiagram
 
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from docutils.nodes import document
+    from sphinx.application import Sphinx
+
 project_path = Path(__file__).parent.parent.resolve()
 
 # Fetch general information about the project from pyproject.toml.
@@ -470,6 +475,22 @@ def prune_build_artifacts(app, exception):
         sources.rmdir()
 
 
+def rehome_moved_nodes(app: Sphinx, doctree: document) -> None:
+    """Point every node of a page at the page's own document.
+
+    myst-parser parses an `{eval-rst}` block into a throwaway document that
+    shares the page's settings, then moves the parsed nodes into the page. The
+    moved nodes keep the throwaway document as theirs. Before it pickles a page,
+    Sphinx removes the build environment from a copy of the page's settings, not
+    from the settings object the throwaway document still holds. So without this
+    hook, every page holding an `{eval-rst}` block pickles the whole build
+    environment, about 15 MB, and a full build writes gigabytes of doctrees.
+    """
+    for node in doctree.findall():
+        if node.document is not doctree:
+            node.document = doctree
+
+
 RELEASE_HEADING = re.compile(r"(?P<version>\d+\.\d+\.\d+)(?:\.\w+)? \([^)]+\)")
 """Rendered title of a changelog release: `1.4.2 (2026-03-15)`.
 
@@ -532,8 +553,10 @@ def setup(app):
     Swaps sphinxcontrib-mermaid's ``autoclasstree`` directive for
     :class:`NoZoomClassDiagram`: conf.py is loaded as the last extension,
     so this registration wins. Anchors each changelog release on its version
-    with :class:`ReleaseAnchors`.
+    with :class:`ReleaseAnchors`, and keeps each pickled page free of the build
+    environment with :func:`rehome_moved_nodes`.
     """
     app.add_directive("autoclasstree", NoZoomClassDiagram, override=True)
     app.add_transform(ReleaseAnchors)
+    app.connect("doctree-read", rehome_moved_nodes)
     app.connect("build-finished", prune_build_artifacts)
