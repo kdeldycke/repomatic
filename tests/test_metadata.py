@@ -84,7 +84,7 @@ from repomatic.metadata.core import (
 from repomatic.metadata.matrix import NUITKA_CACHE_KEY
 from repomatic.metadata.output import Dialect, format_github_value
 from repomatic.pyproject import read_pyproject_toml
-from repomatic.release.binary import NUITKA_BUILD_TARGETS
+from repomatic.release.binary import NUITKA_BUILD_TARGETS, binary_name
 from repomatic.tooling.registry import TOOL_REGISTRY
 from tests.conftest import (
     IN_GIT_CHECKOUT,
@@ -1535,6 +1535,30 @@ papaya = "papaya.__main__:main"
             "main_entry_point": "papaya=papaya.__main__:main",
         }
     ]
+
+
+@pytest.mark.repo_maintenance
+def test_nuitka_matrix_names_binaries_without_a_declared_version(tmp_path, monkeypatch):
+    """A commit declaring no version still yields a matrix, of versionless names.
+
+    A project with no bump-my-version configuration leaves `current_version`
+    out of each commit entry, so every binary takes its stable alias name.
+    """
+    pyproject_content = """\
+[project]
+name = "papaya"
+version = "1.0.0"
+
+[project.scripts]
+papaya = "papaya.__main__:main"
+"""
+    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
+    monkeypatch.setattr("repomatic.metadata.git.version_at", lambda ref: None)
+    matrix = metadata.nuitka_matrix
+    assert matrix is not None
+    assert {entry["bin_name"] for entry in matrix.include if "bin_name" in entry} == {
+        binary_name("papaya", target) for target in NUITKA_BUILD_TARGETS
+    }
 
 
 def test_nuitka_matrix_skips_push_without_dev_targets(monkeypatch):

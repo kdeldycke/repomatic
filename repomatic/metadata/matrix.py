@@ -331,13 +331,15 @@ class MatrixMetadata:
 
         # Augment each variation set of the matrix with the binary name Nuitka
         # produces. Every solved job carries the metadata the name depends on,
-        # and an include keyed on the job's axis values re-attaches it.
+        # and an include keyed on the job's axis values re-attaches it. A commit
+        # declaring no version, in a project without a bump-my-version
+        # configuration, gets the versionless name.
         matrix.add_includes(
             *(
                 {
                     **{key: job[key] for key in matrix.variations},
                     "bin_name": binary_name(
-                        job["cli_id"], job["target"], job["current_version"]
+                        job["cli_id"], job["target"], job.get("current_version")
                     ),
                 }
                 for job in tuple(matrix.solve())

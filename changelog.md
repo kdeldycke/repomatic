@@ -149,6 +149,7 @@
 - Fix `audit`, `lint-changelog`, `pack-plugin`, `prepare-release`, `sync-gitignore`, `sync-uv-lock`, `update-dep-graph` and `verify-binary` printing a traceback on a missing file, a failed fetch or a failed `uv` call.
 - Fix a command printing a traceback when `uv` or `uvx` is missing from `PATH`.
 - Fix `lint-deps` passing in a directory with no `pyproject.toml`, which it read as a project with no dependency.
+- Fix `show-metadata` crashing on `nuitka_matrix` for a project with a CLI but no bump-my-version configuration.
 
 ## [`7.18.0` (2026-10-13)](https://github.com/kdeldycke/repomatic/compare/v7.17.1...v7.18.0)
 
