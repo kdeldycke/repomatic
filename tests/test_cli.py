@@ -63,7 +63,7 @@ from repomatic.cli.main import (
 from repomatic.config import config_key_paths
 from repomatic.github import outputs
 from repomatic.release.manpages import pack_manpages
-from tests.conftest import PROJECT_ROOT
+from tests.conftest import PACKAGE_FILES, PROJECT_ROOT
 
 CLI_PACKAGE = Path(cli_main.__file__).parent
 
@@ -306,6 +306,71 @@ def test_disabled_sync_needs_no_repository(tmp_path, monkeypatch, command, key):
 
     assert result.exit_code == 0, result.output
     assert f"{key} is disabled" in result.output
+
+
+EXIT_CATCHING_EXCEPTIONS = frozenset({"BaseException", "Exception", "RuntimeError"})
+"""Handlers that catch the exceptions `ctx.exit()` and `ctx.abort()` raise.
+
+Click's `Exit` and `Abort` subclass `RuntimeError`. A handler catching one of
+these takes the exit for a failure: the usual `raise ClickException(str(error))`
+turns `ctx.exit(0)` into `Error: 0` and an exit code of 1.
+"""
+
+
+def _caught_exits(source: str) -> list[int]:
+    """Lines of *source* calling `ctx.exit()` or `ctx.abort()` in a catching `try`."""
+    lines: list[int] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Try):
+            continue
+        caught = set()
+        for handler in node.handlers:
+            if handler.type is None:
+                caught.add("BaseException")
+                continue
+            caught.update(
+                part.id if isinstance(part, ast.Name) else part.attr
+                for part in ast.walk(handler.type)
+                if isinstance(part, (ast.Name, ast.Attribute))
+            )
+        if caught.isdisjoint(EXIT_CATCHING_EXCEPTIONS):
+            continue
+        lines.extend(
+            call.lineno
+            for statement in node.body
+            for call in ast.walk(statement)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr in {"abort", "exit"}
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id == "ctx"
+        )
+    return lines
+
+
+def test_caught_exit_scan_finds_the_pattern():
+    """The scan sees a caught exit, so the check over the package proves something."""
+    source = dedent("""\
+        try:
+            ctx.exit(0)
+        except RuntimeError as error:
+            raise ClickException(str(error)) from error
+        try:
+            ctx.exit(0)
+        except ValueError:
+            pass
+        """)
+    assert _caught_exits(source) == [2]
+
+
+def test_no_handler_catches_a_click_exit():
+    """No `ctx.exit()` or `ctx.abort()` sits in a `try` whose handler catches it."""
+    offenders = [
+        f"{path.relative_to(PROJECT_ROOT)}:{line}"
+        for path in PACKAGE_FILES
+        for line in _caught_exits(path.read_text(encoding="UTF-8"))
+    ]
+    assert not offenders, f"Click exits a handler would catch: {offenders}"
 
 
 OFFLINE_RUN_EXEMPT = {
