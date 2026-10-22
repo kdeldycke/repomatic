@@ -18,7 +18,8 @@
 
 The GitHub Pages source and the redirect of its legacy URLs, the Cloudflare
 credentials, the `_redirects` files as the Pages engine reads them, the
-`wrangler.toml` file, and the files over the Pages size limit.
+`wrangler.toml` file, the files over the Pages size limit, and whether the
+Sphinx build stops a dead fragment link before it publishes.
 """
 
 from __future__ import annotations
@@ -58,6 +59,30 @@ if TYPE_CHECKING:
     from ..cloudflare.redirects import ParseResult, Rule
     from .context import LintContext
 
+
+FAIL_ON_WARNINGS_CONFIG = "click_extra_fail_on_warnings"
+"""The `conf.py` value listing the warning types that fail a Sphinx build.
+
+click-extra's Sphinx extension reads it, with the syntax of `suppress_warnings`:
+`myst` covers every subtype, `myst.xref_missing` only that one. Named here
+rather than imported, because click-extra's Sphinx modules import Sphinx.
+"""
+
+FAIL_ON_WARNINGS_EXTENSIONS = frozenset({
+    "click_extra.sphinx",
+    "click_extra.sphinx.fail_on_warnings",
+})
+"""The extensions that register {data}`FAIL_ON_WARNINGS_CONFIG`.
+
+Sphinx ignores a `conf.py` value that no loaded extension registers.
+"""
+
+FRAGMENT_LINK_WARNING_TYPES = frozenset({"myst", "myst.xref_missing"})
+"""The warning types that cover a fragment link myst-parser cannot place.
+
+An entry of `suppress_warnings` or {data}`FAIL_ON_WARNINGS_CONFIG` names either
+the whole `myst` type or its `xref_missing` subtype.
+"""
 
 MAX_REPORTED_DEAD_URLS = 5
 """How many abandoned redirect sources a failing `_redirects` check names.
@@ -212,6 +237,48 @@ def check_stale_gh_pages_branch(ctx: LintContext) -> CheckResult:
         f" `gh api --method DELETE repos/{ctx.slug}/git/refs/heads/gh-pages`"
     )
     return CheckResult(False, msg)
+
+
+def check_sphinx_fragment_links(ctx: LintContext) -> CheckResult:
+    """Check that the Sphinx build fails on a fragment link that lands nowhere.
+
+    myst-parser resolves each `[text](#anchor)` and `[text](page.md#anchor)`
+    link against what the build produced. For a link it cannot place, it logs
+    a `myst.xref_missing` warning and ships the link as written, and Sphinx
+    still exits 0. The Docs workflow runs no anchor check of its own, so only
+    {data}`FAIL_ON_WARNINGS_CONFIG` stops the dead link before it publishes. A
+    `suppress_warnings` entry for the type defeats it: click-extra skips a
+    suppressed warning.
+    """
+    md = ctx.md
+    listed = FRAGMENT_LINK_WARNING_TYPES & md.sphinx_conf_strings(
+        FAIL_ON_WARNINGS_CONFIG
+    )
+    loaded = FAIL_ON_WARNINGS_EXTENSIONS & md.sphinx_extensions
+    suppressed = FRAGMENT_LINK_WARNING_TYPES & md.sphinx_conf_strings(
+        "suppress_warnings"
+    )
+    if listed and loaded and not suppressed:
+        return CheckResult(
+            True,
+            f"{md.sphinx_conf_path} fails the build on a dead fragment link.",
+        )
+    fixes = []
+    if not listed:
+        fixes.append(f'set `{FAIL_ON_WARNINGS_CONFIG} = ["myst.xref_missing"]`')
+    if not loaded:
+        fixes.append("add `click_extra.sphinx` to `extensions`")
+    if suppressed:
+        fixes.append(
+            f"remove {', '.join(f'`{entry}`' for entry in sorted(suppressed))}"
+            " from `suppress_warnings`"
+        )
+    return CheckResult(
+        False,
+        f"{md.sphinx_conf_path} lets a dead fragment link publish behind a green"
+        " build: myst-parser only logs a `myst.xref_missing` warning for it. To"
+        f" fail the build, {' and '.join(fixes)}.",
+    )
 
 
 def check_cloudflare_secrets(ctx: LintContext) -> CheckResult:

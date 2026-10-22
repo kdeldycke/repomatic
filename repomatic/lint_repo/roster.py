@@ -70,6 +70,7 @@ from .site import (
     check_pages_deployment_source,
     check_pages_redirect_preserved,
     check_pages_redirects,
+    check_sphinx_fragment_links,
     check_stale_gh_pages_branch,
     check_wrangler_config,
 )
@@ -345,6 +346,24 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             " through GitHub Actions, so the branch is no longer needed"
         ),
         applies=lambda ctx: bool(ctx.is_sphinx and ctx.repo),
+    ),
+    RepoCheck(
+        # Needs no repository: the answer is in `docs/conf.py`, so a local run
+        # reports the same gap CI does.
+        "sphinx-fragment-links",
+        check_sphinx_fragment_links,
+        summary="A MyST Sphinx build fails on a fragment link that lands nowhere",
+        description=(
+            "Warns when a Sphinx project using MyST-Parser lets a dead fragment link"
+            " publish behind a green build. myst-parser logs `myst.xref_missing` for a"
+            " `[text](#anchor)` or `[text](page.md#anchor)` link it cannot place, and"
+            " Sphinx exits 0 on it. The Docs workflow runs no anchor check, so the"
+            " build itself has to fail on the warning:"
+            ' `click_extra_fail_on_warnings = ["myst.xref_missing"]` in `docs/conf.py`,'
+            " with `click_extra.sphinx` in `extensions` and no `myst` entry in"
+            " `suppress_warnings`"
+        ),
+        applies=lambda ctx: bool(ctx.is_sphinx and ctx.uses_myst),
     ),
     RepoCheck(
         "description-matches",

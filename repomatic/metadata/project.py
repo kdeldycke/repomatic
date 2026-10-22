@@ -436,27 +436,35 @@ class ProjectMetadata:
         return self.is_python_project and self.is_sphinx
 
     @cached_property
-    def sphinx_extensions(self) -> frozenset[str]:
-        """The extensions the Sphinx configuration lists, read once.
+    def _sphinx_conf_tree(self) -> ast.Module | None:
+        """The Sphinx configuration parsed as an AST, read once.
 
-        Parses `conf.py` as an AST rather than running it, and reads every
-        top-level assignment to the `extensions` variable: a plain or annotated
-        one sets the list, an augmented one (`+=`) extends it. An assignment to
-        anything other than the bare name, like a tuple target or a subscript,
-        is not the extension list and is passed over.
-
-        :return: The extension module names, empty when there is no Sphinx
-            configuration or it does not parse.
+        `conf.py` is parsed rather than run, so no project code executes.
         """
         if not self.is_sphinx:
-            return frozenset()
+            return None
         try:
-            tree = ast.parse(self.sphinx_conf_path.read_bytes())
+            return ast.parse(self.sphinx_conf_path.read_bytes())
         except (OSError, SyntaxError, ValueError) as error:
             logging.warning(f"Cannot read {self.sphinx_conf_path}: {error}")
+            return None
+
+    def sphinx_conf_strings(self, name: str) -> frozenset[str]:
+        """The strings the Sphinx configuration assigns to the variable *name*.
+
+        Reads every top-level assignment to the bare name: a plain or annotated
+        one sets the list, an augmented one (`+=`) extends it. An assignment to
+        anything other than the bare name, like a tuple target or a subscript,
+        is passed over, and so is a value that is not a list or tuple literal.
+
+        :param name: The configuration variable, like `extensions`.
+        :return: The string items, empty when there is no Sphinx configuration
+            or it does not parse.
+        """
+        if self._sphinx_conf_tree is None:
             return frozenset()
-        extensions: set[str] = set()
-        for node in tree.body:
+        strings: set[str] = set()
+        for node in self._sphinx_conf_tree.body:
             if isinstance(node, ast.Assign):
                 targets: list[ast.expr] = node.targets
             elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
@@ -464,20 +472,27 @@ class ProjectMetadata:
             else:
                 continue
             if not any(
-                isinstance(target, ast.Name) and target.id == "extensions"
-                for target in targets
+                isinstance(target, ast.Name) and target.id == name for target in targets
             ) or not isinstance(node.value, (ast.List, ast.Tuple)):
                 continue
-            names = {
+            items = {
                 element.value
                 for element in node.value.elts
                 if isinstance(element, ast.Constant) and isinstance(element.value, str)
             }
             if isinstance(node, ast.AugAssign):
-                extensions |= names
+                strings |= items
             else:
-                extensions = names
-        return frozenset(extensions)
+                strings = items
+        return frozenset(strings)
+
+    @cached_property
+    def sphinx_extensions(self) -> frozenset[str]:
+        """The extensions the Sphinx configuration lists, read once.
+
+        {meth}`sphinx_conf_strings` says which assignments it reads.
+        """
+        return self.sphinx_conf_strings("extensions")
 
     @cached_property
     def active_autodoc(self) -> bool:

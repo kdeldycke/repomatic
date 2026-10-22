@@ -2690,6 +2690,23 @@ def test_sphinx_extensions_without_sphinx(tmp_path, monkeypatch):
     assert Metadata().sphinx_extensions == frozenset()
 
 
+def test_sphinx_conf_strings_reads_the_named_variable(tmp_path, monkeypatch):
+    """Each variable reads on its own, and a value that is no list reads empty."""
+    conf_path = tmp_path / "conf.py"
+    conf_path.write_text(
+        'extensions = ["myst_parser"]\n'
+        'suppress_warnings = ["myst.header"]\n'
+        'html_theme = "furo"\n',
+        encoding="UTF-8",
+    )
+    monkeypatch.setattr(Metadata, "sphinx_conf_path", conf_path)
+    metadata = Metadata()
+    assert metadata.sphinx_conf_strings("suppress_warnings") == {"myst.header"}
+    assert metadata.sphinx_conf_strings("extensions") == {"myst_parser"}
+    assert metadata.sphinx_conf_strings("html_theme") == frozenset()
+    assert metadata.sphinx_conf_strings("templates_path") == frozenset()
+
+
 def test_github_dialect_trims_an_oversized_heredoc(caplog):
     """A heredoc value past the step-output ceiling is trimmed, with a warning.
 

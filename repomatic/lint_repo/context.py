@@ -145,6 +145,9 @@ class LintContext:
     is_sphinx: bool = False
     """Whether the project uses Sphinx documentation."""
 
+    uses_myst: bool = False
+    """Whether the Sphinx configuration loads MyST-Parser."""
+
     has_changelog: bool = False
     """Whether the configured changelog exists.
 
@@ -392,6 +395,7 @@ class LintContext:
             package_name=get_project_name(pyproject),
             is_package=metadata.is_python_package,
             is_sphinx=metadata.is_sphinx,
+            uses_myst=metadata.uses_myst,
             has_changelog=resolved_changelog_path(config).exists(),
             project_description=metadata.project_description,
             docs_url=documentation_url(project_table.get("urls")),

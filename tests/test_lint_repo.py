@@ -102,6 +102,7 @@ from repomatic.lint_repo.site import (
     check_oversized_site_files,
     check_pages_redirect_preserved,
     check_pages_redirects,
+    check_sphinx_fragment_links,
     check_stale_gh_pages_branch,
     check_wrangler_config,
 )
@@ -1777,6 +1778,96 @@ def test_stale_gh_pages_branch_api_failure_skips():
         result = check_stale_gh_pages_branch(LintContext(repo="owner/repo"))
     assert result.passed is None
     assert "skipped" in result.message
+
+
+FRAGMENT_GUARD_CONF = (
+    'extensions = ["myst_parser", "click_extra.sphinx"]\n'
+    'click_extra_fail_on_warnings = ["myst.xref_missing"]\n'
+)
+"""A `conf.py` whose build fails on a fragment link that lands nowhere."""
+
+SET_FAIL_ON_WARNINGS = 'set `click_extra_fail_on_warnings = ["myst.xref_missing"]`'
+"""The fix a `conf.py` gets when no fail-on-warnings entry covers the type."""
+
+ADD_CLICK_EXTRA_SPHINX = "add `click_extra.sphinx` to `extensions`"
+"""The fix a `conf.py` gets when no loaded extension reads the setting."""
+
+
+@pytest.mark.parametrize(
+    ("conf", "fixes"),
+    (
+        pytest.param(FRAGMENT_GUARD_CONF, (), id="guarded"),
+        pytest.param(
+            'extensions = ["myst_parser", "click_extra.sphinx"]\n'
+            'click_extra_fail_on_warnings = ["myst"]\n',
+            (),
+            id="whole-myst-type",
+        ),
+        pytest.param(
+            'extensions = ["myst_parser", "click_extra.sphinx.fail_on_warnings"]\n'
+            'click_extra_fail_on_warnings = ["myst.xref_missing"]\n',
+            (),
+            id="submodule-extension",
+        ),
+        pytest.param(
+            'extensions = ["myst_parser", "click_extra.sphinx"]\n',
+            (SET_FAIL_ON_WARNINGS,),
+            id="unset",
+        ),
+        pytest.param(
+            'extensions = ["myst_parser", "click_extra.sphinx"]\n'
+            'click_extra_fail_on_warnings = ["ref.python"]\n',
+            (SET_FAIL_ON_WARNINGS,),
+            id="other-types-only",
+        ),
+        pytest.param(
+            'extensions = ["myst_parser"]\n'
+            'click_extra_fail_on_warnings = ["myst.xref_missing"]\n',
+            (ADD_CLICK_EXTRA_SPHINX,),
+            id="no-extension-reads-it",
+        ),
+        pytest.param(
+            'extensions = ["myst_parser"]\n',
+            (SET_FAIL_ON_WARNINGS, ADD_CLICK_EXTRA_SPHINX),
+            id="neither",
+        ),
+        pytest.param(
+            FRAGMENT_GUARD_CONF + 'suppress_warnings = ["myst.header", "myst"]\n',
+            ("remove `myst` from `suppress_warnings`",),
+            id="suppressed-type",
+        ),
+        pytest.param(
+            FRAGMENT_GUARD_CONF + 'suppress_warnings = ["myst.xref_missing"]\n',
+            ("remove `myst.xref_missing` from `suppress_warnings`",),
+            id="suppressed-subtype",
+        ),
+    ),
+)
+def test_sphinx_fragment_links(tmp_path, monkeypatch, conf, fixes):
+    """The build fails on `myst.xref_missing` only when three settings agree.
+
+    The setting must list the type, an extension must read it, and no
+    `suppress_warnings` entry may hide the type from it. A failure names every
+    fix it needs, so one read of the warning is enough to repair `conf.py`.
+    """
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "conf.py").write_text(conf, encoding="UTF-8")
+    result = check_sphinx_fragment_links(_lint_context_in(tmp_path, monkeypatch))
+    if fixes:
+        assert result.passed is False
+        assert result.message.endswith(f"To fail the build, {' and '.join(fixes)}.")
+    else:
+        assert result.passed is True
+        assert result.message.endswith("fails the build on a dead fragment link.")
+
+
+def test_sphinx_fragment_links_only_applies_to_a_myst_project():
+    """A project without MyST-Parser has no `myst.xref_missing` to fail on."""
+    check = _roster_check("sphinx-fragment-links")
+    assert check.applies(LintContext()) is False
+    assert check.applies(LintContext(is_sphinx=True)) is False
+    assert check.applies(LintContext(is_sphinx=True, uses_myst=True)) is True
 
 
 def _sponsors(*, has_sponsors: bool = True) -> dict:
