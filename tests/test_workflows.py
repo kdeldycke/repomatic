@@ -356,6 +356,32 @@ def test_tool_cache_keys_name_the_pinned_version() -> None:
     assert checked >= 9
 
 
+PRUNE_COMMAND = "repomatic prune-caches"
+"""The command deleting superseded GitHub Actions caches."""
+
+
+def test_cache_pruning_jobs_can_delete_caches() -> None:
+    """Every job running `repomatic prune-caches` holds `actions: write`.
+
+    Without the scope the cache API answers 403 to each deletion, which the
+    command reports as a warning: the job stays green and prunes nothing.
+    """
+    checked = 0
+    for workflow_path in sorted(WORKFLOWS_DIR.glob("*.yaml")):
+        workflow = load_workflow(workflow_path.name)
+        for job_name, job in (workflow.get("jobs") or {}).items():
+            scripts = " ".join(step.get("run") or "" for step in job.get("steps") or ())
+            if PRUNE_COMMAND not in scripts:
+                continue
+            checked += 1
+            assert (job.get("permissions") or {}).get("actions") == "write", (
+                f"{workflow_path.name}:{job_name} runs {PRUNE_COMMAND} without"
+                " `actions: write`"
+            )
+    # Guard the sweep against silently checking nothing.
+    assert checked >= 3
+
+
 def test_all_workflows_discovered() -> None:
     """Verify that workflow discovery is working correctly."""
     all_workflows = {p.name for p in WORKFLOWS_DIR.glob("*.yaml")}
