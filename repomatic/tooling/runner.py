@@ -864,6 +864,8 @@ def _run_batch(
     :return: The exit code of the tool, `0` when it reports a rewrite it did
         perform, or {data}`TOOL_CRASH_EXIT_CODE` when it reports a rewrite it
         did not perform.
+    :raises ToolInstallError: When the command cannot start, like a `uvx`
+        missing from `PATH`.
     """
     cmd = [*prefix, *spec.splice_config_args(config_args, batch)]
 
@@ -875,7 +877,11 @@ def _run_batch(
     before = _digest_targets(batch) if spec.tracks_rewrites else {}
 
     logging.info(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, check=False, env=env)
+    try:
+        result = subprocess.run(cmd, check=False, env=env)
+    except FileNotFoundError as error:
+        msg = f"Cannot start {spec.name}: {error}"
+        raise ToolInstallError(msg) from error
     logging.info(f"{spec.name} exited with code {result.returncode}.")
     exit_code = result.returncode
 

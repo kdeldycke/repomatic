@@ -131,12 +131,17 @@ def run_uv(
     :param check: Raise on a non-zero exit.
     :return: The completed process, `stdout` and `stderr` as text.
     :raises UvError: When the command fails and *check* is set. Its message
-        carries the command's stderr.
+        carries the command's stderr. Also when the command cannot start, with
+        no `uv` on `PATH` or no *cwd*, whatever *check*: the exit status is
+        then 127, the one a shell gives a command it cannot find.
     """
     logging.debug(f"Running {' '.join(cmd)}" + (f" in {cwd}." if cwd else "."))
-    result = subprocess.run(
-        list(cmd), capture_output=True, encoding="UTF-8", check=False, cwd=cwd
-    )
+    try:
+        result = subprocess.run(
+            list(cmd), capture_output=True, encoding="UTF-8", check=False, cwd=cwd
+        )
+    except FileNotFoundError as error:
+        raise UvError(127, cmd, "", str(error)) from error
     if check and result.returncode:
         raise UvError(result.returncode, cmd, result.stdout, result.stderr)
     return result

@@ -65,6 +65,7 @@ from ..file_ops import generated_header, strip_generated_header
 from ..github.outputs import AnnotationLevel, emit_annotation, emit_report
 from ..github.pr import carry_pr_branch_paths
 from ..gitignore import build_gitignore, orphaned_rules
+from ..http import FetchError
 from ..images import (
     DEFAULT_MIN_SAVINGS_BYTES,
     DEFAULT_MIN_SAVINGS_PCT,
@@ -1002,7 +1003,10 @@ def sync_gitignore(ctx: Context, output: Path | None, drop_orphans: bool) -> Non
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, "gitignore.sync")
 
-    content = build_gitignore(config)
+    try:
+        content = build_gitignore(config)
+    except FetchError as error:
+        raise ClickException(f"Cannot fetch gitignore templates: {error}") from error
 
     # Resolve output path.
     if output is None:

@@ -24,7 +24,9 @@ from typing import Any
 from unittest.mock import Mock, call, patch
 
 import pytest
+from click_extra.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.github.dev_release import (
     RELEASE_LIST_LIMIT,
     _delete_release_assets,
@@ -621,3 +623,84 @@ def test_sync_dev_release_dry_run_with_assets(unreleased_changelog, tmp_path):
 
     assert result is True
     mock_gh.assert_not_called()
+
+
+# --- sync-dev-release CLI ---
+
+
+@pytest.fixture
+def dev_project(tmp_path, monkeypatch, unreleased_changelog):
+    """A project at an unreleased version, with its changelog, as the working dir."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.bumpversion]\ncurrent_version = "6.1.1.dev0"\n', encoding="UTF-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+@pytest.mark.parametrize(("args", "dry_run"), ((["--live"], False), ([], True)))
+def test_sync_dev_release_cmd_syncs_the_current_version(dev_project, args, dry_run):
+    """The release mirrors the version and the repository the changelog names."""
+    with patch("repomatic.cli.release.sync_dev_release", return_value=True) as sync:
+        result = CliRunner().invoke(repomatic, ["sync-dev-release", *args])
+
+    assert result.exit_code == 0, result.output
+    mode = "dry-run" if dry_run else "live"
+    assert f"[{mode}] Dev release v6.1.1.dev0 synced." in result.output
+    assert sync.call_args.args[1:] == ("6.1.1.dev0", "user/repo", dry_run)
+    assert sync.call_args.kwargs == {"asset_dir": None}
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    (
+        (["--delete", "--live"], "Deleted all dev releases."),
+        (["--delete"], "[dry-run] Would delete all dev releases."),
+    ),
+)
+def test_sync_dev_release_cmd_deletes_instead_of_syncing(dev_project, args, message):
+    """`--delete` removes the dev releases, and creates none."""
+    with (
+        patch("repomatic.cli.release.cleanup_dev_releases") as cleanup,
+        patch("repomatic.cli.release.sync_dev_release") as sync,
+    ):
+        result = CliRunner().invoke(repomatic, ["sync-dev-release", *args])
+
+    assert result.exit_code == 0, result.output
+    assert message in result.output
+    assert cleanup.call_count == (1 if "--live" in args else 0)
+    sync.assert_not_called()
+
+
+def test_sync_dev_release_cmd_refuses_assets_to_delete(dev_project):
+    """There is no release left to attach assets to after `--delete`."""
+    result = CliRunner().invoke(
+        repomatic, ["sync-dev-release", "--delete", "--upload-assets", str(dev_project)]
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "--delete and --upload-assets are mutually exclusive." in result.output
+
+
+@pytest.mark.parametrize("missing", ("pyproject.toml", "changelog.md"))
+def test_sync_dev_release_cmd_skips_without_version_or_changelog(dev_project, missing):
+    """With no version or no changelog to read, no release is touched."""
+    (dev_project / missing).unlink()
+
+    with patch("repomatic.cli.release.sync_dev_release") as sync:
+        result = CliRunner().invoke(repomatic, ["sync-dev-release"])
+
+    assert result.exit_code == 0, result.output
+    sync.assert_not_called()
+
+
+def test_sync_dev_release_cmd_reports_a_failed_sync(dev_project):
+    """A release GitHub refused ends on a clean error."""
+    with patch(
+        "repomatic.cli.release.sync_dev_release",
+        side_effect=RuntimeError("release edit refused"),
+    ):
+        result = CliRunner().invoke(repomatic, ["sync-dev-release"])
+
+    assert result.exit_code == 1, result.output
+    assert "release edit refused" in result.output

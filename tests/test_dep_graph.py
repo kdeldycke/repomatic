@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+import shutil
+
 import pytest
 from click.testing import CliRunner
 
@@ -38,6 +40,7 @@ from repomatic.deps.graph import (
     trim_graph_to_depth,
 )
 from repomatic.deps.lockfile import LockSpecifiers
+from tests.conftest import PROJECT_ROOT
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -786,3 +789,90 @@ def test_update_dep_graph_disabled_writes_nothing(
 
     assert result.exit_code == 0
     assert not output.exists()
+
+
+@pytest.fixture
+def locked_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Copy this repository's `pyproject.toml` and `uv.lock`, and work from the copy.
+
+    The graph comes from the real `uv`, run offline: `uv export --frozen` reads
+    every answer from the lockfile.
+    """
+    if shutil.which("uv") is None:
+        pytest.skip("uv is not on PATH")
+    for name in ("pyproject.toml", "uv.lock"):
+        if not (PROJECT_ROOT / name).exists():
+            pytest.skip(f"{name} is not in this source tree")
+        shutil.copy(PROJECT_ROOT / name, tmp_path / name)
+    monkeypatch.setenv("UV_OFFLINE", "1")
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def test_update_dep_graph_draws_the_locked_tree(locked_project: Path) -> None:
+    """The default selection draws the project, its dependencies and its groups."""
+    result = CliRunner().invoke(repomatic_cli, ["update-dep-graph", "--output", "-"])
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.startswith("flowchart LR\n")
+    assert 'repomatic[["`repomatic`"]]' in result.stdout
+    assert "subgraph primary-deps [Primary dependencies]" in result.stdout
+    assert 'click_extra{{"`click-extra`"}}' in result.stdout
+    assert "subgraph grp_test [--group test]" in result.stdout
+
+
+def test_update_dep_graph_only_group_drops_the_main_dependencies(
+    locked_project: Path,
+) -> None:
+    """`--only-group` keeps the group and what it pulls in, and nothing else."""
+    result = CliRunner().invoke(
+        repomatic_cli, ["update-dep-graph", "--only-group", "test", "--output", "-"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "subgraph grp_test [--group test]" in result.stdout
+    assert "primary-deps" not in result.stdout
+    assert "click_extra" not in result.stdout
+
+
+def test_update_dep_graph_focuses_on_one_package(locked_project: Path) -> None:
+    """`--package` roots the graph at that package instead of the project."""
+    result = CliRunner().invoke(
+        repomatic_cli,
+        [
+            "update-dep-graph",
+            "--package",
+            "click-extra",
+            "--level",
+            "1",
+            "--output",
+            "-",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert 'click_extra[["`click-extra`"]]' in result.stdout
+    assert 'repomatic[["`repomatic`"]]' not in result.stdout
+
+
+def test_update_dep_graph_writes_its_output_file(locked_project: Path) -> None:
+    """`--output` receives the graph instead of stdout."""
+    output = locked_project / "graph.mmd"
+
+    result = CliRunner().invoke(
+        repomatic_cli, ["update-dep-graph", "--output", str(output)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert output.read_text(encoding="UTF-8").startswith("flowchart LR\n")
+
+
+def test_update_dep_graph_reports_a_failed_export(locked_project: Path) -> None:
+    """A failed `uv export` ends on the error uv printed, not on a traceback."""
+    (locked_project / "uv.lock").unlink()
+
+    result = CliRunner().invoke(repomatic_cli, ["update-dep-graph", "--output", "-"])
+
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit)
+    assert "uv.lock" in result.output

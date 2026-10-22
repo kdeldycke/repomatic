@@ -28,9 +28,11 @@ import ast
 import inspect
 import io
 import json
+import os
 import re
 import subprocess
 import sys
+import traceback
 from pathlib import Path
 from textwrap import dedent
 from types import SimpleNamespace
@@ -304,6 +306,106 @@ def test_disabled_sync_needs_no_repository(tmp_path, monkeypatch, command, key):
 
     assert result.exit_code == 0, result.output
     assert f"{key} is disabled" in result.output
+
+
+OFFLINE_RUN_EXEMPT = {
+    "sync-tool-versions": "rewrites the tooling/registry.py of the installed package",
+    "update-checksums": "rewrites the tooling/registry.py of the installed package",
+}
+"""Commands the offline run leaves out, each with the reason.
+
+Each one writes to the source of the installed package, which no temporary
+working directory isolates: under an editable install, the run would rewrite the
+checkout.
+"""
+
+LEAF_COMMANDS = tuple(
+    (path, command)
+    for path, command in _all_commands()
+    if not isinstance(command, click.Group)
+)
+"""Every command a user can run, with its path."""
+
+
+def _placeholder_args(command: click.Command, scratch: Path) -> list[str]:
+    """Give each required option of *command* a value its type accepts.
+
+    A choice takes its first value, a directory path *scratch*, a file path an
+    empty file in it, and any other type a version string, which every required
+    text option of the CLI parses.
+    """
+    args: list[str] = []
+    for param in command.params:
+        if not (isinstance(param, click.Option) and param.required):
+            continue
+        param_type = param.type
+        if isinstance(param_type, click.Choice):
+            value = str(param_type.choices[0])
+        elif isinstance(param_type, click.Path) and not param_type.file_okay:
+            value = str(scratch)
+        elif isinstance(param_type, click.Path):
+            placeholder = scratch / "placeholder"
+            placeholder.touch()
+            value = str(placeholder)
+        else:
+            value = "1.2.3"
+        args += [max(param.opts, key=len), value]
+    return args
+
+
+def test_offline_run_exempts_only_real_commands():
+    """Each exemption names a command that still exists."""
+    assert set(OFFLINE_RUN_EXEMPT) <= {path for path, _command in LEAF_COMMANDS}
+
+
+@pytest.mark.parametrize(
+    ("path", "command"),
+    [
+        pytest.param(
+            path,
+            command,
+            id=path,
+            marks=pytest.mark.skip(reason=OFFLINE_RUN_EXEMPT[path])
+            if path in OFFLINE_RUN_EXEMPT
+            else (),
+        )
+        for path, command in LEAF_COMMANDS
+    ],
+)
+def test_every_command_ends_cleanly_offline(
+    path, command, tmp_path, monkeypatch, hermetic_git, cache_env
+):
+    """A command with nothing to act on ends on an error message, not a traceback.
+
+    The run starts in an empty directory, with no network, no token and no CI
+    environment, so a command finds no project, no changelog and no answer from
+    any host. Each of those is an expected failure, and a traceback means one of
+    them escaped unhandled.
+    """
+    for name in list(os.environ):
+        if name.startswith(("GITHUB_", "RUNNER_")) or name in {
+            "CI",
+            "GH_TOKEN",
+            "REPOMATIC_PAT",
+        }:
+            monkeypatch.delenv(name)
+    # Git stops at the directory of the test: from inside a repository, the
+    # `git-tag` run would create a tag and push it.
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    monkeypatch.setenv("UV_OFFLINE", "1")
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    scratch = tmp_path / "placeholders"
+    scratch.mkdir()
+
+    result = CliRunner().invoke(
+        repomatic, [*path.split(), *_placeholder_args(command, scratch)]
+    )
+
+    exception = result.exception
+    if exception is not None and not isinstance(exception, SystemExit):
+        pytest.fail("".join(traceback.format_exception(exception)))
 
 
 def test_write_output_closes_the_file_it_opens(tmp_path, monkeypatch):

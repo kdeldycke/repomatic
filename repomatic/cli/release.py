@@ -102,11 +102,7 @@ from ..release.binary import (
     pack_binary_assets,
 )
 from ..release.manpages import MANPAGES_ARCHIVE_SUFFIX, pack_manpages
-from ..release.prepare_release import (
-    CITATION_PATH,
-    EmptyChangelogSectionError,
-    PrepareRelease,
-)
+from ..release.prepare_release import CITATION_PATH, PrepareRelease
 from ..release.protocol import (
     bump_branch,
     post_release_commit_message,
@@ -280,12 +276,17 @@ def lint_changelog(
     \b
     Exit codes:
         0  All dates match, or --fix corrected the file.
-        1  Date mismatch, orphan or v-prefixed heading detected without --fix.
+        1  Date mismatch, orphan or v-prefixed heading detected without --fix,
+           or no changelog to check.
         2  Sanity gate refused to rewrite: upstream lookup (PyPI or
            GitHub Releases) looks unhealthy and the existing changelog
            has substantial coverage that would be silently stripped.
            Re-run when the API is reachable.
     """
+    # The configured location is the fallback of `--changelog`, which Click
+    # does not check for existence the way it checks a path passed in.
+    if not changelog_path.is_file():
+        raise ClickException(f"{changelog_path} not found.")
     config = get_tool_config(ctx)
     archive_location = config.changelog_archive_location
     exit_code = lint_changelog_dates(
@@ -481,15 +482,16 @@ def prepare_release(
         default_branch=default_branch,
     )
 
-    if post_release:
-        modified = prep.post_release(update_workflows=update_workflows)
-        action = "Post-release"
-    else:
-        try:
+    # Raised before any file moves: no bump-my-version config to read the version
+    # from, or a section to release that holds no entry.
+    try:
+        if post_release:
+            modified = prep.post_release(update_workflows=update_workflows)
+        else:
             modified = prep.prepare_release(update_workflows=update_workflows)
-        except EmptyChangelogSectionError as error:
-            raise ClickException(str(error)) from error
-        action = "Release preparation"
+    except RuntimeError as error:
+        raise ClickException(str(error)) from error
+    action = "Post-release" if post_release else "Release preparation"
 
     if modified:
         logging.info(f"{action} complete. Modified {len(modified)} file(s):")
@@ -1025,10 +1027,13 @@ def pack_plugin_cmd(output: Path) -> None:
     To load a packed plugin without a marketplace, unzip the archive and point
     `claude --plugin-dir` at the extracted folder.
     """
-    if is_stdout(output):
-        _stream_archive(partial(pack_plugin, Path.cwd()), ARCHIVE_NAME)
-        return
-    members = pack_plugin(Path.cwd(), output)
+    try:
+        if is_stdout(output):
+            _stream_archive(partial(pack_plugin, Path.cwd()), ARCHIVE_NAME)
+            return
+        members = pack_plugin(Path.cwd(), output)
+    except FileNotFoundError as error:
+        raise ClickException(str(error)) from error
     echo(f"Packed {len(members)} files into {output}")
 
 
@@ -1312,10 +1317,13 @@ def verify_binary(target: str, binary_path: Path, dist_dirs: tuple[Path, ...]) -
     """
     # The choice of `--target` already rejected an unknown target.
     build_target = NUITKA_BUILD_TARGETS[target]
-    verify_binary_arch(build_target, binary_path)
-    echo(f"Binary architecture verified for {target}: {binary_path}")
-    scan_dirs = list(dist_dirs) or sorted(Path.cwd().glob("*.dist"))
-    verify_binary_floor(build_target, binary_path, scan_dirs)
+    try:
+        verify_binary_arch(build_target, binary_path)
+        echo(f"Binary architecture verified for {target}: {binary_path}")
+        scan_dirs = list(dist_dirs) or sorted(Path.cwd().glob("*.dist"))
+        verify_binary_floor(build_target, binary_path, scan_dirs)
+    except ValueError as error:
+        raise ClickException(str(error)) from error
     echo(f"OS floor verified for {target}.")
 
 

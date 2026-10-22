@@ -30,6 +30,7 @@ from pathlib import Path
 from click_extra import (
     STDOUT_SENTINEL,
     Choice,
+    ClickException,
     IntRange,
     SortByOption,
     UsageError,
@@ -76,6 +77,7 @@ from ..deps.sync import (
     run_sync_operations,
     selected_operations,
 )
+from ..deps.uv import UvError
 from ..github.outputs import AnnotationLevel, emit_annotation, emit_report
 from ..github.pr import upsert_pr
 from ..github.pr_body import render_pr
@@ -341,7 +343,10 @@ def _resolve_lockfile_plan(
         held_back=held_back and (table or output is not None),
         lockfile=lockfile,
     )
-    return op, op.resolve(rc)
+    try:
+        return op, op.resolve(rc)
+    except UvError as error:
+        raise ClickException(str(error)) from error
 
 
 @subcommand(
@@ -421,7 +426,10 @@ def audit(
         # vulnerable-deps.sync gates the autofix (mutation), not reporting.
         exit_if_disabled(ctx, "vulnerable-deps.sync")
 
-        result = fix_vulnerable_deps(lockfile, repo=repo, sources=sources)
+        try:
+            result = fix_vulnerable_deps(lockfile, repo=repo, sources=sources)
+        except (RuntimeError, UvError) as error:
+            raise ClickException(str(error)) from error
         if not result.has_fixes:
             echo("No fixable vulnerabilities found.")
             ctx.exit(0)
@@ -435,7 +443,10 @@ def audit(
         ctx.exit(0)
 
     # Report mode (default, read-only).
-    vulns = collect_vulnerable_packages(lockfile, repo=repo, sources=sources)
+    try:
+        vulns = collect_vulnerable_packages(lockfile, repo=repo, sources=sources)
+    except (RuntimeError, UvError) as error:
+        raise ClickException(str(error)) from error
     if not vulns:
         echo("No known vulnerabilities found.")
         ctx.exit(0)
@@ -468,7 +479,9 @@ def audit(
 @option(
     "--pyproject",
     "pyproject_path",
-    type=file_path(resolve_path=True),
+    # A missing file would scan as a project with no dependency at all, and
+    # pass the release gate it never checked.
+    type=file_path(exists=True, resolve_path=True),
     default="pyproject.toml",
     help="Path to the pyproject.toml file.",
 )
@@ -771,14 +784,17 @@ def update_dep_graph(
         config.dependency_graph.no_extras,
     )
 
-    graph = generate_dependency_graph(
-        package=package,
-        groups=resolved_groups,
-        extras=resolved_extras,
-        frozen=frozen,
-        depth=level,
-        exclude_base=exclude_base,
-    )
+    try:
+        graph = generate_dependency_graph(
+            package=package,
+            groups=resolved_groups,
+            extras=resolved_extras,
+            frozen=frozen,
+            depth=level,
+            exclude_base=exclude_base,
+        )
+    except UvError as error:
+        raise ClickException(str(error)) from error
 
     write_output("graph", graph, output)
 

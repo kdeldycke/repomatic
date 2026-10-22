@@ -146,6 +146,9 @@
 - Fix a dependency pull request picking up the staged changes of an updater whose commit failed.
 - Fix the `sync-gitignore` help naming `gitignore-extra-content` and `gitignore-location` instead of the `gitignore.extra-content` and `gitignore.location` keys.
 - Fix `lint-repo`'s `pypi-trusted-publisher` check showing the raw `[project] name`, not the normalized one PyPI uses, in its messages and settings link.
+- Fix `audit`, `lint-changelog`, `pack-plugin`, `prepare-release`, `sync-gitignore`, `sync-uv-lock`, `update-dep-graph` and `verify-binary` printing a traceback on a missing file, a failed fetch or a failed `uv` call.
+- Fix a command printing a traceback when `uv` or `uvx` is missing from `PATH`.
+- Fix `lint-deps` passing in a directory with no `pyproject.toml`, which it read as a project with no dependency.
 
 ## [`7.18.0` (2026-10-13)](https://github.com/kdeldycke/repomatic/compare/v7.17.1...v7.18.0)
 

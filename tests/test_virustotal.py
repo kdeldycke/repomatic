@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from functools import partial
 from unittest.mock import MagicMock, patch
 
@@ -45,6 +46,12 @@ from repomatic.release.virustotal import (
     upsert_scan_records,
 )
 from tests.conftest import patch_gh as shared_patch_gh
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from click.testing import Result
 
 patch_gh = partial(shared_patch_gh, "repomatic.release.virustotal")
 """The conftest `patch_gh`, bound to this module's dispatch points."""
@@ -566,3 +573,128 @@ def test_scan_virustotal_rejects_an_unusable_target(args, message, tmp_path):
 
     assert result.exit_code == 2, result.output
     assert message in result.output
+
+
+def _scan_virustotal(binaries: Path, *args: str) -> Result:
+    """Run `scan-virustotal` for `v1.2.3` over the binaries in *binaries*."""
+    return CliRunner().invoke(
+        repomatic,
+        [
+            "scan-virustotal",
+            "--tag",
+            "v1.2.3",
+            "--api-key",
+            "mango",
+            "--binaries-dir",
+            str(binaries),
+            *args,
+        ],
+        env={"GITHUB_REPOSITORY": None},
+    )
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    (
+        (["--records", "scans.csv"], "--records requires --poll."),
+        (["--carry-from", "scan-virustotal"], "--carry-from requires --records."),
+    ),
+)
+def test_scan_virustotal_rejects_a_dependent_option_alone(args, message, tmp_path):
+    """An option that only refines another is refused without it."""
+    result = _scan_virustotal(tmp_path, *args)
+
+    assert result.exit_code == 2, result.output
+    assert message in result.output
+
+
+def test_scan_virustotal_uploads_nothing_without_binaries(tmp_path):
+    """A directory holding no `.bin` or `.exe` file ends the run before any upload."""
+    (tmp_path / "checksums.txt").write_text("kiwi", encoding="UTF-8")
+
+    with patch("repomatic.cli.release.scan_files") as scan:
+        result = _scan_virustotal(tmp_path)
+
+    assert result.exit_code == 0, result.output
+    assert "No .bin or .exe files found, nothing to upload." in result.output
+    scan.assert_not_called()
+
+
+def test_scan_virustotal_reports_uploads_that_all_failed(tmp_path):
+    """No upload to poll ends the run, with the failure stated."""
+    (tmp_path / "app-1.2.3-linux-x64.bin").write_bytes(b"\x7fELF")
+
+    with (
+        patch("repomatic.cli.release.scan_files", return_value=[]),
+        patch("repomatic.cli.release.poll_detection_stats") as poll,
+    ):
+        result = _scan_virustotal(tmp_path, "--poll")
+
+    assert result.exit_code == 0, result.output
+    assert "All uploads failed." in result.output
+    poll.assert_not_called()
+
+
+def test_scan_virustotal_records_each_polled_verdict(tmp_path):
+    """Each verdict prints and lands in the history, once per day."""
+    binaries = sorted(
+        tmp_path / name
+        for name in ("app-1.2.3-linux-x64.bin", "app-1.2.3-windows-x64.exe")
+    )
+    for binary in binaries:
+        binary.write_bytes(b"\x00")
+    uploaded = [
+        ScanResult(binary.name, "a" * 64, f"https://vt.example/{binary.name}")
+        for binary in binaries
+    ]
+    polled = [
+        replace(result, detection_stats=DetectionStats(1, 0, 64, 7))
+        for result in uploaded
+    ]
+    records = tmp_path / "scans.csv"
+
+    with (
+        patch("repomatic.cli.release.scan_files", return_value=uploaded) as scan,
+        patch("repomatic.cli.release.poll_detection_stats", return_value=polled),
+    ):
+        first = _scan_virustotal(tmp_path, "--poll", "--records", str(records))
+        second = _scan_virustotal(tmp_path, "--poll", "--records", str(records))
+
+    assert first.exit_code == 0, first.output
+    assert scan.call_args.args[1] == binaries
+    assert "app-1.2.3-windows-x64.exe: https://vt.example/" in first.output
+    assert "app-1.2.3-windows-x64.exe: 1 / 72" in first.output
+    assert "Recorded 2 scan(s) in" in first.output
+    assert {record.tag for record in load_scan_records(records)} == {"v1.2.3"}
+    assert second.exit_code == 0, second.output
+    assert "already up to date." in second.output
+
+
+def test_scan_virustotal_carries_the_history_from_its_branch(tmp_path):
+    """`--carry-from` restores the history before anything is scanned."""
+    records = tmp_path / "scans.csv"
+
+    with patch("repomatic.cli.release.carry_pr_branch_paths") as carry:
+        result = _scan_virustotal(
+            tmp_path,
+            "--poll",
+            "--records",
+            str(records),
+            "--carry-from",
+            "scan-virustotal",
+        )
+
+    assert result.exit_code == 0, result.output
+    carry.assert_called_once_with("scan-virustotal", (records.resolve(),))
+
+
+def test_scan_virustotal_reports_a_failed_download(tmp_path):
+    """A release whose binaries cannot be fetched ends on a clean error."""
+    with patch(
+        "repomatic.cli.release.download_release_binaries",
+        side_effect=RuntimeError("no asset listed"),
+    ):
+        result = _scan_virustotal(tmp_path, "--download", "--repo", "orchard/papaya")
+
+    assert result.exit_code == 1, result.output
+    assert "Could not download v1.2.3 binaries: no asset listed" in result.output

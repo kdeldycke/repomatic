@@ -25,7 +25,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from click_extra.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.config import Config
 from repomatic.deps import sources as dep_sources
 from repomatic.deps.cooldown import UvSettings
@@ -55,6 +57,10 @@ from repomatic.deps.sources import (
 )
 from repomatic.pypi import PyPIRelease
 from repomatic.templating import get_template_names, render_template
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from click.testing import Result
 
 PYPROJECT = """\
 [project]
@@ -695,6 +701,108 @@ def test_a_package_is_reported_once(tmp_path: Path) -> None:
     lock.write_text(LOCK_WITH_GIT_SOURCE, encoding="UTF-8")
     findings = scan_project(pyproject, lock, "1 week")
     assert [f.location for f in findings] == ["tool.uv.sources"]
+
+
+GIT_SOURCE = (
+    '[tool.uv.sources]\ncherry = { git = "https://x/cherry", branch = "main" }\n'
+)
+"""A source override that blocks a release, appended to `SHIPPABLE_PYPROJECT`."""
+
+
+def _lint_deps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, doc: str, *args: str
+) -> Result:
+    """Run `lint-deps` in a project declaring *doc*, with no lockfile."""
+    (tmp_path / "pyproject.toml").write_text(doc, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    return CliRunner().invoke(repomatic, ["lint-deps", *args])
+
+
+def test_lint_deps_passes_a_project_resolving_from_the_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A project with nothing to report gets the clean bill of health alone."""
+    result = _lint_deps(tmp_path, monkeypatch, SHIPPABLE_PYPROJECT)
+    assert result.exit_code == 0, result.output
+    assert "✓ Every dependency resolves from the public package index." in (
+        result.stdout
+    )
+    assert "✗" not in result.stdout
+    assert "⚠" not in result.stdout
+
+
+@pytest.mark.parametrize(("fatal", "exit_code"), (("--fatal", 1), ("--no-fatal", 0)))
+def test_lint_deps_fails_on_a_blocker_only_when_fatal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fatal: str, exit_code: int
+) -> None:
+    """A blocking finding prints either way, and fails the run under `--fatal`."""
+    result = _lint_deps(tmp_path, monkeypatch, SHIPPABLE_PYPROJECT + GIT_SOURCE, fatal)
+    assert result.exit_code == exit_code, result.output
+    assert "✗ cherry: git source in tool.uv.sources" in result.stdout
+    assert "✓" not in result.stdout
+
+
+def test_lint_deps_reports_an_allowed_source_without_blocking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A source named in `lint-deps.allow` prints with its reason, and passes."""
+    doc = (
+        SHIPPABLE_PYPROJECT
+        + "[tool.uv.sources]\ncherry = { workspace = true }\n\n"
+        + '[tool.repomatic]\nlint-deps.allow = { cherry = "monorepo member" }\n'
+    )
+    result = _lint_deps(tmp_path, monkeypatch, doc)
+    assert result.exit_code == 0, result.output
+    assert "allowed (monorepo member)" in result.stdout
+    assert "ℹ cherry: workspace source in tool.uv.sources" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("policy", "warned"), (("--policy", True), ("--no-policy", False))
+)
+def test_lint_deps_policy_warnings_never_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: str, warned: bool
+) -> None:
+    """A policy departure prints after the clean bill of health, and exits 0."""
+    doc = SHIPPABLE_PYPROJECT.replace('"cherry>=1.2"', '"cherry>=1.2,<2"')
+    result = _lint_deps(tmp_path, monkeypatch, doc, policy)
+    assert result.exit_code == 0, result.output
+    assert "✓ Every dependency resolves from the public package index." in (
+        result.stdout
+    )
+    assert ("⚠ cherry: project.dependencies" in result.stdout) is warned
+
+
+def test_lint_deps_writes_its_blockers_to_a_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--output` receives the blocker table the release pull request shows."""
+    result = _lint_deps(
+        tmp_path,
+        monkeypatch,
+        SHIPPABLE_PYPROJECT + GIT_SOURCE,
+        "--no-fatal",
+        "--output",
+        "report.md",
+    )
+    assert result.exit_code == 0, result.output
+    report = (tmp_path / "report.md").read_text(encoding="UTF-8")
+    assert "| `cherry` | `git` | `tool.uv.sources` |" in report
+
+
+def test_lint_deps_refuses_a_missing_pyproject(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory with no `pyproject.toml` fails the gate instead of passing it.
+
+    Read as an empty project, the missing file would declare no dependency, and
+    print the clean bill of health for a release it never checked.
+    """
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(repomatic, ["lint-deps"])
+    assert result.exit_code == 2, result.output
+    assert "does not exist" in result.output
+    assert "✓" not in result.output
 
 
 @pytest.mark.parametrize(

@@ -27,6 +27,7 @@ The `repomatic.deps.report` renderers these helpers feed are covered by
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -356,6 +357,18 @@ def test_run_uv_without_check_returns_the_failure():
     completed = SimpleNamespace(returncode=1, stdout="{}", stderr="")
     with patch("repomatic.deps.uv.subprocess.run", return_value=completed):
         assert run_uv(["uv", "audit"], check=False) is completed
+
+
+@pytest.mark.parametrize("check", (True, False))
+def test_run_uv_reports_a_command_that_cannot_start(check):
+    """No `uv` on `PATH` raises the error every caller handles, whatever `check`."""
+    missing = FileNotFoundError(2, "No such file or directory", "uv")
+    with (
+        patch("repomatic.deps.uv.subprocess.run", side_effect=missing),
+        pytest.raises(UvError, match="No such file or directory") as raised,
+    ):
+        run_uv(["uv", "audit"], check=check)
+    assert raised.value.returncode == 127
 
 
 def test_relock_is_a_plain_lock():
@@ -1070,3 +1083,97 @@ def test_lock_views_of_a_missing_file(tmp_path):
     assert lock.cooldown_span is None
     assert lock.version_of("mango") == ""
     assert lock.uploaded_at("mango") is None
+
+
+# ---------------------------------------------------------------------------
+# The sync-uv-lock command
+# ---------------------------------------------------------------------------
+
+CHERRY_LOCK = """\
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[[package]]
+name = "basket"
+version = "1.0.0"
+source = {{ editable = "." }}
+dependencies = [{{ name = "cherry" }}]
+
+[[package]]
+name = "cherry"
+version = "{version}"
+source = {{ registry = "https://pypi.org/simple" }}
+sdist = {{ url = "https://files.example.com/cherry-{version}.tar.gz", \
+upload-time = "{uploaded}" }}
+"""
+"""A `uv.lock` holding the project and `cherry`, with blanks for its release."""
+
+
+@pytest.fixture
+def locked_basket(tmp_path, monkeypatch):
+    """A project locking `cherry` at `1.0.0`, as the working directory."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "basket"\nversion = "1.0.0"\n'
+        'dependencies = [ "cherry>=1" ]\n',
+        encoding="UTF-8",
+    )
+    (tmp_path / "uv.lock").write_text(
+        CHERRY_LOCK.format(version="1.0.0", uploaded="2026-01-05T10:00:00Z"),
+        encoding="UTF-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def _uv_locking(lock: str):
+    """A `run_uv` whose `uv lock` writes *lock* to the project it runs in."""
+
+    def run(cmd, *, cwd=None, check=True):
+        (cwd / "uv.lock").write_text(lock, encoding="UTF-8")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    return run
+
+
+def test_sync_uv_lock_reports_each_upgrade(locked_basket):
+    """An upgraded package prints in the table and lands in the report."""
+    upgraded = CHERRY_LOCK.format(version="1.1.0", uploaded="2026-09-01T10:00:00Z")
+
+    with patch("repomatic.deps.cooldown.run_uv", _uv_locking(upgraded)):
+        result = CliRunner().invoke(
+            repomatic,
+            ["sync-uv-lock", "--no-held-back", "--output", "report.md"],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "Synced [tool.uv] policy pins from the bundled template." in result.output
+    assert "1 package(s) updated." in result.output
+    assert re.search(r"cherry\s+.\s+1\.0\.0\s+.\s+1\.1\.0", result.output)
+    assert "cherry" in (locked_basket / "report.md").read_text(encoding="UTF-8")
+    assert "[tool.uv]" in (locked_basket / "pyproject.toml").read_text(encoding="UTF-8")
+
+
+def test_sync_uv_lock_without_upgrade_changes_nothing(locked_basket):
+    """A re-lock that moves no version reports no change."""
+    unchanged = (locked_basket / "uv.lock").read_text(encoding="UTF-8")
+
+    with patch("repomatic.deps.cooldown.run_uv", _uv_locking(unchanged)):
+        result = CliRunner().invoke(repomatic, ["sync-uv-lock", "--no-held-back"])
+
+    assert result.exit_code == 0, result.output
+    assert "No dependency changes." in result.output
+
+
+def test_sync_uv_lock_reports_a_failed_lock_and_restores_the_project(locked_basket):
+    """A failed `uv lock` ends on uv's error, with the project as it was found."""
+    pyproject = (locked_basket / "pyproject.toml").read_text(encoding="UTF-8")
+    failure = UvError(1, ["uv", "lock"], "", "No solution found for cherry.")
+
+    with patch("repomatic.deps.cooldown.run_uv", side_effect=failure):
+        result = CliRunner().invoke(repomatic, ["sync-uv-lock", "--no-held-back"])
+
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit)
+    assert "No solution found for cherry." in result.output
+    assert (locked_basket / "pyproject.toml").read_text(encoding="UTF-8") == pyproject

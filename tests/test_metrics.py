@@ -23,9 +23,12 @@ from collections import Counter
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from click_extra.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.config import Config, load_repomatic_config
 from repomatic.github.gh import GhCommandError, GhOutputError
 from repomatic.metrics.chart import (
@@ -964,6 +967,112 @@ def test_write_chart_is_convergent(tmp_path, history):
     assert write_chart(grouped, spec) is False
     # Stamped with the newest reading, not with the day the chart was drawn.
     assert "sampled on 2026-08-16" in spec.output.read_text(encoding="UTF-8")
+
+
+# ---------------------------------------------------------------------------
+# The sample-metrics command.
+# ---------------------------------------------------------------------------
+
+SAMPLING_CONFIG = """\
+[tool.repomatic]
+metrics.store = "metrics.csv"
+metrics.subjects.papaya = "fruits/papaya"
+metrics.sync = true
+"""
+"""A project sampling one subject into a store at its root."""
+
+
+@pytest.fixture
+def sampling_project(tmp_path, monkeypatch):
+    """A project sampling `papaya`, as the working directory.
+
+    The forge answers 57 stars and a creation date. The star history is not
+    reachable, as `gh` never runs in the suite.
+    """
+    (tmp_path / "pyproject.toml").write_text(SAMPLING_CONFIG, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "repomatic.metrics.store.repo_metrics",
+        lambda url, extra=None: ForgeMetrics(stars=57, created="2021-12-09"),
+    )
+    return tmp_path
+
+
+def test_sample_metrics_needs_a_subject(tmp_path, monkeypatch):
+    """With no subject configured, the run reads no forge and writes no store."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.repomatic]\nmetrics.sync = true\n", encoding="UTF-8"
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(repomatic, ["sample-metrics"])
+
+    assert result.exit_code == 0, result.output
+    assert "No repository in [tool.repomatic.metrics] subjects" in result.output
+    # The default store sits under docs/.
+    assert not (tmp_path / "docs").exists()
+
+
+def test_sample_metrics_records_each_reading_once(sampling_project):
+    """A second run on the same day leaves the store as the first one wrote it."""
+    first = CliRunner().invoke(repomatic, ["sample-metrics", "--no-render"])
+    second = CliRunner().invoke(repomatic, ["sample-metrics", "--no-render"])
+
+    assert first.exit_code == 0, first.output
+    assert "Recorded 2 reading(s) in metrics.csv." in first.output
+    readings = MetricStore.load(sampling_project / "metrics.csv")
+    assert [record.value for record in readings.held(PAPAYA, "stars")] == ["0", "57"]
+    assert second.exit_code == 0, second.output
+    assert "metrics.csv already up to date." in second.output
+
+
+def test_sample_metrics_redraws_each_configured_chart(sampling_project):
+    """A chart is drawn from the readings, and left alone once current."""
+    with (sampling_project / "pyproject.toml").open("a", encoding="UTF-8") as config:
+        config.write('metrics.charts = [ { output = "stars.svg" } ]\n')
+
+    first = CliRunner().invoke(repomatic, ["sample-metrics"])
+    second = CliRunner().invoke(repomatic, ["sample-metrics"])
+
+    assert first.exit_code == 0, first.output
+    assert "Redrew stars.svg." in first.output
+    assert (sampling_project / "stars.svg").is_file()
+    assert second.exit_code == 0, second.output
+    assert "Unchanged stars.svg." in second.output
+
+
+def test_sample_metrics_draws_nothing_without_a_reading(sampling_project, monkeypatch):
+    """A forge that answers nothing leaves no history to chart."""
+    monkeypatch.setattr(
+        "repomatic.metrics.store.repo_metrics", lambda url, extra=None: None
+    )
+
+    result = CliRunner().invoke(repomatic, ["sample-metrics"])
+
+    assert result.exit_code == 0, result.output
+    assert "No reading recorded yet, so no chart to draw." in result.output
+
+
+def test_sample_metrics_refuses_a_malformed_store(sampling_project):
+    """A store with foreign columns ends the run before any forge is read."""
+    (sampling_project / "metrics.csv").write_text("kiwi,mango\n1,2\n", encoding="UTF-8")
+
+    result = CliRunner().invoke(repomatic, ["sample-metrics", "--no-render"])
+
+    assert result.exit_code == 1, result.output
+    assert "Error:" in result.output
+
+
+def test_sample_metrics_carries_the_store_from_its_branch(sampling_project):
+    """`--carry-from` restores the store before the readings are appended."""
+    with patch("repomatic.cli.repo.carry_pr_branch_paths") as carry:
+        result = CliRunner().invoke(
+            repomatic,
+            ["sample-metrics", "--no-render", "--carry-from", "sample-metrics"],
+        )
+
+    assert result.exit_code == 0, result.output
+    carry.assert_called_once_with("sample-metrics", (Path("metrics.csv"),))
 
 
 # ---------------------------------------------------------------------------

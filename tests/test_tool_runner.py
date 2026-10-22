@@ -1848,6 +1848,19 @@ def test_run_tool_forwards_exit_code(mock_ci, mock_run, tmp_path, monkeypatch):
 
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
+def test_run_tool_reports_a_launcher_missing_from_path(
+    mock_ci, mock_run, tmp_path, monkeypatch
+):
+    """No `uvx` on `PATH` raises the install error callers turn into a message."""
+    monkeypatch.chdir(tmp_path)
+    mock_run.side_effect = FileNotFoundError(2, "No such file or directory", "uvx")
+
+    with pytest.raises(ToolInstallError, match="Cannot start yamllint"):
+        run_tool("yamllint", extra_args=(".",))
+
+
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_autopep8_default_flags(mock_ci, mock_run, tmp_path, monkeypatch):
     """autopep8 runs with all default flags via uvx."""
     monkeypatch.chdir(tmp_path)
