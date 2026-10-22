@@ -150,8 +150,18 @@ class Response(NamedTuple):
     """The raw response body."""
 
 
-def _error_excerpt(error: HTTPError) -> str:
-    """The start of an error response's body, empty when it cannot be read."""
+def error_excerpt(error: HTTPError) -> str:
+    """The start of an error response's body, empty when it cannot be read.
+
+    Reading the body is a network read too, and fails the same ways as the
+    request: the refusal still stands without its body. Shared with the clients
+    that call `urllib` themselves, like the S3 half of
+    {mod}`repomatic.cloudflare.r2`.
+
+    :param error: The refusal `urllib` raised.
+    :return: At most {data}`ERROR_BODY_EXCERPT` characters of the body, decoded
+        leniently.
+    """
     try:
         raw = error.read()
     except (OSError, HTTPException, ValueError):
@@ -214,7 +224,7 @@ def request(
             time.sleep(delay)
         except HTTPError as exc:
             raise FetchError(
-                str(exc), status=exc.code, body=_error_excerpt(exc)
+                str(exc), status=exc.code, body=error_excerpt(exc)
             ) from exc
         # `OSError` covers `URLError`, a timeout and a reset connection.
         # `HTTPException` covers a server that drops the connection before it
@@ -261,7 +271,7 @@ def _download_once(
                     received += len(chunk)
                     advance(len(chunk))
     except HTTPError as exc:
-        raise FetchError(str(exc), status=exc.code, body=_error_excerpt(exc)) from exc
+        raise FetchError(str(exc), status=exc.code, body=error_excerpt(exc)) from exc
     # The same failure modes as `request`, plus a malformed `Content-Length`.
     except (OSError, HTTPException, ValueError) as exc:
         raise FetchError(str(exc)) from exc

@@ -36,6 +36,7 @@ from repomatic.http import (
     USER_AGENT,
     FetchError,
     download,
+    error_excerpt,
     get_cached_json,
     get_json,
     get_json_soft,
@@ -245,6 +246,19 @@ def test_request_keeps_the_status_and_body_of_an_http_error():
     assert excinfo.value.status == 401
     assert excinfo.value.body.startswith('{"message": "Bad credentials"}')
     assert len(excinfo.value.body) == ERROR_BODY_EXCERPT
+
+
+class CutShortBody(BytesIO):
+    """The body of an error answer whose connection drops mid-read."""
+
+    def read(self, *args: object) -> bytes:
+        raise IncompleteRead(b"<Error>")
+
+
+def test_error_excerpt_reads_an_unreadable_body_as_empty():
+    """A body the connection cuts short leaves the refusal without its detail."""
+    error = HTTPError("https://example.test", 503, "Error", Message(), CutShortBody())
+    assert error_excerpt(error) == ""
 
 
 @pytest.mark.parametrize(

@@ -87,7 +87,7 @@ from click_extra import echo
 
 from ..github.outputs import AnnotationLevel, emit_annotation
 from ..hashing import compute_file_sha256
-from ..http import ERROR_BODY_EXCERPT
+from ..http import error_excerpt
 from ..humanize import format_file_size
 from ..tabular import ReportAction, render_markdown_table
 from . import api
@@ -108,6 +108,13 @@ if TYPE_CHECKING:
 
 PAGES_MAX_FILE_SIZE: Final = 25 * 1024 * 1024
 """Largest file Cloudflare Pages Direct Upload accepts, in bytes."""
+
+PAGES_LIMIT_LABEL: Final = f"{PAGES_MAX_FILE_SIZE // 2**20} MiB"
+"""{data}`PAGES_MAX_FILE_SIZE`, the way the messages spell it.
+
+Every message builds on this label. A docstring or a template cannot, so
+`tests/test_cloudflare_r2.py` holds each limit they spell out to it.
+"""
 
 S3_MAX_OBJECT_SIZE: Final = 5 * 1024**3 - 5 * 1024**2
 """Largest object one S3 `PUT` writes to R2, in bytes: 5 MiB short of 5 GiB.
@@ -143,7 +150,7 @@ REDIRECT_STATUS: Final = 302
 """Status of the generated redirects. See the module docstring."""
 
 REDIRECTS_HEADER: Final = (
-    "# Files over the 25 MiB Cloudflare Pages limit, served from R2."
+    f"# Files over the {PAGES_LIMIT_LABEL} Cloudflare Pages limit, served from R2."
     " Written by `repomatic cloudflare-r2 --offload`."
 )
 """Comment line above the generated rules in the built `_redirects`."""
@@ -272,8 +279,7 @@ def _send(request: urllib.request.Request, label: str) -> None:
         with urllib.request.urlopen(request, timeout=S3_TIMEOUT):
             return
     except urllib.error.HTTPError as error:
-        detail = error.read().decode(errors="replace")[:ERROR_BODY_EXCERPT]
-        raise refusal(label, error.code, detail) from error
+        raise refusal(label, error.code, error_excerpt(error)) from error
     # `URLError` covers a refused connection, but a timeout or a reset in the
     # middle of a long upload arrives as a bare `OSError` or `HTTPException`.
     # Converting all of them keeps the offload's promise to leave the tree
@@ -420,7 +426,8 @@ class OffloadReport:
         if not self.results:
             print_status(
                 Status.OK,
-                f"no file in {self.root} is over the 25 MiB Cloudflare Pages limit.",
+                f"no file in {self.root} is over the {PAGES_LIMIT_LABEL} Cloudflare"
+                " Pages limit.",
             )
             return
         for entry in self.results:
@@ -428,8 +435,9 @@ class OffloadReport:
             if entry.action is ReportAction.DROPPED:
                 emit_annotation(
                     AnnotationLevel.ERROR,
-                    f"{entry.path} ({size}) is over the 25 MiB Cloudflare Pages"
-                    " limit, so this deploy dropped it and its links are dead:"
+                    f"{entry.path} ({size}) is over the {PAGES_LIMIT_LABEL}"
+                    " Cloudflare Pages limit, so this deploy dropped it and its"
+                    " links are dead:"
                     f" {_spell_out_links(entry.reason)}",
                 )
             else:

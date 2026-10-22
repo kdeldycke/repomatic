@@ -31,7 +31,7 @@ from ..checks import CheckResult
 from ..cloudflare.r2 import (
     ACCESS_KEY_ID_ENV,
     OFFLOAD_DOCS_URL,
-    PAGES_MAX_FILE_SIZE,
+    PAGES_LIMIT_LABEL,
     SECRET_ACCESS_KEY_ENV,
 )
 from ..cloudflare.redirects import (
@@ -66,9 +66,6 @@ Enough to recognize which part of the file fell off the end, short of dumping
 a tail that can run to hundreds of rules into one lint message. The remainder
 is counted rather than listed, and the fix is the same reorder either way.
 """
-
-PAGES_LIMIT_LABEL: Final = f"{PAGES_MAX_FILE_SIZE // 2**20} MiB"
-"""The Cloudflare Pages file size limit, the way the messages spell it."""
 
 PAGES_DEPLOYMENT_SOURCE: Final = RepoSettingProbe(
     label="Pages deployment source check",

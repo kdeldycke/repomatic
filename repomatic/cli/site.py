@@ -35,7 +35,7 @@ from click_extra import (
 
 from ..cloudflare.api import CloudflareError, resolve_project
 from ..cloudflare.pages import PagesMode, run_cloudflare_pages
-from ..cloudflare.r2 import R2Mode, run_cloudflare_r2, run_offload
+from ..cloudflare.r2 import PAGES_LIMIT_LABEL, R2Mode, run_cloudflare_r2, run_offload
 from ..docs import DocsPhase, PhaseStatus, update_docs
 from ..github.outputs import emit_report
 from .main import report_options, subcommand
@@ -257,10 +257,11 @@ def cloudflare_pages(
     type=dir_path(exists=True, readable=True, resolve_path=True),
     default=None,
     help=(
-        "Move every file over 25 MiB out of the built site in DIRECTORY, to the"
-        " bucket, and redirect its path there in DIRECTORY/_redirects. Without"
-        " a bucket, drop the file with an error. Exits 1 when it drops a file,"
-        " with the rest of DIRECTORY still ready to deploy."
+        f"Move every file over {PAGES_LIMIT_LABEL} out of the built site in"
+        " DIRECTORY, to the bucket, and redirect its path there in"
+        " DIRECTORY/_redirects. Without a bucket, drop the file with an error."
+        " Exits 1 when it drops a file, with the rest of DIRECTORY still ready"
+        " to deploy."
     ),
 )
 @option(

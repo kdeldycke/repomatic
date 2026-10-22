@@ -25,8 +25,12 @@ makes, none of which needs a live bucket to prove.
 from __future__ import annotations
 
 import hashlib
+import re
+from email.message import Message
+from pathlib import Path
 from typing import cast
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 import pytest
 from click.testing import CliRunner
@@ -39,6 +43,7 @@ from repomatic.cloudflare.r2 import (
     CACHE_CONTROL,
     OFFLOAD_DOCS_LINK,
     OFFLOAD_DOCS_URL,
+    PAGES_LIMIT_LABEL,
     PAGES_MAX_FILE_SIZE,
     REDIRECTS_HEADER,
     SECRET_ACCESS_KEY_ENV,
@@ -56,6 +61,7 @@ from repomatic.cloudflare.r2 import (
 )
 from repomatic.cloudflare.redirects import MAX_STATIC_RULES, parse_redirects
 from repomatic.tabular import ReportAction
+from tests.test_http import CutShortBody
 
 DOMAIN = "files.example.com"
 
@@ -220,6 +226,23 @@ def test_send_turns_a_broken_connection_into_a_cloudflare_error(raised):
         pytest.raises(CloudflareError, match=r"HEAD papaya-files/abc failed"),
     ):
         r2._send(request, "HEAD papaya-files/abc")
+
+
+def test_send_keeps_a_refusal_whose_body_is_cut_short():
+    """A refusal with a body that cannot be read is still a refusal, not a crash.
+
+    The read of the body is a network read like any other. An `HTTPException`
+    escaping it would bypass the catch of the offload, which promises a tree
+    ready to deploy.
+    """
+    request = BUCKET._request("PUT", "abc/atlas.zip", EMPTY)
+    refused = HTTPError(request.full_url, 503, "Unavailable", Message(), CutShortBody())
+    with (
+        patch.object(r2.urllib.request, "urlopen", side_effect=refused),
+        pytest.raises(CloudflareHTTPError, match=r"HTTP 503") as caught,
+    ):
+        r2._send(request, "PUT papaya-files/abc")
+    assert caught.value.status == 503
 
 
 def test_put_streams_the_file_with_its_type_length_and_cache_header(tmp_path):
@@ -688,3 +711,34 @@ def test_cli_offload_writes_no_table_when_nothing_is_oversized(project_dir):
     )
     assert result.exit_code == 0
     assert not summary.exists()
+
+
+# ----- The size limit, spelled out
+
+
+SPELLED_OUT_LIMIT = re.compile(r"\bover (?:the )?(\d+ MiB)\b")
+"""How text that cannot interpolate the label spells the Pages limit."""
+
+
+def test_every_spelled_out_pages_limit_matches_the_label():
+    """Package text that spells the limit out agrees with the label.
+
+    A docstring, a help text, a template or a bundled skill cannot interpolate
+    {data}`~repomatic.cloudflare.r2.PAGES_LIMIT_LABEL`, so a new limit would
+    leave each one stale. The failure names each file.
+    """
+    root = Path(r2.__file__).parents[1]
+    spelled: dict[str, set[str]] = {}
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and path.suffix in {".md", ".noformat", ".py"}:
+            labels = set(SPELLED_OUT_LIMIT.findall(path.read_text(encoding="UTF-8")))
+            if labels:
+                spelled[path.relative_to(root).as_posix()] = labels
+    # The module docstring and the command help, which no message replaces.
+    assert {"cli/site.py", "cloudflare/r2.py"} <= spelled.keys()
+    stale = {
+        name: labels
+        for name, labels in spelled.items()
+        if labels != {PAGES_LIMIT_LABEL}
+    }
+    assert not stale, f"These spell another limit than {PAGES_LIMIT_LABEL}: {stale}"

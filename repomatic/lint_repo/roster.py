@@ -28,6 +28,7 @@ import textwrap
 from dataclasses import dataclass
 
 from ..checks import CheckResult
+from ..cloudflare.r2 import PAGES_LIMIT_LABEL
 from ..components import SyncMode
 from ..github.outputs import AnnotationLevel
 from ..github.token import PAT_PERMISSION_PROBES
@@ -63,7 +64,6 @@ from .settings import (
     check_virustotal_secret,
 )
 from .site import (
-    PAGES_LIMIT_LABEL,
     check_cloudflare_r2_secrets,
     check_cloudflare_secrets,
     check_oversized_site_files,
