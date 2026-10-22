@@ -203,6 +203,7 @@ def format_diff_table(
     subject: str = "Package",
     released_overrides: Mapping[str, str] | None = None,
     change_labels: Mapping[str, str] | None = None,
+    provenance: Mapping[str, str] | None = None,
 ) -> str:
     """Format version changes as a markdown table with heading.
 
@@ -246,6 +247,9 @@ def format_diff_table(
         leading the "Change" cell of their version move, the way `🆕 new:`
         leads an added package. Marks a move the arrow alone misreads, like a
         pin stepped back to an older release.
+    :param provenance: Optional mapping of names to literal markdown for a
+        "Provenance" column, which renders when any changed name has an entry.
+        A changed name without one shows a dash.
     :return: A markdown string with a `## 🆙 {heading}` heading and table,
         or an empty string if there are no changes.
     """
@@ -257,6 +261,8 @@ def format_diff_table(
     show_uploaded = bool(upload_times) or bool(
         changed_names & released_overrides.keys()
     )
+    provenance = provenance or {}
+    show_provenance = bool(changed_names & provenance.keys())
     rows: list[tuple[str, ...]] = []
     for name, old, new in changes:
         if old and new:
@@ -277,9 +283,15 @@ def format_diff_table(
                 raw_time = upload_times.get(name, "") if upload_times else ""
                 uploaded = format_released(raw_time, reference_date)
             cells.append(uploaded)
+        if show_provenance:
+            cells.append(provenance.get(name, "—"))
         rows.append(tuple(cells))
 
-    headers = (subject, "Change", "Released") if show_uploaded else (subject, "Change")
+    headers: tuple[str, ...] = (subject, "Change")
+    if show_uploaded:
+        headers = (*headers, "Released")
+    if show_provenance:
+        headers = (*headers, "Provenance")
     return markdown_section(f"🆙 {heading}", cooldown_note, headers, rows)
 
 
@@ -427,6 +439,90 @@ def format_held_back_table(
                 pkg.eligible,
             )
             for pkg in held_back
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Held-back-for-provenance table
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ProvenanceHold:
+    """A release withheld because it lost the provenance its predecessor had.
+
+    Built by {func}`repomatic.deps.provenance.review_bumps`: the kept release
+    was uploaded through trusted publishing, and the withheld one was not.
+    """
+
+    name: str
+    """Name of the row: the tool or the package."""
+
+    kept: str
+    """Version left in place, which carries provenance."""
+
+    withheld: str
+    """Version the run would have adopted, which carries none."""
+
+    publisher: str
+    """Trusted publisher of {attr}`kept`, like `pypa/packaging`, or empty when
+    its provenance names none."""
+
+    @property
+    def row(self) -> tuple[str, str, str, str]:
+        """The hold as a terminal row.
+
+        Its name, then the {data}`PROVENANCE_HOLD_COLUMNS` cells.
+        """
+        return self.name, self.kept, self.withheld, self.publisher
+
+
+PROVENANCE_HOLD_COLUMNS = ("Kept", "Withheld", "Last publisher")
+"""Columns of the provenance-hold table, after the caller-supplied subject.
+
+Shared with {func}`repomatic.cli.deps.print_plan_tables`, for the reason
+{data}`HELD_BACK_COLUMNS` is.
+"""
+
+PROVENANCE_HOLD_NOTE = (
+    "Each withheld release carries no [PEP 740](https://peps.python.org/pep-0740/)"
+    " provenance, while the release it would replace was uploaded by the trusted"
+    " publisher named here. A publishing token used outside that workflow uploads"
+    " exactly this. Confirm the release with its maintainers before adopting it by"
+    " hand: this check holds the automated bump only."
+)
+"""Intro paragraph of the provenance-hold section."""
+
+
+def format_provenance_holds(
+    holds: list[ProvenanceHold],
+    *,
+    name_urls: Mapping[str, str] | None = None,
+    subject: str = "Package",
+) -> str:
+    """Format the releases withheld for missing provenance as a markdown section.
+
+    :param holds: The withheld releases.
+    :param name_urls: Optional mapping of names to a URL the name links to.
+    :param subject: Header for the first column (e.g. `Tool`, `Package`).
+    :return: A markdown string with a `## 🛡️ Held back for missing provenance`
+        heading and table, or an empty string when *holds* is empty.
+    """
+    if not holds:
+        return ""
+    return markdown_section(
+        "🛡️ Held back for missing provenance",
+        PROVENANCE_HOLD_NOTE,
+        (subject, *PROVENANCE_HOLD_COLUMNS),
+        [
+            (
+                link_name(hold.name, name_urls),
+                f"`{hold.kept}`",
+                f"`{hold.withheld}`",
+                f"`{hold.publisher}`" if hold.publisher else "—",
+            )
+            for hold in holds
         ],
     )
 

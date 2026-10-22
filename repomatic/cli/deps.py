@@ -60,6 +60,7 @@ from ..deps.policy import scan_policy
 from ..deps.report import (
     BYPASS_COLUMNS,
     HELD_BACK_COLUMNS,
+    PROVENANCE_HOLD_COLUMNS,
     format_released,
     format_upload_date,
 )
@@ -224,6 +225,12 @@ def print_plan_tables(ctx: Context, plan: SyncPlan) -> None:
         ctx.print_table(
             [forecast.row for forecast in plan.uv_project.bypass_forecasts],
             BYPASS_COLUMNS,
+        )
+    if plan.provenance_holds:
+        echo("Held back for missing provenance:")
+        ctx.print_table(
+            [hold.row for hold in plan.provenance_holds],
+            (plan.subject, *PROVENANCE_HOLD_COLUMNS),
         )
     if plan.held_back:
         echo("Held back by cooldown:")

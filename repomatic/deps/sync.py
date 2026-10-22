@@ -81,11 +81,11 @@ from ..http import FetchError, get_json
 from ..humanize import format_countdown, utc_midnight
 from ..init.tool_config import init_config
 from ..init.upgrade import upgrade_invite
-from ..pypi import PYPI_PACKAGE_URL, get_source_url
+from ..pypi import PYPI_PACKAGE_URL, get_source_url, is_pypi_url
 from ..templating import PrTemplate
 from ..tooling import registry as tool_registry
 from ..tooling.checksums import update_registry_checksums
-from ..tooling.registry import TOOL_REGISTRY
+from ..tooling.registry import TOOL_REGISTRY, ToolBackend
 from ..upstream import (
     DEFAULT_REPO,
     UPSTREAM_PACKAGE,
@@ -94,6 +94,7 @@ from ..upstream import (
 )
 from ..versions import is_newer
 from .cooldown import (
+    SyncResult,
     UvSettings,
     active_forecasts,
     compute_held_back_packages,
@@ -121,10 +122,12 @@ from .pins import (
     setup_uv_verified_versions,
     tool_candidates,
 )
+from .provenance import PypiBump, review_bumps
 from .report import (
     EXCLUDE_NEWER_HELD_BACK_NOTE,
     BypassForecast,
     HeldBackPackage,
+    ProvenanceHold,
     build_comparison_urls,
     build_held_back,
     fetch_release_notes,
@@ -132,6 +135,7 @@ from .report import (
     format_diff_table,
     format_exclude_newer_note,
     format_held_back_table,
+    format_provenance_holds,
     format_release_notes,
     pypi_name_urls,
 )
@@ -152,6 +156,7 @@ if TYPE_CHECKING:
     from typing import Any
 
     from ..config import Config
+    from ..tooling.registry import ToolSpec
     from .pins import Candidate
 
 ACTIONLINT_MATCHER_URL = (
@@ -413,6 +418,17 @@ class SyncPlan:
     held_back_note: str = MIN_AGE_HELD_BACK_NOTE
     """Intro paragraph for the held-back section (cooldown wording)."""
 
+    provenance: dict[str, str] = field(default_factory=dict)
+    """Name to the markdown of its "Provenance" table cell.
+
+    Filled for the PyPI bumps the provenance review read, and for the binary
+    tools whose download is verified against an upstream attestation.
+    """
+
+    provenance_holds: list[ProvenanceHold] = field(default_factory=list)
+    """Bumps withheld because the release lost the provenance its predecessor
+    had. See {mod}`repomatic.deps.provenance`."""
+
     notes_section: str = ""
     """Pre-rendered release-notes markdown, or empty."""
 
@@ -596,18 +612,74 @@ def _resolve_uv_lock(rc: ResolveContext) -> SyncPlan:
         settings = UvSettings.load(pyproject_path, text=merged)
 
         result = sync_uv_lock(lockfile, settings)
-        plan.changes = result.changes
-        plan.dates = result.lock.upload_times
-        plan.uv_project.exclude_newer = result.lock.exclude_newer
-        plan.cooldown_note = format_exclude_newer_note(result.lock.exclude_newer)
-        plan.name_urls = pypi_name_urls(name for name, _old, _new in result.changes)
+        changes, final_lock = _review_lock_provenance(plan, rc, settings, result)
+        plan.changes = changes
+        plan.dates = final_lock.upload_times
+        plan.uv_project.exclude_newer = final_lock.exclude_newer
+        plan.cooldown_note = format_exclude_newer_note(final_lock.exclude_newer)
+        plan.name_urls = pypi_name_urls(name for name, _old, _new in changes)
         plan.uv_project.pruned_bypasses = result.pruned_bypasses
         plan.uv_project.frozen_bypasses = result.frozen_bypasses
         plan.uv_project.stale_bypass_comments = result.stale_bypass_comments
         plan.uv_project.bypass_forecasts = result.bypass_forecasts
 
-        _finish_uv_plan(plan, rc, result.lock, settings)
+        _finish_uv_plan(plan, rc, final_lock, settings)
     return plan
+
+
+def _review_lock_provenance(
+    plan: SyncPlan, rc: ResolveContext, settings: UvSettings, result: SyncResult
+) -> tuple[list[tuple[str, str, str]], LockFile]:
+    """Review the provenance of a re-lock's PyPI bumps, and step back the lost ones.
+
+    A package whose new release lost the provenance of the locked one is
+    locked again at its previous version, with `--upgrade-package
+    name==version`, which keeps every other version of the lock. The changes
+    are then read again against the lock as it stood before the run, since
+    stepping one package back can move a package depending on it.
+
+    :param plan: The plan being resolved: receives the cells and the holds.
+    :param rc: The resolve inputs, supplying the lookup width.
+    :param settings: The project's `[tool.uv]` settings.
+    :param result: What {func}`~repomatic.deps.cooldown.sync_uv_lock` did.
+    :return: The version changes and the lock left on disk.
+    """
+    registries = result.lock.registries
+    review = review_bumps(
+        [
+            PypiBump(name, name, old, new)
+            for name, old, new in result.changes
+            if new and is_pypi_url(registries.get(name, ""))
+        ],
+        jobs=rc.jobs,
+    )
+    plan.provenance_holds = review.holds
+    if not review.holds:
+        plan.provenance = review.cells
+        return result.changes, result.lock
+
+    # The lock as it stood before the run: every change rolled back.
+    before = dict(result.lock.versions)
+    for name, old, _new in result.changes:
+        if old:
+            before[name] = old
+        else:
+            before.pop(name, None)
+    steps = [
+        arg
+        for hold in review.holds
+        for arg in ("--upgrade-package", f"{hold.name}=={hold.kept}")
+    ]
+    lock_cmd = settings.lock_command(*steps)
+    logging.info(f"Running {' '.join(lock_cmd)} in {rc.lockfile.parent}...")
+    run_uv(lock_cmd, cwd=rc.lockfile.parent)
+    final = LockFile.load(rc.lockfile)
+    changes = diff_lock_versions(before, final.versions)
+    kept = {name for name, _old, _new in changes}
+    plan.provenance = {
+        name: cell for name, cell in review.cells.items() if name in kept
+    }
+    return changes, final
 
 
 def _apply_uv_lock(plan: SyncPlan) -> None:
@@ -743,31 +815,64 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
         )
     )
 
-    changes: list[tuple[str, str, str]] = []
-    overrides: dict[str, str] = {}
+    tool_bumps: list[tuple[str, ToolSpec, Candidate]] = []
     for (name, spec), candidates in zip(tools, tool_releases):
         latest = select_latest(candidates, rc.min_age, rc.today)
         _track_held_back(
             plan, rc, name, spec.datasource_url, candidates, latest, spec.version
         )
-        if latest is None or not is_newer(latest.version, spec.version):
+        if latest is not None and is_newer(latest.version, spec.version):
+            tool_bumps.append((name, spec, latest))
+
+    # Second pass over the packages pinned *alongside* a tool. Without it they
+    # drift silently: a plugin pin ages out, or a second copy of a tool the main
+    # registry has already moved on from goes stale.
+    package_bumps: list[tuple[str, str, Candidate]] = []
+    for (package, pinned), candidates in zip(packages, package_releases):
+        pypi_url = PYPI_PACKAGE_URL.format(package=package)
+        latest = select_latest(candidates, rc.min_age, rc.today)
+        _track_held_back(plan, rc, package, pypi_url, candidates, latest, pinned)
+        if latest is not None and is_newer(latest.version, pinned):
+            package_bumps.append((package, pinned, latest))
+
+    # Every bump resolved from PyPI is reviewed before anything is rewritten,
+    # so a release that lost its provenance never reaches the registry.
+    review = review_bumps(
+        [
+            PypiBump(name, spec.pypi_name, spec.version, latest.version)
+            for name, spec, latest in tool_bumps
+            if spec.backend in (ToolBackend.UVX, ToolBackend.VENV)
+        ]
+        + [
+            PypiBump(package, package, pinned, latest.version)
+            for package, pinned, latest in package_bumps
+        ],
+        jobs=rc.jobs,
+    )
+    plan.provenance_holds = review.holds
+    plan.provenance = review.cells
+    held = review.held
+
+    changes: list[tuple[str, str, str]] = []
+    overrides: dict[str, str] = {}
+    for name, spec, latest in tool_bumps:
+        if name in held:
             continue
         content = set_tool_version(content, name, latest.version)
         changes.append((name, spec.version, latest.version))
         plan.dates[name] = latest.date
         overrides[name] = latest.version
+        # The checksum recompute verifies the download against this attestation
+        # before the bump is written, and fails the run when it does not hold.
+        if spec.binary is not None and spec.binary.attestation is not None:
+            plan.provenance[name] = f"✅ {spec.binary.attestation.value}"
 
-    # Second pass over the packages pinned *alongside* a tool. Without it they
-    # drift silently: a plugin pin ages out, or a second copy of a tool the main
-    # registry has already moved on from goes stale.
     package_urls: dict[str, str] = {}
     package_notes: list[ReleaseNotesRequest] = []
-    for (package, pinned), candidates in zip(packages, package_releases):
-        pypi_url = PYPI_PACKAGE_URL.format(package=package)
-        latest = select_latest(candidates, rc.min_age, rc.today)
-        _track_held_back(plan, rc, package, pypi_url, candidates, latest, pinned)
-        if latest is None or not is_newer(latest.version, pinned):
+    for package, pinned, latest in package_bumps:
+        if package in held:
             continue
+        pypi_url = PYPI_PACKAGE_URL.format(package=package)
         content = set_with_package_version(content, package, latest.version)
         changes.append((package, pinned, latest.version))
         plan.dates[package] = latest.date
@@ -1319,6 +1424,17 @@ def render_plan_markdown(plan: SyncPlan) -> str:
         subject=plan.subject,
         released_overrides=plan.released_overrides,
         change_labels=plan.change_labels,
+        provenance=plan.provenance,
+    )
+    provenance_section = format_provenance_holds(
+        plan.provenance_holds,
+        name_urls=plan.held_back_name_urls
+        | pypi_name_urls(
+            hold.name
+            for hold in plan.provenance_holds
+            if hold.name not in plan.held_back_name_urls
+        ),
+        subject=plan.subject,
     )
     held_back_section = format_held_back_table(
         plan.held_back,
@@ -1362,6 +1478,7 @@ def render_plan_markdown(plan: SyncPlan) -> str:
             plan.upgrade_section,
             bypass_section,
             exemption_section,
+            provenance_section,
             held_back_section,
         )
         if section

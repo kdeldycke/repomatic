@@ -156,6 +156,21 @@ class LockFile:
         return upload_times
 
     @cached_property
+    def registries(self) -> dict[str, str]:
+        """Package name to the URL of the index it is locked from.
+
+        Packages from a git, path or URL source are absent: they come from no
+        index.
+        """
+        return {
+            pkg["name"]: pkg["source"]["registry"]
+            for pkg in self.data.get("package", [])
+            if "name" in pkg
+            and isinstance(pkg.get("source"), dict)
+            and isinstance(pkg["source"].get("registry"), str)
+        }
+
+    @cached_property
     def cooldown_span(self) -> timedelta | None:
         """Width of the rolling cooldown, from `options.exclude-newer-span`.
 

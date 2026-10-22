@@ -19,6 +19,7 @@
    repomatic.deps.lockfile
    repomatic.deps.pins
    repomatic.deps.policy
+   repomatic.deps.provenance
    repomatic.deps.report
    repomatic.deps.requirements
    repomatic.deps.shippable

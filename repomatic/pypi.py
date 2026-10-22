@@ -25,13 +25,16 @@ Also the home of what counts as the public index at all
 
 from __future__ import annotations
 
+import json
+import logging
 import time
+from dataclasses import dataclass
 from typing import NamedTuple
 from urllib.parse import urlencode, urlsplit
 
 from .config import load_repomatic_config
 from .github.urls import parse_github_repo
-from .http import get_cached_json, get_json_soft
+from .http import FetchError, get_cached_json, get_json_soft, request
 from .versions import safe_version
 
 TYPE_CHECKING = False
@@ -421,31 +424,11 @@ def get_latest_release_file(package: str) -> tuple[str, str] | None:
     return version, filename
 
 
-def get_trusted_publishers(
-    package: str, version: str, filename: str
-) -> list[TrustedPublisher] | None:
-    """Fetch PEP 740 provenance for a file and extract publisher entries.
+def _parse_publishers(data: dict[str, Any]) -> list[TrustedPublisher]:
+    """The publishers named by the bundles of a provenance object.
 
-    Calls {data}`PYPI_PROVENANCE_URL` and parses the `attestation_bundles`
-    array. Each bundle's `publisher` object names the OIDC identity that
-    uploaded the file.
-
-    :param package: The PyPI package name.
-    :param version: The release version (e.g., `"1.2.3"`).
-    :param filename: The distribution filename (e.g.,
-        `"my_pkg-1.2.3-py3-none-any.whl"`).
-    :return: List of {class}`TrustedPublisher` entries (possibly empty when
-        provenance exists but no bundles are present), or `None` when the
-        endpoint returns 404 or any network/parse error occurs (signal that
-        no provenance is available rather than that none was registered).
+    Bundles and fields of an unexpected shape are skipped, not raised on.
     """
-    url = PYPI_PROVENANCE_URL.format(
-        package=package, version=version, filename=filename
-    )
-    data = get_json_soft(url, f"PyPI provenance lookup failed for {package} {version}")
-    if not isinstance(data, dict):
-        return None
-
     raw_bundles = data.get("attestation_bundles")
     bundles = raw_bundles if isinstance(raw_bundles, list) else []
     publishers: list[TrustedPublisher] = []
@@ -476,6 +459,106 @@ def get_trusted_publishers(
             )
         )
     return publishers
+
+
+def get_trusted_publishers(
+    package: str, version: str, filename: str
+) -> list[TrustedPublisher] | None:
+    """Fetch PEP 740 provenance for a file and extract publisher entries.
+
+    Calls {data}`PYPI_PROVENANCE_URL` and parses the `attestation_bundles`
+    array. Each bundle's `publisher` object names the OIDC identity that
+    uploaded the file.
+
+    :param package: The PyPI package name.
+    :param version: The release version (e.g., `"1.2.3"`).
+    :param filename: The distribution filename (e.g.,
+        `"my_pkg-1.2.3-py3-none-any.whl"`).
+    :return: List of {class}`TrustedPublisher` entries (possibly empty when
+        provenance exists but no bundles are present), or `None` when the
+        endpoint returns 404 or any network/parse error occurs (signal that
+        no provenance is available rather than that none was registered).
+    """
+    url = PYPI_PROVENANCE_URL.format(
+        package=package, version=version, filename=filename
+    )
+    data = get_json_soft(url, f"PyPI provenance lookup failed for {package} {version}")
+    if not isinstance(data, dict):
+        return None
+
+    return _parse_publishers(data)
+
+
+@dataclass(frozen=True)
+class ReleaseProvenance:
+    """What PyPI records about how one release was published.
+
+    A release uploaded through trusted publishing carries PEP 740 provenance:
+    attestations, signed through Sigstore, naming the repository and the
+    workflow that uploaded each file. A release uploaded with an API token, by
+    hand or by a token thief, carries none.
+    """
+
+    known: bool
+    """Whether PyPI answered. `False` when a lookup failed: the release may or
+    may not carry provenance."""
+
+    attested: bool = False
+    """Whether the release carries provenance."""
+
+    publisher: str = ""
+    """Repository of the trusted publisher, like `pypa/packaging`. Empty when the
+    release carries no provenance, or one naming no publisher."""
+
+
+def release_provenance(package: str, version: str) -> ReleaseProvenance:
+    """Look up the PEP 740 provenance of one release of *package*.
+
+    Reads the first file of the release, preferring a wheel: trusted
+    publishing uploads every file of a release from one workflow run, so one
+    file speaks for all of them. Tells a release with no provenance (the
+    integrity API answers 404) from a failed lookup, which a caller must not
+    read as an absence.
+
+    :param package: The PyPI package name.
+    :param version: The release version.
+    :return: The provenance, or an unknown one when PyPI could not be read.
+    """
+    data = get_json_soft(
+        PYPI_VERSION_API_URL.format(package=package, version=version),
+        f"PyPI release lookup failed for {package} {version}",
+    )
+    files = [
+        file
+        for file in (data.get("urls") or [] if isinstance(data, dict) else [])
+        if isinstance(file, dict) and file.get("filename")
+    ]
+    if not files:
+        return ReleaseProvenance(known=False)
+    wheels = [file for file in files if file["filename"].endswith(".whl")]
+    filename = (wheels or files)[0]["filename"]
+    url = PYPI_PROVENANCE_URL.format(
+        package=package, version=version, filename=filename
+    )
+    try:
+        response = request(url, headers={"Accept": "application/json"})
+        provenance = json.loads(response.body)
+    except FetchError as error:
+        if error.status == 404:
+            return ReleaseProvenance(known=True)
+        logging.debug(f"PyPI provenance lookup failed for {filename}: {error}")
+        return ReleaseProvenance(known=False)
+    except ValueError as error:
+        logging.debug(f"PyPI provenance of {filename} is not JSON: {error}")
+        return ReleaseProvenance(known=False)
+    if not isinstance(provenance, dict):
+        return ReleaseProvenance(known=False)
+    publishers = _parse_publishers(provenance)
+    return ReleaseProvenance(
+        known=True,
+        attested=True,
+        publisher=publishers[0].repository if publishers else "",
+    )
 
 
 def get_changelog_url(package: str) -> str | None:

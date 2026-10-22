@@ -76,6 +76,7 @@
    tests.test_pr_body
    tests.test_prepare_release
    tests.test_protocol
+   tests.test_provenance
    tests.test_pypi
    tests.test_pyproject
    tests.test_readme
