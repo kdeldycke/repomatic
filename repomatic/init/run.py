@@ -813,7 +813,7 @@ def _write_workflows(
     `sync-action-pins` run re-hardens.
     """
     config = run.config
-    # Respect the workflow-sync opt-out: skip thin callers and headers, leaving
+    # Respect the `workflow.sync` opt-out: skip thin callers and headers, leaving
     # any existing workflow files untouched (matches the sibling `*.sync`
     # toggles). See {class}`~repomatic.config.WorkflowConfig`.
     if not config.workflow.sync:

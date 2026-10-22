@@ -24,12 +24,14 @@ command tree and fails naming the missing or orphaned entries.
 
 Exercising a command's help says nothing about how it reads, which the second
 test covers: it walks the same tree and rejects a docstring whose example
-blocks Click will rewrap into prose.
+blocks Click will rewrap into prose. A third holds every `[tool.repomatic]` key
+a help text names to the configuration schema.
 """
 
 from __future__ import annotations
 
 import inspect
+import re
 from importlib import import_module
 from pathlib import Path
 
@@ -39,12 +41,19 @@ import tomlrt
 from click_extra.testing import CliRunner
 
 from repomatic.cli.main import COMMANDS, LazyChoice, repomatic
+from repomatic.config import config_key_paths
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
 SUITE_PATH = Path(__file__).parent / "cli-test-suite.toml"
+
+KEY_SHAPED_WORD = re.compile(r"(?<![\w./$-])[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+(?![\w/-])")
+"""A lowercase word joined by dots or hyphens, the two shapes a key name takes."""
+
+FILE_AND_DOMAIN_SUFFIXES = frozenset(("io", "md", "toml", "yaml", "yml"))
+"""Last segments that make a dotted word a file or a domain name, never a key."""
 
 NO_REWRAP = "\b"
 """Click's escape suppressing the rewrapping of one paragraph.
@@ -151,6 +160,67 @@ def test_every_preformatted_block_carries_its_own_marker() -> None:
     }
     assert not offenders, "Indented --help blocks Click will rewrap: " + "; ".join(
         f"{name} ({', '.join(blocks)})" for name, blocks in sorted(offenders.items())
+    )
+
+
+def _wrong_key_names(text: str, keys: frozenset[str]) -> list[str]:
+    """Words of *text* that name a `[tool.repomatic]` key the schema lacks.
+
+    A dotted word that opens on a table of the schema must be a key, or a path
+    into the mapping a key holds, like `test-matrix.variations.os`. A last
+    segment that makes it a file or a domain name, like `gitignore.io`, exempts
+    it. A hyphenated word that becomes a key when one hyphen turns into a dot
+    is the flat spelling the nested tables replaced, like `gitignore-location`.
+
+    :param text: The help texts of one command.
+    :param keys: Every dotted key of the schema.
+    :return: One line per offending word, naming what is wrong with it.
+    """
+    tables = {key.partition(".")[0] for key in keys if "." in key}
+    wrong = []
+    for word in sorted(set(KEY_SHAPED_WORD.findall(text))):
+        table, dot, rest = word.partition(".")
+        segments = word.split(".")
+        prefixes = {".".join(segments[:end]) for end in range(2, len(segments) + 1)}
+        if (
+            dot
+            and table in tables
+            and not prefixes & keys
+            and rest.rpartition(".")[2] not in FILE_AND_DOMAIN_SUFFIXES
+        ):
+            wrong.append(f"{word} is no key")
+        for index, char in enumerate(word):
+            dotted = f"{word[:index]}.{word[index + 1 :]}"
+            if char == "-" and dotted in keys:
+                wrong.append(f"{word} is the flat spelling of {dotted}")
+    return wrong
+
+
+@pytest.mark.once
+def test_every_help_text_names_real_config_keys() -> None:
+    """Every `[tool.repomatic]` key a `--help` text names exists.
+
+    A key renamed or nested in the schema keeps its old name in prose nobody
+    reruns: `sync-gitignore` sent readers to `gitignore-extra-content` long after
+    the key became `gitignore.extra-content`.
+    """
+    keys = frozenset(config_key_paths())
+    offenders = {
+        " ".join(path) or "(root)": wrong
+        for path, cmd in _collect_commands(repomatic)
+        if (
+            wrong := _wrong_key_names(
+                "\n".join((
+                    cmd.help or "",
+                    cmd.short_help or "",
+                    *(getattr(param, "help", None) or "" for param in cmd.params),
+                )),
+                keys,
+            )
+        )
+    }
+    assert not offenders, "Help texts naming no real key: " + "; ".join(
+        f"{name} ({', '.join(wrong)})" for name, wrong in sorted(offenders.items())
     )
 
 

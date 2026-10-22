@@ -990,14 +990,14 @@ def sync_gitignore(ctx: Context, output: Path | None, drop_orphans: bool) -> Non
     """Sync a .gitignore file from gitignore.io templates.
 
     Fetches templates for a base set of categories plus any extras from
-    [tool.repomatic] config, then appends gitignore-extra-content.
-    Writes to the path specified by gitignore-location (default
+    [tool.repomatic] config, then appends gitignore.extra-content.
+    Writes to the path specified by gitignore.location (default
     ./.gitignore).
 
     The generated file is the whole file: nothing is read back from the copy on
     disk. A rule added there by hand is therefore dropped on the next sync, so
     the write aborts when it would lose one. Move the rule into
-    gitignore-extra-content to keep it, or pass --drop-orphans to let it go.
+    gitignore.extra-content to keep it, or pass --drop-orphans to let it go.
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, "gitignore.sync")

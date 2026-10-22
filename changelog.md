@@ -128,6 +128,7 @@
 - Fix the file lists of `repomatic` commands including the files that `.git/info/exclude` ignores, like an agent worktree under `.claude/worktrees/`.
 - Fix stale claims of the bundled `babysit-ci`, `repomatic-ship` and `repomatic-test-matrix` skills on release runs, binary skips and `format-python` pull requests.
 - Fix a dependency pull request picking up the staged changes of an updater whose commit failed.
+- Fix the `sync-gitignore` help naming `gitignore-extra-content` and `gitignore-location` instead of the `gitignore.extra-content` and `gitignore.location` keys.
 
 ## [`7.18.0` (2026-10-13)](https://github.com/kdeldycke/repomatic/compare/v7.17.1...v7.18.0)
 
