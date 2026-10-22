@@ -474,6 +474,38 @@ def test_a_completed_run_files_or_closes_the_issue(
     assert lifecycle.call_args.kwargs["labels"] == ["📚 documentation"]
 
 
+def test_no_checker_leaves_the_issue_alone(tmp_path, monkeypatch, caplog):
+    """With no checker run, nothing is known about the links: the issue stays.
+
+    No crawl and no Sphinx linkcheck output said a word about the links, so
+    closing an open issue would announce fixes that nobody checked.
+    """
+    monkeypatch.chdir(tmp_path)
+    with (
+        patch("repomatic.broken_links.manage_issue_lifecycle") as lifecycle,
+        caplog.at_level("WARNING"),
+    ):
+        verdict = manage_combined_broken_links_issue(repo_name="orchard")
+    assert verdict is None
+    lifecycle.assert_not_called()
+    assert "No link checker ran" in caplog.text
+
+
+def test_cli_with_no_checker_exits_clean(tmp_path, monkeypatch):
+    """`--no-lychee` with no linkcheck output leaves the issue, and exits 0.
+
+    The job is advisory: a run that checked nothing must not turn it red.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GH_TOKEN", "fake-token")
+    with patch("repomatic.broken_links.manage_issue_lifecycle") as lifecycle:
+        result = CliRunner().invoke(
+            repomatic, ["broken-links", "--no-lychee", "--repo-name", "orchard"]
+        )
+    assert result.exit_code == 0, result.output
+    lifecycle.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # The lychee crawl
 # ---------------------------------------------------------------------------

@@ -341,7 +341,8 @@ def manage_combined_broken_links_issue(
     The issue is filed or updated when any checker found broken links, and
     closed when every checker that ran completed clean. When no checker found
     broken links but one did not complete, the issue is left as it is: the
-    links that run covers might still be broken.
+    links that run covers might still be broken. When no checker ran at all,
+    the issue is left as it is too, with a warning: nothing was checked.
 
     When running in GitHub Actions, most parameters are auto-detected from
     {class}`~repomatic.metadata.core.Metadata` and well-known file paths:
@@ -397,6 +398,12 @@ def manage_combined_broken_links_issue(
         )
         verdicts.append(verdict)
 
+    if not verdicts:
+        logging.warning(
+            "No link checker ran: lychee did not crawl, and no Sphinx linkcheck"
+            " output was found. The broken links issue is left as it is."
+        )
+        return None
     if LinkVerdict.BROKEN in verdicts:
         overall = LinkVerdict.BROKEN
     elif LinkVerdict.UNKNOWN in verdicts:
@@ -414,4 +421,4 @@ def manage_combined_broken_links_issue(
         labels=[get_label(repo_name)],
         title=ISSUE_TITLE,
     )
-    return overall if verdicts else None
+    return overall

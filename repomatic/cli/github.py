@@ -383,8 +383,8 @@ def broken_links(
     the Sphinx linkcheck output into a single "Broken links" issue. Creates or
     updates the issue when a checker found broken links, and closes it when
     every checker that ran completed clean. A checker that did not complete
-    leaves the issue as it is. The repository name selects the labels the
-    issue carries.
+    leaves the issue as it is. So does a run where no checker ran. The
+    repository name selects the labels the issue carries.
 
     Requires the gh CLI to be authenticated. lychee reads $GITHUB_TOKEN to lift
     GitHub's rate limit on the links it checks there.

@@ -106,7 +106,7 @@
 - The bundled `repomatic-upgrade` skill now reads the binary self-test of `Build & release` when an upgrade changes how binaries build.
 - Fix the YAML and workflow lint jobs running on every push: `yaml_changed`, `workflows_changed` and `zsh_changed` now read the commit range, shallow clones included.
 - Fix a later push cancelling the tests of a release push: they now run in a concurrency group of their own.
-- Fix a failed lychee run closing the "Broken links" issue.
+- Fix a failed lychee run, or a run where no link checker ran, closing the "Broken links" issue.
 - Fix `audit` running `uv audit` when the configured sources leave it out.
 - Fix `repomatic run mypy` on projects whose Python floor is `3.8` or `3.9`.
 - Fix `exclude-newer = "0 days"` and a `false` entry in `exclude-newer-package`, which `sync-uv-lock` could not read.
