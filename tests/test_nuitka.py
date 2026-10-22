@@ -71,7 +71,7 @@ def test_registry_wires_the_hooks():
     (
         pytest.param(
             MACOS_ARM,
-            ["--nofollow-import-to=tkinter", "--disable-ccache"],
+            ["--nofollow-import-to=tkinter", "--disable-cache=ccache"],
             id="macos",
         ),
         pytest.param(LINUX_ARM, ["--nofollow-import-to=tkinter"], id="linux"),

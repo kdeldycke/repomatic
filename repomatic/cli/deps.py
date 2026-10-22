@@ -87,7 +87,7 @@ from ..pyproject import (
 )
 from ..templating import PrTemplate
 from .main import (
-    LazyChoice,
+    ProjectChoice,
     dry_run_option,
     exit_if_disabled,
     log_output_target,
@@ -108,7 +108,7 @@ if TYPE_CHECKING:
     from ..deps.sync import SyncOperation, SyncPlan
 
 
-class DependencyGroup(LazyChoice):
+class DependencyGroup(ProjectChoice):
     """A group declared in the project's `[dependency-groups]`.
 
     `uv` refuses an undeclared group, so the set is closed and naming one it
@@ -121,7 +121,7 @@ class DependencyGroup(LazyChoice):
         return dependency_group_names()
 
 
-class ProjectExtra(LazyChoice):
+class ProjectExtra(ProjectChoice):
     """An extra declared in the project's `[project.optional-dependencies]`."""
 
     name = "extra"

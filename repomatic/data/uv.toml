@@ -7,11 +7,14 @@
 # (sources, exclude-newer-package, build-backend, dependency-groups) is left
 # untouched. The comment above each pin gives its rationale.
 
-# Floor uv at the minimum resolver relied on, with no upper bound. CI does not
-# install from this floor: each astral-sh/setup-uv step pins the exact uv it
+# Floor uv at the oldest release that writes uv.lock as it is committed, with
+# no upper bound. uv 0.12.22 is the first to write lockfile revision 5 and the
+# `[package.group-requires-python]` table a group's own requires-python adds:
+# an older uv relocks to revision 3 and drops the table. CI does not install
+# from this floor: each astral-sh/setup-uv step pins the exact uv it
 # downloads, and sync-workflow-pins moves that pin forward. sync-uv-lock
 # absorbs cross-minor marker churn.
-required-version = ">=0.11.15"
+required-version = ">=0.12.22"
 # Cooldown buffer before adopting newly released packages. Must equal
 # `[tool.repomatic] minimum-release-age`, which gates the `uvx` installs CI
 # runs: a lock window wider than that one resolves versions those installs

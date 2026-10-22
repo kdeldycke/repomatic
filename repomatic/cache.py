@@ -58,6 +58,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from click_extra import ColumnSpec
+from click_extra.carapace import xdg_dir
 from extra_platforms import is_macos, is_windows
 
 from .config import load_repomatic_config
@@ -113,10 +114,7 @@ def _platform_cache_dir() -> Path:
             return Path(local_app_data) / "repomatic" / "Cache"
         return home / "AppData" / "Local" / "repomatic" / "Cache"
     # Linux and other POSIX.
-    xdg = os.environ.get("XDG_CACHE_HOME")
-    if xdg:
-        return Path(xdg) / "repomatic"
-    return home / ".cache" / "repomatic"
+    return xdg_dir("XDG_CACHE_HOME", "~/.cache/repomatic", "repomatic")
 
 
 def cache_dir() -> Path:

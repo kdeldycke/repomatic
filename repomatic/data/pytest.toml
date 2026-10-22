@@ -16,9 +16,13 @@ addopts = [
     # [tool.coverage] instead, via `repomatic init coverage`.
     "--cov=.",
     "--cov-report=term",
-    # Run tests in parallel across all logical cores. Requires the
-    # pytest-xdist[psutil] test dependency.
+    # Run tests in parallel, one worker per physical core: the
+    # pytest-xdist[psutil] test dependency is what counts them.
     "--numprocesses=auto",
+    # `loadgroup` is `load` plus the `xdist_group` marker: every test of a group
+    # runs on one worker, so a heavy module-scoped fixture, like a docs build,
+    # is set up once. The default `load` ignores the marker.
+    "--dist=loadgroup",
     # Import test modules via importlib instead of prepending their root dir to
     # sys.path. Avoids "import file mismatch" collection errors when an installed
     # copy of the package coexists with the source tree, as in distro builds.
@@ -27,6 +31,10 @@ addopts = [
 markers = [
     "once: Tests that only need to run once, not across the full CI matrix.",
 ]
+# A config key pytest does not know, and a marker this file does not declare,
+# fail collection instead of printing a warning that scrolls past.
+strict_config = true
+strict_markers = true
 # Restrict collection to the test suite, so pytest never descends into the
 # package or an installed copy of it in dual-copy builds.
 testpaths = ["tests"]

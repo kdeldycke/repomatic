@@ -79,7 +79,7 @@ from ..metadata.core import Metadata
 from ..release.protocol import RELEASE_PR_BRANCH
 from ..upstream import is_source_repo
 from .main import (
-    LazyChoice,
+    ProjectChoice,
     dry_run_option,
     exit_if_disabled,
     output_option,
@@ -144,7 +144,7 @@ means "allowed to fail".
 """
 
 
-class MatrixAxis(LazyChoice):
+class MatrixAxis(ProjectChoice):
     """A job key naming one axis of the `show-test-matrix` grid.
 
     A `Choice` rather than a bare type, so the accepted keys reach the reader
@@ -171,7 +171,7 @@ class MatrixAxis(LazyChoice):
         return Metadata().test_matrix.job_keys()
 
 
-class WorkflowFile(LazyChoice):
+class WorkflowFile(ProjectChoice):
     """A workflow file name, as `.github/workflows/` spells it.
 
     Both commands taking one read the current repository's own CI, so the

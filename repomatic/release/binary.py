@@ -91,8 +91,12 @@ _MANYLINUX_2_28_AARCH64 = (
 )
 
 
-NUITKA_DISABLE_CCACHE_FLAG: Final[str] = "--disable-ccache"
-"""The Nuitka option that keeps its ccache wrapper out of a build."""
+NUITKA_DISABLE_CCACHE_FLAG: Final[str] = "--disable-cache=ccache"
+"""The Nuitka option that keeps its ccache wrapper out of a build.
+
+The documented spelling. `--disable-ccache` is a hidden alias that Nuitka
+folds into this one.
+"""
 
 MACHO_MAGIC_64: Final[int] = 0xFEEDFACF
 """Magic of a 64-bit Mach-O header, in the file's own (little) endianness."""

@@ -1,3 +1,19 @@
+# Copyright Kevin Deldycke <kevin@deldycke.com> and contributors.
+#
+# This program is Free Software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+
 from __future__ import annotations
 
 import os
@@ -227,17 +243,9 @@ suppress_warnings = [
 ]
 
 nitpicky = True
-# The test suite's fixture annotations name pytest's private modules, which its
-# published inventory does not carry: it documents the same classes as
-# `pytest.MonkeyPatch` and `pytest.TempPathFactory`. There is nothing to link
-# to, so stop nitpicky mode asking for it. An annotation Sphinx cannot evaluate
-# keeps the public spelling, and no inventory is mapped for that one either.
 nitpick_ignore = [
-    ("py:class", "_pytest.monkeypatch.MonkeyPatch"),
-    ("py:class", "_pytest.tmpdir.TempPathFactory"),
     # py-walk publishes no inventory to link this annotation to.
     ("py:class", "py_walk.models.parser.Parser"),
-    ("py:class", "pytest.MonkeyPatch"),
 ]
 
 # Concatenate class and __init__ docstrings.
@@ -261,6 +269,9 @@ todo_include_todos = True
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
+    # Resolves the fixture annotations of the docs/tests.md pages, under both
+    # their public names and the `_pytest.*` spellings Sphinx evaluates them to.
+    "pytest": ("https://docs.pytest.org/en/stable", None),
     "click": (
         "https://click.palletsprojects.com",
         None,
@@ -445,6 +456,13 @@ html_extra_path = ["404.html", "_redirects", "robots.txt"]
 # publishing several translations or versions side by side. This one publishes a
 # single tree, so anything but the bare link yields sitemap entries that 404.
 sitemap_url_scheme = "{link}"
+# The generated navigation pages hold no content a crawler should index.
+sitemap_excludes = ["genindex.html", "py-modindex.html", "search.html"]
+
+# Copy the commands of a shell-session block alone: `.gp` is the Pygments class
+# of the prompt, `.go` the one of the output lines. The default only skips line
+# numbers, so every `$ ` and every output line landed in the clipboard.
+copybutton_exclude = ".linenos, .gp, .go"
 
 
 def prune_build_artifacts(app, exception):

@@ -12,6 +12,7 @@ exclude-newer-span = "P1W"
 
 [options.exclude-newer-package]
 certifi = "2026-10-22T00:00:00Z"
+click-extra = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
 nuitka = "2026-10-18T00:00:00Z"
 repomatic = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
 
@@ -243,7 +244,7 @@ wheels = [
 
 [[package]]
 name = "click-extra"
-version = "9.4.1"
+version = "9.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boltons" },
@@ -255,9 +256,9 @@ dependencies = [
     { name = "wcmatch" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/13/20/e2d60c90277a668b10a00f7a74cd52a87ab0c85afd5b8975cc582601eafc/click_extra-9.4.1.tar.gz", hash = "sha256:065df41b1c8f6601bd9e550d79ac34a73ba40bfc84cfdb320cdcfe066c40a6d1", size = 1759076, upload-time = "2026-10-04T20:44:16.522Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/49/8f08a9dcff02255ade9898d7972e07a0e227b4151e040baac7c6499c4d07/click_extra-9.5.0.tar.gz", hash = "sha256:d3187fddf72c3f2cffc0c38d345e3bdbec989a7b790a5fec473d85cd4d497943", size = 1819056, upload-time = "2026-10-22T07:15:55.525Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/53/56/32f36d2a5218c2d89c40802649b943f847162de8849850f6a26a88a23a83/click_extra-9.4.1-py3-none-any.whl", hash = "sha256:046c650c1bcbfd14d6836df64156891d18e73c23287ef7b4c19d839308cecda9", size = 665674, upload-time = "2026-10-04T20:44:14.372Z" },
+    { url = "https://files.pythonhosted.org/packages/84/16/e51f7cc5e6a33ed9016cc962d6c3394ae73950b2957e361153d5156d3fa1/click_extra-9.5.0-py3-none-any.whl", hash = "sha256:06acc4c972701441e85f1af411f18d613b8b9feaaffb410282d995948a624e1d", size = 692872, upload-time = "2026-10-22T07:15:53.34Z" },
 ]
 
 [package.optional-dependencies]
@@ -937,10 +938,10 @@ docs = ">=3.14"
 
 [package.metadata]
 requires-dist = [
-    { name = "click-extra", specifier = ">=9.3" },
+    { name = "click-extra", specifier = ">=9.5" },
     { name = "extra-platforms", specifier = ">=12.0.2" },
     { name = "packaging", specifier = ">=20" },
-    { name = "py-walk", specifier = ">=0.3.1" },
+    { name = "py-walk", specifier = ">=0.3.3" },
     { name = "pyproject-metadata", specifier = ">=0.9" },
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "tomlrt", specifier = ">=2.2.4" },
@@ -950,29 +951,29 @@ requires-dist = [
 [package.metadata.requires-dev]
 docs = [
     { name = "click-extra", extras = ["sphinx"], marker = "python_full_version >= '3.14'", specifier = ">=9.4" },
-    { name = "coverage", extras = ["toml"], marker = "python_full_version >= '3.14'", specifier = ">=7.11" },
-    { name = "furo", marker = "python_full_version >= '3.14'", specifier = ">=2025.9.25" },
+    { name = "coverage", extras = ["toml"], marker = "python_full_version >= '3.14'", specifier = ">=7.16.2" },
+    { name = "furo", marker = "python_full_version >= '3.14'", specifier = ">=2025.12.19" },
     { name = "myst-parser", marker = "python_full_version >= '3.14'", specifier = ">=5.1" },
-    { name = "pytest", marker = "python_full_version >= '3.14'", specifier = ">=9" },
-    { name = "pytest-cov", marker = "python_full_version >= '3.14'", specifier = ">=4" },
-    { name = "pytest-github-actions-annotate-failures", marker = "python_full_version >= '3.14'", specifier = ">=0.2" },
+    { name = "pytest", marker = "python_full_version >= '3.14'", specifier = ">=9.0.3" },
+    { name = "pytest-cov", marker = "python_full_version >= '3.14'", specifier = ">=7.1" },
+    { name = "pytest-github-actions-annotate-failures", marker = "python_full_version >= '3.14'", specifier = ">=0.4.2" },
     { name = "pytest-randomly", marker = "python_full_version >= '3.14'", specifier = ">=5" },
     { name = "pytest-xdist", extras = ["psutil"], marker = "python_full_version >= '3.14'", specifier = ">=3.7" },
-    { name = "sphinx", marker = "python_full_version >= '3.14'", specifier = ">=8" },
-    { name = "sphinx-autodoc-typehints", marker = "python_full_version >= '3.14'", specifier = ">=2.4" },
+    { name = "sphinx", marker = "python_full_version >= '3.14'", specifier = ">=9.1" },
+    { name = "sphinx-autodoc-typehints", marker = "python_full_version >= '3.14'", specifier = ">=3.10.4" },
     { name = "sphinx-copybutton", marker = "python_full_version >= '3.14'", specifier = ">=0.5.2" },
     { name = "sphinx-datatables", marker = "python_full_version >= '3.14'", specifier = ">=1" },
-    { name = "sphinx-design", marker = "python_full_version >= '3.14'", specifier = ">=0.6" },
+    { name = "sphinx-design", marker = "python_full_version >= '3.14'", specifier = ">=0.7" },
     { name = "sphinx-sitemap", marker = "python_full_version >= '3.14'", specifier = ">=2.6" },
     { name = "sphinxcontrib-jquery", marker = "python_full_version >= '3.14'", specifier = ">=4" },
-    { name = "sphinxcontrib-mermaid", marker = "python_full_version >= '3.14'", specifier = ">=1.2.3" },
+    { name = "sphinxcontrib-mermaid", marker = "python_full_version >= '3.14'", specifier = ">=2.1" },
     { name = "sphinxext-opengraph", marker = "python_full_version >= '3.14'", specifier = ">=0.13" },
 ]
 test = [
-    { name = "coverage", extras = ["toml"], specifier = ">=7.11" },
-    { name = "pytest", specifier = ">=9" },
-    { name = "pytest-cov", specifier = ">=4" },
-    { name = "pytest-github-actions-annotate-failures", specifier = ">=0.2" },
+    { name = "coverage", extras = ["toml"], specifier = ">=7.16.2" },
+    { name = "pytest", specifier = ">=9.0.3" },
+    { name = "pytest-cov", specifier = ">=7.1" },
+    { name = "pytest-github-actions-annotate-failures", specifier = ">=0.4.2" },
     { name = "pytest-randomly", specifier = ">=5" },
     { name = "pytest-xdist", extras = ["psutil"], specifier = ">=3.7" },
 ]

@@ -556,7 +556,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 
 ### 🔐 Lint secrets (`lint-secrets`)
 
-- Scans the git history for leaked secrets using [`gitleaks`](https://github.com/gitleaks/gitleaks)
+- Scans the git history for leaked secrets using [`gitleaks`](https://github.com/gitleaks/gitleaks). Each finding names its file, line, commit and rule, with the secret redacted
 - **Skipped for**:
   - `prepare-release` branch
   - Bot-created PRs
@@ -673,7 +673,7 @@ flowchart TD
 
 - Compiles standalone binaries using [`Nuitka`](https://github.com/Nuitka/Nuitka) for Linux/macOS/Windows on `x86_64`/`aarch64`
 - Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so binaries keep the [documented OS floors](binaries.md#minimum-os-requirements) instead of inheriting the runner image's
-- `repomatic run nuitka` prepares each build: it installs the `nuitka.extras` of `[tool.repomatic]`, trims and configures the compile cache, and adds what the target needs (`MACOSX_DEPLOYMENT_TARGET` and `--disable-ccache` on macOS)
+- `repomatic run nuitka` prepares each build: it installs the `nuitka.extras` of `[tool.repomatic]`, trims and configures the compile cache, and adds what the target needs (`MACOSX_DEPLOYMENT_TARGET` and `--disable-cache=ccache` on macOS)
 - Persists the Nuitka compile caches across runs with `actions/cache` (ccache objects on the gcc targets, Nuitka's internal `clcache` objects on MSVC, downloads and bytecode alongside them), so a warm build skips most of the C compilation. Release commits neither restore nor save the cache, and macOS is left out of it entirely: the `nuitka_cache` flag of each matrix entry says which. See [](nuitka.md#compile-caching)
 - On non-release runs, self-tests the freshly-built binary in place with [`click-extra test-suite`](https://kdeldycke.github.io/click-extra/test-suite.html); the standalone `test-binaries` job is reserved for release commits
 - Verifies each binary's architecture and measures its actual glibc / macOS floor against the declared one (`repomatic verify-binary`, parsing ELF/Mach-O/PE headers natively)

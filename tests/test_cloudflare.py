@@ -29,7 +29,6 @@ from datetime import UTC, datetime, timedelta
 from email.message import Message
 from http.client import RemoteDisconnected
 from io import BytesIO
-from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
@@ -884,7 +883,9 @@ def test_wrangler_config_paths_resolve_when_called(
     Read at import, they would keep whatever the process saw then, and a
     caller that moves either directory would probe stale paths.
     """
-    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    # `~` expands against HOME on POSIX and USERPROFILE on Windows.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.setattr(api, "is_macos", lambda: macos)
     assert wrangler_config_paths() == tuple(
@@ -893,7 +894,8 @@ def test_wrangler_config_paths_resolve_when_called(
 
 
 def test_wrangler_config_paths_default_to_the_xdg_home(monkeypatch, tmp_path):
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.setattr(api, "is_macos", lambda: False)
     assert wrangler_config_paths() == (tmp_path / ".config" / WRANGLER_CONFIG_FILE,)

@@ -40,7 +40,7 @@ import pytest
 import tomlrt
 from click_extra.testing import CliRunner
 
-from repomatic.cli.main import COMMANDS, LazyChoice, repomatic
+from repomatic.cli.main import COMMANDS, ProjectChoice, repomatic
 from repomatic.config import config_key_paths
 
 TYPE_CHECKING = False
@@ -224,15 +224,15 @@ def test_every_help_text_names_real_config_keys() -> None:
     )
 
 
-def _lazy_choice_types() -> list[type[LazyChoice]]:
-    """Every concrete `LazyChoice` in the package, for the checks below.
+def _lazy_choice_types() -> list[type[ProjectChoice]]:
+    """Every concrete `ProjectChoice` in the package, for the checks below.
 
     A subclass registers only once its module runs, and the group imports a
     command module only when a run needs it, so every one is imported first.
     """
     for spec in COMMANDS.values():
         import_module(spec.import_path.rpartition(".")[0])
-    return list(LazyChoice.__subclasses__())
+    return list(ProjectChoice.__subclasses__())
 
 
 @pytest.mark.parametrize("choice_type", _lazy_choice_types(), ids=lambda c: c.__name__)

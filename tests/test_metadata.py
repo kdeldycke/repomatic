@@ -996,16 +996,7 @@ def test_gitignore_is_decoded_as_utf8_whatever_the_locale(tmp_path):
         "print(FileInventory().gitignore_match('café/menu.txt'))\n",
         encoding="UTF-8",
     )
-    # The probe must stay out of the coverage measure. An old pytest-cov starts
-    # coverage in every child interpreter, and this one runs in a directory with
-    # no `pyproject.toml` to turn branch coverage on: its statement data cannot
-    # be combined with the branch data of the suite.
-    env = {
-        name: value
-        for name, value in os.environ.items()
-        if not name.startswith(("COV_CORE_", "COVERAGE_"))
-    }
-    env.update(LC_ALL="C", PYTHONCOERCECLOCALE="0", PYTHONUTF8="0")
+    env = dict(os.environ, LC_ALL="C", PYTHONCOERCECLOCALE="0", PYTHONUTF8="0")
     result = subprocess.run(
         [sys.executable, "probe.py"],
         capture_output=True,

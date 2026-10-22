@@ -2114,7 +2114,7 @@ def test_run_tool_nuitka_gets_its_target_environment(
 
     cmd = mock_run.call_args.args[0]
     env = mock_run.call_args.kwargs["env"]
-    assert "--disable-ccache" in cmd
+    assert "--disable-cache=ccache" in cmd
     assert env["MACOSX_DEPLOYMENT_TARGET"] == "10.15"
     assert env["PATH"] == os.environ["PATH"]
 
@@ -3151,8 +3151,10 @@ def test_run_reports_an_install_failure_as_an_error(
     ("args", "expected"),
     [
         # The bare form scans the history, as the lint-secrets job does.
-        pytest.param((), ["git", "."], id="bare"),
-        pytest.param(("dir", "."), ["dir", "."], id="caller-driven"),
+        pytest.param((), ["--verbose", "--redact", "git", "."], id="bare"),
+        pytest.param(
+            ("dir", "."), ["--verbose", "--redact", "dir", "."], id="caller-driven"
+        ),
     ],
 )
 @patch("repomatic.tooling.runner.subprocess.run")

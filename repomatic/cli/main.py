@@ -26,19 +26,6 @@ What stays here is what the domain modules share: the group, its help sections,
 the options more than one module declares, the base parameter type and the
 helpers command bodies call.
 
-```{note}
-A run that reads a configuration file still imports every command module.
-click-extra builds its parameter template by walking the parameters of every
-command, which loads each lazy one, even though `included_params=()` leaves the
-template empty. So today the table speeds up only a run that reads no
-configuration, like `repomatic --version`.
-```
-
-```{todo}
-Remove the note above once click-extra skips that walk for an empty
-`included_params`. The table then keeps every other command module unloaded.
-```
-
 ```{caution}
 Nuitka compiles only the modules it sees imported, and an import path is a
 string. The `[tool.nuitka]` table of `pyproject.toml` includes the whole
@@ -56,6 +43,7 @@ from functools import partial
 
 from click_extra import (
     Choice,
+    LazyChoice,
     LazySubcommand,
     Section,
     UsageError,
@@ -544,7 +532,7 @@ has_virustotal_key_option = option(
 )
 
 
-class LazyChoice(Choice):
+class ProjectChoice(LazyChoice):
     """A `Choice` whose accepted values are the project's, read at render time.
 
     A `Choice` declared at import can only carry what every repository has in
@@ -576,16 +564,13 @@ class LazyChoice(Choice):
     """Values to offer when `resolve` finds none. Empty means accept anything."""
 
     def __init__(self) -> None:
-        # `Choice.__init__` assigns to `choices`, read-only here. Set the rest
-        # of the state it owns directly rather than working around that.
-        self.case_sensitive = True
+        super().__init__(self._safe_resolve)
 
     def resolve(self) -> tuple[str, ...]:
         """The values this type accepts, read from the project."""
         raise NotImplementedError
 
-    @property
-    def choices(self) -> tuple[str, ...]:  # type: ignore[override]
+    def _safe_resolve(self) -> tuple[str, ...]:
         """Resolve the values, degrading to `fallback` on any failure."""
         logging.disable(logging.CRITICAL)
         try:

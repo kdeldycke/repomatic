@@ -30,11 +30,19 @@
 - **Breaking:** `repomatic run pyproject-fmt` now exits 0 after a rewrite it verified, instead of 1.
 - **Breaking:** The bundled `zizmor.yaml` now requires hash pins for third-party actions.
 - **Breaking:** The bundled `labels.toml` no longer renames the `🎁 feature request` label, and `lychee.toml` no longer skips star-history.com links.
+- **Breaking:** The bundled `uv.toml` floors uv at `0.12.22`, the first release writing the committed `uv.lock` format. Move a `setup-uv` pin below it before syncing.
 - Drop the `boltons` dependency: the test matrix model, `sync-mailmap` and the Cloudflare Pages drift check use the standard library instead.
 - Drop the `arrow` dependency: relative times like `in 4 days` and the `unsubscribe` month cutoff are computed in-house, with the same wording.
 - Drop the `pyelftools` dependency: `verify-binary` reads ELF headers with its own parser, as it already did for Mach-O and PE.
 - Drop the `vt-py` dependency and the `aiohttp` stack beneath it: `scan-virustotal` calls the VirusTotal REST API through the standard library.
-- Enable the `D205`, `D209`, `E501`, `PLC0415` and `TC` ruff rules in the bundled `ruff.toml`.
+- Enable the `D205`, `D209`, `E501`, `PLC0415`, `RUF100`, `RUF102`, `RUF103`, `RUF104` and `TC` ruff rules in the bundled `ruff.toml`.
+- The bundled `pytest.toml` schedules with `--dist=loadgroup`, so an `xdist_group` marker keeps its tests on one worker, and sets `strict_config` and `strict_markers`.
+- Raise the `click-extra` floor to `9.5`, which keeps the lazy command modules unloaded when a configuration file is read, and `py-walk` to `0.3.3`.
+- Raise the test and docs dependency floors to the releases the suite and the Sphinx build rely on, pytest `9.0.3` among them for CVE-2025-71176.
+- `repomatic run nuitka` spells the macOS ccache opt-out `--disable-cache=ccache`, the documented form of the hidden `--disable-ccache` alias.
+- `repomatic run gitleaks` prints each finding with its file, line, commit and rule, and redacts the secret, so a red `lint-secrets` run names what it found.
+- `repomatic run typos` now installs on Windows ARM64, and `repomatic run lychee` on x86_64 macOS.
+- The documentation's copy button skips the prompt and output lines of a shell session, and its sitemap drops the search and index pages.
 - Set `wrap = "no"` in the bundled `mdformat.toml`, so `format-markdown` joins the lines of a hard-wrapped paragraph.
 - `lint-changelog` warns on an entry filed out of the Breaking, then Deprecated, then ordinary order and on a `#N` naming no issue, and `--fix` strips a `v` tag prefix off a heading.
 - The `prepare-release` job waits until the unreleased changelog section holds an entry, read from the new `changelog_has_entries` metadata key.

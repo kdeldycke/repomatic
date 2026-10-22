@@ -127,7 +127,7 @@ PEP621_TABLE = '[project]\nname = "melon-stand"\nversion = "0.1.0"\n'
         # No [tool.uv] table at all: a plain package.
         ("", True),
         # A [tool.uv] table that says nothing about packaging.
-        ('[tool.uv]\nrequired-version = ">=0.11.15"\n', True),
+        ('[tool.uv]\nrequired-version = ">=0.12.22"\n', True),
         # The explicit opt-in is still a package.
         ("[tool.uv]\npackage = true\n", True),
         # The virtual-project opt-out.

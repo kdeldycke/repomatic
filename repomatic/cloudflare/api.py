@@ -53,6 +53,7 @@ from pathlib import Path
 
 import tomlrt
 from click_extra import echo
+from click_extra.carapace import xdg_dir
 from extra_platforms import is_macos
 
 from ..http import FetchError, request
@@ -158,12 +159,10 @@ def wrangler_config_paths() -> tuple[Path, ...]:
 
     :return: The candidate files, most likely first.
     """
-    home = Path.home()
-    config_home = os.environ.get("XDG_CONFIG_HOME")
-    xdg = Path(config_home) if config_home else home / ".config"
-    paths = [xdg / WRANGLER_CONFIG_FILE]
+    paths = [xdg_dir("XDG_CONFIG_HOME", "~/.config") / WRANGLER_CONFIG_FILE]
     if is_macos():
-        paths.insert(0, home / "Library/Preferences" / WRANGLER_CONFIG_FILE)
+        preferences = Path("~/Library/Preferences").expanduser()
+        paths.insert(0, preferences / WRANGLER_CONFIG_FILE)
     return tuple(paths)
 
 

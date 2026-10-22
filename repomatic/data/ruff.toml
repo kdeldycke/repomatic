@@ -41,11 +41,16 @@ format.docstring-code-format = true
 #   Preview rule; its type inference misses unannotated `Path` locals, so
 #   PEP 597's `PYTHONWARNDEFAULTENCODING=1` remains the complete runtime net.
 #   See: https://docs.astral.sh/ruff/rules/unspecified-encoding/
+# RUF100, RUF102, RUF103, RUF104: a `# noqa` that no rule needs, that names a
+#   rule ruff does not know, or that is malformed, is a suppression nobody
+#   reviews. Correct under the full rule set only: selected alone, RUF100 reads
+#   every `# noqa` as unused.
+#   See: https://docs.astral.sh/ruff/rules/unused-noqa/
 # TC: an import used only in annotations belongs in the `if TYPE_CHECKING:` block.
 #   Ruff reads the block in its `TYPE_CHECKING = False` form, which spares the
 #   `typing` import at runtime.
 #   See: https://docs.astral.sh/ruff/rules/#flake8-type-checking-tc
-lint.extend-select = [ "D205", "D209", "E501", "PLC0415", "PLW1514", "TC" ]
+lint.extend-select = [ "D205", "D209", "E501", "PLC0415", "PLW1514", "RUF100", "RUF102", "RUF103", "RUF104", "TC" ]
 # D401 and D403 stay out of the selection above, since the rewrite each asks
 #   for is wrong here: D401 rejects the noun-phrase docstring a property or a
 #   getter opens with (`The options that pick a template`), and D403

@@ -19,9 +19,9 @@ warn_unreachable = true
 # Use visually nicer output in error messages.
 pretty = true
 overrides = [
-  # `repomatic run mypy` checks at the `requires-python` floor. Sphinx 9.1.0
-  # uses the `type` statement of Python 3.12, which stops the whole run on a
-  # syntax error below that floor. Skipping the import types every Sphinx
+  # `repomatic run mypy` checks at the `requires-python` floor. Sphinx 9.1 and
+  # later use the `type` statement of Python 3.12, which stops the whole run
+  # on a syntax error below that floor. Skipping the import types every Sphinx
   # name as `Any`.
   { module = [ "sphinx.*" ], ignore_missing_imports = true, follow_imports = "skip" },
 ]

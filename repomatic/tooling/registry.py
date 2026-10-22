@@ -1404,6 +1404,10 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
             AARCH64,
         ): "c9d3740ea2d891854d37116c9fba840f37b6e7c89d330e7db84ac333631c4977",
         (
+            MACOS,
+            X86_64,
+        ): "887503a9cff667d322b8d0892b40bf49976eb9507af8483220a3706cdad55978",
+        (
             WINDOWS,
             X86_64,
         ): "32975d1493ee1a975d6bb41e4fb56fe419cb442ded628bb772ba2e614acfacad",
@@ -1491,6 +1495,10 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
             MACOS,
             X86_64,
         ): "f3451079971633a7f769fb958fe06b0d64b5f1dc46df0854aa1ddb9a6f4031d6",
+        (
+            WINDOWS,
+            AARCH64,
+        ): "b149fbe092d658d20c0ed40f326a25ebd382f3f2bc27a1526357672bfecdef6d",
         (
             WINDOWS,
             X86_64,
@@ -1807,6 +1815,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         name="gitleaks",
         # The history of the repository, as the `lint-secrets` job scans it.
         default_args=("git", "."),
+        # Without `--verbose` gitleaks logs only `leaks found: N`, so a red
+        # `lint-secrets` run names no file. `--redact` keeps the secret out of
+        # the job log; a finding still names its file, line, commit and rule.
+        default_flags=("--verbose", "--redact"),
         display_name="Gitleaks",
         version="8.30.1",
         source_url="https://github.com/gitleaks/gitleaks",
@@ -1867,9 +1879,11 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
 
             With no arguments, gitleaks scans the git history of the repository
             (`gitleaks git .`), as the `lint-secrets` job does. `repomatic run gitleaks
-            -- dir .` scans the working tree instead. The `[tool.gitleaks]` section is
-            bridged to a temporary `.gitleaks.toml`: keep `extend.useDefault = true`, or
-            a custom config silently replaces the built-in rule set.
+            -- dir .` scans the working tree instead. Each finding names its file,
+            line, commit and rule, with the secret itself redacted. The
+            `[tool.gitleaks]` section is bridged to a temporary `.gitleaks.toml`: keep
+            `extend.useDefault = true`, or a custom config silently replaces the
+            built-in rule set.
             """),
     ),
     "labelmaker": ToolSpec(
@@ -1956,6 +1970,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
                     MACOS,
                     AARCH64,
                 ): "https://github.com/lycheeverse/lychee/releases/download/lychee-v{version}/lychee-aarch64-apple-darwin.tar.gz",
+                (
+                    MACOS,
+                    X86_64,
+                ): "https://github.com/lycheeverse/lychee/releases/download/lychee-v{version}/lychee-x86_64-apple-darwin.tar.gz",
                 (
                     WINDOWS,
                     X86_64,
@@ -2438,6 +2456,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
                     MACOS,
                     X86_64,
                 ): "https://github.com/crate-ci/typos/releases/download/v{version}/typos-v{version}-x86_64-apple-darwin.tar.gz",
+                (
+                    WINDOWS,
+                    AARCH64,
+                ): "https://github.com/crate-ci/typos/releases/download/v{version}/typos-v{version}-aarch64-pc-windows-msvc.zip",
                 (
                     WINDOWS,
                     X86_64,

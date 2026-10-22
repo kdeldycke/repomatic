@@ -81,10 +81,11 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  # click-extra 9.3 added region_markers() to click_extra.blocks and the visible=
-  # argument of OperationTrail. release/binaries_page.py imports the first and
-  # deps/sync.py passes the second: on 9.2 no command starts.
-  "click-extra>=9.3",
+  # click-extra 9.5 ships LazyChoice, which cli/main.py builds its project-aware
+  # option types on, keeps the lazy command modules unloaded when a
+  # configuration file is read, and fixes a Ctrl+C lost while run_jobs() waits
+  # on a task (deps/sync.py, tooling/checksums.py).
+  "click-extra>=9.5",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
   # under patched subprocess in tests.
@@ -92,12 +93,11 @@ dependencies = [
   # packaging 20 added the major and minor aliases of Version, which
   # metadata/project.py compares to decide whether a version bump is allowed.
   "packaging>=20",
-  # py-walk 0.3.1 is the first release that keeps __init__.py and __main__.py: on
-  # 0.2.0 its gitignore parser reports them ignored, and file_inventory.py drops
-  # them from the Python file list.
+  # py-walk 0.3.3 anchors a one-part pattern like `/build` to the root, which
+  # 0.3.1 read as `**/build`, and stops its logger installing a handler.
   # XXX Replace py-walk with wcmatch once the latter supports gitignore files:
   # https://github.com/facelessuser/wcmatch/issues/226
-  "py-walk>=0.3.1",
+  "py-walk>=0.3.3",
   # pyproject-metadata 0.9 added PEP 639 (license expressions) and PEP 685 (extras
   # normalization); our StandardMetadata.from_pyproject() call benefits from these.
   "pyproject-metadata>=0.9",
@@ -125,22 +125,31 @@ scripts.repomatic = "repomatic.__main__:main"
 # Non-runtime development dependency groups.
 [dependency-groups]
 test = [
-  # coverage 7.11.0 dropped Python 3.9, and requires 3.10 or later.
-  "coverage[toml]>=7.11",
-  # Pytest 9.0.0 introduce support for native TOML configuration files.
-  "pytest>=9",
-  # pytest-cov 4.0 stabilized the modern pytest plugin interface; --cov/--cov-report in addopts.
-  "pytest-cov>=4",
-  # pytest-github-actions-annotate-failures 0.2 requires Python >= 3.8; CI annotation
-  # API stable since 0.1.x.
-  "pytest-github-actions-annotate-failures>=0.2",
+  # coverage 7.16.2 fixes two branch misreports of the sys.monitoring core, the
+  # default on Python 3.14 and later, which move the `report.fail_under`
+  # ratchet on the 3.14 and 3.15 cells.
+  "coverage[toml]>=7.16.2",
+  # pytest 9.0.3 fixes CVE-2025-71176: the `tmp_path` base directory followed
+  # symlinks. The native `[tool.pytest]` table below arrived in 9.0.0, and an
+  # older pytest reads none of it.
+  "pytest>=9.0.3",
+  # pytest-cov 7.1.0 computes the total it checks against `report.fail_under`
+  # the same way whatever reports are requested. 7.0 dropped the `.pth`
+  # subprocess measurement, so a child interpreter a test spawns needs no
+  # coverage variable stripped (tests/test_metadata.py).
+  "pytest-cov>=7.1",
+  # pytest-github-actions-annotate-failures 0.4.2 stops a `ValueError` on a
+  # Windows runner when a warning comes from a file on another drive than the
+  # checkout; 0.4.1 stopped annotating the same failure once per xdist worker.
+  "pytest-github-actions-annotate-failures>=0.4.2",
   # pytest-randomly 5 turned the shuffle into a hook wrapper, so it runs before
   # every other plugin's pytest_collection_modifyitems. Below it, plugin
   # registration order decided who shuffled first, and the same seed replayed a
   # different order on another machine.
   "pytest-randomly>=5",
-  # pytest-xdist < 3.7 fails on Python 3.14 (no requires-python guard in older releases);
-  # [psutil] extra needed for --numprocesses=auto.
+  # pytest-xdist 3.7.0 merges every `xdist_group` marker a test carries; before
+  # it the last marker alone chose the group. The [psutil] extra is what
+  # `--numprocesses=auto` counts the cores with.
   "pytest-xdist[psutil]>=3.7",
 ]
 docs = [
@@ -148,31 +157,44 @@ docs = [
   # fail the build on a dead fragment link. An older release ignores the line and
   # the build passes. The [sphinx] extra pulls docutils, pygments and sphinx.
   "click-extra[sphinx]>=9.4",
-  # furo 2024.8.6+ supports Sphinx 8; pinned to recent CalVer release.
-  "furo>=2025.9.25",
+  # furo 2025.12.19 is the first release that accepts Sphinx 9 (`sphinx<10`);
+  # 2025.09.25 caps it below 9, which the lock cannot satisfy.
+  "furo>=2025.12.19",
   # myst-parser 5.1 ships the native "alert" extension (enabled in docs/conf.py)
   # that renders GitHub-style alerts as admonitions; earlier 5.x reject "alert".
   "myst-parser>=5.1",
-  # Sphinx 8.0.0 dropped Python 3.9, and requires 3.10 or later.
-  "sphinx>=8",
-  # sphinx-autodoc-typehints 2.4.0 is the first version to require Python 3.10 or later.
-  "sphinx-autodoc-typehints>=2.4",
-  # sphinx-copybutton 0.5.2 stabilized the copy button behavior for code blocks.
+  # Sphinx 9.1.0 reads `show-inheritance` from `autodoc_default_options` on an
+  # `automodule` page again (sphinx-doc/sphinx#14198): 9.0 dropped it, and
+  # every class page lost its Bases line.
+  "sphinx>=9.1",
+  # sphinx-autodoc-typehints 3.10.4 catches the `NameError` Python 3.14 raises
+  # when it evaluates an annotation naming a `TYPE_CHECKING`-only import, the
+  # idiom of every module here: below it each such signature loses its types.
+  "sphinx-autodoc-typehints>=3.10.4",
+  # sphinx-copybutton 0.5.2 strips nothing but what `copybutton_exclude` names,
+  # which docs/conf.py sets to copy a shell-session command without its prompt
+  # and output lines.
   "sphinx-copybutton>=0.5.2",
   # sphinx-datatables 1.0.0 is the first stable release; makes the binaries
   # catalog table searchable and sortable client-side (pulls sphinxcontrib-jquery).
   "sphinx-datatables>=1",
-  # sphinx-design 0.6 introduced the current directive syntax for cards, grids, and tabs.
-  "sphinx-design>=0.6",
-  # sphinx-sitemap 2.6.0 is the first release supporting Sphinx 8.
+  # sphinx-design 0.7.0 is the first release that accepts Sphinx 9 (`sphinx<10`);
+  # 0.6.1 caps it below 9.
+  "sphinx-design>=0.7",
+  # sphinx-sitemap 2.6.0 added `sitemap_excludes`, which docs/conf.py uses to
+  # keep the search and index pages out of the sitemap.
   "sphinx-sitemap>=2.6",
-  # sphinxcontrib-jquery is loaded explicitly in docs/conf.py (sphinx-datatables
-  # activates it too late to register jquery.js on its own); declare it so the
-  # build never relies on it arriving only transitively via sphinx-datatables.
+  # sphinxcontrib-jquery 4.0 stopped enforcing subresource-integrity checks by
+  # default: under 3.0 a build opened from the local filesystem could not load
+  # jQuery. Declared because docs/conf.py loads it itself: sphinx-datatables
+  # activates it too late to register jquery.js on its own.
   "sphinxcontrib-jquery>=4",
-  # sphinxcontrib-mermaid 1.2.3 fixed mermaid_d3_zoom configuration support.
-  "sphinxcontrib-mermaid>=1.2.3",
-  # sphinxext-opengraph 0.13 stabilized OpenGraph metadata generation for Sphinx 8+.
+  # sphinxcontrib-mermaid 2.1.0 fixes the interaction of fullscreen, d3 zoom
+  # and lazy rendering, which the class-tree override in docs/conf.py relies
+  # on; 2.0.0 re-renders each diagram when furo's theme toggle flips.
+  "sphinxcontrib-mermaid>=2.1",
+  # sphinxext-opengraph 0.11.0 escapes the reserved HTML characters of
+  # `og:description`; 0.13.0 is the first release built against Sphinx 8.
   "sphinxext-opengraph>=0.13",
   # autodoc imports every module it documents, and docs/tests.md documents the
   # test suite, whose modules import pytest. Without the test group the whole
@@ -187,15 +209,18 @@ typing = [
 ]
 
 [tool.uv]
-# Floor uv at the minimum resolver repomatic relies on, with no upper bound, so
-# contributors move forward without a manual ceiling bump each minor (a hard
-# upper cap breaks every machine the day the next uv minor lands, since uv
+# Floor uv at the oldest release that writes uv.lock as it is committed, with
+# no upper bound. uv 0.12.22 is the first to write lockfile revision 5 and the
+# `[package.group-requires-python]` table the docs group's requires-python
+# adds: an older uv relocks to revision 3 and drops the table. No ceiling, so
+# contributors move forward without a manual bump each minor (a hard upper cap
+# breaks every machine the day the next uv minor lands, since uv
 # self-updates). CI does not install from this floor: each astral-sh/setup-uv
 # step pins the exact uv it downloads, and sync-workflow-pins moves that pin
 # forward. uv.lock stays stable across minors because sync-uv-lock discards a
 # re-lock that only re-spells equivalent markers (see
 # repomatic.deps.cooldown.sync_uv_lock).
-required-version = ">=0.11.15"
+required-version = ">=0.12.22"
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }
 # Cooldown period before using newly released packages. Kept equal to
@@ -217,7 +242,12 @@ exclude-newer = "1 week"
 # `repomatic run` cannot resolve that pin, and every job that needs the tool
 # fails. `sync-uv-lock` prunes such an entry once the window has passed its
 # cutoff.
-exclude-newer-package = { certifi = "2026-10-22T00:00:00Z", nuitka = "2026-10-18T00:00:00Z", repomatic = "0 day" }
+# click-extra is published by this repository's own maintainer: the cooldown
+# guards against a compromised upstream, which does not apply here, and it
+# otherwise holds each release back a week from the one repository that
+# consumes it first. The span admits one release: `sync-uv-lock` freezes it
+# to a date, then prunes it.
+exclude-newer-package = { certifi = "2026-10-22T00:00:00Z", click-extra = "0 day", nuitka = "2026-10-18T00:00:00Z", repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 build-backend.source-exclude = [
@@ -307,11 +337,21 @@ format.docstring-code-format = true
 #   Preview rule; its type inference misses unannotated `Path` locals, so
 #   PEP 597's `PYTHONWARNDEFAULTENCODING=1` remains the complete runtime net.
 #   See: https://docs.astral.sh/ruff/rules/unspecified-encoding/
+# RUF100, RUF102, RUF103, RUF104: a `# noqa` that no rule needs, that names a
+#   rule ruff does not know, or that is malformed, is a suppression nobody
+#   reviews. Correct under the full rule set only: selected alone, RUF100 reads
+#   every `# noqa` as unused.
+#   See: https://docs.astral.sh/ruff/rules/unused-noqa/
 # TC: an import used only in annotations belongs in the `if TYPE_CHECKING:` block.
 #   Ruff reads the block in its `TYPE_CHECKING = False` form, which spares the
 #   `typing` import at runtime.
 #   See: https://docs.astral.sh/ruff/rules/#flake8-type-checking-tc
-lint.extend-select = [ "D205", "D209", "E501", "PLC0415", "PLW1514", "TC" ]
+# CPY001: every Python file opens with the GPL header, docs and tests included.
+#   Local to this repository: the pattern below names its copyright holder.
+#   See: https://docs.astral.sh/ruff/rules/missing-copyright-notice/
+lint.extend-select = [ "CPY001", "D205", "D209", "E501", "PLC0415", "PLW1514", "RUF100", "RUF102", "RUF103", "RUF104", "TC" ]
+# The default pattern wants a year, which the header carries none of.
+lint.flake8-copyright.notice-rgx = "Copyright Kevin Deldycke <kevin@deldycke.com> and contributors\\."
 # D401 and D403 stay out of the selection above, since the rewrite each asks
 #   for is wrong here: D401 rejects the noun-phrase docstring a property or a
 #   getter opens with (`The options that pick a template`), and D403
@@ -413,6 +453,9 @@ addopts = [
   "--cov",
   "--cov-report=term",
   "--numprocesses=auto",
+  # `loadgroup` honours the `xdist_group` marker tests/test_sphinx_crossrefs.py
+  # carries, which keeps its docs build on one worker. `load` ignores the marker.
+  "--dist=loadgroup",
   # Import test modules via importlib instead of prepending their root dir to
   # sys.path. Avoids "import file mismatch" collection errors when an installed
   # copy of the package coexists with the source tree, as in distro builds.
@@ -422,6 +465,12 @@ addopts = [
 markers = [
   "once: Tests that only need to run once, not across the full CI matrix.",
 ]
+# A config key pytest does not know, a marker this table does not declare, and
+# two parametrize cases sharing one id fail collection instead of printing a
+# warning that scrolls past.
+strict_config = true
+strict_markers = true
+strict_parametrization_ids = true
 # Restrict collection to the test suite, so pytest never descends into the
 # package or an installed copy of it in dual-copy builds.
 testpaths = [ "tests" ]
