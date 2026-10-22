@@ -247,6 +247,12 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic lint-changelog"
 
 [[cases]]
+cli_parameters = "lint-coverage --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic lint-coverage"
+
+[[cases]]
 cli_parameters = "lint-deps --help"
 exit_code = 0
 strip_ansi = true

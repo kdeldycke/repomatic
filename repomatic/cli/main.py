@@ -118,6 +118,9 @@ COMMANDS: dict[str, LazySubcommand] = {
     "lint-changelog": LazySubcommand(
         "repomatic.cli.release.lint_changelog", section=_section_lint
     ),
+    "lint-coverage": LazySubcommand(
+        "repomatic.cli.ci.lint_coverage", section=_section_lint
+    ),
     "lint-deps": LazySubcommand("repomatic.cli.deps.lint_deps", section=_section_lint),
     "lint-repo": LazySubcommand("repomatic.cli.repo.lint_repo", section=_section_lint),
     # Sync.

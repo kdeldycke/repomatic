@@ -851,6 +851,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 - Installs all optional extras (`--all-extras`) to catch incompatibilities between optional dependency groups
 - Resolves the project again in any cell that carries a `resolution` matrix key, so a `lowest-direct` cell runs every declared dependency floor (see [test matrix § Run every declared floor in one cell](test-matrix.md#run-every-declared-floor-in-one-cell))
 - Runs `pytest` under the `[tool.coverage] report.fail_under` coverage floor, excluding `once`-marked tests (covered by the dedicated `once-tests` job)
+- Runs `repomatic lint-coverage --no-fatal` on the coverage report, which warns when the floor sits more than two points under the coverage total
 - Runs self-tests against the CLI test suite, through both the console script and `python -m`
 - Job names prefixed with **✅** (stable) or **⁉️** (unstable, e.g., unreleased Python versions)
 

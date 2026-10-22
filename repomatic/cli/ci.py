@@ -21,6 +21,7 @@ under its help section.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -81,6 +82,7 @@ from ..matrix.runner_sync import (
 )
 from ..matrix.runners import fetch_catalog
 from ..metadata.core import Metadata
+from ..pyproject import read_pyproject_toml
 from ..release.protocol import RELEASE_PR_BRANCH
 from ..upstream import is_source_repo
 from .main import (
@@ -148,6 +150,15 @@ The same two glyphs the workflow templates stamp onto each matrix job's name,
 and that {meth}`repomatic.github.ci_status.JobStatus.required` reads back off
 it, so the grid and the CI verdict cannot come to disagree about which mark
 means "allowed to fail".
+"""
+
+COVERAGE_FLOOR_SLACK = 2.0
+"""How far, in points, the coverage total may rise above `report.fail_under`.
+
+`lint-coverage` flags a floor further down. The cells of a test matrix agree
+within a tenth of a point, so a floor two
+points under the total is one nobody raised after the suite grew. It lets a
+regression of that size through without failing a run.
 """
 
 
@@ -688,6 +699,74 @@ def job_timings(
         write_output(
             "job timings report", render_markdown(reports, workflow, limit), output
         )
+
+
+@subcommand(
+    short_help="Check the coverage floor keeps up with the coverage total",
+    examples=(
+        ("Check against the report in coverage.json", "repomatic lint-coverage"),
+        (
+            "Warn without failing, after a CI test run",
+            "repomatic lint-coverage --report coverage.json --no-fatal",
+        ),
+    ),
+)
+@option(
+    "--report",
+    "report_path",
+    type=file_path(resolve_path=True),
+    default="coverage.json",
+    help="Coverage report in JSON, as pytest --cov-report=json or coverage json "
+    "writes it.",
+)
+@option(
+    "--fatal/--no-fatal",
+    default=True,
+    help="Exit non-zero when the floor lags the total. Pass --no-fatal to warn "
+    "without failing.",
+)
+@pass_context
+def lint_coverage(ctx: Context, report_path: Path, fatal: bool) -> None:
+    """Check that the coverage floor keeps up with the coverage total.
+
+    Compares the total of a coverage report in JSON with the [tool.coverage]
+    report.fail_under floor of pyproject.toml. A floor more than two points
+    under the total lets a regression of that size through: raise it to about
+    one point under the total.
+
+    \b
+    Exit codes:
+        0  The floor keeps up, there is no report or no floor, or --no-fatal.
+        1  The floor sits more than two points under the total.
+    """
+    if not report_path.is_file():
+        echo(f"No coverage report at {report_path}, nothing to check.")
+        ctx.exit(0)
+    settings = read_pyproject_toml().get("tool", {}).get("coverage", {})
+    try:
+        floor = float(settings.get("report", {}).get("fail_under", 0))
+        report = json.loads(report_path.read_text(encoding="UTF-8"))
+        total = float(report["totals"]["percent_covered"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ClickException(f"Cannot compare {report_path}: {error}") from error
+    if not floor:
+        echo("No [tool.coverage] report.fail_under floor, nothing to check.")
+        ctx.exit(0)
+
+    headroom = total - floor
+    if headroom <= COVERAGE_FLOOR_SLACK:
+        echo(
+            f"✓ The {floor:g}% floor keeps within {COVERAGE_FLOOR_SLACK:g} points"
+            f" of the {total:.2f}% coverage total."
+        )
+        ctx.exit(0)
+    report_finding(
+        AnnotationLevel.ERROR if fatal else AnnotationLevel.WARNING,
+        f"The {floor:g}% floor of [tool.coverage] report.fail_under sits"
+        f" {headroom:.2f} points under the {total:.2f}% coverage total: raise it"
+        " to about one point under the total.",
+    )
+    ctx.exit(1 if fatal else 0)
 
 
 @subcommand(

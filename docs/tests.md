@@ -31,6 +31,7 @@
    tests.test_cloudflare
    tests.test_cloudflare_r2
    tests.test_config
+   tests.test_coverage_floor
    tests.test_dep_graph
    tests.test_dep_policy
    tests.test_dep_report

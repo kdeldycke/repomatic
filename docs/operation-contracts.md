@@ -79,7 +79,7 @@ Every `lint-*` operation checks content without modifying it. Lint operations ar
 **Required properties:**
 
 1. **CLI command.** A `repomatic lint-*` command. Returns exit code 0 on pass, non-zero on failure.
-2. **Workflow job.** A `lint-*` job in `lint.yaml` (not `autofix.yaml`), unless the check only makes sense at a lifecycle moment: `lint-deps` lives in `_release-build.yaml`, where it gates the wheel build. No PR creation — lints gate merges via status checks.
+2. **Workflow job.** A `lint-*` job in `lint.yaml` (not `autofix.yaml`), unless the check only makes sense at a lifecycle moment: `lint-deps` lives in `_release-build.yaml`, where it gates the wheel build, and `lint-coverage` is a step of the `tests` job in `tests.yaml`, the one place a coverage report exists. No PR creation — lints gate merges via status checks.
 3. **Documentation.** Job description in `docs/workflows.md`. Changelog entry.
 
 **Optional properties:**

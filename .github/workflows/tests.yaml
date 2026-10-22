@@ -174,12 +174,22 @@ jobs:
         # `once-tests` job below runs them on a single runner instead.
         #
         # The coverage floor is `[tool.coverage] report.fail_under`, which this
-        # full-matrix slice is the one job expected to clear. Nothing is passed
-        # here: a `--cov-fail-under` flag would outrank that config and shadow
-        # the knob every downstream repo already has.
+        # full-matrix slice is the one job expected to clear. No `--cov-fail-under`
+        # is passed here: it would outrank that config and shadow the knob every
+        # downstream repo already has. The JSON report feeds the next step.
         run: >
           uv --no-progress run --frozen -- pytest
           -m "not once"
+          --cov-report=json:${{ runner.temp }}/coverage.json
+
+      - name: Check the coverage floor
+        # Warns when the floor sits more than two points under the coverage total,
+        # so the ratchet gets raised instead of drifting. `!cancelled()` reads the
+        # report after a failed test too: its total stays sound.
+        if: ${{ !cancelled() }}
+        run: >
+          uv --no-progress run --frozen -- repomatic lint-coverage
+          --report "${{ runner.temp }}/coverage.json" --no-fatal
 
       - name: Self-tests against test suite via console script
         # click-extra owns the test-suite engine and CLI; it reads the suite from

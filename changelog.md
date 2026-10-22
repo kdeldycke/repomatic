@@ -56,6 +56,7 @@
 - Add `ci-status --wait`, which polls in-process until a required job fails or every run settled, with `--until-change` and `--state-file` for a re-armed watch.
 - Add `ci-status --failed-logs`, `--automation-prs` and `--release-pr`, and report a matrix job GitHub never expanded.
 - Add a `lint-python` job to `lint.yaml`, which fails on the ruff findings no safe fix clears, where `format-python` only annotates them.
+- Add `lint-coverage`, which flags a `[tool.coverage] report.fail_under` floor more than two points under the coverage total. The `tests` job of `tests.yaml` runs it after the unit tests.
 - `repomatic` now imports only the module of the command it runs: `repomatic --version` starts in 0.3 s instead of 0.45 s.
 - Add the `sync-runner-images.sync` and `github-releases.sync` keys to turn off these two syncs.
 - Add the `bump-version`, `create-release`, `pack-manpages`, `squashed-release` and `wait-pypi` commands, which replace the shell steps of the release workflows.
