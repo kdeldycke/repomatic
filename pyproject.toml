@@ -349,9 +349,19 @@ format.docstring-code-format = true
 # CPY001: every Python file opens with the GPL header, docs and tests included.
 #   Local to this repository: the pattern below names its copyright holder.
 #   See: https://docs.astral.sh/ruff/rules/missing-copyright-notice/
-lint.extend-select = [ "CPY001", "D205", "D209", "E501", "PLC0415", "PLW1514", "RUF100", "RUF102", "RUF103", "RUF104", "TC" ]
-# The default pattern wants a year, which the header carries none of.
-lint.flake8-copyright.notice-rgx = "Copyright Kevin Deldycke <kevin@deldycke.com> and contributors\\."
+lint.extend-select = [
+  "CPY001",
+  "D205",
+  "D209",
+  "E501",
+  "PLC0415",
+  "PLW1514",
+  "RUF100",
+  "RUF102",
+  "RUF103",
+  "RUF104",
+  "TC"
+]
 # D401 and D403 stay out of the selection above, since the rewrite each asks
 #   for is wrong here: D401 rejects the noun-phrase docstring a property or a
 #   getter opens with (`The options that pick a template`), and D403
@@ -372,6 +382,8 @@ lint.flake8-copyright.notice-rgx = "Copyright Kevin Deldycke <kevin@deldycke.com
 #   The CLI configures the root logger via Click, so root logger calls are intentional.
 #   See: https://docs.astral.sh/ruff/rules/root-logger-call/
 lint.ignore = [ "D301", "D400", "ERA001", "LOG015" ]
+# The default pattern wants a year, which the header carries none of.
+lint.flake8-copyright.notice-rgx = "Copyright Kevin Deldycke <kevin@deldycke.com> and contributors\\."
 lint.isort.combine-as-imports = true
 # Allow rules to add `from __future__ import annotations` in cases where
 # this would simplify a fix or enable a new diagnostic.
