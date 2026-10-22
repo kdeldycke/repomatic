@@ -799,7 +799,7 @@ This workflow maintains repomatic's own package source and is the one file in `.
 ### 🔼 Sync tool versions (`sync-tool-versions`)
 
 - **Upstream-only**: rewrites `repomatic/tooling/registry.py`, which exists only in this repository; downstream repos receive updated tool versions when they sync against a new repomatic release
-- Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gh, gitleaks, labelmaker, lychee, oxipng, ShellCheck, shfmt, typos), the npm registry for npm tools (awesome-lint, npm), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
+- Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gh, gitleaks, labelmaker, lychee, oxipng, ShellCheck, shfmt, typos), the npm registry for npm tools (awesome-lint, npm, Wrangler), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
 - Bumps the packages pinned *alongside* a tool in its `uvx` environment too (mdformat's plugin set), which no other updater sees
 - Recomputes the SHA-256 checksums of the binary tools it bumps in the same pass, and downloads only their artifacts, so version bump and checksum land in one PR branch
 - Refreshes the bundled actionlint problem matcher from the tag of the actionlint it pins
