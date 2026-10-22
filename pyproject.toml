@@ -406,24 +406,10 @@ default.extend-words = { astroid = "astroid", certifi = "certifi", oject = "ojec
 # Skip content between <!-- typos:off --> and <!-- typos:on --> markers.
 default.extend-ignore-re = [ "(?s)<!-- typos:off -->.*?<!-- typos:on -->", "\\{qeury\\}", 'base32 "[0-9a-z]{52}"' ]
 default.extend-ignore-identifiers-re = [
-  # error: `nwo` should be `now`
-  #     ╭▸ ./repomatic/github/release_sync.py:147:5
-  #     │
-  # 147 │     nwo = f"{parts[-2]}/{parts[-1]}" if len(parts) >= 2 else ""
-  #     ╰╴    ━━━
-  # Standard GitHub API term for "name with owner" (e.g. "owner/repo").
-  "nwo",
-  # error: `vulnerabilit` should be `vulnerability`
-  #     ╭▸ ./repomatic/deps/uv.py:82:55
-  #     │
-  #  82 │     r"^(\S+)\s+(\S+)\s+has\s+\d+\s+known\s+vulnerabilit"
-  #     ╰╴                                           ━━━━━━━━━━━━
-  # Intentional truncation to match both "vulnerability" and "vulnerabilities".
-  "vulnerabilit",
   # error: `WARNIN` should be `WARNING`
-  #     ╭▸ ./tests/test_changelog.py:565:46
+  #     ╭▸ ./tests/test_lint_changelog.py:533:46
   #     │
-  # 565 │     # Both sources available — NOTE only, no WARNINGs.
+  # 533 │     # Both sources available — NOTE only, no WARNINGs.
   #     ╰╴
   "WARNIN",
 ]
