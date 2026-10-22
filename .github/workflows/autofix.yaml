@@ -626,6 +626,8 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
+      # The HTTP-cache prune deletes superseded cache entries.
+      actions: write
       contents: write
       pull-requests: write
     steps:

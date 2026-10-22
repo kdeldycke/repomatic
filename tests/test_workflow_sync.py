@@ -1811,10 +1811,12 @@ def test_header_preserves_canonical_quote_style() -> None:
     ("filename", "expected"),
     (
         # Every autofix job that writes opens a pull request; setup-guide adds
-        # the issues scope, and fix-vulnerable-deps reads the Dependabot alerts.
+        # the issues scope, fix-vulnerable-deps reads the Dependabot alerts, and
+        # sync-deps deletes the superseded HTTP caches.
         (
             "autofix.yaml",
             {
+                "actions": "write",
                 "contents": "write",
                 "issues": "write",
                 "pull-requests": "write",
@@ -1888,6 +1890,7 @@ def test_generate_thin_caller_emits_both_permission_halves() -> None:
     data = yaml.safe_load(content)
     assert data["permissions"] == {}
     assert data["jobs"]["autofix"]["permissions"] == {
+        "actions": "write",
         "contents": "write",
         "issues": "write",
         "pull-requests": "write",

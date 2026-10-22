@@ -129,17 +129,6 @@ jobs:
           path: .nuitka-cache
           key: nuitka-${{ matrix.target }}-${{ matrix.commit }}
           restore-keys: nuitka-${{ matrix.target }}-
-      - name: Prune superseded Nuitka compile caches
-        # Every run saves a snapshot under its own commit key, so the one just
-        # restored is the only previous entry still read. Dropping the rest
-        # keeps the repository under its cache quota, past which GitHub
-        # evicts live caches too. A refused deletion warns and never fails
-        # the build.
-        if: matrix.nuitka_cache == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PREFIX: nuitka-${{ matrix.target }}-
-        run: uv --no-progress run --frozen -- repomatic prune-caches --prefix "$PREFIX"
       # The manylinux containers ship no ccache (Nuitka warns and compiles
       # cold), so the canary target pays full C compilation on every push.
       # A build keeping no cache has no use for it. EPEL is a distro archive,
@@ -163,6 +152,18 @@ jobs:
         # /opt/python inside manylinux containers ships no libpython for
         # Nuitka to link against.
         run: uv --no-progress --managed-python venv --python 3.14
+      - name: Prune superseded Nuitka compile caches
+        # Every run saves a snapshot under its own commit key, so the one just
+        # restored is the only previous entry still read. Dropping the rest
+        # keeps the repository under its cache quota, past which GitHub
+        # evicts live caches too. A refused deletion warns and never fails
+        # the build. It runs after the venv step: its `uv run` would otherwise
+        # create `.venv` with another interpreter first.
+        if: matrix.nuitka_cache == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFIX: nuitka-${{ matrix.target }}-
+        run: uv --no-progress run --frozen -- repomatic prune-caches --prefix "$PREFIX"
       # The click-extra of the project's own lock, the one the self-test below runs.
       - name: Pre-bake build metadata
         if: contains(matrix.current_version, '.dev')

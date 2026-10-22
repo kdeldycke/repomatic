@@ -426,8 +426,8 @@ _TEMPLATE_SUPERSET_KEYS: dict[str, frozenset[str]] = {
     "coverage": frozenset(),
     "mypy": frozenset(),
     "pytest": frozenset(),
-    # `CPY001` checks for the GPL header of this repository's own copyright
-    # holder, so the rule and its pattern stay out of the template.
+    # The flake8-copyright rule checks for the GPL header of this repository's
+    # own copyright holder, so the rule and its pattern stay out of the template.
     "ruff": frozenset({"extend-select"}),
     "typos": frozenset({"extend-ignore-re"}),
 }
