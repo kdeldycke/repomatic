@@ -416,7 +416,7 @@ docs = [
   - Pages deployment source set to **GitHub Actions** (the setup guide issue walks through it)
 
 ```{todo}
-Pass `--jobs auto` to `sphinx-build` in this job and in `tests/test_sphinx_crossrefs.py` once sphinx-autodoc-typehints resolves `TYPE_CHECKING`-only names in a parallel read. Measured on this repository's docs with sphinx-autodoc-typehints `3.13.10` and Sphinx `9.1.0`: the parallel build takes 80 s against 109 s, but ends with `reference target not found` for `Path`, `Architecture` and `ColumnSpec`, three names the serial build resolves, so `-W` fails it.
+Pass `--jobs auto` to `sphinx-build` in this job and in `tests/test_sphinx_crossrefs.py` once the parallel read resolves every name the serial read does. Measured on this repository's docs with sphinx-autodoc-typehints `3.13.10` and Sphinx `9.1.0`: the parallel build takes 80 s against 109 s, but ends with `reference target not found` for `Path`, `Architecture` and `ColumnSpec`, three intersphinx-resolved names the serial build resolves, so `-W` fails it. A five-module reproducer with `TYPE_CHECKING`-only names in function, attribute and dataclass annotations builds clean under `--jobs 2`, so the trigger sits elsewhere in this build. Re-test with sphinx-autodoc-typehints `3.17.2` once it clears the cooldown on 2026-10-24, then bisect the trigger to a reproducer before reporting it upstream.
 ```
 
 ### 📖 Deploy Sphinx doc to Cloudflare Pages (`deploy-docs-cloudflare`)
