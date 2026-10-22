@@ -39,7 +39,7 @@ from pathlib import Path
 from .. import __version__
 from ..deps.shippable import build_release_readiness
 from ..pyproject import get_current_version
-from ..templating import PrTemplate, render_template
+from ..templating import FOOTER_TEMPLATE, PrTemplate, render_template
 from ..versions import strip_dev_suffix
 from .event import extract_workflow_filename
 from .outputs import read_file_output, trim_to_budget
@@ -234,7 +234,7 @@ def fit_github_body(body: str) -> str:
     if _utf16_len(body) <= GITHUB_BODY_MAX_CHARS:
         return body
     footer_suffix = (
-        "\n\n---\n\n" + render_template("generated-footer", version=__version__) + "\n"
+        "\n\n---\n\n" + render_template(FOOTER_TEMPLATE, version=__version__) + "\n"
     )
     if body.endswith(footer_suffix):
         content = body.removesuffix(footer_suffix)

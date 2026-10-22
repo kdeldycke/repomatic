@@ -15,7 +15,7 @@ A Python CLI and `pyproject.toml` configuration that let you **release Python pa
 - Python package building and PyPI publishing with supply chain attestations
 - Cross-platform binary compilation (Linux / macOS / Windows, x86_64 / arm64)
 - Formatting autofix for Python, Markdown, JSON, Shell, and typos
-- Linting: Python types with mypy, YAML, GitHub Actions, workflow security, URLs, secrets, and Awesome lists
+- Linting: Python code with ruff, Python types with mypy, YAML, GitHub Actions, workflow security, URLs, secrets, and Awesome lists
 - Synchronization of `uv.lock`, GitHub Action pins, workflow version literals, and `repomatic run` tool versions with configurable stabilization cooldowns
 - Synchronization of `.gitignore`, `.mailmap`, and Mermaid dependency graph
 - Label management with file-based and content-based rules

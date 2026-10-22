@@ -56,7 +56,11 @@ if TYPE_CHECKING:
     import packaging.version
 
 
-MYPY_VERSION_MIN = (3, 10)
+MANPAGES_ASSET_SUFFIX: Final[str] = "-manpages"
+"""What the package name takes to name the man-page tarball, by default."""
+
+
+MYPY_VERSION_MIN: Final[tuple[int, int]] = (3, 10)
 """Earliest Python dialect the pinned mypy accepts for `--python-version`.
 
 Floors the value {attr}`ProjectMetadata.mypy_params` derives from the project's
@@ -67,10 +71,6 @@ a version it refuses with exit code `2`. Mypy's own `PYTHON3_VERSION_MIN`
 holds the value, in
 [`mypy/defaults.py`](https://github.com/python/mypy/blob/master/mypy/defaults.py).
 """
-
-
-MANPAGES_ASSET_SUFFIX: Final[str] = "-manpages"
-"""What the package name takes to name the man-page tarball, by default."""
 
 
 _SCRIPT_NAME_RE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9._-]+")

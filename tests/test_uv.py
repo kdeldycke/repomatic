@@ -716,8 +716,8 @@ def test_freeze_returns_frozen_names(tmp_path):
 def test_freeze_reads_a_false_lift_as_a_zero_span(tmp_path):
     """uv's `false` lifts the cooldown the way a zero span does, so it freezes.
 
-    The entry once read as the string `False`: unparsable, so the freeze left
-    it tracking the latest release, and the forecast gave it an expiry.
+    Read as the string `False`, the entry would be unparsable: the freeze would
+    leave it tracking the latest release, and the forecast give it an expiry.
     """
     pyproject = _write_uv_config(
         tmp_path,
@@ -956,8 +956,8 @@ def test_pruned_forecasts_date_an_unlocked_entry_by_its_cutoff(tmp_path):
 def test_held_back_probe_captures_uv_and_restores_the_lock(tmp_path):
     """The probe runs under a progress trail: uv's output must not stream.
 
-    The probe's own `uv lock` once printed its resolution summary straight
-    onto the trail's spinner row.
+    Streamed, the probe's own `uv lock` would print its resolution summary
+    straight onto the trail's spinner row.
     """
     lock = _write_lock(tmp_path, ("mango", "2.0.0", "2026-10-01T12:00:00Z"))
     original = lock.read_text(encoding="UTF-8")

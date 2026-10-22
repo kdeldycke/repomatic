@@ -16,10 +16,10 @@
 
 """The outcome of one check, and how a check run reports it.
 
-The repository lint, the workflow lint and the token probes all answer the same
-question about something they inspected: did it pass, did it fail, or could the
-check not tell. One result type serves all of them, so a reporter renders any
-of them the same way.
+The repository lint and the token probes answer the same question about
+something they inspected: did it pass, did it fail, or could the check not
+tell. One result type serves both, so a reporter renders any of them the same
+way.
 """
 
 from __future__ import annotations

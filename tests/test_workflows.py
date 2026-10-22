@@ -927,11 +927,11 @@ PR_SYNC_ENV_KEYS = frozenset(("GH_TOKEN",))
 """Values every `pr-sync` step passes through `env:` rather than its `run:` line.
 
 The token is here because `gh` reads it from the environment and secrets are
-not ambient. Everything else the step used to relay (title, body, commit
-message, assignee) is now resolved inside `pr-sync` itself: rendered from the
-template, or read from ambient variables like `GITHUB_ACTOR`. A step may
-declare more (`bump-version` adds `PR_BRANCH`/`PR_PART` to keep `matrix.part`
-out of its command line, the dependency steps a diff-table file), never fewer.
+not ambient. Everything else (title, body, commit message, assignee) is
+resolved inside `pr-sync` itself: rendered from the template, or read from
+ambient variables like `GITHUB_ACTOR`. A step may declare more (the dependency
+steps a diff-table file), never fewer. `bump-version` opens its pull request
+itself, and needs the token too.
 """
 
 

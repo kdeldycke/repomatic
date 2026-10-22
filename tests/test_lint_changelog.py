@@ -1533,11 +1533,31 @@ def test_positional_reference_check_reads_prose_only(monkeypatch):
     )
     changelog = Changelog(
         _unreleased_changelog(
-            "- Read `test #1`, [the thread](https://github.com/user/repo/issues/7"
-            "#issuecomment-1) and user/repo#9."
+            "- Read `test #1`, ``slot #2 of `a` `` , [the thread]"
+            "(https://github.com/user/repo/issues/7#issuecomment-1) and user/repo#9."
         )
     )
     warn_on_positional_references(changelog)
+
+
+def test_positional_reference_check_reads_prose_between_code_spans(monkeypatch):
+    """A `#N` between two code spans, or after an unclosed backtick, is prose."""
+    looked_up = []
+
+    def fake_gh_json(args, *, soft=False):
+        looked_up.append(args[-1])
+        return {"number": 1}
+
+    monkeypatch.setattr("repomatic.lint_changelog.gh_json", fake_gh_json)
+    changelog = Changelog(
+        _unreleased_changelog("- Compare `mango` #3 ``kiwi`` and ``a` #4.")
+    )
+    warn_on_positional_references(changelog)
+    assert looked_up == [
+        "repos/user/repo",
+        "repos/user/repo/issues/3",
+        "repos/user/repo/issues/4",
+    ]
 
 
 def _tag_prefixed_changelog() -> str:

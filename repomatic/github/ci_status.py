@@ -356,7 +356,7 @@ class CIStatus:
     tip_sha: str = ""
     """Commit at the tip of the branch when the runs were read.
 
-    Empty when the branch history could not be read.
+    Empty when the branch history lists no commit.
     """
 
     runs: list[RunStatus] = field(default_factory=list)
@@ -505,8 +505,10 @@ def _branch_history(branch: str) -> list[str]:
     """SHAs of the newest commits on *branch*, tip first.
 
     :param branch: Branch to read.
-    :return: At most {data}`TIP_HISTORY_DEPTH` SHAs. Empty when the branch
-        cannot be read.
+    :return: At most {data}`TIP_HISTORY_DEPTH` SHAs. Empty when the answer
+        lists no commit.
+    :raises GhCommandError: When the read fails.
+    :raises GhOutputError: When the answer is not JSON.
     """
     endpoint = (
         f"repos/{{owner}}/{{repo}}/commits?sha={quote(branch, safe='')}"
@@ -627,7 +629,8 @@ def write_failed_logs(
     One file per job, named after its workflow and job, readable the moment the
     job settled: a failed cell is diagnosed while its slowest sibling still
     builds, instead of after the whole run drains. The control sequences are
-    stripped by {func}`~repomatic.github.runs.job_log`.
+    stripped by {func}`~repomatic.github.runs.job_log`. A log that cannot be
+    read is reported and skipped, so it costs its own file alone.
 
     :param status: The runs to read the failed jobs from.
     :param directory: Where the files go, created when missing.
@@ -647,8 +650,15 @@ def write_failed_logs(
                     " be fetched."
                 )
                 continue
+            try:
+                log = fetch(job.job_id)
+            except RuntimeError as error:
+                logging.warning(
+                    f"{run.workflow}: cannot fetch the log of {job.name!r}: {error}"
+                )
+                continue
             path = directory / f"{_log_slug(run.workflow)}--{_log_slug(job.name)}.log"
-            path.write_text(fetch(job.job_id), encoding="UTF-8")
+            path.write_text(log, encoding="UTF-8")
             written.append(path)
     return written
 
@@ -681,7 +691,7 @@ class WatchState:
         if path is not None and path.is_file():
             try:
                 loaded = json.loads(path.read_text(encoding="UTF-8"))
-            except ValueError:
+            except (OSError, ValueError):
                 loaded = None
             if isinstance(loaded, dict):
                 state.seen = {str(key): str(value) for key, value in loaded.items()}

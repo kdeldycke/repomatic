@@ -106,7 +106,7 @@ dependencies = [
   # attribute.
   "pyyaml>=6.0.1",
   # tomlrt 2.2.4 made Document(table) keep a section's comments and spacing,
-  # which NativeFormat.serialize (tooling/tool_registry.py) relies on to turn a
+  # which NativeFormat.serialize (tooling/registry.py) relies on to turn a
   # [tool.X] section into a native config file.
   "tomlrt>=2.2.4",
   # wcmatch 10.0 fixed globbing inconsistencies with symlinks; our metadata
@@ -194,7 +194,7 @@ typing = [
 # step pins the exact uv it downloads, and sync-workflow-pins moves that pin
 # forward. uv.lock stays stable across minors because sync-uv-lock discards a
 # re-lock that only re-spells equivalent markers (see
-# repomatic.deps.uv.sync_uv_lock).
+# repomatic.deps.cooldown.sync_uv_lock).
 required-version = ">=0.11.15"
 # Docs group requires Python >= 3.14 for recent MyST-Parser and click-extra features.
 dependency-groups.docs = { requires-python = ">= 3.14" }

@@ -358,9 +358,9 @@ def report_finding(level: AnnotationLevel, message: str) -> None:
     """Report one finding in the log and as a workflow annotation.
 
     Emits the annotation first, then prints the line the terminal reader sees,
-    opened by the {attr}`AnnotationLevel.glyph` of *level*. Every lint that
-    reports a failure goes through here, so the symbol and the annotation level
-    of a finding always agree.
+    opened by the {attr}`AnnotationLevel.glyph` of *level*. The lints that
+    report a finding to both streams go through here, so the symbol and the
+    annotation level of such a finding always agree.
 
     :param level: Severity of the finding.
     :param message: The finding, one line.

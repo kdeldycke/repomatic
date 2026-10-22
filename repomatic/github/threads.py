@@ -18,8 +18,10 @@
 
 GitHub gives issues and pull requests one number space and one lock endpoint,
 so the primitives here take a {class}`ThreadKind` instead of being written
-twice. Each one takes the same `repository` keyword: `None` lets `gh` resolve
-the repository from `GH_REPO` or the checkout.
+twice. Each primitive acting on one thread takes the same `repository` keyword:
+`None` lets `gh` resolve the repository from `GH_REPO` or the checkout. The
+search for stale threads, and the lock pass built on it, need it set: a search
+with no repository covers all of GitHub.
 
 {func}`lock_stale_threads` backs the `lock-threads` command and the autolock
 workflow behind it.
@@ -42,13 +44,14 @@ if TYPE_CHECKING:
 
 
 BOT_ISSUE_LABEL = "🤖 ci"
-"""Label carried by every issue repomatic maintains in CI.
+"""Label carried by the setup-guide and squashed-release issues.
 
-The issue lifecycle of {mod}`~repomatic.github.issue` applies it on creation,
-and {func}`lock_stale_threads` spares it by default, so it lives at this lower
-layer. The value is one of the labels `repomatic/data/labels.toml` declares, so
-renaming it there means renaming it here: an issue labelled with a name the
-registry does not carry is created unlabelled, silently.
+Both callers pass it to {func}`~repomatic.github.issue.manage_issue_lifecycle`,
+which applies it on creation, and {func}`lock_stale_threads` spares it by
+default, so it lives at this lower layer. The value is one of the labels
+`repomatic/data/labels.toml` declares, so renaming it there means renaming it
+here: an issue labelled with a name the registry does not carry is created
+unlabelled, silently.
 """
 
 LOCKED_CONVERSATION_MARKER = "is locked"

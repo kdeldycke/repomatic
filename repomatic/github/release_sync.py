@@ -63,7 +63,7 @@ def build_expected_body(
     release draft is one more: see {func}`build_draft_body`.
 
     :param changelog: Parsed changelog instance.
-    :param version: Version string (e.g. `1.2.3`).
+    :param version: Version string, like `1.2.3`.
     :param admonition_override: If provided, replaces the
         `availability_admonition` from the changelog. Used by
         {func}`build_pypi_body` to inject a pre-computed admonition at
@@ -99,7 +99,7 @@ def build_pypi_body(changelog: Changelog, version: str, package_name: str) -> st
     carry the release.
 
     :param changelog: Parsed changelog instance.
-    :param version: Version string (e.g. `1.2.3`).
+    :param version: Version string, like `1.2.3`.
     :param package_name: The project name on PyPI.
     :return: The rendered body, or an empty string when the changelog names no
         repository or holds no section for *version*.
@@ -131,7 +131,7 @@ def build_draft_body(
     surfaces as a red `publish-pypi` job.
 
     :param changelog: Parsed changelog instance.
-    :param version: Version string (e.g. `1.2.3`).
+    :param version: Version string, like `1.2.3`.
     :param package_name: The project name on PyPI, or `None` for a project
         that does not publish there.
     :return: {func}`build_pypi_body` for a PyPI project, else

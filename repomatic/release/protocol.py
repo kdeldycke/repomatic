@@ -194,10 +194,9 @@ are still produced.
 ```
 """
 
-MANUAL_VERSION_BUMP_COMMIT_PREFIXES: Final[frozenset[str]] = frozenset((
-    f"{CHANGELOG_COMMIT_PREFIX}Bump major version to ",
-    f"{CHANGELOG_COMMIT_PREFIX}Bump minor version to ",
-))
+MANUAL_VERSION_BUMP_COMMIT_PREFIXES: Final[frozenset[str]] = frozenset(
+    f"{CHANGELOG_COMMIT_PREFIX}Bump {part} version to " for part in BUMP_PARTS
+)
 """Head-commit-message prefixes for user-initiated version bumps.
 
 Members are the `bump-version` job's

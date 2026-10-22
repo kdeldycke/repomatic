@@ -48,7 +48,7 @@ class InitDefault(Enum):
 
     EXCLUDE = auto()
     """In the default set, but excluded unless `[tool.repomatic] include`
-    names it (like labels or skills)."""
+    names it (like skills or subagents)."""
 
     EXPLICIT = auto()
     """Only included when explicitly requested (like most tool configs)."""
@@ -286,12 +286,12 @@ class Component:
     destination, when the user can move it.
 
     Set for every component whose destination is configurable: the directories
-    `subagents` and `skills` write into, and the single file `plugin`
-    merges into. Declared targets are built against the *default*
-    location, so a repo that overrode it needs each target rebased onto the
-    configured one. {meth}`resolve_target` performs that rebase, and leaving
-    this empty means the targets are fixed (`.github/workflows/` is GitHub's,
-    not ours to move).
+    `subagents` and `skills` write into, the single file `plugin` merges into,
+    and the one `changelog` creates. Declared targets are built against the
+    *default* location, so a repo that overrode it needs each target rebased
+    onto the configured one. {meth}`resolve_target` performs that rebase, and
+    leaving this empty means the targets are fixed (`.github/workflows/` is
+    GitHub's, not ours to move).
     """
 
     @property
@@ -328,10 +328,11 @@ class Component:
         through this method instead of testing the component name first.
 
         Handles both shapes a location may take. A directory location rebases
-        the path under it; a file location (`plugin`) *is* the path, so
-        it is replaced outright. Matching only the directory shape would leave a
-        moved file reported at its default path, and stale-file detection would
-        then hunt for an orphan the repository never wrote there.
+        the path under it; a file location (`plugin`, `changelog`) *is* the
+        path, so it is replaced outright. Matching only the directory shape
+        would leave a moved file reported at its default path, and stale-file
+        detection would then hunt for an orphan the repository never wrote
+        there.
 
         :param target: A path as declared on a {class}`FileEntry` (or a
             {class}`RemovedAsset` tombstone), relative to the repository root and

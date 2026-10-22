@@ -322,7 +322,7 @@ jobs:
           PYTHONIOENCODING: utf8
           # The Linux self-test runs in the manylinux container as root over a runner-owned
           # checkout, so the binary's `git` subprocess hits "dubious ownership" (exit 128) and
-          # crashes `metadata`. actions/checkout marks the repo safe only under a throwaway HOME,
+          # crashes `show-metadata`. actions/checkout marks the repo safe only under a throwaway HOME,
           # not the container's persistent /github/home, so pass safe.directory through the
           # environment: git honors it regardless of HOME, and it is a no-op off-container.
           GIT_CONFIG_COUNT: "1"

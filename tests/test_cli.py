@@ -25,6 +25,7 @@ sections to the rules that file each command.
 from __future__ import annotations
 
 import ast
+import inspect
 import io
 import json
 import re
@@ -47,16 +48,20 @@ from click_extra import (
 )
 from click_extra.testing import CliRunner
 
-from repomatic.cli import main as cli_main
+from repomatic.claude_plugin import ARCHIVE_NAME, pack_plugin
+from repomatic.cli import main as cli_main, release as cli_release
 from repomatic.cli.main import (
     COMMANDS,
     repo_option,
     repomatic,
+    resolve_repo,
     subcommand,
     write_output,
 )
 from repomatic.config import config_key_paths
 from repomatic.github import outputs
+from repomatic.release.manpages import pack_manpages
+from tests.conftest import PROJECT_ROOT
 
 CLI_PACKAGE = Path(cli_main.__file__).parent
 
@@ -260,6 +265,47 @@ def test_feature_gate_exits_cleanly_when_off(tmp_path, monkeypatch):
     assert not (tmp_path / ".gitignore").exists()
 
 
+def test_feature_gate_precedes_repository_detection():
+    """No gated command looks for its repository while Click parses options.
+
+    A parameter callback runs before the command body. A `--repo` that detects
+    the repository of the checkout would refuse to run without one, before the
+    guard could exit `0` on a disabled flag.
+    """
+    gated = [
+        (path, command)
+        for path, command in _all_commands()
+        if command.callback is not None
+        and "exit_if_disabled(" in inspect.getsource(inspect.unwrap(command.callback))
+    ]
+    assert gated
+    offenders = [
+        path
+        for path, command in gated
+        if any(param.callback is cli_main._resolve_repo for param in command.params)
+    ]
+    assert not offenders, f"Gated commands detecting --repo first: {offenders}"
+
+
+@pytest.mark.parametrize(
+    ("command", "key"),
+    (("sync-binaries", "binaries.sync"), ("sync-labels", "labels.sync")),
+)
+def test_disabled_sync_needs_no_repository(tmp_path, monkeypatch, command, key):
+    """A disabled sync exits `0` with no repository to act on."""
+    (tmp_path / "pyproject.toml").write_text(
+        f"[tool.repomatic]\n{key} = false\n", encoding="UTF-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    monkeypatch.setattr(cli_main, "Metadata", lambda: SimpleNamespace(repo_slug=None))
+
+    result = CliRunner().invoke(repomatic, ["--verbosity", "INFO", command])
+
+    assert result.exit_code == 0, result.output
+    assert f"{key} is disabled" in result.output
+
+
 def test_write_output_closes_the_file_it_opens(tmp_path, monkeypatch):
     """The stream opened for an `--output` path is closed once written."""
     opened = []
@@ -303,6 +349,21 @@ def repo_probe(repo: str) -> None:
     echo(repo)
 
 
+@subcommand()
+@repo_option(deferred=True)
+def deferred_repo_probe(repo: str | None) -> None:
+    """Print the repository the command body resolves `--repo` to."""
+    echo(resolve_repo(repo))
+
+
+REPO_PROBES = (
+    pytest.param(repo_probe, id="parse"),
+    pytest.param(deferred_repo_probe, id="deferred"),
+)
+"""A command resolving `--repo` while Click parses it, and one in its body."""
+
+
+@pytest.mark.parametrize("probe", REPO_PROBES)
 @pytest.mark.parametrize(
     ("args", "env", "detected", "expected"),
     (
@@ -323,23 +384,82 @@ def repo_probe(repo: str) -> None:
         pytest.param([], {}, "papaya/farm", "papaya/farm", id="checkout"),
     ),
 )
-def test_repo_option_falls_back_in_order(monkeypatch, args, env, detected, expected):
+def test_repo_option_falls_back_in_order(
+    monkeypatch, probe, args, env, detected, expected
+):
     """`--repo`, then `$GITHUB_REPOSITORY`, then the repository of the checkout."""
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.setattr(
         cli_main, "Metadata", lambda: SimpleNamespace(repo_slug=detected)
     )
-    result = CliRunner().invoke(repo_probe, args, env=env)
+    result = CliRunner().invoke(probe, args, env=env)
     assert result.exit_code == 0, result.output
     assert result.output.strip() == expected
 
 
-def test_repo_option_refuses_to_run_without_a_repository(monkeypatch):
+@pytest.mark.parametrize("probe", REPO_PROBES)
+def test_repo_option_refuses_to_run_without_a_repository(monkeypatch, probe):
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.setattr(cli_main, "Metadata", lambda: SimpleNamespace(repo_slug=None))
-    result = CliRunner().invoke(repo_probe, [])
+    result = CliRunner().invoke(probe, [])
     assert result.exit_code == 2
     assert "No repository found" in result.output
+
+
+def test_upload_without_a_repository_names_the_flag(tmp_path, monkeypatch):
+    """`--upload-to` with no repository fails before it packs anything."""
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "papaya-1.2.3-linux-arm64.bin").write_bytes(b"\x7fELF")
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "pack-binaries",
+            "--version",
+            "1.2.3",
+            "--dir",
+            str(dist),
+            "--upload-to",
+            "v1.2.3",
+        ],
+    )
+    assert result.exit_code == 2, result.output
+    assert "--upload-to needs --repo, or $GITHUB_REPOSITORY." in result.output
+    assert [path.name for path in dist.iterdir()] == ["papaya-1.2.3-linux-arm64.bin"]
+
+
+def test_pack_commands_print_the_archive_they_write(tmp_path, monkeypatch):
+    """`--output -` prints the bytes each packer writes to a file."""
+    man = tmp_path / "man"
+    man.mkdir()
+    (man / "papaya.1").write_bytes(b".TH papaya.1\n")
+    manpages = tmp_path / "manpages.tar.gz"
+    pack_manpages(man, manpages)
+    plugin = tmp_path / ARCHIVE_NAME
+    pack_plugin(PROJECT_ROOT, plugin)
+    monkeypatch.chdir(PROJECT_ROOT)
+
+    for args, expected in (
+        (["pack-manpages", "--dir", str(man), "--output", "-"], manpages),
+        (["pack-plugin", "--output", "-"], plugin),
+    ):
+        result = CliRunner().invoke(repomatic, args)
+        assert result.exit_code == 0, result.output
+        assert result.stdout_bytes == expected.read_bytes(), args[0]
+
+
+@pytest.mark.parametrize(
+    ("closed", "reported"),
+    (([], "none"), ([12], "#12"), ([12, 15], "#12, #15")),
+)
+def test_refused_bump_names_the_pull_requests_it_closed(monkeypatch, closed, reported):
+    """A bump the version already moved past reports each stale PR it closed."""
+    monkeypatch.setattr(cli_release, "is_version_bump_allowed", lambda part: False)
+    monkeypatch.setattr(cli_release, "close_stale_bump_prs", lambda part: closed)
+    result = CliRunner().invoke(repomatic, ["bump-version", "--part", "minor"])
+    assert result.exit_code == 0, result.output
+    assert f"minor bump not allowed. Closed stale PR(s): {reported}." in result.output
 
 
 @pytest.mark.parametrize(

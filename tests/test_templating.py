@@ -634,7 +634,7 @@ CONFIG_OPTION_BULLET = re.compile(
     r"\(https://repomatic\.net/configuration#(?P<anchor>[^)]+)\)"
 )
 
-VALID_CONFIG_KEYS = frozenset(row[0].strip("`") for row in config_reference())
+VALID_CONFIG_KEYS = frozenset(key for key, *_ in config_reference())
 """Every `[tool.repomatic]` key, dotted and nested-expanded, from the schema."""
 
 

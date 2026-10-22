@@ -97,7 +97,7 @@ def _strip_header_comments(native_source: str) -> str:
     template's trailing newline carries over to the final KV slot's EOL
     trivia, and a synced section that happens to land at end-of-document
     needs that newline to survive so the rendered file ends with `\\n`. The
-    invariant is pinned by `test_update_tool_config_preserves_trailing_newline`.
+    invariant is pinned by `test_update_tool_config_output_contract`.
     ```
     """
     lines = native_source.splitlines(keepends=True)

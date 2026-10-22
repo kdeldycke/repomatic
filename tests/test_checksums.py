@@ -80,7 +80,7 @@ def test_update_registry_checksums_replaces_stale_hash(tmp_path):
     assert spec.binary is not None
     old_hash = next(iter(spec.binary.checksums.values()))
 
-    registry = tmp_path / "tool_registry.py"
+    registry = tmp_path / "registry.py"
     registry.write_text(
         f'    checksums={{\n        "linux-x64": "{old_hash}",\n    }},\n',
         encoding="UTF-8",
@@ -100,7 +100,7 @@ def test_update_registry_checksums_replaces_stale_hash(tmp_path):
 
 def test_update_registry_checksums_noop_when_current(tmp_path):
     """update_registry_checksums does not rewrite when all hashes match."""
-    registry = tmp_path / "tool_registry.py"
+    registry = tmp_path / "registry.py"
     content = "# no checksums to update\n"
     registry.write_text(content, encoding="UTF-8")
 
@@ -116,7 +116,7 @@ def test_update_registry_checksums_reconciles_version_stamp(tmp_path):
     name, spec = next((n, s) for n, s in TOOL_REGISTRY.items() if s.binary is not None)
     assert spec.version != "9.9.9"
 
-    registry = tmp_path / "tool_registry.py"
+    registry = tmp_path / "registry.py"
     registry.write_text(
         f'VERSIONS = {{\n    "{name}": "9.9.9",\n}}\n', encoding="UTF-8"
     )
@@ -141,7 +141,7 @@ def test_update_registry_checksums_version_override(tmp_path):
     new_version = "99.0.0"
     old_hash = next(iter(spec.binary.checksums.values()))
 
-    registry = tmp_path / "tool_registry.py"
+    registry = tmp_path / "registry.py"
     registry.write_text(
         f'VERSIONS = {{\n    "{name}": "9.9.9",\n}}\n# {old_hash}\n',
         encoding="UTF-8",
@@ -175,7 +175,7 @@ def test_update_registry_checksums_override_limits_the_run_to_its_tools(tmp_path
     bumped_spec = TOOL_REGISTRY[bumped]
     assert bumped_spec.binary is not None
 
-    registry = tmp_path / "tool_registry.py"
+    registry = tmp_path / "registry.py"
     registry.write_text(
         f'VERSIONS = {{\n    "{bumped}": "1.0.0",\n    "{other}": "1.0.0",\n}}\n',
         encoding="UTF-8",

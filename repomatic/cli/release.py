@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import sys
 import tempfile
+from functools import partial
 from pathlib import Path
 
 from click_extra import (
@@ -134,6 +135,7 @@ from .main import (
     exit_if_disabled,
     output_option,
     repo_option,
+    resolve_repo,
     subcommand,
     write_output,
 )
@@ -253,8 +255,8 @@ def lint_changelog(
     published release heading with nothing under it reads as broken to
     anyone scanning the notes for that version.
 
-    Warns, non-fatally, about an unreleased entry marked Breaking or
-    Deprecated that follows an unmarked one, and about an unreleased entry
+    Warns, non-fatally, about an unreleased entry filed out of the Breaking,
+    then Deprecated, then unmarked order, and about an unreleased entry
     naming a #N that is no issue or pull request of the repository.
 
     Fails on a heading writing its version with the v of a git tag, which no
@@ -278,7 +280,7 @@ def lint_changelog(
     \b
     Exit codes:
         0  All dates match, or --fix corrected the file.
-        1  Date mismatch or orphan detected without --fix.
+        1  Date mismatch, orphan or v-prefixed heading detected without --fix.
         2  Sanity gate refused to rewrite: upstream lookup (PyPI or
            GitHub Releases) looks unhealthy and the existing changelog
            has substantial coverage that would be silently stripped.
@@ -328,7 +330,7 @@ def bump_version_cmd(ctx: Context, part: str) -> None:
     Requires the gh CLI to be authenticated.
     """
     if not is_version_bump_allowed(part):  # type: ignore[arg-type]
-        closed = close_stale_bump_prs(part)
+        closed = ", ".join(f"#{number}" for number in close_stale_bump_prs(part))
         echo(f"{part} bump not allowed. Closed stale PR(s): {closed or 'none'}.")
         return
 
@@ -751,15 +753,27 @@ def upload_option(func: FC) -> FC:
     )(func)
 
 
-def _release_repo(repo: str | None, *flags: str) -> str:
-    """Return *repo*, or refuse the *flags* that need one.
+def _release_repo(repo: str | None, flag: str) -> str:
+    """Return *repo*, or refuse the *flag* that needs one.
 
     :raises click.UsageError: When *repo* is empty.
     """
     if not repo:
-        msg = f"{' and '.join(flags)} need --repo, or $GITHUB_REPOSITORY."
+        msg = f"{flag} needs --repo, or $GITHUB_REPOSITORY."
         raise UsageError(msg)
     return repo
+
+
+def _stream_archive(pack: Callable[[Path], object], name: str) -> None:
+    """Write the archive *pack* builds to stdout.
+
+    A packer writes to a path, so the archive goes through a scratch file named
+    *name* on its way to stdout.
+    """
+    with tempfile.TemporaryDirectory(prefix="repomatic-pack-") as scratch:
+        archive = Path(scratch) / name
+        pack(archive)
+        sys.stdout.buffer.write(archive.read_bytes())
 
 
 @subcommand(
@@ -918,9 +932,10 @@ def pack_binaries(
     Idempotent: re-running overwrites the same aliases with the same bytes,
     and an upload replaces the assets of the same name.
     """
-    paths = pack_binary_assets(dist_dir, version_str)
     if upload_to:
         repo = _release_repo(repo, "--upload-to")
+    paths = pack_binary_assets(dist_dir, version_str)
+    if upload_to and repo:
         try:
             upload_release_files(upload_to, repo, paths)
         except GhCommandError as error:
@@ -973,12 +988,9 @@ def pack_manpages_cmd(man_dir: Path, output: Path | None) -> None:
         output = Path(f"{name}{MANPAGES_ARCHIVE_SUFFIX}")
     try:
         if is_stdout(output):
-            # The packer writes to a path, so the archive goes through a
-            # scratch file on its way to stdout.
-            with tempfile.TemporaryDirectory(prefix="repomatic-manpages-") as tmp:
-                archive = Path(tmp) / f"manpages{MANPAGES_ARCHIVE_SUFFIX}"
-                pack_manpages(man_dir, archive)
-                sys.stdout.buffer.write(archive.read_bytes())
+            _stream_archive(
+                partial(pack_manpages, man_dir), f"manpages{MANPAGES_ARCHIVE_SUFFIX}"
+            )
             return
         members = pack_manpages(man_dir, output)
     except ValueError as error:
@@ -1014,12 +1026,7 @@ def pack_plugin_cmd(output: Path) -> None:
     `claude --plugin-dir` at the extracted folder.
     """
     if is_stdout(output):
-        # The packer writes to a path, so the archive goes through a scratch
-        # file on its way to stdout.
-        with tempfile.TemporaryDirectory(prefix="repomatic-plugin-") as scratch:
-            archive = Path(scratch) / ARCHIVE_NAME
-            pack_plugin(Path.cwd(), archive)
-            sys.stdout.buffer.write(archive.read_bytes())
+        _stream_archive(partial(pack_plugin, Path.cwd()), ARCHIVE_NAME)
         return
     members = pack_plugin(Path.cwd(), output)
     echo(f"Packed {len(members)} files into {output}")
@@ -1325,7 +1332,7 @@ def verify_binary(target: str, binary_path: Path, dist_dirs: tuple[Path, ...]) -
         ),
     ),
 )
-@repo_option()
+@repo_option(deferred=True)
 @option(
     "--page",
     type=file_path(resolve_path=True),
@@ -1342,7 +1349,7 @@ def verify_binary(target: str, binary_path: Path, dist_dirs: tuple[Path, ...]) -
 @pass_context
 def sync_binaries(
     ctx: Context,
-    repo: str,
+    repo: str | None,
     page: Path,
     records: Path | None,
 ) -> None:
@@ -1357,6 +1364,7 @@ def sync_binaries(
     be edited per repository.
     """
     exit_if_disabled(ctx, "binaries.sync")
+    repo = resolve_repo(repo, ctx)
 
     try:
         releases = get_releases_with_assets(f"https://github.com/{repo}")
@@ -1474,7 +1482,7 @@ def sync_dev_release_cmd(
             changelog_path, version, repository, dry_run, asset_dir=upload_assets
         )
     except RuntimeError as error:
-        raise ClickException(str(error))
+        raise ClickException(str(error)) from error
     if synced:
         mode = "dry-run" if dry_run else "live"
         echo(f"[{mode}] Dev release v{version} synced.")

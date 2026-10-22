@@ -417,9 +417,12 @@ def dry_run_option(*, default: bool) -> Callable[[FC], FC]:
     )
 
 
-def _resolve_repo(ctx: ClickContext, param: Parameter, value: str | None) -> str:
-    """Fall back to the repository of the current checkout.
+def resolve_repo(value: str | None, ctx: ClickContext | None = None) -> str:
+    """Return *value*, else the repository of the current checkout.
 
+    :param value: The `--repo` value, which Click reads from
+        `$GITHUB_REPOSITORY` when the option is absent.
+    :param ctx: The context the usage error names.
     :raises click.UsageError: Neither `--repo`, `$GITHUB_REPOSITORY` nor the checkout
         names a repository.
     """
@@ -433,8 +436,16 @@ def _resolve_repo(ctx: ClickContext, param: Parameter, value: str | None) -> str
     return repo
 
 
+def _resolve_repo(ctx: ClickContext, param: Parameter, value: str | None) -> str:
+    """Resolve a detecting `--repo` while Click parses it: see {func}`resolve_repo`."""
+    return resolve_repo(value, ctx)
+
+
 def repo_option(
-    help_text: str = "Repository in owner/repo format.", *, detect: bool = True
+    help_text: str = "Repository in owner/repo format.",
+    *,
+    detect: bool = True,
+    deferred: bool = False,
 ) -> Callable[[FC], FC]:
     """`--repo`, read from `$GITHUB_REPOSITORY` when absent.
 
@@ -442,6 +453,10 @@ def repo_option(
     :param detect: Also fall back to the repository of the current checkout,
         and refuse to run when nothing names one. Off for a command that also
         works without a repository.
+    :param deferred: Leave that fallback to the command body, which calls
+        {func}`resolve_repo` after its {func}`exit_if_disabled` guard. A
+        parameter callback runs before the body, so a disabled sync would
+        otherwise refuse to run without a repository instead of exiting `0`.
     """
     if not detect:
         return option(
@@ -454,7 +469,7 @@ def repo_option(
         "--repo",
         envvar="GITHUB_REPOSITORY",
         default=None,
-        callback=_resolve_repo,
+        callback=None if deferred else _resolve_repo,
         help=(
             f"{help_text} Defaults to $GITHUB_REPOSITORY, then to the GitHub"
             " remote of the current clone."

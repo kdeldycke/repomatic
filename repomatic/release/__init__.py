@@ -16,7 +16,7 @@
 
 """The release lane.
 
-Release preparation, the release-commit protocol, the binary build roster and
-its verification, the binaries page, attestation, and the VirusTotal scan
-history.
+Release preparation, the release-commit protocol, the self-pin of the workflow
+commands, the binary build roster and its verification, the binaries page,
+attestation, the man-page tarball, and the VirusTotal scan history.
 """

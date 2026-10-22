@@ -77,7 +77,7 @@ from ..github.releases import (
     resolve_tag_to_sha,
 )
 from ..github.workflow_files import github_yaml_paths
-from ..http import FetchError, get_text
+from ..http import FetchError, get_json
 from ..humanize import format_countdown, utc_midnight
 from ..init.tool_config import init_config
 from ..init.upgrade import upgrade_invite
@@ -163,12 +163,12 @@ ACTIONLINT_MATCHER_URL = (
 DEPENDENCY_LABEL = "🔗 dependencies"
 """GitHub label applied to every dependency-update PR.
 
-Shared by all five bumpers so a single label filters the whole family. Workflow
-YAML cannot import Python, so `autofix.yaml` repeats this string literally, and
-the labeller's own rule tables ({data}`repomatic.github.labels.DEFAULT_CONTENT_RULES`
-and {data}`~repomatic.github.labels.DEFAULT_FILE_RULES`) key their dependency rules on
-the same spelling. `tests/test_sync_ops.py` asserts both copies match this
-constant, and `tests/test_labels.py` that it names a label `labels.toml`
+Shared by every updater so a single label filters the whole family. The
+template of each operation repeats it in its `labels:` frontmatter, and the
+labeller's own rule tables ({data}`repomatic.github.labels.DEFAULT_CONTENT_RULES`
+and {data}`~repomatic.github.labels.DEFAULT_FILE_RULES`) key their dependency
+rules on the same spelling. `tests/test_sync_ops.py` asserts both copies match
+this constant, and `tests/test_labels.py` that it names a label `labels.toml`
 actually defines: applying an unknown label fails the `gh` call outright, so a
 rename in the registry has to reach all of them at once.
 """
@@ -222,8 +222,8 @@ def _sync_actionlint_matcher(version: str) -> None:
     assert spec.problem_matcher
     url = ACTIONLINT_MATCHER_URL.format(version=version)
     try:
-        matcher = json.loads(get_text(url))
-    except (FetchError, json.JSONDecodeError) as error:
+        matcher = get_json(url)
+    except FetchError as error:
         logging.warning(
             f"Cannot fetch the actionlint {version} problem matcher, keeping the"
             f" previous copy: {error}"

@@ -367,7 +367,7 @@ def _get_thread_details(subject_url: str) -> dict[str, Any] | None:
 
     :param subject_url: The API URL of the thread's subject (issue or PR).
     :return: Dict with `state`, `updated_at`, `html_url`, `number`,
-        or `None` if the subject is inaccessible.
+        or `None` if the subject is inaccessible or the answer is no object.
     """
     details = gh_json(
         ["api", subject_url, "--jq", "{state, updated_at, html_url, number}"],
@@ -375,6 +375,7 @@ def _get_thread_details(subject_url: str) -> dict[str, Any] | None:
     )
     if not isinstance(details, dict):
         logging.debug(f"Subject inaccessible or malformed: {subject_url}")
+        return None
     return details
 
 

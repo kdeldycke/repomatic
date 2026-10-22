@@ -16,9 +16,8 @@
 
 """File digesting, shared by every integrity check.
 
-A stdlib-only leaf, like {mod}`repomatic.versions`, so that hashing a file
-never imports the ELF and Mach-O parsing stack of
-{mod}`repomatic.release.binary`.
+A stdlib-only leaf, like {mod}`repomatic.versions`, so any module can hash a
+file without importing the release machinery or risking an import cycle.
 """
 
 from __future__ import annotations

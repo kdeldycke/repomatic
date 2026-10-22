@@ -99,8 +99,8 @@ CANNOT_VERIFY = (
 
 Both settings it covers are read through Administration-scoped endpoints, so a
 PAT issued without that permission answers `403` and the check lands on `None`.
-The note is the only place the missing permission shows: it has no other
-symptom.
+The note ties that `None` to the permission, which the warning table above the
+steps also names.
 """
 
 
@@ -187,13 +187,16 @@ def _probe_trusted_publisher(ctx: LintContext) -> bool | None:
 def _pypi_package(ctx: LintContext) -> str | None:
     """The PyPI name to register a Trusted Publisher for, if any.
 
+    The canonical form of `[project] name`, the one PyPI files the project
+    under: the settings page of `Fig_Tree` lives at `fig-tree`.
+
     Gated on `is_package` rather than on `package_name` being set: a uv
     virtual project declares `[project] name` purely to carry dependencies, so
     the name alone says nothing about whether anything is ever published.
     Asking those projects to register a publisher points them at a PyPI name
     they do not own, for a workflow file they do not have.
     """
-    return ctx.package_name if ctx.is_package else None
+    return ctx.md.package_name if ctx.is_package else None
 
 
 def _dated_token_name(ctx: LintContext, purpose: str) -> str:

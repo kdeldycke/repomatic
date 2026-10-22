@@ -79,8 +79,8 @@ def test_upper_bound_on_a_runtime_dependency(tmp_path):
 def test_a_file_under_another_name_is_scanned(tmp_path):
     """`lint-deps --pyproject` can name any file, and that file is the one read.
 
-    The scan once read the `pyproject.toml` beside the named file, and so
-    reported nothing at all for a file named anything else.
+    A scan reading the `pyproject.toml` beside the named file would report
+    nothing at all for a file named anything else.
     """
     path = tmp_path / "orchard.toml"
     path.write_text(
@@ -104,8 +104,8 @@ def test_a_file_under_another_name_is_scanned(tmp_path):
 def test_an_array_of_tables_ends_the_table_above_it(tmp_path):
     """A `[[...]]` header closes the table before it, like a `[...]` one.
 
-    The comment scan once read on past it, and took an array further down for
-    the runtime list, which it found written inline.
+    A comment scan reading on past it would take an array further down for the
+    runtime list, and find it written inline.
     """
     path = write_pyproject(
         tmp_path,
@@ -121,6 +121,32 @@ def test_an_array_of_tables_ends_the_table_above_it(tmp_path):
         """,
     )
     assert scan_policy(path) == []
+
+
+def test_a_header_with_a_comment_opens_its_table(tmp_path):
+    """A comment after a table header does not hide the table it opens.
+
+    The array below it is reported under that table, and never under the table
+    above, which may hold an array of the same name.
+    """
+    path = write_pyproject(
+        tmp_path,
+        """\
+        [project]
+        name = "orchard"
+
+        [project.optional-dependencies]
+        test = ["mango>=1"]
+
+        [dependency-groups]  # Fruit groups.
+        test = [
+          "kiwi>=2",
+        ]
+        """,
+    )
+    (finding,) = scan_policy(path)
+    assert finding.package == "kiwi"
+    assert finding.location == "dependency-groups.test"
 
 
 @pytest.mark.parametrize("specifier", ("<3", "<=2.9", "==2.31", "~=2.31", "!=2.30"))

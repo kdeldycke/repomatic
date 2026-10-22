@@ -46,8 +46,8 @@ Every third-party GitHub Action executes with access to `GITHUB_TOKEN` and repos
 | `gitleaks/gitleaks-action`               | `repomatic run gitleaks`    | Direct binary + SHA-256 |
 | `julb/action-manage-label`               | `repomatic run labelmaker`  | Direct binary + SHA-256 |
 | `taiki-e/install-action`                 | Direct `curl` + checksum    | Direct binary + SHA-256 |
-| `softprops/action-gh-release`            | `gh release create`         | Runner built-in         |
-| `actions/github-script`                  | Bash + `gh` CLI             | Runner built-in         |
+| `softprops/action-gh-release`            | `repomatic create-release`  | Internal CLI            |
+| `actions/github-script`                  | `repomatic run gh`          | Direct binary + SHA-256 |
 | `crazy-max/ghaction-dump-context`        | Bash + runner built-ins     | Runner built-in         |
 | `actions-rust-lang/setup-rust-toolchain` | Runner built-in Rust        | Runner built-in         |
 | `actions/setup-python`                   | `astral-sh/setup-uv`        | Consolidated            |
@@ -86,7 +86,7 @@ Replacement strategies, ordered from most to least isolated:
 
 1. **Internal CLI**: the operation runs inside `repomatic` Python code with no external process.
 2. **Direct binary download**: checksummed binary fetched from a GitHub release URL, no action code path involved.
-3. **Runner built-in**: uses tools pre-installed on the GitHub Actions runner (`gh`, Rust toolchain).
+3. **Runner built-in**: uses tools pre-installed on the GitHub Actions runner (Bash, Rust toolchain).
 4. **First-party replacement**: swaps a community action for an official `actions/*` equivalent maintained by GitHub.
 
 ### Ruff consolidation
@@ -122,7 +122,11 @@ Five separate packaging and install tools have been absorbed into `uv`, which no
 
 `uv` also consolidated command-line usage that previously required separate tools: `pip install` became `uv pip install` / `uv sync`, `pipx` became `uvx`, and `actions/setup-python` was replaced by `astral-sh/setup-uv` (counted in the [action minimization table](#third-party-action-minimization) above).
 
-Two other Python packages were eliminated outside the ruff/uv consolidations: `pipdeptree` (replaced by an internal `dep-graph` implementation) and `gitignore-parser` (replaced by `py-walk`).
+Six other Python packages were eliminated outside the ruff/uv consolidations:
+
+- `pipdeptree`: replaced by an internal `dep-graph` implementation.
+- `gitignore-parser`: replaced by `py-walk`.
+- `boltons`, `arrow`, `pyelftools` and `vt-py`, in `8.0.0`: each replaced by standard-library code in `repomatic`. Dropping `vt-py` also removed the `aiohttp` stack beneath it.
 
 ## Permissions and token
 

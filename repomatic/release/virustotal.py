@@ -77,6 +77,14 @@ UPLOAD_REQUESTS = 2
 {func}`upload_file` first asks for an upload URL, then posts the file to it.
 """
 
+UPLOAD_TIMEOUT = 300
+"""Socket timeout of a file upload, in seconds.
+
+The file goes out as one `bytes` body, so the timeout bounds its whole transfer,
+not each block of it. The {data}`~repomatic.http.DEFAULT_TIMEOUT` of an API
+read would fail a binary of tens of megabytes on a slow link.
+"""
+
 RELEASE_ASSET_POLL_ATTEMPTS = 6
 """How many times {func}`download_release_binaries` reads a release's assets."""
 
@@ -329,6 +337,7 @@ def upload_file(api_key: str, path: Path) -> None:
         method="POST",
         data=body,
         headers={**headers, "Accept": "application/json", "Content-Type": content_type},
+        timeout=UPLOAD_TIMEOUT,
     )
 
 

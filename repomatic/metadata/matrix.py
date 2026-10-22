@@ -440,11 +440,11 @@ class MatrixMetadata:
     def test_matrix(self) -> Matrix:
         """Full test matrix for non-PR events.
 
-        Combines all runner OS images and Python versions, excluding known
-        incompatible combinations. Marks development Python versions as
-        unstable so CI can use `continue-on-error`, and adds released build
-        flavors (free-threaded) as stable single-runner smoke tests. Per-project
-        config from `[tool.repomatic.test-matrix]` is applied last.
+        Combines all runner OS images and Python versions. Marks development
+        Python versions as unstable so CI can use `continue-on-error`, and adds
+        released build flavors (free-threaded) as stable single-runner smoke
+        tests. Per-project config from `[tool.repomatic.test-matrix]` is applied
+        last.
 
         When `[tool.repomatic.test-matrix] full-include` rows are configured,
         the matrix is emitted as a flat job list (`{"include": [...]}`) so each

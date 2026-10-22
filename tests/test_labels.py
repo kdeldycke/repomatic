@@ -732,7 +732,7 @@ def test_declared_names_read_the_applied_sources(tmp_path):
     )
     config = _make_config(extra=[{"name": "🍋 citrus"}])
 
-    names = declared_label_names(config, is_awesome=False, labels_dir=tmp_path)
+    names = declared_label_names(config, is_awesome=False, root=tmp_path)
 
     assert {"🥝 kiwi", "🍋 citrus"} <= names
     assert BOT_ISSUE_LABEL in names

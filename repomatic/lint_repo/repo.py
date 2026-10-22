@@ -25,7 +25,6 @@ assets the install guide links to.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from pathlib import Path
@@ -212,7 +211,7 @@ def check_funding_file(ctx: LintContext) -> CheckResult:
 
     try:
         data = gh_graphql(SPONSORS_LISTING_QUERY, owner=ctx.owner)
-    except (RuntimeError, KeyError, json.JSONDecodeError) as error:
+    except (RuntimeError, KeyError) as error:
         logging.warning(f"Could not query GitHub Sponsors state: {error}")
         return CheckResult(None, "Funding check: skipped (could not query GitHub API)")
 

@@ -93,9 +93,9 @@ The optional quote group is carried through so a quoted value stays quoted.
 AXIS_LABEL_RE_TEMPLATE = r'(?P<quote>["\']){label}(?P=quote)'
 """A runner label as a quoted string literal in the curated axes.
 
-Rewritten as text for the same reason a `runs-on:` is: the axes are a hand-kept
-tuple carrying comments and an ordering that says which runner is the fast one,
-and rebuilding the module from an AST would discard both.
+Each label is spelled once there, as the value of its slot constant. Rewritten
+as text for the same reason a `runs-on:` is: rebuilding the module from an AST
+would reformat all of it, where a text rewrite changes that one line.
 """
 
 

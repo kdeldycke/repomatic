@@ -63,7 +63,7 @@ skip_platforms = "windows"
 stderr_contains = ["info: Print metadata to <stdout>"]
 # Note: new_commits_matrix is empty locally, but contains commit SHAs when
 # running in GitHub Actions CI. Use stdout_contains for key checks instead of
-# fullmatch since release_notes content varies.
+# fullmatch since that content varies.
 stdout_contains = [
   "mailmap_exists=true",
   "is_python_project=true",
@@ -78,7 +78,8 @@ stdout_regex_matches = [
   'python_files="[\S ]+"',
   'current_version=[0-9.]+(\.[a-z]+[0-9]+)?',
   'build_targets=\[\{"target": .+\}\]',
-  'nuitka_matrix=\{"os": \[.+\]',
+  # Empty on a push that touches no path a binary build depends on.
+  'nuitka_matrix=(\{"os": \[.+\]|\n)',
 ]
 
 # Test changelog output.

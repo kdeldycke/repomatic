@@ -984,13 +984,6 @@ def build_release_readiness(
     carries the same answer days earlier, in the one place a maintainer reads
     before deciding to merge.
 
-    ```{note}
-    Lives here rather than beside the other `pr-body` template-argument
-    builders in {mod}`repomatic.github.pr_body`, which is where it would
-    otherwise belong: that module is imported by {mod}`repomatic.deps.report`,
-    so reaching {func}`scan_project` from it closes an import cycle.
-    ```
-
     :param pyproject_path: Path to the `pyproject.toml` file.
     :param lock_path: Path to the `uv.lock` file.
     :param window: Cooldown window, from `[tool.repomatic] minimum-release-age`.

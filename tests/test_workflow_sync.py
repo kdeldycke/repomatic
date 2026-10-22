@@ -40,7 +40,6 @@ from repomatic.github.workflow_sync import (
     PathsSpec,
     WorkflowTriggerInfo,
     _adapt_trigger_paths,
-    _canonical,
     _needs_yaml_quote,
     _split_yaml_quote,
     _substitute_source_paths,
@@ -52,7 +51,6 @@ from repomatic.github.workflow_sync import (
     extras_define_jobs,
     generate_thin_caller,
     generate_workflow_header,
-    identify_canonical_workflow,
     render_thin_caller_for_target,
 )
 from repomatic.lint_repo.context import LintContext
@@ -392,7 +390,7 @@ def test_call_inputs_are_dispatch_passthroughs(filename: str) -> None:
     of accepting inputs. The only ``workflow_call`` inputs allowed are
     passthroughs of the workflow's own ``workflow_dispatch`` inputs, so
     generated thin callers can forward a manual dispatch to the reusable
-    workflow (see ``_generate_thin_caller``), and the lane inputs of
+    workflow (see ``generate_thin_caller``), and the lane inputs of
     ``LANE_CALL_INPUTS``, which carry no configuration. Type and default must
     match the dispatch declaration, so both entry points behave identically.
     """
@@ -792,55 +790,31 @@ def test_has_name() -> None:
     assert "name" in data
 
 
-def test_identifies_thin_caller(tmp_path: Path) -> None:
+def test_identifies_thin_caller() -> None:
     """Identify a thin caller workflow."""
-    wf = tmp_path / "lint.yaml"
-    wf.write_text(
+    content = (
         "---\nname: Lint\njobs:\n  lint:\n"
-        f"    uses: {DEFAULT_REPO}/.github/workflows/lint.yaml@v5.8.0\n",
-        encoding="UTF-8",
+        f"    uses: {DEFAULT_REPO}/.github/workflows/lint.yaml@v5.8.0\n"
     )
-    result = identify_canonical_workflow(wf)
-    assert result == "lint.yaml"
+    assert canonical_workflow(_parsed(content)) == "lint.yaml"
 
 
-def test_returns_none_for_non_caller(tmp_path: Path) -> None:
+def test_returns_none_for_non_caller() -> None:
     """Return None for non-caller workflow."""
-    wf = tmp_path / "custom.yaml"
-    wf.write_text(
+    content = (
         "---\nname: Custom\njobs:\n  build:\n    runs-on: ubuntu-latest\n"
-        "    steps:\n      - run: echo hello\n",
-        encoding="UTF-8",
+        "    steps:\n      - run: echo hello\n"
     )
-    result = identify_canonical_workflow(wf)
-    assert result is None
+    assert canonical_workflow(_parsed(content)) is None
 
 
-def test_returns_none_for_invalid_yaml(tmp_path: Path) -> None:
-    """Return None for invalid YAML file."""
-    wf = tmp_path / "bad.yaml"
-    wf.write_text("{{invalid yaml", encoding="UTF-8")
-    result = identify_canonical_workflow(wf)
-    assert result is None
-
-
-def test_returns_none_for_missing_file(tmp_path: Path) -> None:
-    """Return None for missing file."""
-    wf = tmp_path / "missing.yaml"
-    result = identify_canonical_workflow(wf)
-    assert result is None
-
-
-def test_identify_custom_repo(tmp_path: Path) -> None:
+def test_canonical_workflow_matches_a_custom_repo() -> None:
     """Match with custom repo."""
-    wf = tmp_path / "lint.yaml"
-    wf.write_text(
+    content = (
         "---\nname: Lint\njobs:\n  lint:\n"
-        "    uses: myorg/myrepo/.github/workflows/lint.yaml@v1.0\n",
-        encoding="UTF-8",
+        "    uses: myorg/myrepo/.github/workflows/lint.yaml@v1.0\n"
     )
-    result = identify_canonical_workflow(wf, repo="myorg/myrepo")
-    assert result == "lint.yaml"
+    assert canonical_workflow(_parsed(content), repo="myorg/myrepo") == "lint.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -1088,12 +1062,9 @@ def test_non_reusable_workflow_refuses_to_render(tmp_path: Path) -> None:
         sync_caller("tests.yaml", tmp_path / "tests.yaml")
 
 
-def test_canonical_workflow_reads_a_parse(tmp_path: Path) -> None:
-    """The parsed form answers what the file form does, without a read."""
+def test_canonical_workflow_reads_a_generated_caller() -> None:
+    """A thin caller the generator writes names the workflow it calls."""
     content = generate_thin_caller("lint.yaml", version="v5.8.0")
-    wf = tmp_path / "lint.yaml"
-    wf.write_text(content, encoding="UTF-8")
-    assert canonical_workflow(_parsed(content)) == identify_canonical_workflow(wf)
     assert canonical_workflow(_parsed(content)) == "lint.yaml"
 
 
@@ -1237,12 +1208,10 @@ def test_thin_caller_sha_pinned_yaml_valid() -> None:
     assert "v6.8.0" not in uses
 
 
-def test_identify_canonical_workflow_sha_pinned(tmp_path: Path) -> None:
-    """``identify_canonical_workflow`` recognizes SHA-pinned thin callers."""
+def test_canonical_workflow_sha_pinned() -> None:
+    """``canonical_workflow`` recognizes SHA-pinned thin callers."""
     content = generate_thin_caller("lint.yaml", version="v6.8.0", commit_sha=FAKE_SHA)
-    wf = tmp_path / "lint.yaml"
-    wf.write_text(content, encoding="UTF-8")
-    assert identify_canonical_workflow(wf) == "lint.yaml"
+    assert canonical_workflow(_parsed(content)) == "lint.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -1896,9 +1865,6 @@ def test_canonical_caller_permissions_keeps_most_permissive(
     monkeypatch.setattr(
         "repomatic.github.workflow_sync.get_data_content", lambda _name: stub
     )
-    # The parse is memoized per filename, so each parametrization's stub needs
-    # a clean slate under the shared "stub.yaml" key.
-    _canonical.cache_clear()
     assert canonical_caller_permissions("stub.yaml") == {"contents": expected}
 
 

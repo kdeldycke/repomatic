@@ -174,9 +174,9 @@ def test_label_is_shared() -> None:
 
     The bumpers apply it to the PRs they open, and the labeller applies it to
     anyone else's PR touching a lockfile or `pyproject.toml`. Both spellings
-    are hand-written (workflow YAML cannot import Python), so one renamed
-    without the other silently splits the family across two labels, and the
-    single filter this constant exists for stops finding half of it.
+    are hand-written, so one renamed without the other silently splits the
+    family across two labels, and the single filter this constant exists for
+    stops finding half of it.
     """
     rule_labels = set(DEFAULT_CONTENT_RULES) | set(DEFAULT_FILE_RULES)
     assert DEPENDENCY_LABEL in rule_labels
@@ -687,9 +687,9 @@ def test_actionlint_bump_refreshes_the_bundled_problem_matcher(tmp_path, monkeyp
 
     def fetch(url):
         fetched.append(url)
-        return '{"problemMatcher": [{"owner": "actionlint"}]}'
+        return {"problemMatcher": [{"owner": "actionlint"}]}
 
-    monkeypatch.setattr("repomatic.deps.sync.get_text", fetch)
+    monkeypatch.setattr("repomatic.deps.sync.get_json", fetch)
 
     _sync_actionlint_matcher("9.9.9")
 
@@ -707,7 +707,7 @@ def test_actionlint_bump_keeps_the_matcher_on_a_failed_fetch(tmp_path, monkeypat
     def refuse(url):
         raise FetchError("raw.githubusercontent.com timed out")
 
-    monkeypatch.setattr("repomatic.deps.sync.get_text", refuse)
+    monkeypatch.setattr("repomatic.deps.sync.get_json", refuse)
 
     _sync_actionlint_matcher("9.9.9")
 

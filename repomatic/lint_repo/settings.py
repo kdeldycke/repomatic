@@ -31,7 +31,6 @@ failure.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 
@@ -227,12 +226,11 @@ def check_sha_pinning_required(ctx: LintContext) -> CheckResult:
     GitHub has a per-repository policy, `sha_pinning_required`, that makes
     the platform itself refuse to run any workflow referencing an action by a
     mutable tag or branch instead of a commit SHA. repomatic already pins
-    every action it generates and checks unpinned refs with `zizmor`
-    ({func}`~repomatic.lint_repo.pins.check_inline_pins_match_upstream` and the
-    `lint-zizmor` job), but a `zizmor` finding can be silenced inline
-    (`# zizmor: ignore[...]`), so a hand-edited workflow could still slip a
-    mutable tag past review. This repository setting is the platform-enforced
-    backstop.
+    every action it generates, and the `lint-workflow-security` job runs
+    `zizmor`, which flags an unpinned `uses:` ref. But a `zizmor` finding can be
+    silenced inline (`# zizmor: ignore[...]`), so a hand-edited workflow could
+    still slip a mutable tag past review. This repository setting is the
+    platform-enforced backstop.
 
     ```{note}
     The endpoint needs the `Administration: Read-only` permission. When the
@@ -330,7 +328,7 @@ def check_classic_branch_protection(ctx: LintContext) -> CheckResult:
     owner, name = split_slug(ctx.slug)
     try:
         data = gh_graphql(BRANCH_PROTECTION_RULES_QUERY, owner=owner, name=name)
-    except (RuntimeError, KeyError, json.JSONDecodeError) as error:
+    except (RuntimeError, KeyError) as error:
         logging.debug(f"Could not read branch protection rules for {ctx.slug}: {error}")
         return CheckResult(
             None,

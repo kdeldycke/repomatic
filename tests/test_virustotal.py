@@ -25,7 +25,7 @@ import pytest
 from click_extra.testing import CliRunner
 
 from repomatic.cli.main import repomatic
-from repomatic.http import FetchError
+from repomatic.http import DEFAULT_TIMEOUT, FetchError
 from repomatic.release.virustotal import (
     RELEASE_ASSET_POLL_ATTEMPTS,
     SCAN_HEADERS,
@@ -377,6 +377,25 @@ def test_upload_file_posts_to_the_single_use_url(tmp_path):
     headers = post.call_args.kwargs["headers"]
     assert headers["x-apikey"] == "key"
     assert headers["Content-Type"].startswith("multipart/form-data; boundary=")
+
+
+def test_upload_file_waits_longer_than_an_api_read(tmp_path):
+    """The post of a file gets more time than the default timeout of a read.
+
+    `urlopen` sends a `bytes` body in one `sendall` call, which spends the
+    socket timeout on the whole transfer: the default would fail a large
+    binary on a slow link.
+    """
+    path = tmp_path / "papaya.bin"
+    path.write_bytes(b"binary")
+
+    with (
+        patch("repomatic.release.virustotal.get_json", _vt_api()),
+        patch("repomatic.release.virustotal.request") as post,
+    ):
+        upload_file("key", path)
+
+    assert post.call_args.kwargs.get("timeout", DEFAULT_TIMEOUT) > DEFAULT_TIMEOUT
 
 
 def test_poll_detection_stats():

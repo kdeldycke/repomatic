@@ -298,7 +298,7 @@ def _no_real_gh_subprocess():
     the outcome an offline CI runner would see anyway.
 
     Tests wanting specific `gh` behavior patch a higher layer
-    (`run_gh_command`, `gh_api_json`) or re-patch this one; either shadows the
+    (`run_gh_command`, `gh_json`) or re-patch this one; either shadows the
     stub for their duration.
     """
     refused = CompletedProcess(
@@ -515,7 +515,7 @@ def cache_env(monkeypatch, tmp_path):
 def patch_gh(module: str, **mock_kwargs):
     """Patch a module's `gh` dispatch points with one shared mock.
 
-    Read paths go through `gh_api_json` (which calls the `gh` module's
+    Read paths go through `gh_json` (which calls the `gh` module's
     `run_gh_command`) while write paths call the name imported into *module*
     directly; patching both with the same mock keeps a test's single call
     sequence intact across the two layers. Bind the module with

@@ -23,8 +23,8 @@ to process all commits in the push event.
 
 This is critical for releases, where two commits are pushed together:
 
-1. `[changelog] Release vX.Y.Z` — the release commit to be tagged and published
-2. `[changelog] Post-release bump vX.Y.Z → vX.Y.Z` — the next dev cycle's bump
+1. `[changelog] Release vX.Y.Z`: the release commit to be tagged and published
+2. `[changelog] Post-release bump vX.Y.Z → vX.Y.Z`: the next dev cycle's bump
 
 Since `github.event.head_commit` only sees the post-release bump, this module extracts
 the full commit range from the push event and identifies release commits that need
@@ -232,10 +232,10 @@ METADATA_VALUE_OPTIONS: frozenset[str] = frozenset((
 ))
 """Options on the `show-metadata` command consuming the token that follows them.
 
-Needed by {func}`requested_metadata_keys` to tell a positional key from an
-option's value while reading a workflow's `run:` line. `--format` is the
-spelling of releases before `8.0.0`, kept so that a workflow pinned to one of
-them still parses.
+Needed by {func}`requested_metadata_keys` and {func}`unknown_metadata_keys`
+to tell a positional key from an option's value while reading a workflow's
+`run:` line. `--format` is the spelling of releases before `8.0.0`, kept so
+that a workflow pinned to one of them still parses.
 
 Listed here rather than derived, and pinned against the real command by
 repomatic's own test suite, so an option added later cannot quietly turn its
@@ -430,9 +430,12 @@ class Metadata(
     """Metadata class.
 
     Implemented as a singleton: every `Metadata()` call returns the same
-    instance within a process. This is safe because env vars and project files
-    do not change during a single CLI invocation. Use {meth}`reset` in test
-    teardown to discard the cached instance between tests.
+    instance within a process, and each property keeps the first value it
+    reads. Env vars do not change during a single CLI invocation. Project files
+    can: a command that rewrites one, like `bump-version`, reads the new
+    content through {func}`~repomatic.pyproject.get_current_version`, not
+    through a cached property. Use {meth}`reset` in test teardown to discard
+    the cached instance between tests.
     """
 
     _instance: Metadata | None = None
@@ -486,8 +489,8 @@ class Metadata(
 
         During a release, two commits are bundled into a single push event:
 
-        1. `[changelog] Release vX.Y.Z` — freezes the version to the release number
-        2. `[changelog] Post-release bump vX.Y.Z → vX.Y.Z` — the next dev version
+        1. `[changelog] Release vX.Y.Z`: freezes the version to the release number
+        2. `[changelog] Post-release bump vX.Y.Z → vX.Y.Z`: the next dev version
 
         In this situation, the current version returned is the one from the most recent
         commit (the post-release bump), which represents the next development version.
@@ -511,8 +514,7 @@ class Metadata(
 
         During a release push event, this extracts the version from the
         `[changelog] Release vX.Y.Z` commit, which is distinct from
-        `current_version` (the post-release bump version). This is used for
-        tagging, PyPI publishing, and GitHub release creation.
+        `current_version` (the post-release bump version).
 
         Returns `None` if no release commit is found in the current event.
         """

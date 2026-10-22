@@ -36,7 +36,7 @@
 - Drop the `vt-py` dependency and the `aiohttp` stack beneath it: `scan-virustotal` calls the VirusTotal REST API through the standard library.
 - Enable the `D205`, `D209`, `E501`, `PLC0415` and `TC` ruff rules in the bundled `ruff.toml`.
 - Set `wrap = "no"` in the bundled `mdformat.toml`, so `format-markdown` joins the lines of a hard-wrapped paragraph.
-- `lint-changelog` warns on a Breaking or Deprecated entry filed after an ordinary one and on a `#N` naming no issue, and `--fix` strips a `v` tag prefix off a heading.
+- `lint-changelog` warns on an entry filed out of the Breaking, then Deprecated, then ordinary order and on a `#N` naming no issue, and `--fix` strips a `v` tag prefix off a heading.
 - The `prepare-release` job waits until the unreleased changelog section holds an entry, read from the new `changelog_has_entries` metadata key.
 - Add `ci-status --wait`, which polls in-process until a required job fails or every run settled, with `--until-change` and `--state-file` for a re-armed watch.
 - Add `ci-status --failed-logs`, `--automation-prs` and `--release-pr`, and report a matrix job GitHub never expanded.
@@ -126,6 +126,7 @@
 - Fix the binaries leaving out the `prepare-release` and `release-sync-report` templates.
 - Fix the Linux binaries baking no git field: the build job now trusts the checkout inside the manylinux container.
 - Fix the file lists of `repomatic` commands including the files that `.git/info/exclude` ignores, like an agent worktree under `.claude/worktrees/`.
+- Fix stale claims of the bundled `babysit-ci`, `repomatic-ship` and `repomatic-test-matrix` skills on release runs, binary skips and `format-python` pull requests.
 
 ## [`7.18.0` (2026-10-13)](https://github.com/kdeldycke/repomatic/compare/v7.17.1...v7.18.0)
 

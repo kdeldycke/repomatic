@@ -881,7 +881,7 @@ class SyncResult:
     state)."""
 
 
-def sync_uv_lock(lock_path: Path, settings: UvSettings | None = None) -> SyncResult:
+def sync_uv_lock(lock_path: Path, settings: UvSettings) -> SyncResult:
     """Re-lock with `--upgrade` and report version changes.
 
     First prunes the stale `exclude-newer-package` entries from
@@ -905,15 +905,12 @@ def sync_uv_lock(lock_path: Path, settings: UvSettings | None = None) -> SyncRes
     ```
 
     :param lock_path: Path to the `uv.lock` file.
-    :param settings: The project's settings, when the caller already loaded
-        them. Read from the `pyproject.toml` beside the lock otherwise.
+    :param settings: The settings of the project beside the lock.
     :return: The version changes, the lock left on disk, and the
         cooldown-bypass lifecycle: entries pruned, frozen, and still active
         with their expiry forecasts.
     """
     project_dir = lock_path.parent
-    if settings is None:
-        settings = UvSettings.load(project_dir / "pyproject.toml")
     now = datetime.now(UTC)
 
     # Prune the bypasses whose hold has aged past the cooldown, then freeze the

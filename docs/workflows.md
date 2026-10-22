@@ -16,7 +16,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.17.1
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.18.0
 ```
 
 ## GitHub Actions limitations
@@ -54,12 +54,12 @@ Every job that occupies a runner declares `timeout-minutes`. GitHub offers no wo
 
 The caps are runaway backstops, not performance budgets. Each sits far above the job's measured worst case, so ordinary growth never trips one:
 
-| Cap        | Applies to                                                                                                     | Measured worst case                                      |
-| :--------- | :------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------- |
-| 10 minutes | `test-binaries`'s per-target smoke test, gated to release commits                                              | ~1-2 min (estimated; see the job's own timeout comment)  |
-| 15 minutes | Bounded local work or a handful of API calls: linting, formatting, `metadata`, the sync jobs, label management | 2.8 min (`autolock`'s thread sweep)                      |
-| 30 minutes | Jobs that provision a toolchain, iterate a matrix cell, or paginate a whole issue history                      | 4.8 min (`tests` on `macos-26-intel` / py3.10)           |
-| 45 minutes | `compile-binaries`, and `check-broken-links` whose crawl is paced by other people's servers                    | 17.4 min (cold-cache compile), 10.4 min (the link crawl) |
+| Cap        | Applies to                                                                                                          | Measured worst case                                      |
+| :--------- | :------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------- |
+| 10 minutes | `test-binaries`'s per-target smoke test, gated to release commits                                                   | ~1-2 min (estimated; see the job's own timeout comment)  |
+| 15 minutes | Bounded local work or a handful of API calls: linting, formatting, `metadata`, the sync jobs, label management      | 2.8 min (`autolock`'s thread sweep)                      |
+| 30 minutes | Jobs that provision a toolchain, iterate a matrix cell, poll an external service, or paginate a whole issue history | 4.8 min (`tests` on `macos-26-intel` / py3.10)           |
+| 45 minutes | `compile-binaries`, and `check-broken-links` whose crawl is paced by other people's servers                         | 17.4 min (cold-cache compile), 10.4 min (the link crawl) |
 
 Two jobs carry no cap, and cannot: `release.yaml`'s `build` and `release` delegate to a reusable workflow via `uses:`, where GitHub accepts only `name`, `uses`, `with`, `secrets`, `needs`, `if` and `permissions`. Their runtime is bounded by the caps on the jobs of the workflow they call.
 
@@ -197,7 +197,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 ### 🔄 Sync repomatic (`sync-repomatic`)
 
 - Runs [`repomatic init --upgrade --delete-unmodified --delete-excluded`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/init/run.py) to sync all repomatic-managed files: thin-caller workflows, configuration files, and skill definitions
-- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v7.17.1`
+- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v7.18.0`
 - The upgrade pull request lists the `**Breaking:**` and `**Deprecated:**` entries of every release it crosses, the warnings the new release printed (like a `[tool.repomatic]` key it no longer knows), the release notes, and the newer releases the cooldown still holds back
 - Never moves the upstream pin back: a release pinned by hand inside the cooldown stays, and the job only regenerates its files. Set `upstream-pin.sync = false` in `[tool.repomatic]` to keep syncing at the pinned release
 - Removes unmodified config files identical to bundled defaults and cleans up excluded or stale files (disabled opt-in workflows, auto-excluded skills)
@@ -357,10 +357,10 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 
 ### 📋 Fix changelog (`fix-changelog`)
 
-- Checks and fixes changelog dates, availability admonitions, and orphaned versions using [`repomatic lint-changelog --fix`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/changelog.py)
+- Checks and fixes changelog dates, availability admonitions, and orphaned versions using [`repomatic lint-changelog --fix`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/lint_changelog.py)
 - Warns without failing about each unreleased entry longer than [`changelog.bullet-word-threshold`](configuration.md#changelog-bullet-word-threshold) words (`40` by default, and `0` disables the check). An entry is a release note, not a commit message. Write one sentence of 10 to 25 words that names what changed for a reader. Add a second sentence only for a breaking change or a migration step. Mechanism, rationale and history belong in the commit, the pull request, a code comment or `docs/`. Released sections are immutable and never flagged
 - Warns without failing about each released section holding no entry. The GitHub release body is rebuilt from that section, so an empty one publishes an empty release. Add one bullet that names what moved, even when the whole cycle was mechanical (a pin bump or a regenerated file). An availability or editorial admonition does not count as an entry. The unreleased section is never flagged, since the post-release bump creates it empty
-- Warns without failing about an unreleased entry marked `**Breaking:**` or `**Deprecated:**` that follows an unmarked one. A reader scans the notes for what breaks first, so those entries lead the section, in that order.
+- Warns without failing about an unreleased entry filed out of the `**Breaking:**`, then `**Deprecated:**`, then unmarked order. A reader scans the notes for what breaks first, so those entries lead the section, in that order.
 - Warns without failing about a `#N` in an unreleased entry that names no issue or pull request of the repository, since GitHub links every `#N` to the thread of that number: write a position in words. The check is skipped when `gh` cannot read the repository.
 - Fails on a heading that writes its version with the `v` of a git tag, which no check reads. `--fix` strips the prefix instead, and leaves the comparison URL alone.
 - A sanity gate exits the job with status `2` (no file written, no PR opened) when the GitHub Releases or PyPI lookup looks unhealthy: a network error from GitHub combined with any existing GitHub coverage, or an empty PyPI response combined with three or more existing PyPI links. Without the gate, a transient API hiccup would silently strip every affected link from the changelog ([pypi/warehouse#1388](https://github.com/pypi/warehouse/issues/1388) and [pypi/warehouse#9536](https://github.com/pypi/warehouse/issues/9536) explain why a 404 or empty result from PyPI is not authoritative).
@@ -382,7 +382,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
   - A `changelog.md` file
 - **Runs on**:
   - Push to `main` when `changelog.md`, a `pyproject.toml`, `uv.lock`, a workflow file, a Python file or a file under `docs/` changes
-  - After every `release.yaml` run on `main` (via `workflow_run` trigger): it re-bases the release PR after a push that matched none of the paths above, like one that only touches a skill or `readme.md`
+  - After every successful `release.yaml` run on `main` (via `workflow_run` trigger): it re-bases the release PR after a push that matched none of the paths above, like one that only touches a skill or `readme.md`
   - Manual dispatch
   - `workflow_call` from downstream repositories
 
@@ -511,6 +511,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - Lints YAML files using [`yamllint`](https://github.com/adrienverge/yamllint)
 - **Requires**:
   - YAML files (`**/*.{yaml,yml}`) in the repository
+  - A YAML file changed by the push or pull request (a manual run has no change to read, so any YAML file in the repository qualifies)
 - **Skipped for**:
   - `prepare-release` branch
   - Bot-created PRs
@@ -520,6 +521,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - Syntax-checks Zsh scripts using `zsh --no-exec`
 - **Requires**:
   - Zsh files in the repository: `**/*.zsh`, the zsh dotfiles (`.zshrc`, `.zprofile`, `.zshenv`, `.zlogin`), and any `**/*.sh` whose shebang names zsh. Claiming `.sh` by extension alone would hand every bash script to `zsh --no-exec`, so the shebang keeps this job and [`format-shell`](#format-shell-format-shell) from ever seeing the same file
+  - A Zsh file changed by the push or pull request (a manual run has no change to read, so any Zsh file in the repository qualifies)
 - **Skipped for**:
   - `prepare-release` branch
   - Bot-created PRs
@@ -529,6 +531,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - Lints workflow files using [`actionlint`](https://github.com/rhysd/actionlint) and [`shellcheck`](https://github.com/koalaman/shellcheck). `repomatic run actionlint` puts the pinned, checksum-verified shellcheck on `PATH`, and registers actionlint's problem matcher so each finding annotates the line it names
 - **Requires**:
   - Workflow files (`.github/workflows/**/*.{yaml,yml}`) in the repository
+  - A workflow file changed by the push or pull request (a manual run has no change to read, so any workflow file in the repository qualifies)
 - **Skipped for**:
   - `prepare-release` branch
   - Bot-created PRs
@@ -538,6 +541,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - Audits workflow files for security issues using [`zizmor`](https://github.com/zizmorcore/zizmor) (template injection, excessive permissions, supply chain risks, etc.)
 - **Requires**:
   - Workflow files (`.github/workflows/**/*.{yaml,yml}`) in the repository
+  - A workflow file changed by the push or pull request (a manual run has no change to read, so any workflow file in the repository qualifies)
 - **Skipped for**:
   - `prepare-release` branch
   - Bot-created PRs
@@ -701,7 +705,7 @@ flowchart TD
 
 - Creates a Git tag for the release version
 - **Requires**:
-  - Push to `main` branch
+  - A push that lands release commits on `main`, which the `is_release_push` metadata key reports
   - Release commits matrix from [`repomatic show-metadata`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metadata/core.py)
 
 ### 🐙 Create release draft (`create-release`)
@@ -793,7 +797,7 @@ This workflow maintains repomatic's own package source and is the one file in `.
 - **Upstream-only**: rewrites `repomatic/tooling/registry.py`, which exists only in this repository; downstream repos receive updated tool versions when they sync against a new repomatic release
 - Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gh, gitleaks, labelmaker, lychee, oxipng, ShellCheck, shfmt, typos), the npm registry for npm tools (awesome-lint, npm), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
 - Bumps the packages pinned *alongside* a tool in its `uvx` environment too (mdformat's plugin set), which no other updater sees
-- Recomputes the SHA-256 checksums for every binary tool in the same pass, so version bump and checksum land in one PR branch
+- Recomputes the SHA-256 checksums of the binary tools it bumps in the same pass, and downloads only their artifacts, so version bump and checksum land in one PR branch
 - Refreshes the bundled actionlint problem matcher from the tag of the actionlint it pins
 - Runs via `uv run` against the local editable source, rewriting `repomatic/tooling/registry.py` directly
 - **Runs on**: daily schedule and manual dispatch. Daily rather than weekly because the `minimum-release-age` cooldown already delays every adoption on its own, and a release becomes eligible on whatever weekday its cooldown expires
@@ -920,7 +924,7 @@ All Python dependencies and CLIs are installed via [`uv`](https://github.com/ast
 
 ### Smart job skipping
 
-Jobs are guarded by conditions to skip unnecessary steps: file type detection (only lint Python if `.py` files exist), branch filtering (`prepare-release` skipped for most linting), and bot detection.
+Jobs are guarded by conditions to skip unnecessary steps: file type detection (only lint Python if `.py` files exist), change detection (only lint YAML when the push or pull request changes a YAML file), branch filtering (`prepare-release` skipped for most linting), and bot detection.
 
 ### Dynamic test matrices
 
@@ -991,7 +995,7 @@ All dependencies are pinned to specific versions for stability, reproducibility,
 GitHub Actions and npm packages are pinned directly in YAML files:
 
 ```yaml
-  - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
   - run: npm install eslint@9.39.1       # Pinned npm package
 ```
 
@@ -1102,7 +1106,7 @@ The release workflow creates a draft, uploads all assets, then publishes. Once p
 
 Immutability only blocks **asset uploads and modifications** on published releases (`HTTP 422: Cannot upload assets to an immutable release`). Published releases can still be **deleted** (along with their tags via `--cleanup-tag`).
 
-**Dev releases use drafts.** The [`sync-dev-release`](#github-workflows-release-engine-yaml-jobs) job creates dev pre-releases as drafts (`--draft --prerelease`) rather than published pre-releases. Drafts allow the workflow to upload binaries and packages after creation. The release stays as a draft permanently: it is never published. On the next push, `cleanup_dev_releases()` deletes all existing `.dev0` releases (drafts are always deletable) before creating a fresh one. See `repomatic/github/dev_release.py` for implementation.
+**Dev releases use drafts.** The [`sync-dev-release`](#github-workflows-release-engine-yaml-jobs) job creates dev pre-releases as drafts (`--draft --prerelease`) rather than published pre-releases. Drafts allow the workflow to upload binaries and packages after creation. The release stays as a draft permanently: it is never published. On the next push, the job edits the draft of the current version in place. A push that skips binary compilation then keeps the binaries of the previous build. The job also deletes the dev drafts of earlier versions (drafts are always deletable). A real release deletes every dev draft with `repomatic sync-dev-release --delete`, which calls `cleanup_dev_releases()`. See `repomatic/github/dev_release.py` for implementation.
 
 #### Concurrency strategies
 

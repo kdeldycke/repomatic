@@ -43,7 +43,12 @@ from ..github.workflow_files import (
 from ..github.workflow_sync import canonical_workflow, extract_trigger_info
 from ..matrix.axes import KNOWN_RUNNERS, UNSTABLE_PYTHON_VERSIONS
 from ..matrix.model import PYTHON_VERSION_AXIS
-from ..metadata.core import METADATA_SUBCOMMAND, Dialect, unknown_metadata_keys
+from ..metadata.core import (
+    METADATA_SUBCOMMAND,
+    REMOVED_METADATA_ALIAS,
+    unknown_metadata_keys,
+)
+from ..metadata.output import Dialect
 from ..templating import footer_opted_out
 from ..upstream import DEFAULT_REPO
 
@@ -340,15 +345,13 @@ def _canonical_lane(path: Path, data: Mapping[str, Any]) -> UpstreamLane | None:
 
     The canonical workflow is the one
     {func}`~repomatic.github.workflow_sync.canonical_workflow` names: the last
-    upstream workflow the file calls. For the downstream `release.yaml`, that is
-    the engine lane, the only one of its two lanes that declares secrets.
+    upstream workflow the file calls, so its job is the last upstream lane of
+    the file. For the downstream `release.yaml`, that is the engine lane, the
+    only one of its two lanes that declares secrets.
 
     :return: The calling job, or `None` when the file is no thin caller.
     """
-    canonical = canonical_workflow(data)
-    lanes = [
-        lane for lane in _upstream_lanes({path: data}) if lane.workflow == canonical
-    ]
+    lanes = _upstream_lanes({path: data})
     return lanes[-1] if lanes else None
 
 
@@ -921,9 +924,10 @@ def check_metadata_keys(ctx: LintContext) -> list[CheckResult]:
             results.append(
                 CheckResult(
                     False,
-                    f"{where} calls `{package} metadata`, which `8.0.0` removed,"
-                    f" so this job fails on its next run, and every job gated on"
-                    f" it through `needs:` with it. Call `{command}` instead.",
+                    f"{where} calls `{package} {REMOVED_METADATA_ALIAS}`, which"
+                    f" `8.0.0` removed, so this job fails on its next run, and"
+                    f" every job gated on it through `needs:` with it. Call"
+                    f" `{command}` instead.",
                 )
             )
         elif request.unknown:

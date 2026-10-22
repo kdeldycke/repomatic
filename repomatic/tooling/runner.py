@@ -60,6 +60,7 @@ from ..config import load_repomatic_config
 from ..deps.pins import exclude_newer_cutoff, min_release_age_days
 from ..deps.uv import UvError, uv_cmd, uvx_cmd
 from ..file_inventory import FileInventory
+from ..file_ops import normalize_text
 from ..github.outputs import add_problem_matcher, remove_problem_matcher
 from ..hashing import compute_file_sha256
 from ..humanize import today_utc
@@ -121,7 +122,7 @@ needed. `--no-audit` stops npm from sending the resolved dependency tree to the
 audit endpoint of the registry on every install.
 
 The install of the pinned npm that installs the tool carries them too: see
-{func}`_install_npm`.
+`_install_npm`.
 """
 
 TOOL_CRASH_EXIT_CODE = 70
@@ -1189,10 +1190,8 @@ def find_unmodified_configs(root: Path | None = None) -> list[tuple[str, str]]:
     {data}`~repomatic.tooling.registry.TOOL_REGISTRY` that has a
     `default_config`.  For each, checks whether any of its
     `native_config_files` exists on disk and is content-identical
-    to the bundled default after trailing-whitespace normalization.
-
-    The normalization (`rstrip() + "\\n"`) matches the convention
-    used by `_init_config_files` when writing files during `init`.
+    to the bundled default, both compared in the
+    {func}`~repomatic.file_ops.normalize_text` form `init` writes.
 
     :param root: Directory the relative config paths resolve against.
         Defaults to the working directory; `run_init` passes its
@@ -1208,13 +1207,13 @@ def find_unmodified_configs(root: Path | None = None) -> list[tuple[str, str]]:
         if not spec.default_config:
             continue
 
-        bundled = bundle.get_data_content(spec.default_config).rstrip() + "\n"
+        bundled = normalize_text(bundle.get_data_content(spec.default_config))
 
         for config_file in spec.native_config_files:
             path = base / config_file
             if not path.exists():
                 continue
-            native = path.read_text(encoding="UTF-8").rstrip() + "\n"
+            native = normalize_text(path.read_text(encoding="UTF-8"))
             if native == bundled:
                 unmodified.append((name, config_file))
 

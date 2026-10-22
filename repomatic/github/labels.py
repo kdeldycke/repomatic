@@ -639,7 +639,7 @@ def declared_label_names(
     config: Config,
     *,
     is_awesome: bool,
-    labels_dir: Path | None = None,
+    root: Path | None = None,
 ) -> set[str]:
     """Every label name the configured sources declare for a repository.
 
@@ -650,7 +650,7 @@ def declared_label_names(
     :param config: The resolved `[tool.repomatic]` configuration.
     :param is_awesome: Whether the repository is an `awesome-*` list, which
         adds the `awesome` profile on top of `default`.
-    :param labels_dir: Repository root holding `extra-labels/`, the current
+    :param root: Repository root holding `extra-labels/`, the current
         directory when `None`.
     :return: The declared label names.
     :raises repomatic.http.FetchError: When a `labels.extra-files` URL cannot
@@ -659,7 +659,7 @@ def declared_label_names(
         definition cannot be read. The set would otherwise come back short.
     """
     names: set[str] = set()
-    for source in label_sources(config, is_awesome=is_awesome, root=labels_dir):
+    for source in label_sources(config, is_awesome=is_awesome, root=root):
         names |= _names_in_labelmaker_config(
             source.text, source.profiles, filename=PurePosixPath(source.path).name
         )
@@ -671,7 +671,7 @@ def _run_labelmaker(labelmaker_path: Path, *args: str) -> None:
 
     The canonical token ({func}`~repomatic.github.gh.resolve_gh_token`) is
     injected as `GH_TOKEN`, which labelmaker reads, so an environment carrying
-    only `REPOMATIC_PAT` still syncs authenticated — the same promotion every
+    only `REPOMATIC_PAT` still syncs authenticated: the same promotion every
     `gh` call gets.
 
     :param labelmaker_path: Path to the labelmaker binary.

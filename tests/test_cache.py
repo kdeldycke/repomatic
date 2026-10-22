@@ -607,8 +607,8 @@ def test_clear_http_cache_by_age(cache_env):
 def test_store_config_keys_the_file_on_its_content(cache_env):
     """Different content lands on different files; the same content on one.
 
-    Two checkouts generating different configs for one tool used to overwrite
-    each other's file, so a run could read the config of the other.
+    Two checkouts that generate different configs for one tool get one file
+    each, so no run reads the config of the other.
     """
     pears = store_config("yamllint", "yamllint.yaml", "fruit: pear\n")
     plums = store_config("yamllint", "yamllint.yaml", "fruit: plum\n")

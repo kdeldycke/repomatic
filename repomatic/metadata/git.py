@@ -173,7 +173,7 @@ class GitMetadata:
 
         @cached_property
         def github_event(self) -> dict[str, Any]:
-            """See {class}`~repomatic.metadata.core.Metadata`."""
+            """See {class}`~repomatic.metadata.env.EnvironmentMetadata`."""
 
         @cached_property
         def head_branch(self) -> str | None:
@@ -455,7 +455,7 @@ class GitMetadata:
 
         # A git failure (a compiled binary run over a checkout git rejects as
         # "dubious ownership", a remote that cannot be reached) degrades to
-        # "range unknown" instead of crashing the whole `metadata` command.
+        # "range unknown" instead of crashing the whole `show-metadata` command.
         try:
             if not end or not fetch_commit(end):
                 logging.warning(

@@ -23,10 +23,10 @@ whose availability note is stale are reported, and repaired under `--fix`.
 
 Four content checks run beside it and never change the exit code: a warning on
 over-long bullets in the unreleased section, on released sections that hold no
-entry, on a Breaking or Deprecated entry filed after an ordinary one, and on a
-`#N` naming no issue. A fifth, on a heading writing its version with the `v` of
-a git tag, is fatal, since no check reads such a heading. `--fix` strips the
-prefix instead.
+entry, on an entry filed out of the Breaking, then Deprecated, then ordinary
+order, and on a `#N` naming no issue. A fifth, on a heading writing its version
+with the `v` of a git tag, is fatal, since no check reads such a heading.
+`--fix` strips the prefix instead.
 
 The changelog model these checks read and rewrite lives in
 {mod}`repomatic.changelog`.
@@ -38,7 +38,7 @@ import logging
 import re
 from dataclasses import asdict, dataclass, field, replace
 from functools import cached_property
-from typing import NamedTuple, TypeVar
+from typing import NamedTuple
 
 from packaging.version import Version
 
@@ -49,7 +49,7 @@ from .changelog import (
     Changelog,
     availability_admonition,
 )
-from .file_ops import write_if_changed
+from .file_ops import normalize_text, write_if_changed
 from .git_ops import GitError, get_all_version_tags
 from .github.gh import gh_json
 from .github.outputs import AnnotationLevel, emit_annotation
@@ -72,9 +72,9 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
-    from typing import Final
+    from typing import Final, TypeVar
 
-ReleaseT = TypeVar("ReleaseT")
+    ReleaseT = TypeVar("ReleaseT")
 
 EMPTY_PYPI_SANITY_THRESHOLD = 3
 """Minimum number of existing PyPI links in the changelog above which an
@@ -125,8 +125,13 @@ The lookbehind leaves out the `owner/repo#N` slug, where the number follows a
 word character, and a URL fragment, where it follows a `#` or an `&`.
 """
 
-CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
-"""An inline code span, which {func}`warn_on_positional_references` skips."""
+CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`).+?(?<!`)\1(?!`)")
+"""An inline code span, which {func}`warn_on_positional_references` skips.
+
+A run of backticks opens the span and the next run of the same length closes
+it, as CommonMark reads one, so a span opened with two backticks can quote a
+single one.
+"""
 
 LINK_TARGET_RE = re.compile(r"\]\([^)]*\)")
 """The target of a Markdown link, which a fragment like `#issuecomment-1` sits in."""
@@ -358,12 +363,12 @@ def _entry_rank(bullet: str) -> int:
 
 
 def warn_on_entry_order(changelog: Changelog) -> None:
-    """Warn about a marked entry filed after an unmarked one, non-fatally.
+    """Warn about an entry filed out of the order its mark sets, non-fatally.
 
     The {data}`ENTRY_MARKS` lead a section in their order: every
     `**Breaking:**` entry first, then every `**Deprecated:**` one, then the
     rest. Only the unreleased section is inspected, per
-    {func}`_unreleased_versions`.
+    `_unreleased_versions`.
 
     :param changelog: The parsed changelog to inspect.
     """
@@ -1171,16 +1176,17 @@ def lint_changelog_dates(
         {func}`warn_on_long_bullets`). `0` disables the check. Never affects
         the exit code.
     :return: `0` if all dates match or references were corrected in-place,
-        `1` if any date mismatch or orphan is found without a fix being
-        applied, {data}`REFUSED_EXIT_CODE` if the sanity gate refused a
-        destructive rewrite because an upstream data source (GitHub Releases
-        or PyPI) appeared to be returning incomplete or empty results while
-        the existing changelog has substantial coverage on that platform.
+        `1` if any date mismatch, orphan or tag-prefixed heading is found
+        without a fix being applied, {data}`REFUSED_EXIT_CODE` if the sanity
+        gate refused a destructive rewrite because an upstream data source
+        (GitHub Releases or PyPI) appeared to be returning incomplete or empty
+        results while the existing changelog has substantial coverage on that
+        platform.
     """
     changelog = Changelog(changelog_path.read_text(encoding="UTF-8"))
     # First, since a heading no check reads hides its release from the rest.
     prefixed_left = check_tag_prefixed_headings(changelog, fix=fix)
-    if fix and write_if_changed(changelog_path, changelog.content.rstrip() + "\n"):
+    if fix and write_if_changed(changelog_path, normalize_text(changelog.content)):
         logging.info(f"Updated {changelog_path}")
     warn_on_long_bullets(changelog, bullet_word_threshold)
     warn_on_empty_sections(changelog)
@@ -1230,7 +1236,7 @@ def lint_changelog_dates(
             for version, date in date_check.corrections.items()
         ):
             unfixed_problem = True
-        if write_if_changed(changelog_path, changelog.content.rstrip() + "\n"):
+        if write_if_changed(changelog_path, normalize_text(changelog.content)):
             logging.info(f"Updated {changelog_path}")
 
     # Success needs every flagged problem repaired, not merely some file write

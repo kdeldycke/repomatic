@@ -208,7 +208,7 @@ class LintContext:
 
     @property
     def md(self) -> Metadata:
-        """CI and project context, for the repository identity the guide renders."""
+        """CI and project context, which the checks and the setup guide read."""
         return Metadata()
 
     def deploys_to(self, target: str) -> bool:

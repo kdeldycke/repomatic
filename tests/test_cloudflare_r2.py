@@ -32,7 +32,7 @@ import pytest
 from click.testing import CliRunner
 
 from repomatic.cli.main import repomatic
-from repomatic.cloudflare import api, r2 as cloudflare_r2
+from repomatic.cloudflare import api, r2
 from repomatic.cloudflare.api import CloudflareError, CloudflareHTTPError
 from repomatic.cloudflare.r2 import (
     ACCESS_KEY_ID_ENV,
@@ -184,7 +184,7 @@ def test_request_is_path_style_and_signs_the_s3_headers():
     ((None, True), (CloudflareHTTPError("HEAD failed: HTTP 404", 404), False)),
 )
 def test_exists_reads_a_404_as_absence(raised, expected):
-    with patch.object(cloudflare_r2, "_send", side_effect=raised):
+    with patch.object(r2, "_send", side_effect=raised):
         assert BUCKET.exists("abc/atlas.zip") is expected
 
 
@@ -196,7 +196,7 @@ def test_exists_lets_a_refusal_through():
     """
     denied = CloudflareHTTPError("HEAD failed: HTTP 403", 403)
     with (
-        patch.object(cloudflare_r2, "_send", side_effect=denied),
+        patch.object(r2, "_send", side_effect=denied),
         pytest.raises(CloudflareHTTPError),
     ):
         BUCKET.exists("abc/atlas.zip")
@@ -216,10 +216,10 @@ def test_send_turns_a_broken_connection_into_a_cloudflare_error(raised):
     """
     request = BUCKET._request("HEAD", "abc/atlas.zip", EMPTY)
     with (
-        patch.object(cloudflare_r2.urllib.request, "urlopen", side_effect=raised),
+        patch.object(r2.urllib.request, "urlopen", side_effect=raised),
         pytest.raises(CloudflareError, match=r"HEAD papaya-files/abc failed"),
     ):
-        cloudflare_r2._send(request, "HEAD papaya-files/abc")
+        r2._send(request, "HEAD papaya-files/abc")
 
 
 def test_put_streams_the_file_with_its_type_length_and_cache_header(tmp_path):
@@ -227,7 +227,7 @@ def test_put_streams_the_file_with_its_type_length_and_cache_header(tmp_path):
     path.write_bytes(b"papaya")
     sent = []
     with patch.object(
-        cloudflare_r2, "_send", side_effect=lambda request, label: sent.append(request)
+        r2, "_send", side_effect=lambda request, label: sent.append(request)
     ):
         BUCKET.put("abc/atlas.zip", path, "abc")
     (request,) = sent
@@ -244,7 +244,7 @@ def test_put_falls_back_to_a_byte_stream_for_an_unknown_format(tmp_path):
     path.write_bytes(b"\x00")
     sent = []
     with patch.object(
-        cloudflare_r2, "_send", side_effect=lambda request, label: sent.append(request)
+        r2, "_send", side_effect=lambda request, label: sent.append(request)
     ):
         BUCKET.put("abc/printer.rfu", path, "abc")
     assert sent[0].get_header("Content-type") == "application/octet-stream"
@@ -424,9 +424,7 @@ def test_bucket_from_environment_resolves_the_account(monkeypatch):
 
 def test_run_offload_touches_no_credential_when_nothing_is_oversized(tmp_path):
     (tmp_path / "index.html").write_text("<p>kiwi</p>", encoding="UTF-8")
-    with patch.object(
-        cloudflare_r2, "_bucket_from_environment", side_effect=AssertionError
-    ):
+    with patch.object(r2, "_bucket_from_environment", side_effect=AssertionError):
         report = run_offload(
             tmp_path, bucket="papaya-files", domain=DOMAIN, project="p"
         )
@@ -483,7 +481,7 @@ def test_run_offload_succeeds_when_every_file_reaches_the_bucket(tmp_path, capsy
     site = tmp_path / "site"
     _sparse(site / "atlas.zip")
     with patch.object(
-        cloudflare_r2,
+        r2,
         "_bucket_from_environment",
         return_value=(cast("R2Bucket", FakeBucket()), ""),
     ):

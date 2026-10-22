@@ -146,14 +146,15 @@ def _calendar_months(later: datetime, earlier: datetime) -> int:
 def format_relative(instant: datetime, reference: datetime) -> str:
     """Phrase the gap from *reference* to *instant*: `in 5 hours`, `2 days ago`.
 
-    The buckets and their wording are those of arrow `1.x`, kept so every
-    report reads as before. Under ten seconds the gap is `just now`. Then come
-    seconds, `a minute` under two, minutes, `an hour` under two, hours, `a day`
-    under two, days under a week, calendar months under a year (a remainder
-    past 14 days counts as a month, so three weeks across a month boundary read
-    as `a month`), `a week` under two, weeks under a mean month, `a year` under
-    two, then years. A count is truncated, never rounded, and starts at two: a
-    single unit has its own phrase.
+    The buckets and their wording follow the `humanize()` of arrow `1.4`. Under
+    ten seconds the gap is `just now`. Then come seconds, `a minute` under two,
+    minutes, `an hour` under two, hours, `a day` under two, and days under a
+    week. Past a week, whole calendar months come first, up to a year, and a
+    remainder past 14 days counts as one more month: 15 days already read as
+    `a month`. When no month counts, the gap reads `a week`, or `2 weeks` once
+    it reaches 14 days. Past a year, it reads `a year` under two, then years.
+    A count is truncated, never rounded, and starts at two: a single unit has
+    its own phrase.
 
     :param instant: The instant phrased.
     :param reference: The instant the gap is measured from, usually now.
@@ -254,9 +255,8 @@ def format_elapsed(instant: datetime, reference: datetime) -> str:
 def format_file_size(size_bytes: int) -> str:
     """Format a byte count as a human-readable string.
 
-    A thin binding of {func}`click_extra.format_size` to the JEDEC unit style
-    (binary powers with the customary `KB`/`MB` symbols), matching the format
-    produced by `calibreapp/image-actions`.
+    A thin binding of {func}`click_extra.format_size` to the JEDEC unit style:
+    binary powers with the customary `KB`/`MB` symbols.
     """
     return format_size(size_bytes, units="jedec")
 

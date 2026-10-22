@@ -194,7 +194,7 @@ class CachedFile:
         """Read an entry off the path of a file below *root*.
 
         :return: The entry, or `None` when the file is not an entry of this
-            cache (a digest sidecar, a temporary file).
+            cache, like a digest sidecar.
         """
         raise NotImplementedError
 
@@ -293,7 +293,7 @@ class BinaryCacheEntry(CachedFile):
     """Pinned version string."""
 
     platform: str
-    """Platform key (e.g., `linux-x64`, `macos-arm64`)."""
+    """Platform key, like `linux-x64` or `macos-arm64`."""
 
     executable: str
     """Executable filename."""
@@ -345,7 +345,7 @@ class HttpCacheEntry(CachedFile):
     """Cache namespace, like `pypi` or `github-release-tags`."""
 
     key: str
-    """Cache key within the namespace (e.g., `requests`, `astral-sh/ruff`)."""
+    """Cache key within the namespace, like `requests` or `astral-sh/ruff`."""
 
     kind: ClassVar[str] = "http"
     subdir: ClassVar[str] = "http"
@@ -386,7 +386,7 @@ class ConfigCacheEntry(CachedFile):
     """Start of the SHA-256 of the content, which names the entry."""
 
     filename: str
-    """Config filename (e.g., `yamllint.yaml`, `biome.json`)."""
+    """Config filename, like `yamllint.yaml` or `biome.json`."""
 
     kind: ClassVar[str] = "config"
     subdir: ClassVar[str] = "config"
@@ -439,7 +439,7 @@ def cached_binary_path(
 
     :param name: Tool name.
     :param version: Pinned version.
-    :param platform_key: Platform key (e.g., `linux-x64`).
+    :param platform_key: Platform key, like `linux-x64`.
     :param executable: Executable filename.
     :return: Absolute path where the binary would be cached.
     """
@@ -593,7 +593,7 @@ def store_config(
     config in use out of reach of {func}`auto_purge`.
 
     :param tool_name: Tool name (registry key).
-    :param filename: Config filename (e.g., `yamllint.yaml`).
+    :param filename: Config filename, like `yamllint.yaml`.
     :param content: Config file content as text.
     :return: Path to the cached config file, or `None` if the write
         failed (permissions, read-only filesystem, sandbox restrictions).

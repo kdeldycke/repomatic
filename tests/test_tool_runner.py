@@ -3136,10 +3136,7 @@ def test_run_rejects_an_unknown_tool_as_a_usage_error():
 def test_run_reports_an_install_failure_as_an_error(
     mock_install_binary, tmp_path, monkeypatch
 ):
-    """A tool that cannot be installed ends the run with a message, not a traceback.
-
-    A checksum mismatch used to surface as a bare `ValueError`.
-    """
+    """A tool that cannot be installed ends the run with a message, not a traceback."""
     monkeypatch.chdir(tmp_path)
     mock_install_binary.side_effect = BinaryInstallError(
         "SHA-256 mismatch for https://example.com/typos.tar.gz"

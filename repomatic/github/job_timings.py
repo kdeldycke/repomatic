@@ -121,7 +121,7 @@ def _duration(job: dict) -> float | None:
     as zero, which would drag a median toward a runner's queue behaviour
     instead of its speed. Timestamps go through the package-wide
     {func}`~repomatic.humanize.parse_iso_datetime`, which reads the `Z`
-    suffix GitHub always writes on every supported Python.
+    suffix GitHub always writes.
     """
     started, completed = job.get("startedAt"), job.get("completedAt")
     if not started or not completed:

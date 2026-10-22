@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from textwrap import dedent
 from unittest.mock import patch
 
@@ -40,7 +41,7 @@ from repomatic.github.ci_status import (
     workflow_files,
     write_failed_logs,
 )
-from repomatic.github.gh import GhOutputError
+from repomatic.github.gh import GhCommandError, GhOutputError
 from repomatic.github.outputs import AnnotationLevel
 from tests.conftest import WORKFLOWS_DIR, load_workflow
 
@@ -888,6 +889,32 @@ def test_write_failed_logs_skips_a_job_without_an_id(tmp_path, caplog):
     assert "no job ID" in caplog.text
 
 
+def test_write_failed_logs_skips_a_log_it_cannot_read(tmp_path, caplog):
+    """A log read that fails costs its own file: the next log is still written."""
+    failed = RunStatus(
+        workflow="🔬 Tests",
+        run_id=7,
+        head_sha=TIP_SHA,
+        status="completed",
+        conclusion="failure",
+        jobs=(
+            JobStatus("✅ ubuntu-26.04 / py3.11", "completed", "failure", job_id=101),
+            JobStatus("✅ macos-26 / py3.11", "completed", "failure", job_id=102),
+        ),
+    )
+    status = CIStatus(branch="main", tip_sha=TIP_SHA, runs=[failed])
+
+    def fetch(job_id):
+        if job_id == 101:
+            raise GhCommandError("HTTP 404: Not Found")
+        return f"log of {job_id}\n"
+
+    with caplog.at_level("WARNING"):
+        written = write_failed_logs(status, tmp_path, fetch=fetch)
+    assert [path.name for path in written] == ["Tests--macos-26-py3.11.log"]
+    assert "HTTP 404" in caplog.text
+
+
 # -- Watch --------------------------------------------------------------------
 
 
@@ -927,6 +954,18 @@ def test_watch_state_survives_an_unreadable_file(tmp_path):
     """A corrupt state file starts the watch from an empty baseline."""
     path = tmp_path / "state.json"
     path.write_text("not json", encoding="UTF-8")
+    assert WatchState.load(path).seen == {}
+
+
+def test_watch_state_survives_a_file_it_cannot_open(tmp_path, monkeypatch):
+    """A state file the watch is refused starts it from an empty baseline too."""
+    path = tmp_path / "state.json"
+    path.write_text("{}", encoding="UTF-8")
+
+    def refuse(self, *args, **kwargs):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "read_text", refuse)
     assert WatchState.load(path).seen == {}
 
 

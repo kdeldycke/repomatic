@@ -1388,24 +1388,6 @@ def canonical_workflow(data: Mapping[str, Any], repo: str = DEFAULT_REPO) -> str
     return canonical
 
 
-def identify_canonical_workflow(
-    workflow_path: Path,
-    repo: str = DEFAULT_REPO,
-) -> str | None:
-    """Identify if a workflow file is a thin caller for a canonical workflow.
-
-    :param workflow_path: Path to the workflow file.
-    :param repo: Upstream repository to match against.
-    :return: Canonical workflow filename, or `None` if not a thin caller, or
-        when the file cannot be read or parsed.
-    """
-    try:
-        data = load_workflow(workflow_path.read_text(encoding="UTF-8"))
-    except OSError:
-        return None
-    return None if data is None else canonical_workflow(data, repo)
-
-
 def _upstream_uses_pattern(repo: str) -> re.Pattern[str]:
     """Match a `uses:` reference pointing at *repo*'s workflows or actions."""
     return re.compile(rf"{re.escape(repo)}/\.github/(workflows|actions)/")

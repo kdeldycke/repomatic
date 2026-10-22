@@ -75,9 +75,9 @@ if TYPE_CHECKING:
     required=False,
     default=None,
     type=Choice(sorted(TOOL_REGISTRY)),
-    # Nineteen tools spelled into the usage line wrap it over three lines, and
-    # Click names the offending parameter by its metavar, so a bare Choice
-    # prints the whole roster twice in one error. `--list` is the roster.
+    # The whole roster spelled into the usage line wraps it over several lines,
+    # and Click names the offending parameter by its metavar, so a bare Choice
+    # prints the roster twice in one error. `--list` is the roster.
     metavar="[TOOL]",
 )
 @argument("extra_args", nargs=-1, type=UNPROCESSED)

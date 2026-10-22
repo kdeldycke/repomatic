@@ -63,7 +63,12 @@ from ..github.workflow_sync import (
     render_thin_caller_for_target,
 )
 from ..http import get_bytes
-from ..metadata.core import METADATA_SUBCOMMAND, Metadata, unknown_metadata_keys
+from ..metadata.core import (
+    METADATA_SUBCOMMAND,
+    REMOVED_METADATA_ALIAS,
+    Metadata,
+    unknown_metadata_keys,
+)
 from ..pyproject import (
     is_python_package,
     is_python_project,
@@ -1002,8 +1007,9 @@ def _check_metadata_keys(run: _InitRun, version: str) -> None:
         label = run.label(target)
         if target in removed_alias:
             run.result.warn(
-                f"{label} calls `{package} metadata`, an alias {package} `8.0.0`"
-                f" removed. The job will fail; call `{command}` instead."
+                f"{label} calls `{package} {REMOVED_METADATA_ALIAS}`, an alias"
+                f" {package} `8.0.0` removed. The job will fail; call"
+                f" `{command}` instead."
             )
         if unknown[target]:
             run.result.warn(

@@ -67,8 +67,11 @@ deliberately absent: it never reaches distribution metadata. Neither does
 BUILD_TABLE = "build-system"
 """The table whose `requires` array lists the build dependencies."""
 
-TOML_TABLE_HEADER = re.compile(r"\s*\[{1,2}\s*(?P<path>[^]]+?)\s*\]{1,2}\s*$")
-"""A `[table]` or `[[array of tables]]` header, capturing its dotted path."""
+TOML_TABLE_HEADER = re.compile(r"\s*\[{1,2}\s*(?P<path>[^]]+?)\s*\]{1,2}\s*(?:#.*)?$")
+"""A `[table]` or `[[array of tables]]` header, capturing its dotted path.
+
+A comment may follow the header on its line.
+"""
 
 
 @dataclass(frozen=True)

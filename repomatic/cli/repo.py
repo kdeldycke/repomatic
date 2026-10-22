@@ -1207,7 +1207,7 @@ def sample_metrics(
             config.metrics.subjects, config.metrics.predecessors
         )
     except ValueError as error:
-        raise ClickException(str(error))
+        raise ClickException(str(error)) from error
 
     outcomes = []
     if forward:
@@ -1233,4 +1233,4 @@ def sample_metrics(
         for output, changed in render_charts(readings, config.metrics):
             echo(f"{'Redrew' if changed else 'Unchanged'} {output}.")
     except ValueError as error:
-        raise ClickException(str(error))
+        raise ClickException(str(error)) from error

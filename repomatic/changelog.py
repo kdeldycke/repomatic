@@ -16,8 +16,8 @@
 
 """Changelog parsing, updating, and release lifecycle management.
 
-This module is the single source of truth for all changelog management
-decisions and operations. It handles two phases of the release cycle:
+This module is the single source of truth for parsing and rewriting the
+changelog. It handles two phases of the release cycle:
 
 **Post-release (unfreeze)** — {meth}`Changelog.update`:
 
@@ -124,7 +124,7 @@ from textwrap import indent
 
 from packaging.version import Version
 
-from .file_ops import write_if_changed
+from .file_ops import normalize_text, write_if_changed
 from .humanize import today_utc
 from .templating import render_template
 from .versions import safe_version
@@ -597,7 +597,7 @@ class Changelog:
             return False
 
         return write_if_changed(
-            path, changelog.content.rstrip() + "\n", previous=original
+            path, normalize_text(changelog.content), previous=original
         )
 
     def extract_repo_url(self) -> str:

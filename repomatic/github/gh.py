@@ -47,7 +47,8 @@ import time
 from functools import cache
 from subprocess import run
 
-from ..tooling.binaries import BinaryInstallError, ensure_binary
+from ..tooling.binaries import ensure_binary
+from ..tooling.registry import BinaryInstallError
 from .status import with_status_annotation
 
 TYPE_CHECKING = False
@@ -396,7 +397,7 @@ def gh_json(args: Sequence[str], *, soft: bool = False) -> Any | None:
         return None
 
 
-def gh_api_pages(endpoint: str, *, key: str = "", soft: bool = False) -> list[Any]:
+def gh_api_pages(endpoint: str, *, key: str = "") -> list[Any]:
     """Read every page of a paginated REST endpoint, and return their items.
 
     `gh api --paginate --slurp` follows the `Link` headers and wraps every page
@@ -407,44 +408,17 @@ def gh_api_pages(endpoint: str, *, key: str = "", soft: bool = False) -> list[An
     :param key: The field holding the items, for an endpoint that wraps them in
         an object, like `workflow_runs` for the runs endpoints. Empty for an
         endpoint that answers with an array.
-    :param soft: Return an empty list when the command fails or prints
-        something that is not JSON, as {func}`gh_json` does.
     :return: The items of every page, in API order.
-    :raises GhCommandError: When the command fails and *soft* is not set.
-    :raises GhOutputError: When the output is not JSON and *soft* is not set.
+    :raises GhCommandError: When the command fails.
+    :raises GhOutputError: When the output is not JSON.
     """
-    pages = gh_json(["api", "--paginate", "--slurp", endpoint], soft=soft)
+    pages = gh_json(["api", "--paginate", "--slurp", endpoint])
     items: list[Any] = []
     for page in pages if isinstance(pages, list) else ():
         batch = page.get(key) if key and isinstance(page, dict) else page
         if isinstance(batch, list):
             items.extend(batch)
     return items
-
-
-def gh_api_json(args: Sequence[str], *, strict: bool = False) -> Any | None:
-    """Run a `gh` command expected to emit JSON, and parse it.
-
-    A failed command and an unparsable output both read as `None`, so a caller
-    reports one "could not read it" outcome instead of two it cannot act on
-    differently. With *strict*, a failed command raises instead, while an
-    unparsable output stays a soft miss (`ci-status` reads runs this way).
-
-    A thin layer over {func}`gh_json`, which new code calls directly.
-
-    :param args: Command arguments to pass to `gh`.
-    :param strict: Re-raise the {class}`GhCommandError` of a failed command,
-        instead of returning `None`.
-    :return: The parsed JSON payload, or `None` when the command failed (unless
-        *strict*) or its output did not parse.
-    """
-    if not strict:
-        return gh_json(args, soft=True)
-    try:
-        return gh_json(args)
-    except GhOutputError as error:
-        logging.debug(str(error))
-        return None
 
 
 def _graphql_args(query: str, variables: Mapping[str, str | int | bool]) -> list[str]:

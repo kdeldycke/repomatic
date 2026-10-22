@@ -504,9 +504,8 @@ def test_setup_guide_holds_open_on_a_pat_that_covers_another_repository(
 ):
     """A PAT that covers another repository reopens the token step, and says why.
 
-    The step asks for this repository and nothing else, and nothing read that
-    answer back: the probe ran in `lint-repo` alone, as a warning. An undecided
-    probe closes the issue like a pass does, since the reader cannot act on it.
+    The step asks for this repository and nothing else. An undecided probe
+    closes the issue like a pass does, since the reader cannot act on it.
     `None` keeps the passing default of the seam.
     """
     with _offline_setup_guide(scope_ok=scope_ok) as (lifecycle, bodies):
@@ -599,6 +598,25 @@ def test_setup_guide_virtual_project_skips_pypi_probe(tmp_path, monkeypatch):
         result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
     assert result.exit_code == 0
     probe.assert_not_called()
+
+
+def test_setup_guide_pypi_step_names_the_canonical_project(tmp_path, monkeypatch):
+    """The Trusted Publisher step names the project the way PyPI files it.
+
+    PyPI normalizes a project name, so the settings page of `Fig_Tree` lives
+    under `fig-tree`, and a pending publisher is registered under that name.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        PACKAGE_PYPROJECT.replace('"papaya"', '"Fig_Tree"'), encoding="UTF-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    unregistered = CheckResult(False, "PyPI Trusted Publisher mismatch.")
+    with _offline_setup_guide(pypi_ok=unregistered) as (_lifecycle, bodies):
+        result = _invoke(["setup-guide", "--has-pat", "--repo", REPO_SLUG])
+    assert result.exit_code == 0
+    assert "https://pypi.org/manage/project/fig-tree/settings/publishing/" in bodies[0]
+    assert "**PyPI Project Name** set to `fig-tree`" in bodies[0]
+    assert "`Fig_Tree`" not in bodies[0]
 
 
 def test_setup_guide_nuitka_disabled_hides_vt_step(tmp_path, monkeypatch):

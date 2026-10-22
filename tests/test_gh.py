@@ -31,7 +31,6 @@ from repomatic.github.gh import (
     GhOutputError,
     _graphql_args,
     api_headers,
-    gh_api_json,
     gh_api_pages,
     gh_executable,
     gh_graphql,
@@ -40,7 +39,7 @@ from repomatic.github.gh import (
     parse_create_output,
     run_gh_command,
 )
-from repomatic.tooling.binaries import BinaryInstallError
+from repomatic.tooling.registry import BinaryInstallError
 
 
 @pytest.fixture(autouse=True)
@@ -786,28 +785,16 @@ def test_gh_api_pages_flattens_every_page(pages, key, expected):
     ]
 
 
-def test_gh_api_pages_soft_reads_a_failure_as_empty():
-    """A soft read of an endpoint `gh` cannot reach is an empty list."""
-    with patch(
-        "repomatic.github.gh.run_gh_command",
-        side_effect=GhCommandError("HTTP 502: Bad Gateway"),
+def test_gh_api_pages_raises_when_gh_cannot_reach_the_endpoint():
+    """A paginated read fails loudly: a missing page would corrupt the result."""
+    with (
+        patch(
+            "repomatic.github.gh.run_gh_command",
+            side_effect=GhCommandError("HTTP 502: Bad Gateway"),
+        ),
+        pytest.raises(GhCommandError),
     ):
-        assert gh_api_pages("repos/kiwi/orchard/fruits", soft=True) == []
-        with pytest.raises(GhCommandError):
-            gh_api_pages("repos/kiwi/orchard/fruits")
-
-
-def test_gh_api_json_strict_raises_only_for_the_command():
-    """A strict read fails on a command that cannot run, not on odd output."""
-    with patch(
-        "repomatic.github.gh.run_gh_command",
-        side_effect=GhCommandError("HTTP 502: Bad Gateway"),
-    ):
-        with pytest.raises(GhCommandError):
-            gh_api_json(["api", "repos/kiwi/orchard"], strict=True)
-        assert gh_api_json(["api", "repos/kiwi/orchard"]) is None
-    with patch("repomatic.github.gh.run_gh_command", return_value="not json"):
-        assert gh_api_json(["api", "repos/kiwi/orchard"], strict=True) is None
+        gh_api_pages("repos/kiwi/orchard/fruits")
 
 
 def test_iter_graphql_nodes_missing_connection_yields_nothing():

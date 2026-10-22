@@ -55,6 +55,9 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 
+FOOTER_TEMPLATE = "generated-footer"
+"""The template holding the attribution footer {func}`render_template` appends."""
+
 TEMPLATE_PACKAGE = "repomatic.templates"
 """The package holding the bundled templates."""
 
@@ -65,9 +68,6 @@ TEMPLATE_SUFFIXES = (".md.noformat", ".md")
 placeholder at the head of a list line (`$rerun_entry- **Ref**`) as literal
 text and breaks the list. `pr-metadata.md.noformat` is the canonical example.
 """
-
-FOOTER_TEMPLATE = "generated-footer"
-"""The template holding the attribution footer {func}`render_template` appends."""
 
 
 def _unescape_dollars(text: str) -> str:

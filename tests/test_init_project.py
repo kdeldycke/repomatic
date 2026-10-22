@@ -5764,11 +5764,10 @@ def test_component_names_unique() -> None:
 def test_every_config_key_gate_actually_reaches_its_field() -> None:
     """Every declared `config_key` must move its entry when the user flips it.
 
-    `metrics.sync` once shipped as a gate that could not reach its field: the
-    resolver flattened every dotted key to one attribute name and could not
-    reach a key living on a nested schema, so the entry read as switched off.
-    `Config.is_enabled` now raises on a key with no field, and this test flips
-    each gate the way a user would write it.
+    A resolver that flattens every dotted key to one attribute name cannot
+    reach a key living on a nested schema, like `metrics.sync`, so the entry
+    reads as switched off. `Config.is_enabled` raises on a key with no field,
+    and this test flips each gate the way a user would write it.
 
     Written against the whole registry rather than against that one entry: the
     fault is a property of how a gate is spelled, so any future entry naming a

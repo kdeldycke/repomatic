@@ -415,9 +415,9 @@ def test_description_unreadable_repository():
 def test_repository_object_checks_need_a_repository(name):
     """A check reading the repository object never runs without a repository.
 
-    Without the gate, the description check compared the project's description
-    against nothing and failed, fatally, on every local run naming no
-    repository.
+    Without the gate, the description check would compare the project's
+    description against nothing and fail, fatally, on every local run naming
+    no repository.
     """
     fields: dict[str, Any] = {
         "is_sphinx": True,
@@ -2967,8 +2967,8 @@ def test_thin_caller_secrets_read_the_job_calling_the_canonical_workflow():
     """Another job's `secrets:` never stands in for the canonical lane's.
 
     The build lane comes first in the downstream `release.yaml`. Read in
-    document order, its partial mapping was held against the engine's
-    secrets, and the engine lane's own complete mapping was never read.
+    document order, its partial mapping would be held against the engine's
+    secrets, and the engine lane's own complete mapping never read.
     """
     body = (
         "---\njobs:\n"
@@ -3991,7 +3991,7 @@ def test_declared_label_names_reads_a_yaml_extra_labels_file(tmp_path):
     extra_dir = tmp_path / "extra-labels"
     extra_dir.mkdir()
     (extra_dir / "citrus.yaml").write_text(LEMON_YAML, encoding="UTF-8")
-    names = declared_label_names(Config(), is_awesome=False, labels_dir=tmp_path)
+    names = declared_label_names(Config(), is_awesome=False, root=tmp_path)
     assert "🍋 lemon" in names
     assert "🐛 bug" in names
 

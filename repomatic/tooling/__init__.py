@@ -16,6 +16,7 @@
 
 """The pinned-tool layer.
 
-The registry of external tools, the runner resolving and invoking
-them, the bundled data files, and the plugin settings writer.
+The registry of external tools, the runner resolving and invoking them, the
+download and checksum refresh of their binaries, and the hooks of the Nuitka
+build.
 """

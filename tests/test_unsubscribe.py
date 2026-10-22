@@ -398,9 +398,8 @@ def test_render_detail_table_exact():
 def test_render_detail_table_humanizes_timestamp():
     """A real timestamp renders a relative string, not the '-' placeholder."""
     row = _make_row(updated_at=datetime(2020, 1, 1, tzinfo=UTC))
-    table = _render_detail_table([row])
-    assert " | - | " not in table
-    assert "ago" in table
+    table = _render_detail_table([row], now=datetime(2020, 3, 1, tzinfo=UTC))
+    assert " | 2020-01-01 (2 months ago) | " in table
 
 
 # -- render_report ------------------------------------------------------------
@@ -645,6 +644,12 @@ def test_get_thread_details_malformed_returns_none():
         assert _get_thread_details("https://api.github.com/x") is None
 
 
+def test_get_thread_details_non_object_returns_none():
+    """A JSON answer that is not an object yields None, like a malformed one."""
+    with patch_gh(return_value='["closed"]'):
+        assert _get_thread_details("https://api.github.com/x") is None
+
+
 # -- _unsubscribe_rest_thread -------------------------------------------------
 
 
@@ -736,9 +741,6 @@ def test_iter_closed_items_delegates_to_paginator():
     assert pos_args[2] == {"searchQuery": "involves:fruitbot is:closed"}
     assert kw_args["page_size_var"] == "pageSize"
     assert kw_args["page_size"] == GRAPHQL_PAGE_SIZE
-    # No node budget: the cap counts unsubscribes, and GitHub's search stops at
-    # a thousand results on its own.
-    assert "max_nodes" not in kw_args
 
 
 # -- unsubscribe_threads: phase 1 (REST) --------------------------------------

@@ -471,24 +471,24 @@ def prune_build_artifacts(app, exception):
 
 
 RELEASE_HEADING = re.compile(r"(?P<version>\d+\.\d+\.\d+)(?:\.\w+)? \([^)]+\)")
-"""Rendered title of a changelog release: `7.17.1 (2026-09-30)`.
+"""Rendered title of a changelog release: `1.4.2 (2026-03-15)`.
 
 The release in preparation carries a `.devN` suffix, and the `unreleased` label
-in place of a date: `7.18.0.dev0 (unreleased)`.
+in place of a date: `1.5.0.dev0 (unreleased)`.
 """
 
 
 class ReleaseAnchors(Transform):
-    """Anchor each release of the changelog on its version, like `#v7-17-1`.
+    """Anchor each release of the changelog on its version, like `#v1-4-2`.
 
     docutils builds a section ID from the title, minus its leading digits and
-    hyphens. That leaves nothing of `7.17.1 (2026-09-30)`, so the section takes
+    hyphens. That leaves nothing of `1.4.2 (2026-03-15)`, so the section takes
     the next value of a per-page counter: `#id1` for the newest release. The
     next release then moves every older one, and a saved `#id40` link shows a
     different release.
 
     The version ID replaces that ID on the section, and in the table myst-parser
-    resolves a `[text](changelog.md#v7-17-1)` link against. The `.devN` suffix
+    resolves a `[text](changelog.md#v1-4-2)` link against. The `.devN` suffix
     of the release in preparation is left out, so its anchor does not change the
     day it ships.
 

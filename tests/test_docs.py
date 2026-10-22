@@ -167,7 +167,7 @@ def test_update_docs_runs_apidoc_for_autodoc_project(tmp_path, monkeypatch):
 
 
 def test_update_docs_stops_at_the_first_failed_phase(tmp_path, monkeypatch):
-    """A failed phase leaves the phases after it unrun, as before a raise."""
+    """A failed phase leaves the phases after it unrun."""
     (tmp_path / "docs").mkdir()
     monkeypatch.chdir(tmp_path)
     meta = SimpleNamespace(is_sphinx=True, active_autodoc=True, uses_myst=True)

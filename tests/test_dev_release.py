@@ -130,8 +130,8 @@ def test_sync_dev_release_live(unreleased_changelog):
     with (
         patch_gh(
             side_effect=[
-                json.dumps([]),  # list releases
-                None,  # create new release
+                json.dumps([]),  # List releases.
+                None,  # Create new release.
             ],
         ) as mock_gh,
         patch("repomatic.github.dev_release.edit_release_notes") as mock_edit,

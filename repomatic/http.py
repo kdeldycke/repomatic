@@ -181,7 +181,9 @@ def request(
         `Content-Type` header in *headers*.
     :param headers: Request headers, merged over the `User-Agent` default
         (caller wins on conflict).
-    :param timeout: Socket timeout in seconds.
+    :param timeout: Socket timeout in seconds. *data* goes out in one
+        `sendall` call, which spends the timeout on the whole body: a large
+        upload needs a longer one.
     :return: The status, headers and body of the response.
     :raises FetchError: On an HTTP error status, carrying the status and the
         start of the error body. Also on a network error, a timeout, a URL

@@ -16,6 +16,7 @@
 
 """Dependency analysis and management.
 
-The dependency graph, policy and source gates, the update report,
-the vulnerability audit, and the uv lockfile machinery.
+The dependency graph, policy and source gates, the update report, the
+vulnerability audit, the uv lockfile and cooldown machinery, the version
+updaters, and the registry that drives them.
 """

@@ -12,7 +12,12 @@
 /plugin  /claude-code-plugin   301
 /skills  /agent-skills         301
 
-# API pages of the modules regrouped in 8.0.0.
+# API pages of the modules regrouped in 8.0.0. The four command modules that
+# split by domain land on the page of their package.
+/repomatic.cli.lint  /repomatic.cli  301
+/repomatic.cli.sample  /repomatic.cli  301
+/repomatic.cli.setup  /repomatic.cli  301
+/repomatic.cli.sync  /repomatic.cli  301
 /repomatic.cloudflare_r2  /repomatic.cloudflare.r2  301
 /repomatic.deps.dep_graph  /repomatic.deps.graph  301
 /repomatic.deps.dep_policy  /repomatic.deps.policy  301
@@ -37,3 +42,4 @@
 /repomatic.tooling.plugin  /repomatic.claude_plugin  301
 /repomatic.tooling.tool_registry  /repomatic.tooling.registry  301
 /repomatic.tooling.tool_runner  /repomatic.tooling.runner  301
+/tests.test_actions  /tests.test_outputs  301

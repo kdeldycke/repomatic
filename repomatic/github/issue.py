@@ -17,9 +17,9 @@
 """GitHub issue lifecycle management.
 
 Lists, creates, updates, closes and reopens the issues CI jobs maintain, used
-by {mod}`repomatic.broken_links` and the setup guide. The writes that issues
-share with pull requests (labels, locks) live in
-{mod}`~repomatic.github.threads`.
+by {mod}`repomatic.broken_links`, the setup guide and the `squashed-release`
+command. The writes that issues share with pull requests (labels, locks) live
+in {mod}`~repomatic.github.threads`.
 
 The life-cycle of issues created in CI jobs is managed here by hand because the
 `create-issue-from-file` action blindly creates issues ad-nauseam.

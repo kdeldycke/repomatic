@@ -83,11 +83,12 @@ def uv_lock_command(
 ) -> list[str]:
     """Build a `uv lock` argv carrying a cooldown window.
 
-    The one builder behind every re-lock this package runs (`sync-uv-lock`,
-    the dep-sources swap, `audit --fix`, the held-back probe), so none of them
-    can forget the explicit `--exclude-newer` that keeps CI's ambient
-    `UV_EXCLUDE_NEWER` from retiming the lock: see
-    {attr}`repomatic.deps.cooldown.UvSettings.window`.
+    The one builder behind every re-lock this package runs with a window
+    (`sync-uv-lock`, the dep-sources swap, `audit --fix`, the held-back probe),
+    so none of them can forget the explicit `--exclude-newer` that keeps CI's
+    ambient `UV_EXCLUDE_NEWER` from retiming the lock: see
+    {attr}`repomatic.deps.cooldown.UvSettings.window`. {func}`relock` alone
+    runs a plain `uv lock`.
 
     :param extra: Extra `uv lock` arguments (`--upgrade`,
         `--upgrade-package`, ...), placed before the cooldown flags.

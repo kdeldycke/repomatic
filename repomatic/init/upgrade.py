@@ -23,8 +23,9 @@ and never moved below the pin the repository already carries. `init --upgrade`
 picks the newest release past the cooldown instead, runs `init` as that
 release, and describes the move for the pull request that carries it.
 
-This module is the only reader of the running version and of the commit SHA of
-its tag, so a test stages a release in one place.
+Within the `init` package, this module is the only reader of the running
+version and of the commit SHA of its tag, so a test stages a release in one
+place.
 """
 
 from __future__ import annotations

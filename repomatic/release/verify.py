@@ -21,7 +21,7 @@ its ELF, Mach-O and PE headers, so no external tool is needed on runners or
 inside build containers.
 
 Only `verify-binary` reads headers. This module is kept apart from the build
-roster in {mod}`repomatic.release.binary`, which `metadata` loads on every
+roster in {mod}`repomatic.release.binary`, which `show-metadata` loads on every
 workflow run.
 """
 

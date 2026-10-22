@@ -240,9 +240,11 @@ def checkout(ref: str) -> None:
 
 
 def discard_changes() -> None:
-    """Put every tracked file of the working tree back to its `HEAD` content.
+    """Put every tracked file of the working tree back to its content in the index.
 
-    Untracked files stay where they are.
+    That is the `HEAD` content while nothing is staged: a staged change stays
+    staged, and its file keeps the staged content. Untracked files stay where
+    they are.
     """
     _git("checkout", "--", ".")
 

@@ -28,7 +28,7 @@ Released dependencies on stable Python get a broad spread, but *broad* means bro
 
 Unreleased dependency branches and prerelease Python run on one runner as `continue-on-error` probes (`test-matrix.unstable`), never across platforms: a probe that fails is information, and paying for it six times over buys none.
 
-A *released* free-threaded build (`3.14t`) is a different case and runs **stable** on a single runner, as a `python-version` variation pinned with `exclude` and left out of `unstable`. It is shipped software, so a failure there is a real failure.
+A *released* free-threaded build (`3.15t`) is a different case and runs **stable** on a single runner, as one `include` row pinned to that runner and left out of `unstable`. It is shipped software, so a failure there is a real failure.
 
 ### Ask what a cell has caught, not what it might
 

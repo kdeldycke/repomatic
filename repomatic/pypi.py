@@ -15,8 +15,8 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 """PyPI API client for package metadata lookups.
 
-Provides a shared HTTP client and domain-specific query functions used by
-{mod}`repomatic.changelog` (release dates, yanked status),
+Domain-specific query functions, over the shared client of {mod}`repomatic.http`,
+used by {mod}`repomatic.lint_changelog` (release dates, yanked status),
 {mod}`repomatic.deps.pins` (release candidates) and
 {mod}`repomatic.deps.report` (source repository discovery for release notes).
 Also the home of what counts as the public index at all
@@ -191,7 +191,7 @@ def _fetch_json(package: str, *, force_refresh: bool = False) -> dict[str, Any] 
     reports that release as missing, which is indistinguishable from "never
     published" at this layer. A caller about to act on an *absence* around
     release time wants *force_refresh*: see
-    {func}`repomatic.changelog.lint_changelog_dates`, which re-confirms live
+    {func}`repomatic.lint_changelog.lint_changelog_dates`, which re-confirms live
     before it reports or records a release as missing.
     ```
 
@@ -209,7 +209,7 @@ def _fetch_json(package: str, *, force_refresh: bool = False) -> dict[str, Any] 
     [pypi/warehouse#9536](https://github.com/pypi/warehouse/issues/9536)).
     Callers that drive destructive operations on this result must add a
     sanity check at the call site — see
-    {data}`repomatic.changelog.EMPTY_PYPI_SANITY_THRESHOLD` for an
+    {data}`repomatic.lint_changelog.EMPTY_PYPI_SANITY_THRESHOLD` for an
     example.
     ```
 

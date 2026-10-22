@@ -85,7 +85,11 @@ from repomatic.metadata.matrix import NUITKA_CACHE_KEY
 from repomatic.metadata.output import Dialect, format_github_value
 from repomatic.pyproject import read_pyproject_toml
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
-from tests.conftest import IN_GIT_CHECKOUT, metadata_from_pyproject
+from tests.conftest import (
+    IN_GIT_CHECKOUT,
+    WORKFLOWS_DIR,
+    metadata_from_pyproject,
+)
 
 
 def regex(pattern: str) -> re.Pattern:
@@ -895,7 +899,7 @@ def test_metadata_config_fields_are_read_by_a_workflow(field_name):
     The subcommands read `[tool.repomatic]` themselves, so an allowed field no
     workflow mentions is surface nobody consumes.
     """
-    workflows = sorted(Path(".github/workflows").glob("*.y*ml"))
+    workflows = sorted(WORKFLOWS_DIR.glob("*.y*ml"))
     assert workflows
     assert any(
         field_name in workflow.read_text(encoding="UTF-8") for workflow in workflows

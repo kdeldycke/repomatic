@@ -87,6 +87,7 @@ from click_extra import echo
 
 from ..github.outputs import AnnotationLevel, emit_annotation
 from ..hashing import compute_file_sha256
+from ..http import ERROR_BODY_EXCERPT
 from ..humanize import format_file_size
 from ..tabular import ReportAction, render_markdown_table
 from . import api
@@ -271,7 +272,7 @@ def _send(request: urllib.request.Request, label: str) -> None:
         with urllib.request.urlopen(request, timeout=S3_TIMEOUT):
             return
     except urllib.error.HTTPError as error:
-        detail = error.read().decode(errors="replace")[:400]
+        detail = error.read().decode(errors="replace")[:ERROR_BODY_EXCERPT]
         raise refusal(label, error.code, detail) from error
     # `URLError` covers a refused connection, but a timeout or a reset in the
     # middle of a long upload arrives as a bare `OSError` or `HTTPException`.

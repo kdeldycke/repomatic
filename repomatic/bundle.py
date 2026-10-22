@@ -18,16 +18,14 @@
 
 The lowest layer of bundled-data access, deliberately dependency-free so any
 module can read a data file without import cycles. Policy layers sit above:
-the init command validates names against the exportable-file registry, and
-{mod}`repomatic.tooling.runner` resolves tool configs.
+`repomatic init` reads only the files {data}`~repomatic.components.COMPONENTS`
+declares, and {mod}`repomatic.tooling.runner` resolves tool configs.
 """
 
 from __future__ import annotations
 
 from functools import cache
 from importlib.resources import as_file, files
-
-TYPE_CHECKING = False
 
 
 @cache

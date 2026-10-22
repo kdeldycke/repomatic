@@ -86,9 +86,7 @@ def test_is_enabled_rejects_a_key_with_no_field(key):
 
 def test_config_key_paths_cover_every_reference_row():
     """The gate map and the reference table agree on the set of keys."""
-    assert set(config_key_paths()) == {
-        option.strip("`") for option, *_ in config_reference()
-    }
+    assert set(config_key_paths()) == {key for key, *_ in config_reference()}
 
 
 @pytest.mark.parametrize(

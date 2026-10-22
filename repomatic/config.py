@@ -16,9 +16,9 @@
 
 """Configuration schema and loading for `[tool.repomatic]` in `pyproject.toml`.
 
-Defines the `Config` dataclass, its TOML serialization helpers, and the
-`load_repomatic_config` function that reads, validates, and returns a typed
-`Config` instance.
+Defines the `Config` dataclass, the helpers that read it by dotted
+`[tool.repomatic]` key, and the `load_repomatic_config` function that reads,
+validates, and returns a typed `Config` instance.
 """
 
 from __future__ import annotations
@@ -972,14 +972,14 @@ class Config:
     exclude: list[str] = field(default_factory=list)
     """Additional components and files to exclude from repomatic operations.
 
-    Additive to the default exclusions (`agents`, `labels`, `skills`). Bare
-    names exclude an entire component (e.g., `"workflows"`). Qualified
+    Additive to the default exclusions,
+    {data}`~repomatic.components.DEFAULT_EXCLUDED_COMPONENTS`. Bare names
+    exclude an entire component (like `"workflows"`). Qualified
     `component/identifier` entries exclude a specific file within a component
-    (e.g., `"workflows/autolock.yaml"`, `"skills/repomatic-audit"`,
-    `"labels/labels.toml"`).
+    (like `"workflows/autolock.yaml"` or `"skills/repomatic-audit"`).
 
-    Affects `repomatic init`, `workflow sync`, and `workflow create`.
-    Explicit CLI positional arguments override this list.
+    Affects `repomatic init`. Explicit CLI positional arguments override this
+    list.
     """
 
     github_releases_sync: bool = field(
@@ -999,9 +999,11 @@ class Config:
     include: list[str] = field(default_factory=list)
     """Components and files to force-include, overriding default exclusions.
 
-    Use this to opt into components that are excluded by default (`agents`,
-    `labels`, `skills`). Each entry is subtracted from the effective exclude
-    set (defaults + user `exclude`) and bypasses `RepoScope` filtering, so
+    Use this to opt into a component of
+    {data}`~repomatic.components.DEFAULT_EXCLUDED_COMPONENTS`. An ephemeral one,
+    like `labels`, stays out: the commands that read its files regenerate them
+    on demand. Each entry is subtracted from the effective exclude set
+    (defaults + user `exclude`) and bypasses `RepoScope` filtering, so
     scope-restricted components (like awesome-only skills or Python-only
     `publish-pypi-action`) are included regardless of repository type.
     Qualified entries (`component/file`) implicitly select the parent

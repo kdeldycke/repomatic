@@ -86,6 +86,7 @@ from .main import (
     repo_name_option,
     repo_option,
     report_options,
+    resolve_repo,
     subcommand,
     write_output,
 )
@@ -919,9 +920,9 @@ def sponsor_label(
 
 
 @subcommand(short_help="Sync repository labels via labelmaker")
-@repo_option()
+@repo_option(deferred=True)
 @pass_context
-def sync_labels(ctx: Context, repo: str) -> None:
+def sync_labels(ctx: Context, repo: str | None) -> None:
     """Sync repository labels from bundled definitions using labelmaker.
 
     Applies the bundled label definitions to the repository using labelmaker:
@@ -936,6 +937,7 @@ def sync_labels(ctx: Context, repo: str) -> None:
     """
     config = get_tool_config(ctx)
     exit_if_disabled(ctx, "labels.sync")
+    repo = resolve_repo(repo, ctx)
     try:
         apply_labels(config, repo, is_awesome=is_awesome_repo(repo_name(repo)))
     except RuntimeError as error:

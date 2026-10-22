@@ -164,7 +164,7 @@ def test_a_withdrawn_label_is_left_to_actionlint() -> None:
     assert not plan_runner_changes({}, {"ubuntu-18.04"}, CATALOG)
 
 
-def test_apply_literal_rewrite_touches_literals_only(tmp_path) -> None:
+def test_rewrite_literals_touches_literals_only(tmp_path) -> None:
     """Quoting survives, expressions are left alone, and a re-run is a no-op."""
     workflows = tmp_path / "workflows"
     workflows.mkdir()
@@ -187,7 +187,7 @@ def test_apply_literal_rewrite_touches_literals_only(tmp_path) -> None:
     assert not change.rewrite_literals(workflows), "second run should be a no-op"
 
 
-def test_apply_upgrade_writes_sections_not_inline_tables(tmp_path) -> None:
+def test_add_probe_writes_sections_not_inline_tables(tmp_path) -> None:
     """The probe lands as real sections and re-applies as a no-op."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text('[project]\nname = "demo"\n', encoding="UTF-8")
@@ -201,7 +201,7 @@ def test_apply_upgrade_writes_sections_not_inline_tables(tmp_path) -> None:
     assert not change.add_probe(pyproject), "second run should be a no-op"
 
 
-def test_apply_upgrade_is_idempotent_against_the_formatter_shape(tmp_path) -> None:
+def test_add_probe_is_idempotent_against_the_formatter_shape(tmp_path) -> None:
     """Re-reading what `format-pyproject` leaves behind finds the probe present.
 
     The applier writes sections; the formatter normalizes them into dotted keys
@@ -228,9 +228,9 @@ def test_apply_upgrade_is_idempotent_against_the_formatter_shape(tmp_path) -> No
     )
 
 
-def test_apply_axes_retirement_moves_the_curated_tuple(tmp_path) -> None:
+def test_rewrite_axes_moves_the_curated_tuple(tmp_path) -> None:
     """The axes move as text, keeping their comments and their ordering."""
-    axes = tmp_path / "matrix_axes.py"
+    axes = tmp_path / "axes.py"
     axes.write_text(
         "TEST_RUNNERS_FULL = (\n"
         '    "ubuntu-22.04",  # the x86 slot\n'
@@ -270,8 +270,7 @@ def test_runner_label_is_spelled_once(label: str) -> None:
     """Each runner label of the axes is one literal, in the axes module.
 
     A retirement rewrites that module alone, so a copy of the label anywhere
-    else in the package stays on the retired image: the build fleet did, until
-    a hand edit made the retirement pull request pass.
+    else in the package stays on the retired image.
     """
     spelled = {
         path.relative_to(PROJECT_ROOT).as_posix(): count
