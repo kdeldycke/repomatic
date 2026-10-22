@@ -2513,6 +2513,31 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             ```
             """),
     ),
+    "wrangler": ToolSpec(
+        name="wrangler",
+        display_name="Wrangler",
+        version="4.150.0",
+        npm=NpmSpec(),
+        source_url="https://github.com/cloudflare/workers-sdk",
+        # The monorepo tags each package of it, like `wrangler@4.150.0`: the
+        # release notes of a bump are looked up under that tag.
+        tag_pattern=r"^wrangler@(?P<version>.+)$",
+        config_docs_url="https://developers.cloudflare.com/workers/wrangler/configuration/",
+        cli_docs_url="https://developers.cloudflare.com/workers/wrangler/commands/",
+        docs_notes=cleandoc(r"""
+            **Try it:**
+
+            ```shell-session
+            $ repomatic run wrangler -- pages deploy ./docs/_build --project-name papaya
+            ```
+
+            Cloudflare's CLI, which the `deploy-docs-cloudflare` job uploads the built
+            site with. It authenticates from `CLOUDFLARE_API_TOKEN` in the environment,
+            or from the session a local `wrangler login` stored. There is no
+            `[tool.wrangler]` section: a Direct Upload project carries no build
+            configuration, see [Cloudflare Pages](cloudflare.md).
+            """),
+    ),
     "yamllint": ToolSpec(
         name="yamllint",
         default_args=(".",),

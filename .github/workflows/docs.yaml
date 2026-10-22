@@ -220,9 +220,9 @@ jobs:
         # repository. The project defaults to the repository's name, overridden
         # by `[tool.repomatic] site.cloudflare-project` for a project that
         # predates repomatic, and must already exist either way.
-        # `wrangler` is pinned as an npm literal, which `sync-workflow-pins`
-        # keeps current and the workflow-level cooldown holds to a release old
-        # enough to have been withdrawn if it were broken.
+        # `wrangler` comes from the `repomatic run` registry: pinned, installed
+        # through the pinned npm under the cooldown with install scripts blocked,
+        # and its registry signatures verified. See repomatic/tooling/registry.py.
         # Every value reaches the command through `env:` rather than inline
         # expansion: a branch name is attacker-controllable, and `${{ }}` in a
         # `run:` body is substituted into the script before the shell sees it.
@@ -232,7 +232,8 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
         run: >
-          npx --yes wrangler@4.150.0 pages deploy ./docs/_build
+          uv --no-progress run --frozen -- repomatic run wrangler --
+          pages deploy ./docs/_build
           --project-name "$PROJECT_NAME"
           --branch "$REF_NAME"
           --commit-hash "$COMMIT_SHA"
