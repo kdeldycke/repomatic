@@ -45,7 +45,7 @@
 - Add the `sync-runner-images.sync` and `github-releases.sync` keys to turn off these two syncs.
 - Add the `bump-version`, `create-release`, `pack-manpages`, `squashed-release` and `wait-pypi` commands, which replace the shell steps of the release workflows.
 - Add `prepare-release --commit` and `--output`, `--upload-to` on `pack-attestation` and `pack-binaries`, and `pack-attestation --require-declared` and `--verify`.
-- Add `sync-deps --pr-sync`, which syncs each updater from a clean tree and opens or refreshes its own pull request.
+- Add `sync-deps --pr-sync`, which syncs each updater from a clean tree, opens or refreshes its own pull request, and refuses uncommitted changes.
 - Add the `show-metadata` keys `is_awesome`, `builds_sphinx`, `main_cli_script`, `import_name`, `latest_stable_python`, `is_release_push` and `release_commit`.
 - `nuitka_matrix` is now empty when the binary build is skipped, and each entry gains a `nuitka_cache` flag.
 - `manpages_asset_name` now gives its `<package>-manpages` default instead of an empty value.
@@ -127,6 +127,7 @@
 - Fix the Linux binaries baking no git field: the build job now trusts the checkout inside the manylinux container.
 - Fix the file lists of `repomatic` commands including the files that `.git/info/exclude` ignores, like an agent worktree under `.claude/worktrees/`.
 - Fix stale claims of the bundled `babysit-ci`, `repomatic-ship` and `repomatic-test-matrix` skills on release runs, binary skips and `format-python` pull requests.
+- Fix a dependency pull request picking up the staged changes of an updater whose commit failed.
 
 ## [`7.18.0` (2026-10-13)](https://github.com/kdeldycke/repomatic/compare/v7.17.1...v7.18.0)
 

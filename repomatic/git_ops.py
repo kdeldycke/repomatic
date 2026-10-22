@@ -240,13 +240,30 @@ def checkout(ref: str) -> None:
 
 
 def discard_changes() -> None:
-    """Put every tracked file of the working tree back to its content in the index.
+    """Put the index and the working tree back to `HEAD`.
 
-    That is the `HEAD` content while nothing is staged: a staged change stays
-    staged, and its file keeps the staged content. Untracked files stay where
-    they are.
+    Staged changes go too, a file staged as new included: a commit that failed
+    after its `git add` cannot hand its diff to whatever is committed next.
+    Untracked files stay where they are.
     """
-    _git("checkout", "--", ".")
+    _git("reset", "--hard", "HEAD")
+
+
+def changed_paths() -> tuple[str, ...]:
+    """Return the tracked paths whose index or working tree differs from `HEAD`.
+
+    What {func}`discard_changes` would throw away: a staged change and an
+    unstaged one both count, an added or a deleted file included, and a rename
+    counts as its two paths. Untracked files do not, since no reset to `HEAD`
+    touches them.
+
+    :return: The paths, sorted. Empty on a clean tree.
+    """
+    output = _git(
+        "status", "--porcelain", "-z", "--untracked-files=no", "--no-renames"
+    ).stdout
+    # Each entry is two status letters and a space, then the path.
+    return tuple(sorted({entry[3:] for entry in output.split("\0") if entry}))
 
 
 def show_file(ref: str, path: str) -> str | None:

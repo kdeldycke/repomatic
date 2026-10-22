@@ -471,8 +471,8 @@ def _build_candidate(
     """Build the candidate branch on a throwaway branch, and push it if it moved.
 
     The original checkout is restored before returning, whatever happens: the
-    `sync-deps` job of `autofix.yaml` opens four pull requests in sequence from
-    one checkout and needs each to start from a clean tree.
+    `sync-deps` job of `autofix.yaml` opens one pull request per updater, in
+    sequence from one checkout, and needs each to start from a clean tree.
 
     :param branch: Head branch the candidate is pushed to.
     :param base_sha: The tip of the base branch on the remote.

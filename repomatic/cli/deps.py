@@ -866,7 +866,8 @@ def _sync_pull_requests(
     help=(
         "Run the updaters one after the other, each from a clean tree, and open,"
         " refresh or close the pull request of each, as `pr-sync` does. The mode"
-        " the autofix workflow runs."
+        " the autofix workflow runs. Refuses to start while a tracked file holds"
+        " uncommitted changes."
     ),
 )
 @pass_context
@@ -902,12 +903,21 @@ def sync_deps(
     to HEAD, and opens, refreshes or closes the pull request on the branch
     named after it. A named updater with nothing to act on in this tree runs
     nothing, and only closes a stale pull request. A failed updater leaves its
-    pull request alone, the others still run, and the command exits 1.
+    pull request alone, the others still run, and the command exits 1. Since
+    the reset discards uncommitted changes, the mode refuses to start when a
+    tracked file holds some, staged or not. Untracked files do not block it.
     """
     if pr_sync and (dry_run or output):
         msg = (
             "--pr-sync writes each report into its pull request: it takes no"
             " --dry-run and no --output."
+        )
+        raise UsageError(msg)
+    if pr_sync and (uncommitted := git_ops.changed_paths()):
+        msg = (
+            "--pr-sync puts the tree back to HEAD before each updater, which"
+            f" would discard the uncommitted changes to {', '.join(uncommitted)}."
+            " Commit or stash them first."
         )
         raise UsageError(msg)
 

@@ -28,6 +28,7 @@ from repomatic.git_ops import (
     COMMIT_IDENTITY_EMAIL,
     COMMIT_IDENTITY_NAME,
     GitError,
+    changed_paths,
     checkout,
     commit_exists,
     commit_staged,
@@ -39,6 +40,7 @@ from repomatic.git_ops import (
     deepen_until_related,
     delete_branch,
     delete_remote_branch,
+    discard_changes,
     fetch_commit,
     fetch_remote_branch,
     force_push_branch,
@@ -444,6 +446,44 @@ def test_branch_cycle_publishes_and_restores(git_workdir):
     assert not (git_workdir / "extra.txt").exists()
     assert fetch_remote_branch("sync-fruits") == published
     assert count_commits_between(base_sha, published) == 1
+
+
+def test_discard_changes_drops_what_a_failed_commit_staged(git_workdir):
+    """The index goes back to `HEAD` with the tree, untracked files aside.
+
+    An updater whose commit fails after its `git add` leaves its diff staged.
+    Restored from the index alone, the tree would keep that diff, and the
+    whole-tree stage of the next updater would publish it in its own pull
+    request.
+    """
+    (git_workdir / "seed.txt").write_text("papaya\n", encoding="UTF-8")
+    (git_workdir / "fruits.txt").write_text("quince\n", encoding="UTF-8")
+    assert stage_all() is True
+    (git_workdir / "seed.txt").write_text("melon\n", encoding="UTF-8")
+    (git_workdir / "leftover.txt").write_text("stray\n", encoding="UTF-8")
+
+    discard_changes()
+
+    assert (git_workdir / "seed.txt").read_text(encoding="UTF-8") == "seed\n"
+    assert not (git_workdir / "fruits.txt").exists()
+    assert (git_workdir / "leftover.txt").exists()
+    assert _run_git("diff", "--cached", "--name-only", cwd=git_workdir) == ""
+
+
+def test_changed_paths_lists_what_a_reset_would_discard(git_workdir):
+    """Staged and unstaged changes count, a rename as its two paths.
+
+    An untracked file is no change: no reset to `HEAD` touches it.
+    """
+    assert changed_paths() == ()
+    _seed_commit(git_workdir, "pears.txt", "pear\n", "Seed pears")
+    (git_workdir / "seed.txt").write_text("papaya\n", encoding="UTF-8")
+    _run_git("mv", "pears.txt", "plums.txt", cwd=git_workdir)
+    (git_workdir / "kiwis.txt").write_text("kiwi\n", encoding="UTF-8")
+    _run_git("add", "kiwis.txt", cwd=git_workdir)
+    (git_workdir / "notes.txt").write_text("untracked\n", encoding="UTF-8")
+
+    assert changed_paths() == ("kiwis.txt", "pears.txt", "plums.txt", "seed.txt")
 
 
 def test_stage_all_pathspec_leaves_everything_else_dirty(git_workdir):

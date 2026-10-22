@@ -85,6 +85,10 @@ from repomatic.tooling.registry import TOOL_REGISTRY
 from repomatic.versions import is_newer
 from tests.conftest import load_workflow
 
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 OPERATION_NAMES = [op.name for op in SYNC_OPERATIONS]
 
 SHARED_JOB = "sync-deps"
@@ -514,6 +518,7 @@ def test_pr_sync_mode_runs_each_operation_from_a_clean_tree(monkeypatch) -> None
     monkeypatch.setattr(
         "repomatic.cli.deps.selected_operations", lambda config, names: operations
     )
+    monkeypatch.setattr("repomatic.cli.deps.git_ops.changed_paths", lambda: ())
     monkeypatch.setattr(
         "repomatic.cli.deps.git_ops.discard_changes", lambda: events.append("reset")
     )
@@ -552,6 +557,92 @@ def test_pr_sync_mode_refuses_a_preview_or_a_report(flag) -> None:
     result = CliRunner().invoke(repomatic, ["sync-deps", "--pr-sync", flag])
     assert result.exit_code == 2
     assert "--pr-sync" in result.output
+
+
+def _seeded_repository(root: Path) -> Callable[..., str]:
+    """Commit `basket.txt` in a new repository at *root*, and return its `git`."""
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Seeder",
+                "-c",
+                "user.email=seeder@example.com",
+                *args,
+            ],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="UTF-8",
+        ).stdout
+
+    git("init", "--initial-branch=main")
+    (root / "basket.txt").write_text("apple\n", encoding="UTF-8")
+    git("add", "basket.txt")
+    git("commit", "--message", "Seed")
+    return git
+
+
+@pytest.mark.parametrize("staged", (True, False), ids=("staged", "unstaged"))
+def test_pr_sync_mode_refuses_uncommitted_changes(
+    tmp_path, monkeypatch, hermetic_git, staged
+) -> None:
+    """An edit to a tracked file survives: the mode refuses to start.
+
+    Each updater starts from a tree put back to `HEAD`, which would discard the
+    work of a developer running the mode on their own checkout. The refusal
+    comes before the first reset, and names what it protects.
+    """
+    git = _seeded_repository(tmp_path)
+    basket = tmp_path / "basket.txt"
+    basket.write_text("banana\n", encoding="UTF-8")
+    if staged:
+        git("add", "basket.txt")
+    monkeypatch.chdir(tmp_path)
+    events: list[str] = []
+    monkeypatch.setattr(
+        "repomatic.cli.deps.selected_operations",
+        lambda config, names: [_recording_operation("sync-uv-lock", events)],
+    )
+    monkeypatch.setattr(
+        "repomatic.cli.deps.upsert_pr",
+        lambda **kwargs: PrSyncResult(PrOperation.UPDATED, kwargs["branch"]),
+    )
+
+    result = CliRunner().invoke(repomatic, ["sync-deps", "--pr-sync", "sync-uv-lock"])
+
+    assert result.exit_code == 2, result.output
+    assert "basket.txt" in result.output
+    assert events == []
+    assert basket.read_text(encoding="UTF-8") == "banana\n"
+    staged_names = git("diff", "--cached", "--name-only").split()
+    assert staged_names == (["basket.txt"] if staged else [])
+
+
+def test_pr_sync_mode_runs_beside_untracked_files(
+    tmp_path, monkeypatch, hermetic_git
+) -> None:
+    """An untracked file never blocks the mode: no reset touches it."""
+    _seeded_repository(tmp_path)
+    (tmp_path / "notes.txt").write_text("plum\n", encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "repomatic.cli.deps.selected_operations",
+        lambda config, names: [_recording_operation("sync-uv-lock", [])],
+    )
+    with patch(
+        "repomatic.cli.deps._sync_pull_requests", return_value=[]
+    ) as sync_pull_requests:
+        result = CliRunner().invoke(
+            repomatic, ["sync-deps", "--pr-sync", "sync-uv-lock"]
+        )
+
+    assert result.exit_code == 0, result.output
+    sync_pull_requests.assert_called_once()
+    assert (tmp_path / "notes.txt").exists()
 
 
 def test_pinned_with_packages_covers_every_registry_pin() -> None:
