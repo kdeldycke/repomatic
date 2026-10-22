@@ -49,13 +49,13 @@ Rows sort on `--row-axis` first and `--col-axis` next, and those two axes lead t
 invoke(repomatic, args=['show-test-matrix', 'pr', '--grid'])
 ```
 
-Because a grid has two axes and a matrix may vary on more, a repository testing several dependency versions per job (a `click-version` axis, say) lands all of them on the same Python-by-runner intersection. Such a cell states how many jobs it stands for, `✅ stable ×5`, so it never reads as a single job. This repository's own grid has one such cell: `✅ stable ×2` on the floor Python, where the `resolution` row shares the intersection of its twin. To break them apart, pivot onto the axes you care about:
+Because a grid has two axes and a matrix may vary on more, a repository testing several dependency versions per job (a `click-version` axis, say) lands all of them on the same Python-by-runner intersection. Such a cell states how many jobs it stands for, `✅ stable ×5`, so it never reads as a single job. This repository's own grid has one such cell: `✅ stable ×2` on the floor Python, where the `resolution` row shares the intersection of its twin. To break them apart, pivot onto the axis that separates them. A job with no value on a grid axis has no cell there, so pivoting the columns onto `resolution` shows the `lowest-direct` job alone:
 
 ```{click:run}
-invoke(repomatic, args=['show-test-matrix', '--grid', '--row-axis', 'os', '--col-axis', 'python-version'])
+invoke(repomatic, args=['show-test-matrix', '--grid', '--col-axis', 'resolution'])
 ```
 
-Both views honor the global `--table-format` option, so the same jobs render as GitHub-flavored Markdown, CSV, JSON, and the rest.
+Only the plain listing, without `--grid`, keeps every job. Both views honor the global `--table-format` option, so the same jobs render as GitHub-flavored Markdown, CSV, JSON, and the rest.
 
 ### The raw GitHub Actions matrix
 

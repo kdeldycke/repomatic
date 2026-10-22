@@ -52,14 +52,14 @@ GitHub Actions has several design limitations that the workflows work around:
 
 Every job that occupies a runner declares `timeout-minutes`. GitHub offers no workflow-level or organization-level default for it, so the key has to be repeated on each job, and a job that omits it runs until the platform's [6-hour ceiling](https://docs.github.com/en/actions/reference/limits). That default is the wrong shape for a shared account: the macOS and Windows runner pools are capped per account and shared by every repository in it, so one hung cell starves all the others for the rest of those six hours. The cost of the omission lands on projects that have nothing to do with the workflow that hung.
 
-The caps are runaway backstops, not performance budgets. Each sits far above the job's measured worst case, so ordinary growth never trips one:
+The caps are runaway backstops, not performance budgets. Each leaves headroom above the measured worst case of the jobs it covers, so ordinary growth does not trip one. The worst cases are the longest whole-job wall-clock among recent successful runs, measured on 2026-10-22. [`repomatic job-timings`](test-matrix.md#measuring-your-own) reads the same figure per runner image:
 
-| Cap        | Applies to                                                                                                          | Measured worst case                                      |
-| :--------- | :------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------- |
-| 10 minutes | `test-binaries`'s per-target smoke test, gated to release commits                                                   | ~1-2 min (estimated; see the job's own timeout comment)  |
-| 15 minutes | Bounded local work or a handful of API calls: linting, formatting, `metadata`, the sync jobs, label management      | 2.8 min (`autolock`'s thread sweep)                      |
-| 30 minutes | Jobs that provision a toolchain, iterate a matrix cell, poll an external service, or paginate a whole issue history | 4.8 min (`tests` on `macos-26-intel` / py3.10)           |
-| 45 minutes | `compile-binaries`, and `check-broken-links` whose crawl is paced by other people's servers                         | 17.4 min (cold-cache compile), 10.4 min (the link crawl) |
+| Cap        | Applies to                                                                                                          | Measured worst case                                                                                 |
+| :--------- | :------------------------------------------------------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------- |
+| 10 minutes | `test-binaries`'s per-target smoke test, gated to release commits, and `cloudflare-config-drift`                    | 4.9 min (`test-binaries` on `macos-26-intel`)                                                       |
+| 15 minutes | Bounded local work or a handful of API calls: linting, formatting, `metadata`, the sync jobs, label management      | 1.9 min (`format-markdown`)                                                                         |
+| 30 minutes | Jobs that provision a toolchain, iterate a matrix cell, poll an external service, or paginate a whole issue history | 12.1 min (`scan-virustotal`, measured with `vt-py`), 8.8 min (`tests` on `macos-26-intel` / py3.11) |
+| 45 minutes | `compile-binaries`, and `check-broken-links` whose crawl is paced by other people's servers                         | 32.0 min (`compile-binaries` on `macos-26-intel`), 22.4 min (the link crawl)                        |
 
 Two jobs carry no cap, and cannot: `release.yaml`'s `build` and `release` delegate to a reusable workflow via `uses:`, where GitHub accepts only `name`, `uses`, `with`, `secrets`, `needs`, `if` and `permissions`. Their runtime is bounded by the caps on the jobs of the workflow they call.
 
