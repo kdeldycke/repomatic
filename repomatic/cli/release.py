@@ -42,7 +42,7 @@ from click_extra import (
     pass_context,
 )
 
-from ..changelog import Changelog, load_changelog_repo
+from ..changelog import Changelog, load_changelog_repo, resolved_changelog_path
 from ..claude_plugin import ARCHIVE_NAME, pack_plugin
 from ..deps.uv import UvError, relock
 from ..file_ops import write_if_changed
@@ -126,7 +126,7 @@ from ..tooling.runner import run_tool
 from ..upstream import DEFAULT_REPO
 from ..versions import BUMP_PARTS
 from .main import (
-    changelog_option,
+    carry_from_option,
     dry_run_option,
     exit_if_disabled,
     output_option,
@@ -139,11 +139,28 @@ from .main import (
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from typing import Any, TypeVar
 
+    from click import Context as ClickContext, Parameter
     from click_extra import Context
 
-    FC = TypeVar("FC", bound="Callable[..., Any]")
+    from .main import FC
+
+
+def _resolve_changelog(ctx: ClickContext, param: Parameter, value: Path | None) -> Path:
+    """Fall back to the `[tool.repomatic] changelog.location` path."""
+    if value is not None:
+        return value
+    return resolved_changelog_path(get_tool_config(ctx))
+
+
+changelog_option = option(
+    "--changelog",
+    "changelog_path",
+    type=file_path(exists=True, readable=True, resolve_path=True),
+    default=None,
+    callback=_resolve_changelog,
+    help="Path to the changelog file. Defaults to [tool.repomatic] changelog.location.",
+)
 
 
 @subcommand(
@@ -1172,16 +1189,7 @@ def wait_pypi(ctx: Context, dist_dir: Path, attempts: int, delay: int) -> None:
     default=None,
     help="CSV scan history to record detection snapshots in (requires --poll).",
 )
-@option(
-    "--carry-from",
-    "carry_from",
-    metavar="BRANCH",
-    default=None,
-    help="Restore --records from this remote branch before scanning, so "
-    "snapshots still pending in an open pull request are appended to instead "
-    "of dropped. Name the branch the job publishes to. Ignored when the "
-    "branch does not exist, which is every run that follows a merge.",
-)
+@carry_from_option
 def scan_virustotal(
     tag: str,
     api_key: str,

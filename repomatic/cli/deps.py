@@ -437,8 +437,9 @@ def audit(
         echo("Upgraded vulnerable packages.")
         report = result.render(today_utc())
         echo(report)
-        # Keep the github-actions key as `diff_table`: the autofix
-        # workflow's pr-metadata step reads steps.fix.outputs.diff_table_file.
+        # Keep the github-actions key as `diff_table`: the pull request step
+        # of the autofix `fix-vulnerable-deps` job reads
+        # steps.fix.outputs.diff_table_file.
         emit_report(report, output, output_format)
         ctx.exit(0)
 
@@ -1267,9 +1268,11 @@ def sync_workflow_pins(
     """Bump npm and PyPI version literals embedded in workflow YAML.
 
     \b
-    Scans workflow and composite-action files for `npm install pkg@x` and
-    `uvx '<pkg>==x'` pins, resolves each to its latest release passing the
-    [tool.repomatic] minimum-release-age cooldown, and rewrites the literal.
+    Scans workflow and composite-action files for `npm install pkg@x`,
+    `npx pkg@x`, `uvx 'pkg==x'` and `--with 'pkg==x'` pins, and for the uv
+    `version:` input of `astral-sh/setup-uv`. Resolves each to its latest
+    release passing the [tool.repomatic] minimum-release-age cooldown, and
+    rewrites the literal.
     """
     _run_version_sync(
         ctx,

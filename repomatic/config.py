@@ -1449,10 +1449,10 @@ class Config:
     )
     """Whether the `sync-workflow-pins` job is enabled for this project.
 
-    Bumps version literals embedded in workflow YAML (npm `pkg@x` installs and
-    `uvx '<pkg>==x'` PyPI pins) to the latest release passing the
-    `minimum-release-age` cooldown. Projects that pin these by hand can set this
-    to `false`.
+    Bumps version literals embedded in workflow YAML (npm `pkg@x` installs,
+    `uvx` and `--with` PyPI pins, and the uv `version:` of `astral-sh/setup-uv`)
+    to the latest release passing the `minimum-release-age` cooldown. Projects
+    that pin these by hand can set this to `false`.
     """
 
     def __post_init__(self) -> None:

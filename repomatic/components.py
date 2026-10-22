@@ -975,7 +975,7 @@ REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
         ".github/codecov.yaml",
         "7.8.0",
         ("e8e96bfead62334599f4ec4c0448f2376352629789a70a76ae6fc3746ff7057b",),
-        successor="coverage is now gated by pytest --cov-fail-under",
+        successor="coverage is now gated by [tool.coverage] report.fail_under",
     ),
     RemovedAsset(
         "labels",

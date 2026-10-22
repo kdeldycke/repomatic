@@ -125,7 +125,7 @@ from repomatic.lint_repo.workflows import (
     check_workflow_permissions,
 )
 from repomatic.matrix.axes import UNSTABLE_PYTHON_VERSIONS
-from repomatic.metadata.core import METADATA_VALUE_OPTIONS, requested_metadata_keys
+from repomatic.metadata.core import METADATA_VALUE_OPTIONS
 from repomatic.pypi import TrustedPublisher
 from repomatic.release.self_pin import cooldown_exemption
 from repomatic.tooling.registry import (
@@ -135,7 +135,12 @@ from repomatic.tooling.registry import (
     ToolSpec,
 )
 from repomatic.upstream import DEFAULT_REPO, INSTALL_GUIDE_PATH
-from tests.conftest import PROJECT_ROOT, metadata_from_pyproject, pat_results
+from tests.conftest import (
+    PROJECT_ROOT,
+    metadata_from_pyproject,
+    pat_results,
+    requested_metadata_keys,
+)
 
 
 @pytest.fixture(autouse=True)

@@ -234,10 +234,10 @@ METADATA_VALUE_OPTIONS: frozenset[str] = frozenset((
 ))
 """Options on the `show-metadata` command consuming the token that follows them.
 
-Needed by {func}`requested_metadata_keys` and {func}`unknown_metadata_keys`
-to tell a positional key from an option's value while reading a workflow's
-`run:` line. `--format` is the spelling of releases before `8.0.0`, kept so
-that a workflow pinned to one of them still parses.
+Needed by {func}`unknown_metadata_keys` to tell a positional key from an
+option's value while reading a workflow's `run:` line. `--format` is the
+spelling of releases before `8.0.0`, kept so that a workflow pinned to one of
+them still parses.
 
 Listed here rather than derived, and pinned against the real command by
 repomatic's own test suite, so an option added later cannot quietly turn its
@@ -338,25 +338,6 @@ def _positional_keys(arguments: list[str]) -> list[str]:
         if _METADATA_KEY_TOKEN.match(token):
             keys.append(token)
     return keys
-
-
-def requested_metadata_keys(command: str, package: str) -> list[str]:
-    """Positional keys a shell command passes to the `show-metadata` subcommand.
-
-    A call of the removed {data}`REMOVED_METADATA_ALIAS` requests nothing, since
-    the command it names no longer exists: {func}`unknown_metadata_keys`
-    reports it instead.
-
-    :param command: The step's `run:` script, folded or literal.
-    :param package: Upstream package name (like `repomatic`).
-    :return: The key names requested, in the order written.
-    """
-    return [
-        key
-        for subcommand, arguments in _metadata_invocations(command, package)
-        if subcommand == METADATA_SUBCOMMAND
-        for key in _positional_keys(arguments)
-    ]
 
 
 class MetadataRequest(NamedTuple):

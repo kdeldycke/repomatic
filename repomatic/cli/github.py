@@ -94,11 +94,11 @@ from .main import (
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from typing import Any, TypeVar
+    from typing import Any
 
     from click_extra import Context
 
-    FC = TypeVar("FC", bound="Callable[..., Any]")
+    from .main import FC
 
 
 SPONSOR_LABEL = "💖 sponsor"
@@ -954,11 +954,11 @@ def sync_labels(ctx: Context, repo: str | None) -> None:
         ),
         (
             "Unsubscribe from threads inactive for 6+ months",
-            "repomatic unsubscribe-threads --months 6",
+            "repomatic unsubscribe-threads --months 6 --live",
         ),
         (
             "Unsubscribe from at most 50 threads per phase",
-            "repomatic unsubscribe-threads --max-unsubscribes 50",
+            "repomatic unsubscribe-threads --max-unsubscribes 50 --live",
         ),
     ),
 )

@@ -37,7 +37,12 @@ from repomatic.config import config_key_paths, publish_config
 from repomatic.github.event import get_github_event
 from repomatic.github.token import PatPermissionResults
 from repomatic.github.workflow_sync import _canonical
-from repomatic.metadata.core import Metadata
+from repomatic.metadata.core import (
+    METADATA_SUBCOMMAND,
+    Metadata,
+    _metadata_invocations,
+    _positional_keys,
+)
 from repomatic.tooling.binaries import ensure_binary
 from repomatic.tooling.registry import ToolInstallError
 from repomatic.tooling.runner import run_tool
@@ -241,6 +246,26 @@ def load_workflow(workflow_name: str) -> dict[str, Any]:
     with workflow_path.open(encoding="UTF-8") as f:
         result: dict[str, Any] = yaml.safe_load(f)
         return result
+
+
+def requested_metadata_keys(command: str, package: str) -> list[str]:
+    """Positional keys a shell command passes to the `show-metadata` subcommand.
+
+    Built on the reader `unknown_metadata_keys` runs in production, for the
+    tests that hold the workflows to the keys they request. A call of the
+    removed `metadata` alias requests nothing, since the command it names no
+    longer exists.
+
+    :param command: The step's `run:` script, folded or literal.
+    :param package: Upstream package name (like `repomatic`).
+    :return: The key names requested, in the order written.
+    """
+    return [
+        key
+        for subcommand, arguments in _metadata_invocations(command, package)
+        if subcommand == METADATA_SUBCOMMAND
+        for key in _positional_keys(arguments)
+    ]
 
 
 @pytest.fixture

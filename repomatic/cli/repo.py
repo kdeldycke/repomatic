@@ -96,6 +96,7 @@ from ..skills import SKILL_LIST_HEADER_DEFS, skill_catalog
 from ..tooling.registry import BinaryInstallError
 from ..upstream import DEFAULT_REPO
 from .main import (
+    carry_from_option,
     exit_if_disabled,
     has_cloudflare_api_token_option,
     has_cloudflare_r2_keys_option,
@@ -1142,16 +1143,7 @@ def sync_mailmap(
     default=None,
     help="CSV store to accumulate into. Defaults to [tool.repomatic.metrics] store.",
 )
-@option(
-    "--carry-from",
-    "carry_from",
-    metavar="BRANCH",
-    default=None,
-    help="Restore the store from this remote branch before sampling, so "
-    "readings still pending in an open pull request are appended to instead "
-    "of dropped. Name the branch the job publishes to. Ignored when the "
-    "branch does not exist, which is every run that follows a merge.",
-)
+@carry_from_option
 @option(
     "--forward/--no-forward",
     default=True,

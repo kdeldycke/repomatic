@@ -57,7 +57,6 @@ from click_extra import (
     pass_context,
 )
 
-from ..changelog import resolved_changelog_path
 from ..config import Config, publish_config
 from ..github.outputs import write_text_output
 from ..metadata.core import Metadata
@@ -474,21 +473,17 @@ repo_name_option = option(
     help="Repository name. Defaults to the name component of $GITHUB_REPOSITORY.",
 )
 
-
-def _resolve_changelog(ctx: ClickContext, param: Parameter, value: Path | None) -> Path:
-    """Fall back to the `[tool.repomatic] changelog.location` path."""
-    if value is not None:
-        return value
-    return resolved_changelog_path(get_tool_config(ctx))
-
-
-changelog_option = option(
-    "--changelog",
-    "changelog_path",
-    type=file_path(exists=True, readable=True, resolve_path=True),
+carry_from_option = option(
+    "--carry-from",
+    "carry_from",
+    metavar="BRANCH",
     default=None,
-    callback=_resolve_changelog,
-    help="Path to the changelog file. Defaults to [tool.repomatic] changelog.location.",
+    help=(
+        "Restore the CSV history the command appends to from this remote branch"
+        " first, so rows still pending in an open pull request are appended to"
+        " instead of dropped. Name the branch the job publishes to. Ignored when"
+        " the branch does not exist, which is every run that follows a merge."
+    ),
 )
 
 has_cloudflare_api_token_option = option(
@@ -515,9 +510,10 @@ has_notifications_pat_option = option(
     envvar="HAS_REPOMATIC_NOTIFICATIONS_PAT",
     help="Whether REPOMATIC_NOTIFICATIONS_PAT is configured.",
 )
-# Auto-detected from the environment rather than declared `envvar`: the flag is
-# tri-state (`None` means "not specified on the CLI"), and only the *presence* of
-# a token matters, not its value, which no envvar mapping can express.
+# Auto-detected from the environment rather than declared `envvar`: only the
+# *presence* of a token matters, not its value, which no envvar mapping can
+# express. Omitted, the flag takes whether `REPOMATIC_PAT` is set, read when
+# Click resolves the default.
 has_pat_option = option(
     "--has-pat/--no-has-pat",
     default=lambda: bool(os.environ.get("REPOMATIC_PAT")),

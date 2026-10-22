@@ -40,7 +40,7 @@ from repomatic.deps.pins import find_workflow_literals
 from repomatic.github.workflow_files import workflow_triggers
 from repomatic.github.workflow_sync import COOLDOWN_DOCS_URL, cooldown_env_block
 from repomatic.matrix.axes import KNOWN_RUNNERS, TEST_PYTHON_FULL
-from repomatic.metadata.core import Metadata, requested_metadata_keys
+from repomatic.metadata.core import Metadata
 from repomatic.metadata.output import format_github_value
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from repomatic.release.protocol import (
@@ -65,6 +65,7 @@ from tests.conftest import (
     WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK,
     assert_shipped_text_reads_true_downstream,
     load_workflow,
+    requested_metadata_keys,
 )
 
 TYPE_CHECKING = False
