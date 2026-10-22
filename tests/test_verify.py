@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import struct
 import sys
 from pathlib import Path
 
@@ -147,6 +148,46 @@ def test_elf_info_reads_both_classes_and_byte_orders(tmp_path, wide, big_endian)
         make_elf(EM_AARCH64, ("GLIBC_2.17",), wide=wide, big_endian=big_endian)
     )
     assert _elf_info(sample) == (EM_AARCH64, "2.17")
+
+
+@pytest.mark.parametrize(
+    ("wide", "big_endian"),
+    [(True, False), (True, True), (False, False), (False, True)],
+    ids=["elf64-le", "elf64-be", "elf32-le", "elf32-be"],
+)
+def test_elf_info_reads_extended_section_numbering(tmp_path, wide, big_endian):
+    """A count held in the `sh_size` of entry 0 still reads every section.
+
+    Past `0xff00` sections, `e_shnum` is `0` and the count moves there, as the
+    ELF specification has it. Read as a file with no section, the glibc floor
+    would vanish and the floor check pass any binary.
+    """
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(
+        make_elf(
+            EM_X86_64,
+            ("GLIBC_2.28",),
+            wide=wide,
+            big_endian=big_endian,
+            extended_numbering=True,
+        )
+    )
+    assert _elf_info(sample) == (EM_X86_64, "2.28")
+
+
+def test_elf_info_reads_a_section_count_past_the_file_as_what_it_holds(tmp_path):
+    """A count larger than the file reads the sections the file holds.
+
+    The read is sized by the file, never by a count a corrupt `sh_size` can
+    put in the billions.
+    """
+    content = bytearray(make_elf(EM_X86_64, ("GLIBC_2.17",), extended_numbering=True))
+    shoff = struct.unpack_from("<Q", content, 40)[0]
+    # The `sh_size` of entry 0, 32 bytes into an ELF64 section header.
+    struct.pack_into("<Q", content, shoff + 32, 2**62)
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(bytes(content))
+    assert _elf_info(sample) == (EM_X86_64, "2.17")
 
 
 def test_elf_info_rejects_a_truncated_header(tmp_path):

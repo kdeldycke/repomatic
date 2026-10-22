@@ -27,6 +27,7 @@ workflow run.
 
 from __future__ import annotations
 
+import io
 import logging
 import re
 import struct
@@ -90,19 +91,30 @@ def _elf_sections(
 ) -> list[_SectionHeader]:
     """The section header table of an ELF file, empty when it has none.
 
-    A table cut short yields the entries the file does hold.
+    A file with `SHN_LORESERVE` (`0xff00`) sections or more sets `e_shnum` to
+    `0` and keeps the count in the `sh_size` of entry `0`, as the ELF
+    specification has it. A table cut short yields the entries the file does
+    hold, so a count larger than the file never sizes a read.
 
     :param stream: The open ELF file.
     :param order: The `struct` byte-order prefix, `<` or `>`.
     :param wide: `True` for ELF64, `False` for ELF32.
     :param shoff: File offset of the table, `0` when the file has none.
     :param shentsize: Byte length of one entry.
-    :param shnum: Number of entries.
+    :param shnum: Number of entries, from `e_shnum`.
     """
-    if not shoff or not shnum:
+    if not shoff or not shentsize:
         return []
     layout = f"{order}IIQQQQIIQQ" if wide else f"{order}IIIIIIIIII"
     size = struct.calcsize(layout)
+    end = stream.seek(0, io.SEEK_END)
+    stream.seek(shoff)
+    first = stream.read(size)
+    if not shnum and len(first) == size:
+        shnum = _SectionHeader(*struct.unpack(layout, first)).size
+    # No entry starts past the end of the file: a count beyond it only grows
+    # the read, since the filter below drops what the read cannot fill.
+    shnum = min(shnum, (max(end - shoff, 0) + shentsize - 1) // shentsize)
     stream.seek(shoff)
     table = stream.read(shentsize * shnum)
     return [

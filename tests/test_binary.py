@@ -68,6 +68,7 @@ def make_elf(
     *,
     wide: bool = True,
     big_endian: bool = False,
+    extended_numbering: bool = False,
 ) -> bytes:
     """Craft a minimal ELF file, requiring *versions* of libc when given.
 
@@ -75,7 +76,9 @@ def make_elf(
     them it carries a `.dynstr` string table and a `.gnu.version_r` section
     naming each one under a single `libc.so.6` requirement, the way the linker
     writes them. *wide* picks ELF64 over ELF32, and *big_endian* the byte
-    order, as the identification bytes declare them.
+    order, as the identification bytes declare them. *extended_numbering*
+    moves the section count out of `e_shnum` into the `sh_size` of entry `0`,
+    the encoding a file with `0xff00` sections or more has to use.
     """
     order = ">" if big_endian else "<"
     ident = b"\x7fELF" + bytes([2 if wide else 1, 2 if big_endian else 1, 1, 0])
@@ -118,7 +121,20 @@ def make_elf(
     strtab_offset = header_size
     verneed_offset = strtab_offset + len(strings)
     shoff = verneed_offset + len(verneed)
-    sections = struct.pack(section_layout, *([0] * 10))
+    section_count = 3
+    sections = struct.pack(
+        section_layout,
+        0,
+        0,
+        0,
+        0,
+        0,
+        section_count if extended_numbering else 0,
+        0,
+        0,
+        0,
+        0,
+    )
     sections += struct.pack(
         section_layout, 0, SHT_STRTAB, 0, 0, strtab_offset, len(strings), 0, 0, 1, 0
     )
@@ -148,7 +164,7 @@ def make_elf(
         0,
         0,
         section_size,
-        3,
+        0 if extended_numbering else section_count,
         0,
     )
     return ident + header + strings + verneed + sections
