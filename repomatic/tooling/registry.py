@@ -70,6 +70,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from inspect import cleandoc
 from pathlib import Path, PurePosixPath
+from urllib.parse import unquote, urlsplit
 
 import tomlrt
 import yaml
@@ -223,6 +224,38 @@ class NativeFormat(Enum):
         return "\n".join(lines) + "\n"
 
 
+class Attestation(Enum):
+    """What upstream attests about each release asset of a binary tool.
+
+    `update-checksums` and `sync-tool-versions` verify the attestation of each
+    download with the pinned `gh` before they record its digest: a tampered
+    asset fails the pin instead of being written into the registry. Each
+    install then only compares its download with the recorded digest, which
+    the attestation already vouched for, so the check runs at pin time alone.
+    """
+
+    PROVENANCE = "SLSA build provenance"
+    """A release workflow of the repository built the asset and signed its
+    provenance. Verified with `gh attestation verify`.
+    """
+
+    RELEASE = "immutable release attestation"
+    """GitHub signed that the asset belongs to an immutable release of the
+    repository. Proves where the bytes were published, not how they were
+    built. Verified with `gh release verify-asset`.
+    """
+
+    def gh_args(self, resolved: ResolvedBinary, path: Path) -> list[str]:
+        """The `gh` arguments verifying *path* as the download of *resolved*.
+
+        :raises ValueError: When *resolved* is not a GitHub release download.
+        """
+        repo, tag = resolved.release_source
+        if self is Attestation.PROVENANCE:
+            return ["attestation", "verify", str(path), "--repo", repo]
+        return ["release", "verify-asset", tag, str(path), "--repo", repo]
+
+
 PlatformKey = tuple[Platform | Group, Architecture]
 """A `(platform_or_group, architecture)` pair used as binary lookup key.
 
@@ -360,6 +393,15 @@ class BinarySpec:
     puts `bin/gh.exe` at the root. The nesting cannot be absorbed by
     {attr}`archive_executable` instead, since that is one string for all
     platforms and the directory name carries the version and platform.
+    """
+
+    attestation: Attestation | None = None
+    """What upstream attests about every asset of a release, or `None` when it
+    attests nothing.
+
+    Declared only where every platform's asset carries the attestation: a
+    missing one fails the pin, which is the point, since a release that drops
+    its attestation is exactly the release that must not be pinned unread.
     """
 
     def resolve_platform(self) -> PlatformKey:
@@ -515,6 +557,7 @@ class BinarySpec:
             archive_format=self.get_archive_format(key),
             strip_components=self.get_strip_components(key),
             executable=self.archive_executable or tool_name,
+            attestation=self.attestation,
         )
 
 
@@ -542,6 +585,30 @@ class ResolvedBinary:
 
     The final filename of a `RAW` download.
     """
+
+    attestation: Attestation | None = None
+    """What upstream attests about the download, if anything."""
+
+    @property
+    def release_source(self) -> tuple[str, str]:
+        """The `owner/repo` and the tag of the GitHub release serving the download.
+
+        Read off the download URL, which is how GitHub names a release asset:
+        `https://github.com/{owner}/{repo}/releases/download/{tag}/{asset}`,
+        the tag percent-encoded.
+
+        :raises ValueError: When the URL is not a GitHub release download.
+        """
+        parts = urlsplit(self.url)
+        segments = parts.path.strip("/").split("/")
+        if (
+            parts.netloc != "github.com"
+            or len(segments) != 6
+            or segments[2:4] != ["releases", "download"]
+        ):
+            msg = f"{self.url} is not a GitHub release download."
+            raise ValueError(msg)
+        return f"{segments[0]}/{segments[1]}", unquote(segments[4])
 
     @property
     def cache_key(self) -> str:
@@ -1585,6 +1652,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
                 ): "https://github.com/rhysd/actionlint/releases/download/v{version}/actionlint_{version}_windows_amd64.zip",
             },
             checksums=CHECKSUMS["actionlint"],
+            attestation=Attestation.PROVENANCE,
             archive_format={
                 ALL_PLATFORMS: ArchiveFormat.TAR_GZ,
                 WINDOWS: ArchiveFormat.ZIP,
@@ -1703,6 +1771,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
                 ): "https://github.com/biomejs/biome/releases/download/%40biomejs%2Fbiome%40{version}/biome-win32-x64.exe",
             },
             checksums=CHECKSUMS["biome"],
+            attestation=Attestation.PROVENANCE,
             archive_format=ArchiveFormat.RAW,
         ),
         docs_notes=cleandoc(r"""
@@ -1789,6 +1858,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
                 ): "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_windows_amd64.zip",
             },
             checksums=CHECKSUMS["gh"],
+            attestation=Attestation.PROVENANCE,
             archive_format={
                 ALL_PLATFORMS: ArchiveFormat.TAR_GZ,
                 MACOS: ArchiveFormat.ZIP,
@@ -2411,6 +2481,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
                 ): "https://github.com/mvdan/sh/releases/download/v{version}/shfmt_v{version}_windows_amd64.exe",
             },
             checksums=CHECKSUMS["shfmt"],
+            attestation=Attestation.RELEASE,
             archive_format=ArchiveFormat.RAW,
         ),
         docs_notes=cleandoc(r"""
@@ -2468,6 +2539,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
                 ): "https://github.com/crate-ci/typos/releases/download/v{version}/typos-v{version}-x86_64-pc-windows-msvc.zip",
             },
             checksums=CHECKSUMS["typos"],
+            attestation=Attestation.RELEASE,
             archive_format={
                 ALL_PLATFORMS: ArchiveFormat.TAR_GZ,
                 WINDOWS: ArchiveFormat.ZIP,
@@ -2733,6 +2805,13 @@ def tool_reference() -> str:
             f"**Installation method:** {spec.backend.long_label}",
             "",
         ))
+
+        if spec.binary is not None and spec.binary.attestation is not None:
+            attested = spec.binary.attestation.value
+            lines.extend((
+                f"**Attestation:** {attested}, verified before a checksum is recorded",
+                "",
+            ))
 
         if spec.native_config_files:
             files_str = ", ".join(f"`{f}`" for f in spec.native_config_files)

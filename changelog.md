@@ -47,6 +47,7 @@
 - `repomatic run typos` now installs on Windows ARM64, and `repomatic run lychee` on x86_64 macOS.
 - An npm tool install now ends with `npm audit signatures`, which verifies the registry signature and the provenance of every installed package.
 - `repomatic run` manages `wrangler`, and the `deploy-docs-cloudflare` job deploys through it instead of an `npx` call.
+- `update-checksums` and `sync-tool-versions` verify the upstream attestation of each actionlint, Biome, gh, shfmt and typos download before recording its checksum.
 - The documentation's copy button skips the prompt and output lines of a shell session, and its sitemap drops the search and index pages.
 - Set `wrap = "no"` in the bundled `mdformat.toml`, so `format-markdown` joins the lines of a hard-wrapped paragraph.
 - `lint-changelog` warns on an entry filed out of the Breaking, then Deprecated, then ordinary order and on a `#N` naming no issue, and `--fix` strips a `v` tag prefix off a heading.

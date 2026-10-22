@@ -7,7 +7,7 @@
 Once a project leans on a dozen tools, the same three chores repeat for each, and `repomatic run` takes care of all of them:
 
 - Configuration stays in `pyproject.toml`, one reviewed file rather than a dotfile per tool. Even tools that can't read `pyproject.toml` themselves get their `[tool.X]` table translated to a temporary native config at run time, following the [precedence chain](#config-resolution) below.
-- Installation is automatic: binaries come from GitHub Releases and are checksum-verified, PyPI tools run through `uvx`, tools that import your code (mypy, Nuitka) run inside the project virtualenv, and npm tools install from the npm registry (Node.js required).
+- Installation is automatic: binaries come from GitHub Releases and are checksum-verified, each checksum recorded only after the upstream attestation of the download verified, for the tools that publish one, PyPI tools run through `uvx`, tools that import your code (mypy, Nuitka) run inside the project virtualenv, and npm tools install from the npm registry (Node.js required).
 - Versions are pinned and re-verified on each use, so a check behaves the same on your laptop and in CI instead of drifting with whatever each machine happens to have installed.
 
 ```{todo}

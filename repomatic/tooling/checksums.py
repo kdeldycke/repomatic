@@ -21,6 +21,11 @@ rewrites stale hashes in place in `tooling/registry.py` (alongside the
 `VERSIONS` stamps). `repomatic update-checksums` verifies every binary tool.
 `sync-tool-versions` passes the tools it bumped, with their new versions, so a
 version bump and its matching checksums land in one pass.
+
+Before a digest is recorded, the download of a tool whose upstream attests its
+releases is verified against that attestation: see
+{class}`~repomatic.tooling.registry.Attestation`. A failed verification aborts
+the run like a failed download, and nothing is rewritten.
 """
 
 from __future__ import annotations
@@ -28,22 +33,51 @@ from __future__ import annotations
 import logging
 import re
 import tempfile
+from functools import partial
 from pathlib import Path
 
 from click_extra import OperationTrail, run_jobs
 
 from ..file_ops import write_if_changed
+from ..github.gh import GhCommandError, run_gh_command
 from ..http import download
 from .registry import TOOL_REGISTRY
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from .registry import ResolvedBinary, ToolSpec
 
 
-def _download_sha256(url: str) -> str:
+class AttestationError(RuntimeError):
+    """A release asset whose upstream attestation did not verify."""
+
+
+def verify_attestation(resolved: ResolvedBinary, path: Path) -> None:
+    """Verify the upstream attestation of the download of *resolved* at *path*.
+
+    Runs the pinned `gh`, which checks the Sigstore signature of the
+    attestation and that its subject is the digest of *path*.
+
+    :raises AttestationError: The attestation is missing, or does not cover
+        the bytes at *path*.
+    """
+    attestation = resolved.attestation
+    assert attestation is not None
+    try:
+        run_gh_command(attestation.gh_args(resolved, path))
+    except GhCommandError as error:
+        repo, tag = resolved.release_source
+        msg = (
+            f"{resolved.archive_name} of {repo} {tag}: the {attestation.value} did"
+            f" not verify, so its digest is not recorded. {error}"
+        )
+        raise AttestationError(msg) from error
+    logging.info(f"Verified the {attestation.value} of {resolved.archive_name}.")
+
+
+def _download_sha256(url: str, verify: Callable[[Path], None] | None = None) -> str:
     """Download a URL and return its SHA-256 hex digest.
 
     Streams through {func}`repomatic.http.download` into a scratch file,
@@ -56,11 +90,18 @@ def _download_sha256(url: str) -> str:
     `OperationTrail`.
 
     :param url: The URL to download.
+    :param verify: Called on the downloaded file before it is deleted, to
+        check it against an upstream attestation. The file keeps the name of
+        the asset, as a verifier may read it.
     :return: Lowercase hex SHA-256 digest of the response body.
     :raises repomatic.http.FetchError: If the download fails.
+    :raises AttestationError: If *verify* rejects the download.
     """
     with tempfile.TemporaryDirectory(prefix="repomatic-checksum-") as scratch:
-        digest = download(url, Path(scratch) / "artifact")
+        artifact = Path(scratch) / (url.rsplit("/", 1)[-1] or "artifact")
+        digest = download(url, artifact)
+        if verify is not None:
+            verify(artifact)
     logging.debug(f"SHA-256 of {url}: {digest}")
     return digest
 
@@ -124,7 +165,8 @@ def update_registry_checksums(
         logging.info(
             f"Verifying registry checksum for {spec.name} ({resolved.cache_key})"
         )
-        return _download_sha256(resolved.url)
+        verify = partial(verify_attestation, resolved) if resolved.attestation else None
+        return _download_sha256(resolved.url, verify)
 
     # run_jobs yields digests in submission order, so the rewrite loop below
     # stays deterministic while the downloads overlap. A download that raises

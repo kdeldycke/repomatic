@@ -53,6 +53,7 @@ from repomatic.cli.main import repomatic
 from repomatic.cli.tools import run as run_command
 from repomatic.deps.uv import UvError
 from repomatic.file_inventory import FileInventory
+from repomatic.github.urls import parse_github_repo
 from repomatic.matrix.axes import (
     SINGLE_RUNNER_PYTHON_VERSIONS,
     TEST_RUNNERS_FULL,
@@ -243,6 +244,17 @@ def test_tool_spec_integrity(name, spec):
         assert not spec.native_config_files, (
             f"{name}: FLAGS format conflicts with native_config_files"
         )
+
+    # An attestation is verified against the GitHub release that serves the
+    # download, which must be a release of the tool's own repository.
+    if spec.binary is not None and spec.binary.attestation is not None:
+        own_repo = "/".join(parse_github_repo(spec.source_url or "") or ())
+        for key in spec.binary.urls:
+            repo, tag = spec.resolve_binary(key).release_source
+            assert repo == own_repo, (
+                f"{name}: {key} downloads from {repo}, not {own_repo}"
+            )
+            assert spec.version in tag, f"{name}: tag {tag!r} names no version"
 
     # with_packages is only meaningful for uvx-invoked tools.
     if spec.binary is not None:

@@ -21,18 +21,23 @@ from __future__ import annotations
 import hashlib
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from repomatic.github.gh import GhCommandError
 from repomatic.tooling.checksums import (
+    AttestationError,
     _download_sha256,
     checksum_targets,
     update_registry_checksums,
+    verify_attestation,
 )
-from repomatic.tooling.registry import TOOL_REGISTRY
+from repomatic.tooling.registry import LINUX, TOOL_REGISTRY, X86_64
 
 FAKE_HASH_OLD = "a" * 64
 FAKE_HASH_NEW = "b" * 64
 
 
-def _real_hash(url: str) -> str:
+def _real_hash(url: str, verify=None) -> str:
     """Return the checksum the registry already records for *url*.
 
     Feeding this to the downloader makes every hash match, so a test can single
@@ -149,7 +154,7 @@ def test_update_registry_checksums_version_override(tmp_path):
 
     seen_urls: list[str] = []
 
-    def capture(url):
+    def capture(url, verify=None):
         seen_urls.append(url)
         return FAKE_HASH_NEW
 
@@ -183,7 +188,7 @@ def test_update_registry_checksums_override_limits_the_run_to_its_tools(tmp_path
 
     seen_urls: list[str] = []
 
-    def capture(url):
+    def capture(url, verify=None):
         seen_urls.append(url)
         return FAKE_HASH_NEW
 
@@ -209,3 +214,88 @@ def test_checksum_targets_cover_every_binary_platform():
     for spec, resolved in targets:
         assert spec.version in resolved.url
         assert resolved.checksum is not None
+
+
+def _fake_download(content: bytes):
+    """A `download` stand-in writing *content* and returning its digest."""
+
+    def fake(url, path):
+        path.write_bytes(content)
+        return hashlib.sha256(content).hexdigest()
+
+    return fake
+
+
+def test_download_sha256_hands_the_named_asset_to_the_verifier():
+    """The verifier reads the download before the scratch directory goes."""
+    seen = []
+    url = "https://github.com/orchard/fig/releases/download/v1.0.0/fig_linux_amd64"
+    with patch(
+        "repomatic.tooling.checksums.download", side_effect=_fake_download(b"fig")
+    ):
+        digest = _download_sha256(url, lambda path: seen.append(path.read_bytes()))
+    assert digest == hashlib.sha256(b"fig").hexdigest()
+    assert seen == [b"fig"]
+
+
+@pytest.mark.parametrize(
+    ("tool", "expected"),
+    [
+        pytest.param(
+            "actionlint",
+            ["attestation", "verify", "{path}", "--repo", "rhysd/actionlint"],
+            id="build-provenance",
+        ),
+        pytest.param(
+            "shfmt",
+            ["release", "verify-asset", "v{version}", "{path}", "--repo", "mvdan/sh"],
+            id="immutable-release",
+        ),
+    ],
+)
+def test_verify_attestation_runs_the_check_upstream_supports(tool, expected, tmp_path):
+    """Each attestation level is verified by the `gh` command that reads it."""
+    spec = TOOL_REGISTRY[tool]
+    resolved = spec.resolve_binary((LINUX, X86_64))
+    path = tmp_path / resolved.archive_name
+    with patch("repomatic.tooling.checksums.run_gh_command") as gh:
+        verify_attestation(resolved, path)
+    assert gh.call_args[0][0] == [
+        arg.format(path=path, version=spec.version) for arg in expected
+    ]
+
+
+def test_a_failed_attestation_aborts_the_run_and_rewrites_nothing(tmp_path):
+    """A download its attestation does not cover never reaches the registry."""
+    registry = tmp_path / "registry.py"
+    registry.write_text('VERSIONS = {\n    "shfmt": "1.0.0",\n}\n', encoding="UTF-8")
+    original = registry.read_text(encoding="UTF-8")
+    refusal = GhCommandError("attestation for v99.0.0 does not contain subject")
+    with (
+        patch(
+            "repomatic.tooling.checksums.download",
+            side_effect=_fake_download(b"plum"),
+        ),
+        patch("repomatic.tooling.checksums.run_gh_command", side_effect=refusal),
+        pytest.raises(AttestationError, match="did not verify"),
+    ):
+        update_registry_checksums(registry, version_overrides={"shfmt": "99.0.0"})
+    assert registry.read_text(encoding="UTF-8") == original
+
+
+def test_a_tool_attesting_nothing_is_not_verified(tmp_path):
+    """No `gh` call is made for a tool whose upstream publishes no attestation."""
+    spec = TOOL_REGISTRY["lychee"]
+    assert spec.binary is not None
+    assert spec.binary.attestation is None
+    registry = tmp_path / "registry.py"
+    registry.write_text('VERSIONS = {\n    "lychee": "1.0.0",\n}\n', encoding="UTF-8")
+    with (
+        patch(
+            "repomatic.tooling.checksums.download",
+            side_effect=_fake_download(b"kiwi"),
+        ),
+        patch("repomatic.tooling.checksums.run_gh_command") as gh,
+    ):
+        update_registry_checksums(registry, version_overrides={"lychee": spec.version})
+    gh.assert_not_called()

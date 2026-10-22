@@ -802,6 +802,7 @@ This workflow maintains repomatic's own package source and is the one file in `.
 - Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gh, gitleaks, labelmaker, lychee, oxipng, ShellCheck, shfmt, typos), the npm registry for npm tools (awesome-lint, npm, Wrangler), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
 - Bumps the packages pinned *alongside* a tool in its `uvx` environment too (mdformat's plugin set), which no other updater sees
 - Recomputes the SHA-256 checksums of the binary tools it bumps in the same pass, and downloads only their artifacts, so version bump and checksum land in one PR branch
+- Verifies each download against its upstream attestation before recording its checksum, with the pinned `gh`: SLSA build provenance for actionlint, Biome and gh, the immutable release attestation for shfmt and typos. A download that does not verify fails the job, and no pull request opens
 - Refreshes the bundled actionlint problem matcher from the tag of the actionlint it pins
 - Runs via `uv run` against the local editable source, rewriting `repomatic/tooling/registry.py` directly
 - **Runs on**: daily schedule and manual dispatch. Daily rather than weekly because the `minimum-release-age` cooldown already delays every adoption on its own, and a release becomes eligible on whatever weekday its cooldown expires

@@ -47,7 +47,11 @@ from ..cache import (
 from ..http import FetchError
 from ..humanize import format_file_size
 from ..tooling import registry as tool_registry
-from ..tooling.checksums import checksum_targets, update_registry_checksums
+from ..tooling.checksums import (
+    AttestationError,
+    checksum_targets,
+    update_registry_checksums,
+)
 from ..tooling.registry import (
     TOOL_LIST_HEADER_DEFS,
     TOOL_REGISTRY,
@@ -284,7 +288,10 @@ def update_checksums(ctx: Context) -> None:
 
     Downloads each binary-distributed tool in the `repomatic run` registry at
     its pinned version, computes the SHA-256, and rewrites any stale hash (and
-    its version stamp) in tooling/registry.py.
+    its version stamp) in tooling/registry.py. A tool whose upstream attests
+    its releases has each download verified against the attestation first,
+    with the pinned gh: one that does not verify stops the run, and nothing
+    is rewritten.
 
     \b
     A repair path for a manual version edit: sync-tool-versions already
@@ -296,6 +303,8 @@ def update_checksums(ctx: Context) -> None:
         updated = update_registry_checksums(registry_path, jobs=jobs)
     except FetchError as exc:
         raise ClickException(f"Cannot download a release artifact: {exc}") from exc
+    except AttestationError as exc:
+        raise ClickException(str(exc)) from exc
 
     for url, old_hash, new_hash in updated:
         echo(f"Updated: {url}")
