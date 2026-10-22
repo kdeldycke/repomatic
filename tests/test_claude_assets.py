@@ -40,11 +40,12 @@ holds every text of the repository to the citation rule the assets follow.
 Each drift check below pins one copy to its source, the way
 `test_workflows.py::test_workflow_declares_cooldown_env` pins the
 workflow-level cooldown block and `test_uv.py` pins `[tool.uv]
-exclude-newer`. Matching is deliberately under-inclusive: every rule
-keys off an unambiguous form (a quoted flag argument, a backtick span
-opening on `[tool.repomatic`), so prose that merely mentions a key in
-passing is skipped rather than guessed at. A missed reference costs
-nothing; a false failure costs a maintainer the afternoon.
+exclude-newer`. The cooldown window itself is the exception: no asset may
+copy it at all, since each repository sets its own. Matching is
+deliberately under-inclusive: every rule keys off an unambiguous form (a
+flag argument, a backtick span opening on `[tool.repomatic`), so prose that
+merely mentions a key in passing is skipped rather than guessed at. A missed
+reference costs nothing; a false failure costs a maintainer the afternoon.
 
 ```{note}
 The first run of {func}`test_config_keys_resolve` caught
@@ -109,13 +110,28 @@ lookup. Anchored at the start of the span so it never matches mid-sentence.
 COOLDOWN_FLAG_RE = re.compile(r"--exclude-newer(?![\w-])")
 """The `--exclude-newer` flag itself, which `--exclude-newer-package` is not."""
 
-COOLDOWN_WINDOW_RE = re.compile(r"--exclude-newer[= ]'(?P<window>(?!\{)[^']+)'")
-"""A `--exclude-newer` flag carrying a quoted duration.
+COOLDOWN_LIFT = "2100-01-01"
+"""The one literal an asset may pass to `--exclude-newer`: a cutoff no release reaches.
 
-The bare and double-quoted forms are absent from every bundled asset, so
-this stays keyed on the one shape in use rather than accepting three. A
-`{placeholder}` the reader fills in from the configuration holds no copy of
-the window, so it is passed over.
+It lifts the window rather than copying it. `repomatic-ship` re-runs a fresh
+resolution with it, which tells a cooldown artifact from a real failure.
+"""
+
+COOLDOWN_VALUE_RE = re.compile(
+    r"(?:--(?:exclude-newer|min-release-age)(?![\w-])(?:=|[ \t]+)"
+    r"|(?<![\w-])(?:UV_EXCLUDE_NEWER|NPM_CONFIG_MIN_RELEASE_AGE)[ \t]*[=:][ \t]*"
+    r"|(?<![\w-])exclude-newer[ \t]*=[ \t]*)"
+    r"(?:'(?P<single>[^'\n]*)'"
+    r'|"(?P<double>[^"\n]*)"'
+    r"|(?P<bare>[^\s'\"`]*[\d{][^\s'\"`]*))"
+)
+"""A cooldown window an asset sets, in every spelling uv and npm read.
+
+The `--exclude-newer` and `--min-release-age` flags, the `UV_EXCLUDE_NEWER` and
+`NPM_CONFIG_MIN_RELEASE_AGE` variables, and the `exclude-newer` TOML key. Each
+value may be single-quoted, double-quoted or bare. A bare value counts only
+when it holds a digit or a brace, as every span, date and placeholder does, so
+prose that runs on after a key is passed over.
 """
 
 MODULE_PATH_RE = re.compile(r"^(repomatic/[a-z0-9_/]+\.py)$")
@@ -199,22 +215,66 @@ bundled_asset = pytest.mark.parametrize(
 )
 
 
+def literal_cooldown_windows(body: str) -> list[str]:
+    """Every literal cooldown window an asset sets, in order.
+
+    A `{placeholder}`, or a `$` reference that a shell or a workflow expands,
+    is filled in at run time, and {data}`COOLDOWN_LIFT` lifts the window
+    rather than copying it: none of them is reported.
+    """
+    found = []
+    for match in COOLDOWN_VALUE_RE.finditer(body):
+        value = match["single"] or match["double"] or match["bare"] or ""
+        if value.startswith(("{", "$")) or value == COOLDOWN_LIFT:
+            continue
+        found.append(value)
+    return found
+
+
+def test_detector_flags_literal_cooldown_windows() -> None:
+    """The detector reads a literal in each spelling, and nothing else."""
+    body = (
+        "uvx --exclude-newer '1 week' apple\n"
+        'uv lock --exclude-newer "P7D"\n'
+        "uv pip install --exclude-newer=7days banana\n"
+        "UV_EXCLUDE_NEWER: '2 weeks'\n"
+        'exclude-newer = "3 days"\n'
+        "npx --min-release-age 7 cherry\n"
+        "uvx --exclude-newer '{window}' date\n"
+        "UV_EXCLUDE_NEWER: ${{ inputs.window }}\n"
+        "uvx --exclude-newer 2100-01-01 --from . elderberry\n"
+        "uvx --exclude-newer-package fig=P0D grape\n"
+        "npx --min-release-age-exclude kiwi lemon\n"
+        "Pass `--exclude-newer` to gate an install, or --exclude-newer and a span.\n"
+        "The workflow-wide `UV_EXCLUDE_NEWER` sets the global `exclude-newer`.\n"
+    )
+    assert literal_cooldown_windows(body) == [
+        "1 week",
+        "P7D",
+        "7days",
+        "2 weeks",
+        "3 days",
+        "7",
+    ]
+
+
 @bundled_asset
-def test_cooldown_window_matches_config(asset_id: str, body: str) -> None:
-    """A quoted cooldown window equals `[tool.repomatic] minimum-release-age`.
+def test_cooldown_window_is_a_placeholder(asset_id: str, body: str) -> None:
+    """An asset names the cooldown window with a placeholder, never a literal.
 
     Two files may carry the duration as a literal, each pinned by a test
-    named in the module docstring. Skills that hand a maintainer a `uvx`
-    command are a third carrier, and the one nothing regenerates: raising the
-    window in config would leave four skills quoting the old span at anyone
-    who reads them.
+    named in the module docstring. A skill or an agent cannot be a third: it
+    ships verbatim to repositories that each set their own `[tool.repomatic]
+    minimum-release-age`, so a literal there gates their installs on the
+    default window, whatever they configured. A `{window}` placeholder, with a
+    sentence naming where to read it, holds no copy that can go stale.
     """
-    for window in COOLDOWN_WINDOW_RE.findall(body):
-        assert window == Config.minimum_release_age, (
-            f"{asset_id} gates an install on a {window!r} cooldown, but "
-            f"[tool.repomatic] minimum-release-age is "
-            f"{Config.minimum_release_age!r}."
-        )
+    windows = literal_cooldown_windows(body)
+    assert not windows, (
+        f"{asset_id} sets the literal cooldown window {windows[0]!r}. Write a "
+        "{window} placeholder instead, and say where to read it: the env: "
+        "block of any .github/workflows/*.yaml carries the repository's own."
+    )
 
 
 def fenced_code_lines(body: str) -> list[tuple[int, str]]:

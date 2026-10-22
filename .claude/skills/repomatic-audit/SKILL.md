@@ -68,10 +68,12 @@ Before you compare a managed file by hand, run the adopted release's generator o
 
 ```shell-session
 $ git worktree add --detach {scratch}/audit HEAD
-$ uvx --no-progress --exclude-newer '1 week' --exclude-newer-package repomatic=P0D --directory {scratch}/audit 'repomatic==X.Y.Z' init
+$ uvx --no-progress --exclude-newer '{window}' --exclude-newer-package repomatic=P0D --directory {scratch}/audit 'repomatic==X.Y.Z' init
 $ git -C {scratch}/audit diff
 $ git worktree remove --force {scratch}/audit
 ```
+
+Read `{window}` from the `UV_EXCLUDE_NEWER` value of any `.github/workflows/*.yaml`, which `repomatic init` renders from `[tool.repomatic] minimum-release-age`.
 
 An empty diff means every thin caller, each header-only workflow header and each ongoing-sync `[tool.X]` section equals what that release generates. Any hunk is DRIFT that the sync would rewrite. Keep `--directory`: `--output-dir` alone writes into the copy but reads `[tool.repomatic]` from the directory the command started in.
 

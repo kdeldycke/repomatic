@@ -24,7 +24,7 @@ You help users understand and maintain their project's dependencies. This skill 
 
 - If the context above shows `CANONICAL_REPO`, use `uv run repomatic`.
 - Otherwise, use `uvx -- repomatic`.
-- Gate the `uvx` form with the supply-chain cooldown: `uvx --exclude-newer '1 week' --exclude-newer-package repomatic=P0D -- repomatic`. The window matches `[tool.repomatic] minimum-release-age`; repomatic itself is exempt because a fresh release must stay installable, while its dependency tree stays gated.
+- Gate the `uvx` form with the supply-chain cooldown: `uvx --exclude-newer '{window}' --exclude-newer-package repomatic=P0D -- repomatic`. Read `{window}`, here and in every command below, from the `UV_EXCLUDE_NEWER` value of any `.github/workflows/*.yaml`, which `repomatic init` renders from `[tool.repomatic] minimum-release-age`. `--exclude-newer-package` exempts repomatic itself, so a fresh release stays installable while its dependency tree stays gated.
 
 ### Mode selection
 
@@ -152,21 +152,21 @@ Read the full `pyproject.toml`. `lint-deps` already reports the specifier style,
 Comments and changelogs can lie; the codebase is the source of truth. For each dependency with a weak or suspicious comment, verify the floor against actual usage:
 
 1. **Grep for imports.** Search the source tree for all imports from the package. List the specific APIs used (functions, classes, constants).
-2. **Determine the oldest version providing those APIs.** Check when the API was introduced — changelogs, release notes, or `pip index versions <pkg>` to see what exists on PyPI. A floor that rests on a behavior (comments kept, output formatting) needs a bisect instead, since a changelog can credit it to a later release than the one that shipped it. Run one probe per release with `uv run --no-project --exclude-newer '1 week' --with '<pkg>==<version>' python probe.py`, and compare each output byte for byte with the locked release.
+2. **Determine the oldest version providing those APIs.** Check when the API was introduced — changelogs, release notes, or `pip index versions <pkg>` to see what exists on PyPI. A floor that rests on a behavior (comments kept, output formatting) needs a bisect instead, since a changelog can credit it to a later release than the one that shipped it. Run one probe per release with `uv run --no-project --exclude-newer '{window}' --with '<pkg>==<version>' python probe.py`, and compare each output byte for byte with the locked release.
 3. **Lower the floor** when it exceeds the oldest compatible version. Prefer conservative minimums (the major version that introduced the API) over aggressive ones. Update both the version specifier and the comment.
-4. **Run `uv lock`** after any floor change to verify the lock still resolves. Run it with the uv version the workflows pin on their `setup-uv` steps, like `uvx --exclude-newer '1 week' --from 'uv==X.Y.Z' uv lock`: a newer local uv rewrites the lockfile `revision` and adds tables that CI never writes. After a floor raised in one dependency group only, add `--upgrade-package <pkg>`: a group with its own `requires-python` resolves as a separate fork, and a plain `uv lock` keeps the old pin in the other one.
+4. **Run `uv lock`** after any floor change to verify the lock still resolves. Run it with the uv version the workflows pin on their `setup-uv` steps, like `uvx --exclude-newer '{window}' --from 'uv==X.Y.Z' uv lock`: a newer local uv rewrites the lockfile `revision` and adds tables that CI never writes. After a floor raised in one dependency group only, add `--upgrade-package <pkg>`: a group with its own `requires-python` resolves as a separate fork, and a plain `uv lock` keeps the old pin in the other one.
 
 #### Lowest-version check
 
 A floor can also be too low: the code calls an API that the declared version lacks. The lockfile holds the newest release of each dependency, so no ordinary test run shows it, and the first to see it is a user on an old environment.
 
-1. **Resolve every direct dependency at its floor.** Run `uv pip compile pyproject.toml --resolution lowest-direct --exclude-newer '1 week' --python-version <floor>`, with the lowest Python the project supports. It prints the set and installs nothing.
+1. **Resolve every direct dependency at its floor.** Run `uv pip compile pyproject.toml --resolution lowest-direct --exclude-newer '{window}' --python-version <floor>`, with the lowest Python the project supports. It prints the set and installs nothing.
 2. **Compare the output with the declared floors.** A package resolved above its floor is held there by another requirement, so no install can reach the declared version. Report it as **Info**, with the requirement that holds it.
 3. **Run the suite on the lowest set.** In a throwaway `git worktree`, `uv sync --resolution lowest-direct --all-extras --group test` installs it and `uv run --frozen -- pytest` tests it. The sync rewrites `uv.lock`, so keep it out of the main checkout. When the test matrix carries a `lowest-direct` cell, read its last CI result instead.
-4. **Probe what the suite cannot see.** Two cases pass the suite and still break a user. The test tooling can hold a dependency above its floor, as pytest does for `packaging`. A mocked client hides the library behind it. For each one, write a script that makes the call the code makes, and run it against the floor: `uv run --no-project --exclude-newer '1 week' --with '<pkg>==<floor>' python probe.py`.
+4. **Probe what the suite cannot see.** Two cases pass the suite and still break a user. The test tooling can hold a dependency above its floor, as pytest does for `packaging`. A mocked client hides the library behind it. For each one, write a script that makes the call the code makes, and run it against the floor: `uv run --no-project --exclude-newer '{window}' --with '<pkg>==<floor>' python probe.py`.
 5. **Raise a floor that fails**, to the first release that passes. Name the failing call in the comment.
 
-To test one floor alone, build an environment from the lockfile and swap that package in with `uv pip install --exclude-newer '1 week' --no-deps '<pkg>==<floor>'`. `uv run --with` resolves the package's own dependencies again, so a failure there can come from another package.
+To test one floor alone, build an environment from the lockfile and swap that package in with `uv pip install --exclude-newer '{window}' --no-deps '<pkg>==<floor>'`. `uv run --with` resolves the package's own dependencies again, so a failure there can come from another package.
 
 #### Special cases
 

@@ -221,7 +221,7 @@ Conversion lifecycle:
 
 - Authors write **MyST** in `*.py` docstrings (`` {role}`target` ``, `[text](url)`, single-backtick inline code, ```` ```{directive} ```` admonitions).
 - The `click_extra.sphinx.myst_docstrings` Sphinx extension hooks `autodoc-process-docstring` at priority 400 and converts MyST to reST at build time, before `sphinx_autodoc_typehints` runs. So the rendered HTML is the same as if the docstrings were always reST, while the source files stay editable in MyST.
-- Run `uvx --exclude-newer '1 week' click-extra convert-to-myst` (or `click-extra convert-to-myst path/to/pkg/`) to migrate an existing reST codebase. The converter is idempotent — already-MyST docstrings are a no-op.
+- Run `uvx --exclude-newer '{window}' click-extra convert-to-myst` (or `click-extra convert-to-myst path/to/pkg/`) to migrate an existing reST codebase. Read `{window}` from the `UV_EXCLUDE_NEWER` value of any `.github/workflows/*.yaml`, which `repomatic init` renders from `[tool.repomatic] minimum-release-age`. The converter is idempotent — already-MyST docstrings are a no-op.
 
 Extension load order (the rule, with the rationale):
 
@@ -758,7 +758,7 @@ Pruning checklist before merging any `conf.py` change:
 The build itself is the strongest test: `sphinx-build -W` fails on missing references, broken `{click:run}` examples, and unresolved typehints. Beyond that, two test patterns recur in this lineage and are worth keeping in mind:
 
 - **CLI directive tests** (e.g., `tests/sphinx/test_sphinx_click.py` in `click-extra`). Cover `{click:run}` and `{click:source}` directive options (`:show-source:`, `:hide-results:`, `:emphasize-lines:`, language overrides), runner-namespace persistence across blocks, exit-code propagation, and isolated-filesystem helpers. Only relevant for projects that *publish* their own Sphinx directive; consumer projects use the directives without testing them.
-- **Cross-reference render tests** (e.g., `tests/test_sphinx_crossrefs.py` in `extra-platforms`). Build the docs once via a `built_docs()` fixture, then parametrize over `(source page, link text, expected href)` triples to assert that rendered links resolve to the right anchors. Catches: a `{data}` cross-ref that silently 404s, a renamed symbol whose autodoc anchor changed, an `intersphinx_mapping` URL that drifted. Use `pytest.mark.xdist_group("sphinx")` so the build runs in a single worker; gate the test on the docs floor (Linux + minimum Python the docs require).
+- **Cross-reference render tests** (e.g., `tests/test_sphinx_crossrefs.py` in `extra-platforms`). Build the docs once via a `built_docs()` fixture, then parametrize over `(source page, link text, expected href)` triples to assert that rendered links resolve to the right anchors. Catches: a `{data}` cross-ref that silently 404s, a renamed symbol whose autodoc anchor changed, an `intersphinx_mapping` URL that drifted. Use `pytest.mark.xdist_group("sphinx")` with `--dist=loadgroup` in the pytest addopts, so the build runs in a single worker: the default `load` scheduler ignores the marker; gate the test on the docs floor (Linux + minimum Python the docs require).
 
 When introducing a new doc convention worth defending mechanically (e.g., "every CLI option must have an anchor"), prefer a render test over prose: a test that walks the rendered HTML catches drift the moment it lands, while a prose rule depends on a future reader noticing the violation.
 
