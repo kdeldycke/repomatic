@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 
+from packaging.utils import canonicalize_name
+
 from ..changelog import resolved_changelog_path
 from ..cloudflare.r2 import oversized_files
 from ..config import Config, deploys_to
@@ -205,6 +207,16 @@ class LintContext:
     def is_awesome(self) -> bool:
         """Whether the repository is an `awesome-*` curated list."""
         return bool(self.repo_name and is_awesome_repo(self.repo_name))
+
+    @property
+    def pypi_name(self) -> str | None:
+        """The canonical form of {attr}`package_name`, the one PyPI files it under.
+
+        PyPI normalizes a project name, so `Fig_Tree` is published as
+        `fig-tree`, and its settings page and its pending publisher take that
+        form.
+        """
+        return canonicalize_name(self.package_name) if self.package_name else None
 
     @property
     def md(self) -> Metadata:

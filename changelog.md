@@ -129,6 +129,7 @@
 - Fix stale claims of the bundled `babysit-ci`, `repomatic-ship` and `repomatic-test-matrix` skills on release runs, binary skips and `format-python` pull requests.
 - Fix a dependency pull request picking up the staged changes of an updater whose commit failed.
 - Fix the `sync-gitignore` help naming `gitignore-extra-content` and `gitignore-location` instead of the `gitignore.extra-content` and `gitignore.location` keys.
+- Fix `lint-repo`'s `pypi-trusted-publisher` check showing the raw `[project] name`, not the normalized one PyPI uses, in its messages and settings link.
 
 ## [`7.18.0` (2026-10-13)](https://github.com/kdeldycke/repomatic/compare/v7.17.1...v7.18.0)
 

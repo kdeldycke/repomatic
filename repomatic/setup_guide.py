@@ -187,8 +187,8 @@ def _probe_trusted_publisher(ctx: LintContext) -> bool | None:
 def _pypi_package(ctx: LintContext) -> str | None:
     """The PyPI name to register a Trusted Publisher for, if any.
 
-    The canonical form of `[project] name`, the one PyPI files the project
-    under: the settings page of `Fig_Tree` lives at `fig-tree`.
+    {attr}`~repomatic.lint_repo.context.LintContext.pypi_name`, the canonical
+    form the Trusted Publisher check queries PyPI with.
 
     Gated on `is_package` rather than on `package_name` being set: a uv
     virtual project declares `[project] name` purely to carry dependencies, so
@@ -196,7 +196,7 @@ def _pypi_package(ctx: LintContext) -> str | None:
     Asking those projects to register a publisher points them at a PyPI name
     they do not own, for a workflow file they do not have.
     """
-    return ctx.md.package_name if ctx.is_package else None
+    return ctx.pypi_name if ctx.is_package else None
 
 
 def _dated_token_name(ctx: LintContext, purpose: str) -> str:

@@ -395,7 +395,7 @@ def check_pypi_trusted_publisher(ctx: LintContext) -> CheckResult:
     nags until the next OIDC-attested upload appears.
     """
     repo = ctx.slug
-    package_name = ctx.package_name or ""
+    package_name = ctx.pypi_name or ""
     latest = get_latest_release_file(package_name)
     if latest is None:
         return CheckResult(

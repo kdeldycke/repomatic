@@ -2534,6 +2534,39 @@ def test_pypi_trusted_publisher_repository_mismatch():
     assert "upstream/orchard" in msg
 
 
+def test_pypi_trusted_publisher_queries_the_canonical_name():
+    """PyPI is asked about the name it files the project under, not the raw one.
+
+    `[project] name = "Fig_Tree"` is published as `fig-tree`, the form the
+    settings page and the setup guide use too.
+    """
+    ctx = LintContext(repo="owner/fig-tree", package_name="Fig_Tree")
+    with (
+        patch(
+            "repomatic.lint_repo.settings.get_latest_release_file",
+            return_value=("1.2.3", "fig_tree-1.2.3-py3-none-any.whl"),
+        ) as latest,
+        patch(
+            "repomatic.lint_repo.settings.get_trusted_publishers",
+            return_value=[
+                TrustedPublisher(
+                    kind="GitHub",
+                    repository="upstream/orchard",
+                    workflow="release.yaml",
+                    environment=None,
+                ),
+            ],
+        ) as publishers,
+    ):
+        passed, msg = check_pypi_trusted_publisher(ctx)
+    latest.assert_called_once_with("fig-tree")
+    publishers.assert_called_once_with(
+        "fig-tree", "1.2.3", "fig_tree-1.2.3-py3-none-any.whl"
+    )
+    assert passed is False
+    assert "https://pypi.org/manage/project/fig-tree/settings/publishing/" in msg
+
+
 @pytest.mark.parametrize(
     ("fields", "applies"),
     (
