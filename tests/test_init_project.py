@@ -557,7 +557,7 @@ def test_template_setting(template: str, key: str, expected) -> None:
         ("ruff.toml", "lint.ignore", "ERA001"),
         ("pytest.toml", "addopts", "--durations=10"),
         ("pytest.toml", "addopts", "--cov-report=term"),
-        ("pytest.toml", "addopts", "--numprocesses=auto"),
+        ("pytest.toml", "addopts", "--numprocesses=logical"),
         ("pytest.toml", "addopts", "--import-mode=importlib"),
         ("bumpversion.toml", "current_version", "0"),
         # Walking hidden files reaches `.git`, which `--write-changes` must

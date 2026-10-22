@@ -617,10 +617,12 @@ class NpmSpec:
     npm tools need Node.js and npm on `PATH` at run time: the one backend that
     depends on a runtime repomatic neither bundles nor provisions (binary tools
     are self-contained; the uv backends use uv). Integrity is npm's own
-    per-tarball verification on install, so unlike {class}`BinarySpec` there is
-    no repomatic-pinned checksum; the `minimum-release-age` cooldown (npm's
-    `min-release-age`, npm 11.10.0+) gates the transitive tree instead. Older npm
-    ignores the gate, so the runner warns rather than silently skipping it.
+    per-tarball verification on install, followed by `npm audit signatures`,
+    which checks the registry signature and the Sigstore provenance of every
+    installed package: unlike {class}`BinarySpec` there is no repomatic-pinned
+    checksum. The `minimum-release-age` cooldown (npm's `min-release-age`, npm
+    11.10.0+) gates the transitive tree. Older npm ignores the gate, so the
+    runner warns rather than silently skipping it.
     ```
     """
 

@@ -215,7 +215,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 
 ### 🔗 Sync dependencies (`sync-deps`)
 
-One consolidated job runs four dependency updaters on a shared runner, sharing a single `actions/checkout`, `astral-sh/setup-uv`, and a cached `~/.cache/repomatic` directory (repomatic's TTL-gated HTTP cache of PyPI/GitHub/npm release metadata) across all four updaters.
+One consolidated job runs four dependency updaters on a shared runner, sharing a single `actions/checkout`, `astral-sh/setup-uv`, and a cached `~/.cache/repomatic` directory (repomatic's TTL-gated HTTP cache of PyPI/GitHub/npm release metadata) across all four updaters. The cache is saved under the run's own key and restored from the newest previous run, so the job first runs [`repomatic prune-caches`](cli.md#repomatic-prune-caches) to delete the older entries nothing reads again.
 
 The job runs them through one [`repomatic sync-deps --pr-sync`](cli.md#repomatic-sync-deps) call. Each updater still opens its own pull request on its own branch (`sync-dep-sources`, `sync-uv-lock`, `sync-action-pins`, `sync-workflow-pins`), all labelled `🔗 dependencies`.
 
@@ -414,6 +414,10 @@ docs = [
   - `docs` dependency group
   - Sphinx configuration file at `docs/conf.py`
   - Pages deployment source set to **GitHub Actions** (the setup guide issue walks through it)
+
+```{todo}
+Pass `--jobs auto` to `sphinx-build` in this job and in `tests/test_sphinx_crossrefs.py` once sphinx-autodoc-typehints resolves `TYPE_CHECKING`-only names in a parallel read. Measured on this repository's docs with sphinx-autodoc-typehints `3.13.10` and Sphinx `9.1.0`: the parallel build takes 80 s against 109 s, but ends with `reference target not found` for `Path`, `Architecture` and `ColumnSpec`, three names the serial build resolves, so `-W` fails it.
+```
 
 ### 📖 Deploy Sphinx doc to Cloudflare Pages (`deploy-docs-cloudflare`)
 
@@ -674,7 +678,7 @@ flowchart TD
 - Compiles standalone binaries using [`Nuitka`](https://github.com/Nuitka/Nuitka) for Linux/macOS/Windows on `x86_64`/`aarch64`
 - Linux targets compile inside digest-pinned `manylinux_2_28` containers and macOS targets pin `MACOSX_DEPLOYMENT_TARGET`, so binaries keep the [documented OS floors](binaries.md#minimum-os-requirements) instead of inheriting the runner image's
 - `repomatic run nuitka` prepares each build: it installs the `nuitka.extras` of `[tool.repomatic]`, trims and configures the compile cache, and adds what the target needs (`MACOSX_DEPLOYMENT_TARGET` and `--disable-cache=ccache` on macOS)
-- Persists the Nuitka compile caches across runs with `actions/cache` (ccache objects on the gcc targets, Nuitka's internal `clcache` objects on MSVC, downloads and bytecode alongside them), so a warm build skips most of the C compilation. Release commits neither restore nor save the cache, and macOS is left out of it entirely: the `nuitka_cache` flag of each matrix entry says which. See [](nuitka.md#compile-caching)
+- Persists the Nuitka compile caches across runs with `actions/cache` (ccache objects on the gcc targets, Nuitka's internal `clcache` objects on MSVC, downloads and bytecode alongside them), so a warm build skips most of the C compilation. Release commits neither restore nor save the cache, and macOS is left out of it entirely: the `nuitka_cache` flag of each matrix entry says which. Each run saves a snapshot under its own commit key, so after the restore the job runs [`repomatic prune-caches`](cli.md#repomatic-prune-caches), which deletes every older snapshot of the target but the one just restored: without it the dead snapshots fill the 10 GB cache quota of the repository, and GitHub evicts live caches to make room. See [](nuitka.md#compile-caching)
 - On non-release runs, self-tests the freshly-built binary in place with [`click-extra test-suite`](https://kdeldycke.github.io/click-extra/test-suite.html); the standalone `test-binaries` job is reserved for release commits
 - Verifies each binary's architecture and measures its actual glibc / macOS floor against the declared one (`repomatic verify-binary`, parsing ELF/Mach-O/PE headers natively)
 - On release pushes, each binary is attested, and [`repomatic pack-attestation --verify`](cli.md) checks its provenance and renames its sigstore bundle after the binary it covers (`<binary-name>.attestation.json`), so no two targets collide once the bundles are merged. Binaries and bundles leave the job as run artifacts, and [`publish-release`](#publish-release-publish-release) attaches them to the release

@@ -82,6 +82,8 @@ jobs:
       id-token: write
       attestations: write
       contents: read
+      # The compile-cache prune below deletes superseded cache entries.
+      actions: write
     env:
       # Relocate every Nuitka cache (ccache/clcache objects, downloads,
       # bytecode) under the workspace, so the cache step below and Nuitka
@@ -127,6 +129,17 @@ jobs:
           path: .nuitka-cache
           key: nuitka-${{ matrix.target }}-${{ matrix.commit }}
           restore-keys: nuitka-${{ matrix.target }}-
+      - name: Prune superseded Nuitka compile caches
+        # Every run saves a snapshot under its own commit key, so the one just
+        # restored is the only previous entry still read. Dropping the rest
+        # keeps the repository under its cache quota, past which GitHub
+        # evicts live caches too. A refused deletion warns and never fails
+        # the build.
+        if: matrix.nuitka_cache == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFIX: nuitka-${{ matrix.target }}-
+        run: uv --no-progress run --frozen -- repomatic prune-caches --prefix "$PREFIX"
       # The manylinux containers ship no ccache (Nuitka warns and compiles
       # cold), so the canary target pays full C compilation on every push.
       # A build keeping no cache has no use for it. EPEL is a distro archive,

@@ -21,23 +21,27 @@ under its help section.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from click_extra import (
     ClickException,
     EnumChoice,
     FloatRange,
+    IntRange,
     SortByOption,
     UsageError,
     argument,
     dir_path,
     echo,
     file_path,
+    format_size,
     get_tool_config,
     option,
     pass_context,
 )
 
+from ..github.caches import PRUNE_CACHES_HEADER_DEFS, prune_caches
 from ..github.ci_status import (
     CI_STATUS_HEADER_DEFS,
     STABLE_GLYPH,
@@ -49,6 +53,7 @@ from ..github.ci_status import (
     workflow_files,
     write_failed_logs,
 )
+from ..github.gh import GhCommandError, GhOutputError
 from ..github.job_timings import (
     JOB_TIMINGS_HEADER_DEFS,
     fetch_job_timings,
@@ -83,6 +88,8 @@ from .main import (
     dry_run_option,
     exit_if_disabled,
     output_option,
+    repo_option,
+    resolve_repo,
     subcommand,
     write_output,
 )
@@ -323,6 +330,76 @@ def cancel_runs(branch: str, current_run_id: str) -> None:
         msg = f"Cannot list the live runs of {branch!r}: {error}"
         raise ClickException(msg) from error
     echo(f"Cancelled {cancelled} run(s) for branch {branch!r}.")
+
+
+@subcommand(
+    short_help="Delete the superseded GitHub Actions caches of a key prefix",
+    examples=(
+        (
+            "Preview what a prune of the Linux compile caches would delete",
+            "repomatic prune-caches --dry-run --prefix nuitka-linux-x64-",
+        ),
+        (
+            "Keep the two newest HTTP caches of each runner, as the sync jobs do",
+            "repomatic prune-caches --keep 2 --prefix repomatic-http-Linux-",
+        ),
+    ),
+)
+@option(
+    "--prefix",
+    "prefixes",
+    multiple=True,
+    required=True,
+    help="Key prefix whose caches to prune, as the step's restore-keys names it. "
+    "Repeatable.",
+)
+@option(
+    "--keep",
+    type=IntRange(min=0),
+    default=1,
+    show_default=True,
+    help="Newest caches of each prefix to leave in place.",
+)
+@repo_option(deferred=True)
+@dry_run_option(default=False)
+@pass_context
+def prune_caches_cmd(
+    ctx: Context,
+    prefixes: tuple[str, ...],
+    keep: int,
+    repo: str | None,
+    dry_run: bool,
+) -> None:
+    """Delete the GitHub Actions caches a newer save superseded.
+
+    A cache step keyed on the run or the commit, with a prefix in its
+    restore-keys, saves a fresh entry on every run and restores the newest
+    previous one. Every older entry is dead weight against the 10 GB quota of
+    the repository until GitHub evicts it, and past the quota GitHub evicts
+    live caches too. This deletes all but the newest --keep entries of each
+    --prefix. Run it after the restore step of the job that saves: the job's
+    own save then adds one more entry.
+
+    Needs `actions: write` on the token. A refused deletion and an unreadable
+    listing are reported as warnings: housekeeping never fails the job it runs
+    in.
+    """
+    repo = resolve_repo(repo, ctx)
+    rows: list[list[str]] = []
+    deleted = freed = 0
+    for prefix in prefixes:
+        try:
+            report = prune_caches(repo, prefix, keep=keep, dry_run=dry_run)
+        except (GhCommandError, GhOutputError) as error:
+            logging.warning(f"Could not list the caches of {prefix!r}: {error}")
+            continue
+        rows.extend(report.rows(dry_run=dry_run))
+        deleted += len(report.deleted)
+        freed += report.freed
+    if rows:
+        ctx.print_table(rows, PRUNE_CACHES_HEADER_DEFS)
+    verb = "Would delete" if dry_run else "Deleted"
+    echo(f"{verb} {deleted} cache(s), {format_size(freed)}.")
 
 
 @subcommand(

@@ -85,12 +85,19 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
+      # No `needs: metadata` here, so the job reads the pin its cache is keyed on
+      # itself: `tool_versions` names the version the registry pins for each tool.
+      - name: Read the tool pins
+        id: pins
+        run: >
+          uv --no-progress run --frozen -- repomatic show-metadata
+          --output-format github --output "$GITHUB_OUTPUT" tool_versions
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-labelmaker-${{
-            github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
+            fromJSON(steps.pins.outputs.tool_versions).labelmaker }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-labelmaker-
       - name: Sync labels

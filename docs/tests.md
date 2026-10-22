@@ -44,6 +44,7 @@
    tests.test_frontmatter
    tests.test_gh
    tests.test_git_ops
+   tests.test_github_caches
    tests.test_gitignore
    tests.test_hashing
    tests.test_help

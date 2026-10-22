@@ -80,7 +80,7 @@ Measure, do not reason from the chip:
 $ repomatic job-timings --workflow tests.yaml --limit 5
 ```
 
-That reports median whole-job wall-clock per runner image from recent successful runs. Read it before proposing any runner change: the parallel `pytest --numprocesses=auto` suite favours `ubuntu-26.04-arm`, which is why that is the test PR Linux slot, but the ratio is workload-dependent and yours may differ.
+That reports median whole-job wall-clock per runner image from recent successful runs. Read it before proposing any runner change: the parallel `pytest --numprocesses=logical` suite favours `ubuntu-26.04-arm`, which is why that is the test PR Linux slot, but the ratio is workload-dependent and yours may differ.
 
 Where one fast runner suffices, `ubuntu-26.04-arm` is the default: fastest and cheapest tier, against hosted macOS billing roughly ten times Linux. Reserve `macos-26` and Windows for the OS coverage only they add, and drop the slower twin of an OS pair with `test-matrix.remove.os`.
 

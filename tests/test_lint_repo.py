@@ -1054,19 +1054,19 @@ def test_bootstrap_config_drift_declines_any_reportable_entry(comp, keys, member
 def test_bootstrap_config_drift_keeps_reporting_the_siblings_of_a_declined_member():
     """Declining one member of a list says nothing about the others."""
     local = tomlrt.loads(get_data_content("pytest.toml"))
-    local["addopts"].remove("--numprocesses=auto")
+    local["addopts"].remove("--numprocesses=logical")
     local["addopts"].remove("--cov-report=term")
     results = tuple(
         check_bootstrap_config_drift(
             _tools(
                 {"pytest": local},
-                _declining("pytest", "addopts", "--numprocesses=auto"),
+                _declining("pytest", "addopts", "--numprocesses=logical"),
             )
         )
     )
     assert [result.passed for result in results] == [None, False]
     assert '"--cov-report=term"' in results[1].message
-    assert '"--numprocesses=auto"' not in results[1].message
+    assert '"--numprocesses=logical"' not in results[1].message
 
 
 def test_bootstrap_config_drift_declines_an_entry_of_the_pytest_legacy_table():
@@ -1100,16 +1100,16 @@ def test_bootstrap_config_drift_declines_an_entry_of_the_pytest_legacy_table():
 def test_bootstrap_config_drift_wants_a_reason(reason):
     """An entry mapped to no reason declines nothing: the reason is the point."""
     local = tomlrt.loads(get_data_content("pytest.toml"))
-    local["addopts"].remove("--numprocesses=auto")
+    local["addopts"].remove("--numprocesses=logical")
     lint_repo_table = LintRepoConfig(
-        declined={"pytest": {"addopts": {"--numprocesses=auto": reason}}}
+        declined={"pytest": {"addopts": {"--numprocesses=logical": reason}}}
     )
     results = tuple(
         check_bootstrap_config_drift(_tools({"pytest": local}, lint_repo_table))
     )
     assert [result.passed for result in results] == [False, False]
-    assert '"--numprocesses=auto"' in results[0].message
-    assert 'entry `pytest.addopts."--numprocesses=auto"` gives no reason' in (
+    assert '"--numprocesses=logical"' in results[0].message
+    assert 'entry `pytest.addopts."--numprocesses=logical"` gives no reason' in (
         results[1].message
     )
 
@@ -1170,9 +1170,9 @@ def test_bootstrap_config_drift_roster_entry_reads_the_declined_table():
     """The roster hands the check the table, not only the section it measures."""
     check = _roster_check("bootstrap-config-drift")
     local = tomlrt.loads(get_data_content("pytest.toml"))
-    local["addopts"].remove("--numprocesses=auto")
+    local["addopts"].remove("--numprocesses=logical")
     ctx = _tools(
-        {"pytest": local}, _declining("pytest", "addopts", "--numprocesses=auto")
+        {"pytest": local}, _declining("pytest", "addopts", "--numprocesses=logical")
     )
     assert [result.passed for result in check.results(ctx)] == [None, True]
 

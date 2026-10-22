@@ -146,11 +146,13 @@ jobs:
     with:
       metadata: ${{ needs.build.outputs.metadata }}
     # Union of the engine jobs' scopes (the top-level `{}` grants nothing on its
-    # own): compile-binaries needs id-token + attestations (plus contents:read),
-    # create-tag / create-release / manpages / publish-release /
-    # scan-virustotal / sync-dev-release need contents:write, and
-    # scan-virustotal needs pull-requests:write for its PR.
+    # own): compile-binaries needs id-token + attestations (plus contents:read)
+    # and actions:write for its compile-cache prune, create-tag /
+    # create-release / manpages / publish-release / scan-virustotal /
+    # sync-dev-release need contents:write, and scan-virustotal needs
+    # pull-requests:write for its PR.
     permissions:
+      actions: write
       attestations: write
       contents: write
       id-token: write

@@ -52,7 +52,7 @@ print(tool_summary())
 - **Binary**: downloaded as platform-specific executables from GitHub Releases.
 - **PyPI**: installed via `uvx`.
 - **PyPI (venv)**: run inside the project virtualenv via `uv run` because they need to import project code.
-- **npm**: installed from the npm registry into a throwaway prefix and run via `node_modules/.bin`. The one backend that needs a foreign runtime (Node.js and npm on `PATH`). The npm on `PATH` only installs the pinned `npm` of this registry, and that npm installs the tool, so the cooldown holds whatever npm the machine provides. Integrity is npm's own per-tarball verification, with no repomatic-pinned checksum.
+- **npm**: installed from the npm registry into a throwaway prefix and run via `node_modules/.bin`. The one backend that needs a foreign runtime (Node.js and npm on `PATH`). The npm on `PATH` only installs the pinned `npm` of this registry, and that npm installs the tool, so the cooldown holds whatever npm the machine provides. Integrity is npm's own per-tarball verification, then an `npm audit signatures` pass that checks the registry signature and the Sigstore provenance of every installed package and fails the install on a mismatch; there is no repomatic-pinned checksum.
 
 ## Config resolution
 

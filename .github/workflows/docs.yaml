@@ -96,6 +96,7 @@ jobs:
           uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
           builds_sphinx doc_files sphinx_builder site_deploy cloudflare_project
+          tool_versions
 
   deploy-docs:
     name: 📖 Deploy Sphinx doc
@@ -308,7 +309,7 @@ jobs:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-lychee-${{
-            github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
+            fromJSON(needs.metadata.outputs.metadata).tool_versions.lychee }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-lychee-
       - name: Install Graphviz

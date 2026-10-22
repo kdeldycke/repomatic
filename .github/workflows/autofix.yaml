@@ -155,7 +155,7 @@ jobs:
           --output-format github-json --output "$GITHUB_OUTPUT"
           gitignore_exists python_files json_files doc_files markdown_files
           is_python_project is_python_package is_awesome mailmap_exists
-          image_files shfmt_files active_autodoc
+          image_files shfmt_files active_autodoc tool_versions
 
   # --- Formatters: rewrite files to enforce canonical style. ---
 
@@ -253,14 +253,14 @@ jobs:
         with:
           version: "0.13.0"
       # Shares the `format-shell` job's shfmt cache: mdformat pulls the same
-      # pinned binary through its `path_tools`, keyed off the registry file that
-      # pins it.
+      # pinned binary through its `path_tools`, keyed on the shfmt version the
+      # registry pins.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-${{
-            github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
+            fromJSON(needs.metadata.outputs.metadata).tool_versions.shfmt }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-
       - name: Auto-format Markdown
@@ -300,7 +300,7 @@ jobs:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-${{
-            github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
+            fromJSON(needs.metadata.outputs.metadata).tool_versions.shfmt }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-shfmt-
       - name: Format shell scripts
@@ -335,7 +335,7 @@ jobs:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-biome-${{
-            github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
+            fromJSON(needs.metadata.outputs.metadata).tool_versions.biome }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-biome-
       - name: Format JSON
@@ -372,12 +372,19 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
+      # No `needs: metadata` here, so the job reads the pin its cache is keyed on
+      # itself: `tool_versions` names the version the registry pins for each tool.
+      - name: Read the tool pins
+        id: pins
+        run: >
+          uv --no-progress run --frozen -- repomatic show-metadata
+          --output-format github --output "$GITHUB_OUTPUT" tool_versions
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-typos-${{
-            github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
+            fromJSON(steps.pins.outputs.tool_versions).typos }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-typos-
       - name: Fix typos
@@ -501,7 +508,7 @@ jobs:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-oxipng-${{
-            github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
+            fromJSON(needs.metadata.outputs.metadata).tool_versions.oxipng }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-oxipng-
       - name: Install jpegoptim
@@ -649,6 +656,13 @@ jobs:
           key: repomatic-http-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             repomatic-http-${{ runner.os }}-
+      - name: Prune superseded HTTP caches
+        # Each run saves under its own run ID and restores the newest previous
+        # entry, so every older one is dead weight against the cache quota.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFIX: repomatic-http-${{ runner.os }}-
+        run: uv --no-progress run --frozen -- repomatic prune-caches --prefix "$PREFIX"
       - name: Sync dependencies
         # GH_TOKEN opens the pull requests, and raises the GitHub API rate limit
         # of the release lookups. A bumper with nothing to act on in this

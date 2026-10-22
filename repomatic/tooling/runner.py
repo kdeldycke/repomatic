@@ -119,7 +119,8 @@ the package and of its whole transitive tree: the install-time vector behind
 most npm supply-chain worms. It is safe here because the npm backend only
 installs a repomatic-pinned, cooldown-gated tool, where no install script is
 needed. `--no-audit` stops npm from sending the resolved dependency tree to the
-audit endpoint of the registry on every install.
+audit endpoint of the registry on every install: the signature audit that
+follows each install is a different check, see `_npm_audit_signatures`.
 
 The install of the pinned npm that installs the tool carries them too: see
 `_install_npm`.
@@ -488,14 +489,44 @@ def _npm_install(npm: str, spec: ToolSpec, dest: Path, cooldown_days: int) -> Pa
     return bin_path
 
 
+def _npm_audit_signatures(npm: str, prefix: Path) -> None:
+    """Verify the registry signature and provenance of every package in *prefix*.
+
+    `npm audit signatures` checks each installed package against the signing
+    keys the registry publishes, and its Sigstore provenance attestation when
+    the publisher produced one. A tarball whose integrity hash matched but
+    whose signature does not is what this catches: a registry compromise, or
+    a mirror serving altered content. The check reaches two hosts beside the
+    registry: its keys endpoint, and the Sigstore TUF repository
+    (`tuf-repo-cdn.sigstore.dev`).
+
+    :param npm: The npm executable that runs the audit.
+    :param prefix: The install prefix to audit.
+    :raises ToolInstallError: A signature or an attestation did not verify,
+        or the audit could not run, as when either host is unreachable.
+    """
+    cmd = [npm, "audit", "signatures", "--no-progress", "--prefix", str(prefix)]
+    logging.info(f"Verifying npm signatures: {' '.join(cmd)}")
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        msg = (
+            f"npm audit signatures could not verify {prefix} (exit code "
+            f"{result.returncode}): a signature or an attestation failed, or "
+            "the registry keys or the Sigstore TUF repository were unreachable."
+        )
+        raise ToolInstallError(msg)
+
+
 def _install_npm(spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
     """Install an npm tool into *dest* and return its executable path.
 
     The npm counterpart to {func}`~repomatic.tooling.binaries.install_binary`:
     installs `<package>@<version>` into a throwaway prefix with
     {data}`NPM_INSTALL_FLAGS`, relying on npm's own per-tarball integrity checks
-    (no repomatic-pinned checksum), and applies the `minimum-release-age`
-    cooldown through npm's `min-release-age` when *cooldown_days* is non-zero.
+    (no repomatic-pinned checksum), applies the `minimum-release-age`
+    cooldown through npm's `min-release-age` when *cooldown_days* is non-zero,
+    then verifies the registry signature and provenance of every installed
+    package with `_npm_audit_signatures`.
 
     The npm on `PATH` only installs the pinned
     {data}`~repomatic.tooling.registry.NPM_BOOTSTRAP_TOOL` into `dest/npm`, and
@@ -514,16 +545,24 @@ def _install_npm(spec: ToolSpec, dest: Path, cooldown_days: int) -> Path:
     if npm is None:
         msg = f"{spec.name} needs Node.js and npm on PATH, but npm was not found."
         raise ToolInstallError(msg)
+    prefixes: list[Path] = []
     if spec.name != NPM_BOOTSTRAP_TOOL:
         pinned = TOOL_REGISTRY[NPM_BOOTSTRAP_TOOL]
-        npm = str(_npm_install(npm, pinned, dest / pinned.name, cooldown_days))
+        prefixes.append(dest / pinned.name)
+        npm = str(_npm_install(npm, pinned, prefixes[0], cooldown_days))
     if cooldown_days and not _npm_supports_cooldown(npm):
         logging.warning(
             f"npm installing {spec.name} is older than "
             f"{NPM_MIN_VERSION_FOR_COOLDOWN}, so the minimum-release-age cooldown "
             "is not enforced; its transitive dependencies resolve without it."
         )
-    return _npm_install(npm, spec, dest, cooldown_days)
+    bin_path = _npm_install(npm, spec, dest, cooldown_days)
+    # The npm that installed the tool audits every prefix of the run, its own
+    # bootstrap included: it is the pinned release, where the npm on PATH may
+    # predate `audit signatures`.
+    for prefix in (*prefixes, dest):
+        _npm_audit_signatures(npm, prefix)
+    return bin_path
 
 
 def _build_install_args(spec: ToolSpec, exclude_newer: str | None = None) -> list[str]:

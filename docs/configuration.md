@@ -244,7 +244,7 @@ To decline an entry, name it under `lint-repo.declined` with the reason it stays
 ```toml
 [tool.repomatic.lint-repo.declined]
 # One member of a list: the path of the list, then the member.
-pytest.addopts."--numprocesses=auto" = "The tests share one orchard fixture."
+pytest.addopts."--numprocesses=logical" = "The tests share one orchard fixture."
 # A whole key.
 mypy.warn_unreachable = "The harvest module branches on the season."
 # A table in a list: the path of the list, then the table as `lint-repo` prints it.

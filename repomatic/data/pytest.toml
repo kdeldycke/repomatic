@@ -16,9 +16,10 @@ addopts = [
     # [tool.coverage] instead, via `repomatic init coverage`.
     "--cov=.",
     "--cov-report=term",
-    # Run tests in parallel, one worker per physical core: the
-    # pytest-xdist[psutil] test dependency is what counts them.
-    "--numprocesses=auto",
+    # Run tests in parallel, one worker per logical CPU. `auto` counts physical
+    # cores once the pytest-xdist[psutil] test dependency is installed, which
+    # halves the workers on a runner with SMT, like the x86 GitHub images.
+    "--numprocesses=logical",
     # `loadgroup` is `load` plus the `xdist_group` marker: every test of a group
     # runs on one worker, so a heavy module-scoped fixture, like a docs build,
     # is set up once. The default `load` ignores the marker.

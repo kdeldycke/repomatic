@@ -37,11 +37,15 @@
 - Drop the `vt-py` dependency and the `aiohttp` stack beneath it: `scan-virustotal` calls the VirusTotal REST API through the standard library.
 - Enable the `D205`, `D209`, `E501`, `PLC0415`, `RUF100`, `RUF102`, `RUF103`, `RUF104` and `TC` ruff rules in the bundled `ruff.toml`.
 - The bundled `pytest.toml` schedules with `--dist=loadgroup`, so an `xdist_group` marker keeps its tests on one worker, and sets `strict_config` and `strict_markers`.
+- The bundled `pytest.toml` runs one xdist worker per logical CPU with `--numprocesses=logical`: `auto` counted physical cores and halved the workers on the x86 runners.
+- Add `prune-caches`, which deletes the GitHub Actions caches a newer save superseded. The `compile-binaries`, `sync-deps` and `sync-tool-versions` jobs run it after their restore, and gain the `actions: write` scope.
+- Add the `tool_versions` key to `show-metadata`, the pinned version of every `repomatic run` tool. Each tool cache is now keyed on it, so a cache rotates with the pin instead of with every registry edit.
 - Raise the `click-extra` floor to `9.5`, which keeps the lazy command modules unloaded when a configuration file is read, and `py-walk` to `0.3.3`.
 - Raise the test and docs dependency floors to the releases the suite and the Sphinx build rely on, pytest `9.0.3` among them for CVE-2025-71176.
 - `repomatic run nuitka` spells the macOS ccache opt-out `--disable-cache=ccache`, the documented form of the hidden `--disable-ccache` alias.
 - `repomatic run gitleaks` prints each finding with its file, line, commit and rule, and redacts the secret, so a red `lint-secrets` run names what it found.
 - `repomatic run typos` now installs on Windows ARM64, and `repomatic run lychee` on x86_64 macOS.
+- An npm tool install now ends with `npm audit signatures`, which verifies the registry signature and the provenance of every installed package.
 - The documentation's copy button skips the prompt and output lines of a shell session, and its sitemap drops the search and index pages.
 - Set `wrap = "no"` in the bundled `mdformat.toml`, so `format-markdown` joins the lines of a hard-wrapped paragraph.
 - `lint-changelog` warns on an entry filed out of the Breaking, then Deprecated, then ordinary order and on a `#N` naming no issue, and `--fix` strips a `v` tag prefix off a heading.

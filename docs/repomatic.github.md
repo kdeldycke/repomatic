@@ -13,6 +13,7 @@
 .. toctree::
    :maxdepth: 4
 
+   repomatic.github.caches
    repomatic.github.ci_status
    repomatic.github.dev_release
    repomatic.github.event

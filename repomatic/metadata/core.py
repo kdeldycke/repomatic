@@ -73,6 +73,7 @@ from ..pyproject import get_current_version
 from ..release.binary import (
     FLAT_BUILD_TARGETS,
 )
+from ..tooling.registry import TOOL_REGISTRY
 from .env import EnvironmentMetadata
 from .git import GitMetadata
 from .matrix import MatrixMetadata
@@ -181,6 +182,7 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "test_matrix_pr": "Reduced test matrix for pull requests.",
     "latest_stable_python": "Newest released Python version of the full test matrix.",
     "npm_min_release_age_days": "npm min-release-age cooldown, in whole days.",
+    "tool_versions": "Pinned version of each `repomatic run` tool, by name.",
     "cloudflare_project": (
         "Cloudflare Pages project of the site: `site.cloudflare-project`, else"
         " the repository name."
@@ -556,6 +558,11 @@ class Metadata(
             "npm_min_release_age_days": lambda: min_release_age_days(
                 self.config.minimum_release_age
             ),
+            # A workflow keys its tool cache on these, so the cache rotates with
+            # the pin and with nothing else: see the cache steps of lint.yaml.
+            "tool_versions": lambda: {
+                name: TOOL_REGISTRY[name].version for name in sorted(TOOL_REGISTRY)
+            },
         }
         factories: dict[str, Callable[[], Any]] = {}
         for key in _METADATA_KEY_DESCRIPTIONS:

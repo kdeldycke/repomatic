@@ -85,6 +85,7 @@ from repomatic.metadata.matrix import NUITKA_CACHE_KEY
 from repomatic.metadata.output import Dialect, format_github_value
 from repomatic.pyproject import read_pyproject_toml
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
+from repomatic.tooling.registry import TOOL_REGISTRY
 from tests.conftest import (
     IN_GIT_CHECKOUT,
     WORKFLOWS_DIR,
@@ -831,6 +832,10 @@ expected: dict[str, Any] = {
     "latest_stable_python": "3.15",
     # `minimum-release-age` default "1 week", rendered as whole days for npm.
     "npm_min_release_age_days": 7,
+    # Every registry pin, by tool name: the cache keys of the workflows read it.
+    "tool_versions": {
+        name: spec.version for name, spec in sorted(TOOL_REGISTRY.items())
+    },
     # This repository dogfoods its own Cloudflare Pages lane on repomatic.net,
     # so it declares that target rather than the `github-pages` default, into a
     # project named after the repository: `site.cloudflare-project` is empty.

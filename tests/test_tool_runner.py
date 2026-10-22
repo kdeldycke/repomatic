@@ -585,10 +585,13 @@ def test_install_npm_command_shape(mock_which, mock_run, tmp_path):
     Both installs land in a prefix of their own, block install scripts and
     carry the cooldown.
     """
-    # The pinned npm install, its `npm --version`, then the tool install.
+    # The pinned npm install, its `npm --version`, the tool install, then the
+    # signature audit of each prefix.
     mock_run.side_effect = [
         MagicMock(returncode=0),
         MagicMock(returncode=0, stdout=f"{NPM_MIN_VERSION_FOR_COOLDOWN}\n"),
+        MagicMock(returncode=0),
+        MagicMock(returncode=0),
         MagicMock(returncode=0),
     ]
     spec = TOOL_REGISTRY["awesome-lint"]
@@ -598,7 +601,7 @@ def test_install_npm_command_shape(mock_which, mock_run, tmp_path):
     bin_path = _install_npm(spec, tmp_path, cooldown_days=8)
 
     bootstrap = mock_run.call_args_list[0][0][0]
-    install = mock_run.call_args_list[-1][0][0]
+    install = mock_run.call_args_list[2][0][0]
     assert bootstrap[:2] == ["/usr/bin/npm", "install"]
     assert f"npm@{pinned.version}" in bootstrap
     assert str(tmp_path / NPM_BOOTSTRAP_TOOL) in bootstrap
@@ -613,6 +616,34 @@ def test_install_npm_command_shape(mock_which, mock_run, tmp_path):
         for flag in NPM_INSTALL_FLAGS:
             assert flag in cmd
     assert bin_path == tmp_path / "node_modules" / ".bin" / "awesome-lint"
+    # The pinned npm audits its own prefix, then the tool's.
+    audits = [call[0][0] for call in mock_run.call_args_list[3:]]
+    assert [cmd[:3] for cmd in audits] == [
+        [str(pinned_npm), "audit", "signatures"],
+        [str(pinned_npm), "audit", "signatures"],
+    ]
+    assert [cmd[-1] for cmd in audits] == [
+        str(tmp_path / NPM_BOOTSTRAP_TOOL),
+        str(tmp_path),
+    ]
+
+
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.shutil.which", return_value="/usr/bin/npm")
+def test_install_npm_rejects_an_unverified_signature(mock_which, mock_run, tmp_path):
+    """A failed signature audit fails the install, after the tool landed."""
+    # Both installs succeed; the first audit fails.
+    mock_run.side_effect = [
+        MagicMock(returncode=0),
+        MagicMock(returncode=0),
+        MagicMock(returncode=1),
+    ]
+    _fake_npm_prefixes(tmp_path, NPM_BOOTSTRAP_TOOL, "awesome-lint")
+
+    with pytest.raises(ToolInstallError, match="audit signatures"):
+        _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=0)
+
+    assert mock_run.call_count == 3
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
@@ -624,7 +655,8 @@ def test_install_npm_zero_cooldown_omits_flag(mock_which, mock_run, tmp_path):
 
     _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=0)
 
-    assert mock_run.call_count == 2
+    # Two installs, then one signature audit per prefix.
+    assert mock_run.call_count == 4
     for call in mock_run.call_args_list:
         assert not any(str(arg).startswith("--min-release-age") for arg in call[0][0])
 
@@ -665,6 +697,7 @@ def test_install_npm_warns_when_npm_too_old(mock_which, mock_run, tmp_path, capl
     mock_run.side_effect = [
         MagicMock(returncode=0, stdout="10.8.2\n"),  # npm --version
         MagicMock(returncode=0),  # npm install
+        MagicMock(returncode=0),  # npm audit signatures
     ]
     bin_dir = tmp_path / "node_modules" / ".bin"
     bin_dir.mkdir(parents=True)
@@ -673,7 +706,8 @@ def test_install_npm_warns_when_npm_too_old(mock_which, mock_run, tmp_path, capl
     with caplog.at_level(logging.WARNING):
         _install_npm(TOOL_REGISTRY[NPM_BOOTSTRAP_TOOL], tmp_path, cooldown_days=8)
 
-    assert mock_run.call_count == 2
+    # The version probe, the install, then the signature audit.
+    assert mock_run.call_count == 3
     assert "minimum-release-age cooldown is not enforced" in caplog.text
 
 

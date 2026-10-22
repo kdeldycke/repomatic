@@ -57,6 +57,7 @@ from repomatic.release.protocol import (
 )
 from repomatic.release.self_pin import local_cli_invocation
 from repomatic.templating import PrTemplate
+from repomatic.tooling.registry import TOOL_REGISTRY
 from repomatic.upstream import DEFAULT_REPO, UPSTREAM_PACKAGE
 from repomatic.versions import BUMP_PARTS
 from tests.conftest import (
@@ -279,24 +280,42 @@ def test_exempt_workflows_no_concurrency(workflow_name: str) -> None:
     )
 
 
-TOOL_CACHE_KEY_SUFFIX = (
-    "${{ github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}"
+TOOL_CACHE_PATH = "~/.cache/repomatic/bin"
+"""The directory every `repomatic run` tool cache step persists."""
+
+
+def _step_requested_keys(job: dict, step_id: str) -> list[str]:
+    """The keys the step *step_id* of *job* asks `show-metadata` for."""
+    for step in job.get("steps", []):
+        if step.get("id") == step_id:
+            return requested_metadata_keys(step.get("run") or "", UPSTREAM_PACKAGE)
+    return []
+
+
+TOOL_VERSION_REF_RE = re.compile(
+    r"fromJSON\((?:needs\.metadata\.outputs\.metadata\)\.tool_versions"
+    r"|steps\.(?P<step>[a-z-]+)\.outputs\.tool_versions\))\.(?P<tool>[a-z-]+)"
 )
-"""The only valid ending for a tool-cache key derived from the registry file."""
+"""A cache key's reference to a pinned tool version.
+
+Either the workflow's `metadata` job output, or the output of a step of the
+job itself (a job that runs without `needs: metadata`).
+"""
 
 
-def test_tool_cache_keys_rotate_downstream() -> None:
-    """Every registry-derived cache key must work from a caller's workspace.
+def test_tool_cache_keys_name_the_pinned_version() -> None:
+    """Every tool-cache key rotates with the pin of the tool it holds, and nothing else.
 
     The cache steps live in reusable workflows called cross-repo, where the
-    checkout holds the caller's tree: `hashFiles('repomatic/…')` matches
-    nothing there and returns an empty string, collapsing the key to a
-    constant. `actions/cache` skips the save on an exact primary-key hit, so
-    a constant key freezes every downstream tool cache at its first write.
-    `github.job_workflow_sha` is the reusable workflow file's own commit SHA,
-    which rotates exactly when the `uses:` pin (and with it the pinned tool
-    versions) moves, and is empty on direct upstream runs, where the file
-    hash takes over.
+    checkout holds the caller's tree: a key cannot hash a repomatic source
+    file, since `hashFiles('repomatic/…')` matches nothing there and collapses
+    the key to a constant, which `actions/cache` then never saves again. Each
+    key reads the version of the tool the job installs from the
+    `tool_versions` metadata key instead, which the pinned repomatic computes
+    from its own registry: upstream and downstream alike, the key rotates
+    exactly when that pin moves, and a registry edit that moves no pin forks
+    no cache. A job without a `needs: metadata` edge reads the key in a step
+    of its own.
     """
     checked = 0
     for workflow_path in sorted(WORKFLOWS_DIR.glob("*.yaml")):
@@ -306,14 +325,33 @@ def test_tool_cache_keys_rotate_downstream() -> None:
                 uses = step.get("uses", "")
                 if not (isinstance(uses, str) and uses.startswith("actions/cache")):
                     continue
-                key = step.get("with", {}).get("key", "")
-                if "hashFiles('repomatic/tooling/registry.py')" not in key:
+                inputs = step.get("with", {})
+                if inputs.get("path") != TOOL_CACHE_PATH:
                     continue
                 checked += 1
-                assert key.endswith(TOOL_CACHE_KEY_SUFFIX), (
-                    f"{workflow_path.name}:{job_name}: cache key must fall "
-                    f"back through github.job_workflow_sha, got: {key}"
+                where = f"{workflow_path.name}:{job_name}"
+                key = inputs.get("key", "")
+                refs = list(TOOL_VERSION_REF_RE.finditer(key))
+                assert refs, f"{where}: cache key names no tool version: {key}"
+                assert "hashFiles(" not in key and "job_workflow_sha" not in key, (
+                    f"{where}: cache key must read the pin from metadata: {key}"
                 )
+                for ref in refs:
+                    tool = ref["tool"]
+                    assert TOOL_REGISTRY[tool].binary is not None, (
+                        f"{where}: {tool} is not a binary tool"
+                    )
+                    if ref["step"]:
+                        source_job, step_id = job, ref["step"]
+                    else:
+                        assert "metadata" in (job.get("needs") or []), (
+                            f"{where}: the job must depend on the metadata job"
+                        )
+                        source_job, step_id = workflow["jobs"]["metadata"], "metadata"
+                    requested = _step_requested_keys(source_job, step_id)
+                    assert "tool_versions" in requested, (
+                        f"{where}: step {step_id!r} must request tool_versions"
+                    )
     # Guard the sweep against silently checking nothing.
     assert checked >= 9
 
@@ -1902,9 +1940,15 @@ def test_create_release_bakes_pypi_admonition_at_creation() -> None:
 
 
 METADATA_READ_RE = re.compile(
-    r"fromJSON\((?:needs\.[\w-]+\.outputs|inputs)\.metadata\)\.(?P<key>\w+)"
+    r"fromJSON\((?:(?:needs\.[\w-]+\.outputs|inputs)\.metadata\)\.(?P<key>\w+)"
+    r"|steps\.[\w-]+\.outputs\.(?P<output>\w+)\))"
 )
-"""A workflow expression reading one key of the metadata JSON object."""
+"""A workflow expression reading one key of the metadata.
+
+Either a key of the `metadata` JSON object a job output or an input carries, or
+a step output: a `show-metadata` step writing the `github` dialect to
+`$GITHUB_OUTPUT` makes each requested key an output of its own.
+"""
 
 METADATA_SOURCES: dict[str, str] = {
     "_release-engine.yaml": "_release-build.yaml",
@@ -1931,7 +1975,7 @@ def _requested_keys(workflow_name: str) -> set[str]:
 def _read_keys(workflow_name: str) -> set[str]:
     """Every metadata key the expressions of a workflow read."""
     text = (WORKFLOWS_DIR / workflow_name).read_text(encoding="UTF-8")
-    return set(METADATA_READ_RE.findall(text))
+    return {m["key"] or m["output"] for m in METADATA_READ_RE.finditer(text)}
 
 
 @pytest.mark.parametrize(

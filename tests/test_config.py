@@ -334,7 +334,7 @@ def test_lint_repo_declined_keeps_its_keys_verbatim():
                 "lint-repo": {
                     "declined": {
                         "ruff": {"lint": {"extend-select": {"PLW1514": "Orchard."}}},
-                        "pytest": {"addopts": {"--numprocesses=auto": "Harvest."}},
+                        "pytest": {"addopts": {"--numprocesses=logical": "Harvest."}},
                         "mypy": {"warn_unreachable": "Season."},
                     }
                 }
@@ -343,7 +343,7 @@ def test_lint_repo_declined_keeps_its_keys_verbatim():
     })
     assert config.lint_repo.declined_entries() == {
         ("ruff", "lint", "extend-select", "PLW1514"): "Orchard.",
-        ("pytest", "addopts", "--numprocesses=auto"): "Harvest.",
+        ("pytest", "addopts", "--numprocesses=logical"): "Harvest.",
         ("mypy", "warn_unreachable"): "Season.",
     }
 

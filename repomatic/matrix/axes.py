@@ -104,7 +104,7 @@ Windows (`windows-2025`, where the two Windows images tie on compute). x86 Linux
 stays covered by the full matrix ({data}`TEST_RUNNERS_FULL`).
 
 ```{note} Why ARM Linux for the PR slot
-The suite runs `pytest --numprocesses=auto`, so it scales with cores and favors
+The suite runs `pytest --numprocesses=logical`, so it scales with cores and favors
 ARM, by two to three times over the x86 image, for quicker PR feedback. See
 {doc}`/test-matrix` for the measurements.
 ```

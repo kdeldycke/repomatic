@@ -56,6 +56,13 @@ jobs:
           key: repomatic-http-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             repomatic-http-${{ runner.os }}-
+      - name: Prune superseded HTTP caches
+        # Each run saves under its own run ID and restores the newest previous
+        # entry, so every older one is dead weight against the cache quota.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFIX: repomatic-http-${{ runner.os }}-
+        run: uv --no-progress run --frozen -- repomatic prune-caches --prefix "$PREFIX"
       - id: sync-tool-versions
         name: Sync tool versions
         # `uv run` (editable), not `uvx`: this is the only bumper that rewrites the checked-out package source, and an

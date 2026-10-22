@@ -149,7 +149,7 @@ test = [
   "pytest-randomly>=5",
   # pytest-xdist 3.7.0 merges every `xdist_group` marker a test carries; before
   # it the last marker alone chose the group. The [psutil] extra is what
-  # `--numprocesses=auto` counts the cores with.
+  # `--numprocesses=logical` counts the CPUs with.
   "pytest-xdist[psutil]>=3.7",
 ]
 docs = [
@@ -452,7 +452,9 @@ addopts = [
   "--durations=10",
   "--cov",
   "--cov-report=term",
-  "--numprocesses=auto",
+  # One worker per logical CPU: `auto` counts physical cores once psutil is
+  # installed, which halves the workers on the x86 runners.
+  "--numprocesses=logical",
   # `loadgroup` honours the `xdist_group` marker tests/test_sphinx_crossrefs.py
   # carries, which keeps its docs build on one worker. `load` ignores the marker.
   "--dist=loadgroup",
@@ -681,20 +683,8 @@ test-matrix.full-include = [
 
 [tool.actionlint]
 # actionlint reads no pyproject section of its own: repomatic serializes this one
-# to a temporary YAML config and passes it via `--config-file`. `paths` keys are
-# globs relative to the repository root, and each `ignore` entry is a regular
-# expression matched against the error message.
+# to a temporary YAML config and passes it via `--config-file`.
 #
-# `github.job_workflow_sha` is a real context property, holding the commit SHA of
-# the reusable workflow file itself, which the tool-cache keys read so they do not
-# rotate on every caller commit. GitHub documents it only as an OIDC token claim,
-# never on the `github` context reference page, so actionlint's schema lacks it.
-# Drop this entry once rhysd/actionlint#671 ships in a release.
-#
-# The glob carries no dot on purpose: click-extra expands every dotted key of
-# `pyproject.toml`, and one starting with a dot makes it warn on each repomatic
-# invocation. `**` matches dot-directories, so `.github/workflows/` is covered.
-paths."**/workflows/*".ignore = [ 'property "job_workflow_sha" is not defined' ]
 # actionlint validates a literal `runs-on:` against a built-in label list that
 # does not yet carry GitHub's Ubuntu 26.04 images, so it rejects them as
 # unknown. Declaring them here is the mechanism actionlint's own error message

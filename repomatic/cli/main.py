@@ -227,6 +227,9 @@ COMMANDS: dict[str, LazySubcommand] = {
     "cancel-runs": LazySubcommand("repomatic.cli.ci.cancel_runs", section=_section_ci),
     "ci-status": LazySubcommand("repomatic.cli.ci.ci_status", section=_section_ci),
     "job-timings": LazySubcommand("repomatic.cli.ci.job_timings", section=_section_ci),
+    "prune-caches": LazySubcommand(
+        "repomatic.cli.ci.prune_caches_cmd", section=_section_ci
+    ),
     # Site & docs.
     "cloudflare-pages": LazySubcommand(
         "repomatic.cli.site.cloudflare_pages", section=_section_site

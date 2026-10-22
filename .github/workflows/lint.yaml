@@ -97,7 +97,7 @@ jobs:
           uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
           is_bot is_awesome is_python_project python_files
-          yaml_changed zsh_changed zsh_files workflows_changed
+          yaml_changed zsh_changed zsh_files workflows_changed tool_versions
 
   lint-repo:
     name: 🏠 Lint repo
@@ -236,7 +236,8 @@ jobs:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-actionlint-${{
-            github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
+            fromJSON(needs.metadata.outputs.metadata).tool_versions.actionlint }}-shellcheck-${{
+            fromJSON(needs.metadata.outputs.metadata).tool_versions.shellcheck }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-actionlint-
       - name: Run actionlint
@@ -305,7 +306,7 @@ jobs:
           path: ~/.cache/repomatic/bin
           key: >-
             repomatic-${{ runner.os }}-${{ runner.arch }}-gitleaks-${{
-            github.job_workflow_sha || hashFiles('repomatic/tooling/registry.py') }}
+            fromJSON(needs.metadata.outputs.metadata).tool_versions.gitleaks }}
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-gitleaks-
       - name: Run gitleaks
