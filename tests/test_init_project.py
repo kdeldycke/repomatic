@@ -600,7 +600,7 @@ BARE_PYPROJECT = '[project]\nname = "test"\nversion = "0.1.0"\n'
     ("config_type", "expected"),
     (
         pytest.param("mypy", "[tool.mypy]", id="root-section"),
-        # tomlkit preserves the template's native dotted-key style.
+        # tomlrt preserves the template's native dotted-key style.
         pytest.param("ruff", "lint.ignore", id="dotted-subsection"),
         pytest.param("bumpversion", "[[tool.bumpversion.files]]", id="array-section"),
         # The bumpversion template carries inline comments on its config values.
@@ -3439,16 +3439,16 @@ def test_local_entries_preserved_via_update(tmp_path: Path) -> None:
 
 
 def test_local_entry_comments_preserved(tmp_path: Path) -> None:
-    """Verify comments between local [[files]] entries survive ongoing sync.
+    """Verify the comment above each local [[files]] entry survives ongoing sync.
 
     Regression test for the sync-bumpversion job stripping comments from
     downstream repos (e.g., click-extra#1595).
 
-    .. note::
-        tomlkit stores comments preceding the *first* local entry in the
-        parent table body, not in the AoT. These are lost during section
-        replacement. Comments *between* local entries survive because tomlkit
-        attaches them to the preceding entry's trivia.
+    ```{note}
+    tomlrt reads the comments above a `[[tool.bumpversion.files]]` header as
+    part of that entry. Each local entry keeps its own comment, the first one
+    included.
+    ```
     """
     content = _bumpversion_pyproject(
         "[[tool.bumpversion.files]]\n"
@@ -3476,8 +3476,8 @@ def test_local_entry_comments_preserved(tmp_path: Path) -> None:
     result = _sync_tool_config(content, bv)
 
     assert result is not None
-    # Comments between local entries survive (attached to preceding entry's
-    # trivia by tomlkit).
+    # Each local entry keeps the comment above its header.
+    assert "# Pin image URLs from main to the release tag." in result
     assert "# Restore image URLs from the previous release tag back to main." in result
     # The local entries themselves must survive.
     assert 'search = "raw.githubusercontent.com/test/main/"' in result
@@ -6098,11 +6098,9 @@ def test_awesome_template_url_pattern(text: str, expected: str):
 # --- tomlrt contract tests ---
 #
 # These tests guard the assumptions `_update_tool_config` makes about its
-# underlying TOML library. The tomlrt rewrite dropped a regex-based whitespace
-# normalization stack and several inline-table workarounds that the previous
-# tomlkit-based implementation needed; the guards below assert the library now
-# meets those invariants natively, so a future regression cannot silently
-# corrupt a downstream pyproject.toml.
+# underlying TOML library. It returns the text `tomlrt.dumps` writes with no
+# post-processing, so a library regression must fail here before it can corrupt
+# a downstream pyproject.toml.
 
 _TOOL_CONFIG_COMPONENTS = [c for c in COMPONENTS if isinstance(c, ToolConfigComponent)]
 
@@ -6117,10 +6115,9 @@ def test_update_tool_config_output_contract(comp: ToolConfigComponent) -> None:
     - Non-empty output. tomlrt 1.7.3, 1.7.4, and the main-branch SHA briefly
       pinned in `pyproject.toml` each shipped fixes for a shape where
       `tomlrt.dumps` returned an empty string with no exception.
-    - Section spacing. The previous tomlkit implementation enforced this with a
-      four-step regex normalization on the dumped string; the tomlrt rewrite
-      dropped that stack and trusts the library, so a regression reintroducing
-      ``]\n[`` collisions or triple-blank gaps must fail here.
+    - Section spacing. Nothing rewrites the string `tomlrt.dumps` returns, so a
+      library regression reintroducing ``]\n[`` collisions or triple-blank gaps
+      must fail here.
     - A terminal newline. When the template's prefix-strip drops the source's
       trailing newline, the last KV slot loses its EOL trivia and every
       regenerated PR diff grows a ``\ No newline at end of file``.
