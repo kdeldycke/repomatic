@@ -159,7 +159,7 @@ The cell cannot see two cases:
 
 Check those two by hand: see [dependencies § Lowest-version check](dependencies.md#lowest-version-check).
 
-A repository whose own `tests.yaml` predates this step copies the step that reads `matrix.resolution` from the workflow linked above.
+A repository whose own `tests.yaml` predates this step copies the step that reads `matrix.resolution` from the workflow linked above. It then needs `--frozen` on every `uv run` after that step: the rewritten lockfile no longer matches the default resolution, so a plain `uv run` resolves it back to the newest releases.
 
 ### Select runners by measured speed, not architecture
 
@@ -177,7 +177,7 @@ A test matrix is configuration, and configuration rots silently: a new dependenc
 
 The highest-value check ties a pinned dependency axis to its declared specifier: assert that the pinned versions equal the releases the specifier allows (reading the release list from the package index), minus the newest, which the `released` value already covers. A freshly published release then fails the test until it is pinned; a pin that drops below a raised floor, or that gets yanked, fails until it is removed. A cheaper, network-free companion asserts the lowest pinned version equals the specifier's floor, catching a floor change that forgot the matrix even when the index is unreachable.
 
-The same spirit covers the matrix's other invariants: its lowest Python should equal the project's `requires-python` floor, and every `exclude` should reference a real axis value: a misspelled runner silently excludes nothing and runs the job anyway, which `repomatic`'s `lint-repo` check flags as a no-op exclude.
+The same spirit covers the matrix's other invariants: its lowest Python should equal the project's `requires-python` floor, and every `exclude` should reference a real axis value: a misspelled runner silently excludes nothing and runs the job anyway, which `repomatic`'s `lint-repo` check flags as a no-op exclude. A guard that reads the `python-version` axis must also read the `include` rows: a `full-include` row turns the full matrix into a flat job list with no axis.
 
 ## GitHub-hosted runner inventory
 

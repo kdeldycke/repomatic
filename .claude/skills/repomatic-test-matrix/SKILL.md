@@ -68,7 +68,9 @@ test-matrix.full-include = [
 
 The `tests` job of the bundled `tests.yaml` resolves the project again in a cell that carries that key: each direct dependency takes the lowest version its specifier allows. The cell fails when the code calls an API newer than a declared floor.
 
-A `tests.yaml` whose jobs predate that step ignores the key, and the cell then repeats its twin. Copy the step that reads `matrix.resolution` from the upstream workflow first, at the tag the repository pins: `gh api 'repos/kdeldycke/repomatic/contents/.github/workflows/tests.yaml?ref=vX.Y.Z' -H 'Accept: application/vnd.github.raw'`.
+A `tests.yaml` whose jobs predate that step ignores the key, and the cell then repeats its twin. Copy the step that reads `matrix.resolution` from the upstream workflow first, at the tag the repository pins: `gh api 'repos/kdeldycke/repomatic/contents/.github/workflows/tests.yaml?ref=vX.Y.Z' -H 'Accept: application/vnd.github.raw'`. Then put `--frozen` on every `uv run` after it. A plain `uv run` finds the rewritten lockfile out of date and resolves it back to the newest releases.
+
+A test that reads the matrix's `python-version` axis must also read its `include` rows. A `full-include` row flattens the full matrix into a job list with no axis.
 
 The cell cannot see a dependency that another requirement holds above its floor, or a library that the tests replace with a mock. Check those two by hand: the `/repomatic-deps` skill, when present, holds the procedure.
 
