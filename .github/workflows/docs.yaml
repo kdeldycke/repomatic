@@ -93,7 +93,7 @@ jobs:
       - name: Run repomatic show-metadata
         id: metadata
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' show-metadata
+          uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
           builds_sphinx doc_files sphinx_builder site_deploy cloudflare_project
           tool_versions
@@ -212,7 +212,7 @@ jobs:
           CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
           CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' cloudflare-r2
+          uv --no-progress run --frozen -- repomatic cloudflare-r2
           --offload ./docs/_build --output "$GITHUB_STEP_SUMMARY"
       - name: Deploy to Cloudflare Pages
         # Direct Upload: the tree built above is what reaches the edge, so
@@ -232,7 +232,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run wrangler --
+          uv --no-progress run --frozen -- repomatic run wrangler --
           pages deploy ./docs/_build
           --project-name "$PROJECT_NAME"
           --branch "$REF_NAME"
@@ -274,7 +274,7 @@ jobs:
         # `cloudflare_project`, so the two jobs address one project.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' cloudflare-pages --check
+        run: uv --no-progress run --frozen -- repomatic cloudflare-pages --check
 
   check-broken-links:
     name: 💔 Check broken links
@@ -343,4 +343,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' broken-links
+        run: uv --no-progress run --frozen -- repomatic broken-links

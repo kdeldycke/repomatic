@@ -886,7 +886,7 @@ wheels = [
 
 [[package]]
 name = "repomatic"
-version = "8.0.0"
+version = "8.0.1.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "click-extra" },

@@ -193,7 +193,7 @@ jobs:
       # release freeze splices the pinned invocation in.
       - name: Pack plugin
         if: fromJSON(needs.build.outputs.metadata).is_release_push
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' pack-plugin
+        run: uv --no-progress run --frozen -- repomatic pack-plugin
       - name: Upload plugin artifact
         if: fromJSON(needs.build.outputs.metadata).is_release_push
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

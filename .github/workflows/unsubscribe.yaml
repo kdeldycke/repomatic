@@ -87,7 +87,7 @@ jobs:
         # stdout (the markdown report) is redirected to the step summary; --verbosity INFO
         # streams per-thread progress to the live job log via stderr.
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' --verbosity INFO
+          uv --no-progress run --frozen -- repomatic --verbosity INFO
           unsubscribe-threads
           ${MONTHS:+--months "$MONTHS"}
           ${MAX_UNSUBSCRIBES:+--max-unsubscribes "$MAX_UNSUBSCRIBES"}

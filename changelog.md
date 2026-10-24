@@ -1,5 +1,10 @@
 # Changelog
 
+## [`8.0.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v8.0.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`8.0.0` (2026-10-24)](https://github.com/kdeldycke/repomatic/compare/v7.18.0...v8.0.0)
 
 - **Breaking:** Drop Python 3.10, past its end of life: repomatic needs Python 3.11, and the default test matrix starts at 3.11 on every runner.
