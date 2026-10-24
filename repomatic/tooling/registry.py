@@ -2191,7 +2191,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "npm": ToolSpec(
         name="npm",
-        version="12.2.0",
+        version="12.2.1",
         npm=NpmSpec(),
         source_url="https://github.com/npm/cli",
         cli_docs_url="https://docs.npmjs.com/cli/",
@@ -2355,7 +2355,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.17.0",
+        version="0.17.1",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
@@ -2588,7 +2588,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "wrangler": ToolSpec(
         name="wrangler",
         display_name="Wrangler",
-        version="4.150.0",
+        version="4.151.1",
         npm=NpmSpec(),
         source_url="https://github.com/cloudflare/workers-sdk",
         # The monorepo tags each package of it, like `wrangler@4.150.0`: the
@@ -2648,7 +2648,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "zizmor": ToolSpec(
         name="zizmor",
         default_args=(".",),
-        version="1.30.1",
+        version="1.31.1",
         source_url="https://github.com/zizmorcore/zizmor",
         config_docs_url="https://docs.zizmor.sh/configuration/",
         cli_docs_url="https://docs.zizmor.sh/usage/",
