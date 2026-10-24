@@ -43,6 +43,7 @@ from repomatic.config import (
     Config,
     LabelsConfig,
     LintRepoConfig,
+    SyncRunnerImagesConfig,
     load_repomatic_config,
 )
 from repomatic.deps.pins import Candidate
@@ -2876,6 +2877,26 @@ def test_runner_images_ignores_thin_callers():
         ci="on: push\njobs:\n  build:\n    uses: ./.github/workflows/_build.yaml\n"
     )
     assert all(r.passed is not False for r in check_runner_images(ctx))
+
+
+@pytest.mark.parametrize(
+    ("runner", "expected"),
+    [
+        # Kept on purpose, and recorded where `sync-runner-images` reads it.
+        pytest.param("ubuntu-22.04", None, id="declined-off-axis-image"),
+        # Declining a floating alias does not stop GitHub from repointing it.
+        pytest.param("ubuntu-latest", False, id="declined-alias"),
+    ],
+)
+def test_runner_images_declined(runner, expected):
+    """A label in `sync-runner-images.ignore` is a decision, except an alias."""
+    ctx = _workflows(
+        ci=f"on: push\njobs:\n  build:\n    runs-on: {runner}\n"
+        "    steps:\n      - run: echo apricot\n"
+    )
+    ctx.config = Config(sync_runner_images=SyncRunnerImagesConfig(ignore=[runner]))
+    results = check_runner_images(ctx)
+    assert [r.passed for r in results] == [expected]
 
 
 # --- Thin caller and workflow dispatch checks ---

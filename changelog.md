@@ -73,6 +73,7 @@
 - `lint-repo` now warns when a `repomatic run` tool pin is still inside the cooldown, and names the `exclude-newer-package` entry that admits it.
 - `lint-repo` now warns when a MyST Sphinx build does not fail on `myst.xref_missing`, the dead fragment links `lint-anchors` caught until `7.18.0`.
 - `lint-repo` no longer warns that a `REPOMATIC_PAT` limited to its own repository likely has access to all repositories.
+- `lint-repo` no longer warns about a runner image outside the test matrix axes when `[tool.repomatic.sync-runner-images] ignore` names it.
 - `immutable-releases` now applies to every repository with a changelog, not only to Python packages.
 - `description-matches` and `website-for-sphinx` skip when no repository is named, instead of failing.
 - `ci-status` and the workflow checks of `lint-repo` now read `.yml` workflow files too.

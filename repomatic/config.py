@@ -612,7 +612,10 @@ class SyncRunnerImagesConfig:
     ```
 
     Applies to both shapes: an ignored label is neither probed when it arrives
-    nor proposed as a successor when something retires onto it.
+    nor proposed as a successor when something retires onto it. A job already
+    on an ignored label stays there, which is how a repository keeps one job on
+    an image outside the curated axes. `lint-repo` then reports that image
+    instead of warning that nobody weighed it.
     """
 
     sync: bool = True

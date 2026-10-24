@@ -620,9 +620,14 @@ def check_runner_images(ctx: LintContext) -> list[CheckResult]:
        carry measured guidance on speed and cost; an image picked outside them
        is one nobody has weighed, and is usually a leftover.
 
+    An image outside the axes that `[tool.repomatic.sync-runner-images] ignore`
+    names is reported, not flagged. The repository weighed it there, since that
+    list also stops `sync-runner-images` from moving a job off the image.
+
     Values built from an expression (`${{ matrix.os }}`) name no image here and
     are left alone: the axis they draw from is checked at its definition.
     """
+    declined = frozenset(ctx.config.sync_runner_images.ignore)
     seen = literal_runners(workflows=ctx.workflows)
     if not seen:
         # The two skips are worth telling apart: no workflows at all is a
@@ -642,6 +647,14 @@ def check_runner_images(ctx: LintContext) -> list[CheckResult]:
                     False,
                     f"{where} run on `{runner}`, which GitHub repoints without"
                     f" a commit here. Pin the image instead.",
+                )
+            )
+        elif runner not in KNOWN_RUNNERS and runner in declined:
+            results.append(
+                CheckResult(
+                    None,
+                    f"{where} run on `{runner}`, outside the test matrix axes,"
+                    f" as `[tool.repomatic.sync-runner-images] ignore` records.",
                 )
             )
         elif runner not in KNOWN_RUNNERS:
