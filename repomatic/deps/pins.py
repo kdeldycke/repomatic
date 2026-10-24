@@ -120,6 +120,22 @@ _PYPI_LITERAL_RE = re.compile(
     r"'(?P<package>[a-z][a-z0-9._-]*)(?:\[[^\]]+\])?==(?P<version>[0-9][0-9.]*)'"
 )
 
+# Release assets fetched by tag: `gh release download v0.3.2 --repo owner/repo`.
+#
+# The tag is the pin, so it has to come right after `download`. The options
+# between it and `--repo` (`--pattern`, `--output`, `--clobber`) are skipped
+# over, across the line breaks of a folded `run: >` block or a `\` continuation.
+# An option value never starts with `-`, which keeps `--repo` from passing for
+# the value of the flag before it. A bare `gh release download` names no tag and
+# fetches the newest release, so it is no pin and never matches.
+_GH_RELEASE_LITERAL_RE = re.compile(
+    r"\bgh\s+release\s+download\s+"
+    r"(?P<tag>v?[0-9][0-9A-Za-z.+-]*)"
+    r"(?:[\s\\]+-{1,2}[A-Za-z][\w-]*"
+    r"""(?:[= ](?:"[^"\n]*"|'[^'\n]*'|[^\s"'\\-][^\s\\]*))?)*?"""
+    r"""[\s\\]+(?:--repo|-R)[= ]["']?(?P<repo>[\w.-]+/[\w.-]+)"""
+)
+
 SETUP_UV_PACKAGE = "uv"
 """PyPI project backing the `astral-sh/setup-uv` version pin."""
 
@@ -247,17 +263,25 @@ class UpstreamRefPin(NamedTuple):
 class Ecosystem(StrEnum):
     """The registry a workflow version literal resolves from."""
 
+    GITHUB = "github"
+    """GitHub releases, for `gh release download` tags. The package is the
+    `owner/repo` slug."""
+
     NPM = "npm"
     PYPI = "pypi"
 
     def candidates(self, package: str) -> list[Candidate]:
         """The releases the registry offers for *package*."""
+        if self is Ecosystem.GITHUB:
+            return github_candidates(self.package_url(package))
         if self is Ecosystem.NPM:
             return npm_candidates(package)
         return pypi_candidates(package)
 
     def package_url(self, package: str) -> str:
         """The registry's page for *package*."""
+        if self is Ecosystem.GITHUB:
+            return f"https://github.com/{package}"
         url = NPM_PACKAGE_URL if self is Ecosystem.NPM else PYPI_PACKAGE_URL
         return url.format(package=package)
 
@@ -272,7 +296,7 @@ class WorkflowLiteral(NamedTuple):
     """The package name."""
 
     version: str
-    """The currently pinned version."""
+    """The currently pinned version, without the `v` of a release tag."""
 
 
 def parse_min_age(value: str) -> timedelta:
@@ -728,7 +752,7 @@ def apply_action_pins(
 def find_workflow_literals(
     content: str, self_pin: str | None = None
 ) -> list[WorkflowLiteral]:
-    """Find npm and PyPI version literals embedded in a workflow file.
+    """Find npm, PyPI and release-tag version literals embedded in a workflow file.
 
     :param content: The workflow file text.
     :param self_pin: The package of the upstream toolkit. Its pin is read in
@@ -741,6 +765,12 @@ def find_workflow_literals(
         WorkflowLiteral(Ecosystem.NPM, m.group("package"), m.group("version"))
         for m in _NPM_LITERAL_RE.finditer(content)
     ]
+    literals.extend(
+        WorkflowLiteral(
+            Ecosystem.GITHUB, m.group("repo"), m.group("tag").removeprefix("v")
+        )
+        for m in _GH_RELEASE_LITERAL_RE.finditer(content)
+    )
     literals.extend(
         WorkflowLiteral(Ecosystem.PYPI, m.group("package"), m.group("version"))
         for m in _PYPI_LITERAL_RE.finditer(content)
@@ -763,10 +793,12 @@ def apply_workflow_literals(
     resolved: Mapping[tuple[str, str], str],
     self_pin: str | None = None,
 ) -> tuple[str, list[tuple[str, str, str]]]:
-    """Rewrite npm/PyPI version literals to their resolved version.
+    """Rewrite npm, PyPI and release-tag version literals to their resolved version.
 
     :param content: The workflow file text.
-    :param resolved: Mapping of `(ecosystem, package)` to the new version.
+    :param resolved: Mapping of `(ecosystem, package)` to the new version. A
+        {attr}`Ecosystem.GITHUB` entry maps the slug to the whole release tag,
+        written as it is, since a repository picks its own tag scheme.
     :param self_pin: The package of the upstream toolkit. Its pin is rewritten
         in every shape {func}`find_workflow_literals` reads it in, and its
         `uvx` commands get the exemption of
@@ -812,6 +844,21 @@ def apply_workflow_literals(
         changes.append((SETUP_UV_PACKAGE, old_version, new_version))
         return match.group(0).replace(f'"{old_version}"', f'"{new_version}"')
 
+    def replace_release_tag(match: re.Match[str]) -> str:
+        """Rewrite the tag of a `gh release download` command.
+
+        Spliced at the tag's own span: the command around it can repeat the
+        same string, for example in an `--output` path.
+        """
+        repo, old_tag = match.group("repo"), match.group("tag")
+        new_tag = resolved.get((Ecosystem.GITHUB, repo))
+        if not new_tag or new_tag == old_tag:
+            return match.group(0)
+        changes.append((repo, old_tag, new_tag))
+        start, end = (index - match.start() for index in match.span("tag"))
+        return match.group(0)[:start] + new_tag + match.group(0)[end:]
+
+    content = _GH_RELEASE_LITERAL_RE.sub(replace_release_tag, content)
     content = _NPM_LITERAL_RE.sub(replace(Ecosystem.NPM, "@"), content)
     content = _PYPI_LITERAL_RE.sub(replace(Ecosystem.PYPI, "=="), content)
     content = _SETUP_UV_VERSION_RE.sub(replace_setup_uv, content)

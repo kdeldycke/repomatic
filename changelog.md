@@ -82,6 +82,7 @@
 - `sync-tool-versions` now downloads only the artifacts of the tools it bumps, and fetches release data in parallel, like `sync-action-pins`.
 - `sync-workflow-pins` now realigns the inline `repomatic` pin in every shape `lint-repo` checks, extras included.
 - Add the `workflow-pins.ignore` key: `sync-workflow-pins` leaves the pins of each package it lists as written.
+- `sync-workflow-pins` now bumps the tag of a `gh release download vX.Y.Z --repo owner/repo` command to the newest release past the cooldown.
 - Generated tool configs are cached under a content digest, so two checkouts no longer overwrite each other's config.
 - A bare `repomatic run gitleaks` now scans the git history, and a bare `repomatic run lychee` checks the documentation files.
 - Add `repomatic run shellcheck` and `repomatic run npm`. `repomatic run actionlint` puts shellcheck on `PATH` and annotates its findings in CI.

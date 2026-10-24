@@ -606,8 +606,8 @@ def check_runner_images(ctx: LintContext) -> list[CheckResult]:
     """Flag runner images that move on their own, or that no axis knows about.
 
     Neither Dependabot nor `sync-workflow-pins` touches a `runs-on:` value:
-    the first only rewrites `uses:` references, the second only the
-    `uvx '<pkg>==X.Y.Z'` and `npm install pkg@X.Y.Z` literals. So only
+    the first only rewrites `uses:` references, the second only the version
+    literals of install and download commands. So only
     `sync-runner-images` moves a runner. It rewrites a literal `runs-on:` when
     GitHub retires the image or lists a newer version of it.
 

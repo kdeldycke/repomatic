@@ -1215,7 +1215,7 @@ def _docs_marker(marker: str) -> str:
 
 
 def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
-    """Bump npm and PyPI version literals embedded in workflow YAML.
+    """Bump npm, PyPI and `gh release download` version literals in workflow YAML.
 
     The upstream toolkit's inline pin (`repomatic==X.Y.Z`) is the exception:
     it is aligned to the newest `uses:` ref version instead of the newest
@@ -1323,7 +1323,11 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             plan.change_labels[package] = _docs_marker("⏪ stepped back")
         elif not is_newer(latest.version, current_version):
             continue
-        resolved[(ecosystem, package)] = latest.version
+        # A release tag is written whole, `v` included: the version stripped of it
+        # is only what the comparisons above read.
+        resolved[(ecosystem, package)] = (
+            latest.ref if ecosystem is Ecosystem.GITHUB else latest.version
+        )
         plan.dates[package] = latest.date
         plan.name_urls[package] = package_url
 

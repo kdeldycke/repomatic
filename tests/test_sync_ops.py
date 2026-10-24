@@ -1580,6 +1580,41 @@ def test_workflow_pins_leave_an_ignored_package_as_written(ignore, moved):
     assert ("'tree-sitter==0.25.2'" in written) == ("tree-sitter" in ignore)
 
 
+@pytest.mark.parametrize(
+    ("ignore", "tag"),
+    [
+        pytest.param([], "v1.3.0", id="walked"),
+        pytest.param(["orchard/papaya"], "v1.2.0", id="held"),
+    ],
+)
+def test_workflow_pins_walk_a_release_download_tag(ignore, tag):
+    """A `gh release download` tag moves to the newest release past the cooldown.
+
+    The tag is written as the repository spells it, `v` included, and the slug
+    is the name `workflow-pins.ignore` holds it by.
+    """
+    workflow = {
+        Path("tests.yaml"): (
+            "jobs:\n  fetch:\n    steps:\n      - run: >\n"
+            "          gh release download v1.2.0\n"
+            "          --repo orchard/papaya\n"
+        )
+    }
+    releases = [
+        Candidate("1.2.0", "2026-08-01", "v1.2.0"),
+        Candidate("1.3.0", "2026-08-02", "v1.3.0"),
+    ]
+    rc = ResolveContext(config=Config(workflow_pins_ignore=ignore), today=GATE_TODAY)
+    with (
+        patch("repomatic.deps.sync._pinnable_files", return_value=workflow),
+        patch("repomatic.deps.pins.github_candidates", return_value=releases),
+    ):
+        plan = _resolve_workflow_pins(rc)
+    written = plan.file_writes.get(Path("tests.yaml"), workflow[Path("tests.yaml")])
+    assert f"gh release download {tag}\n" in written
+    assert bool(plan.changes) == (tag == "v1.3.0")
+
+
 def test_workflow_pins_ignore_cannot_hold_the_upstream_pin() -> None:
     """The self-pin follows the `uses:` refs even when the list names it."""
     rc = ResolveContext(

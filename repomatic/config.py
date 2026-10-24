@@ -1463,7 +1463,8 @@ class Config:
     workflow-pins.ignore = [ "tree-sitter" ]
     ```
 
-    Names are npm or PyPI package names, and `uv` holds the `version:` of
+    Names are npm or PyPI package names, an `owner/repo` slug for a
+    `gh release download` tag, and `uv` for the `version:` of
     `astral-sh/setup-uv`. The upstream toolkit's own pin is the exception: it
     follows the `uses:` refs, whatever this list says.
     """
@@ -1475,9 +1476,10 @@ class Config:
     """Whether the `sync-workflow-pins` job is enabled for this project.
 
     Bumps version literals embedded in workflow YAML (npm `pkg@x` installs,
-    `uvx` and `--with` PyPI pins, and the uv `version:` of `astral-sh/setup-uv`)
-    to the latest release passing the `minimum-release-age` cooldown. Projects
-    that pin these by hand can set this to `false`.
+    `uvx` and `--with` PyPI pins, the tag of a `gh release download` command,
+    and the uv `version:` of `astral-sh/setup-uv`) to the latest release passing
+    the `minimum-release-age` cooldown. Projects that pin these by hand can set
+    this to `false`.
     """
 
     def __post_init__(self) -> None:

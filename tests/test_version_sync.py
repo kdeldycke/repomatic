@@ -429,6 +429,94 @@ def test_find_workflow_literals_ignores_unpinned_npm(command):
     assert npm == []
 
 
+@pytest.mark.parametrize(
+    ("command", "repo", "version"),
+    (
+        pytest.param(
+            "gh release download v1.2.0 --repo orchard/papaya --clobber",
+            "orchard/papaya",
+            "1.2.0",
+            id="one-line",
+        ),
+        # A folded `run: >` block spreads the command over several lines, with
+        # options between the tag and `--repo`.
+        pytest.param(
+            "gh release download v1.2.0\n"
+            '          --pattern "${{ matrix.asset }}"\n'
+            "          --output /usr/local/bin/papaya\n"
+            "          --clobber\n"
+            "          --repo orchard/papaya",
+            "orchard/papaya",
+            "1.2.0",
+            id="folded-options-first",
+        ),
+        pytest.param(
+            "gh release download 1.2.0 \\\n"
+            "            --repo=orchard/papaya \\\n"
+            "            --pattern '*.tar.gz'",
+            "orchard/papaya",
+            "1.2.0",
+            id="continuation-bare-tag",
+        ),
+        pytest.param(
+            "gh release download v1.2.0 -R orchard/papaya",
+            "orchard/papaya",
+            "1.2.0",
+            id="short-repo-flag",
+        ),
+    ),
+)
+def test_find_workflow_literals_release_tags(command, repo, version):
+    """A `gh release download` tag is found with the repository it names."""
+    literals = {
+        (lit.ecosystem, lit.package, lit.version)
+        for lit in vs.find_workflow_literals(f"          {command}\n")
+    }
+    assert ("github", repo, version) in literals
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        # No tag: the command fetches the newest release on every run.
+        pytest.param(
+            'gh release download --repo orchard/papaya --pattern "*.pkg"', id="no-tag"
+        ),
+        # No `--repo`: the command reads the workflow's own repository.
+        pytest.param("gh release download v1.2.0 --pattern '*.zip'", id="no-repo"),
+        # The `--repo` of the next command belongs to that command.
+        pytest.param(
+            "gh release download v1.2.0 --pattern '*.zip'\n"
+            "          gh release download --repo orchard/papaya",
+            id="next-command",
+        ),
+        # A comment naming the shape is prose, not a pin.
+        pytest.param("# a `gh release download <tag>` is none of those", id="prose"),
+    ),
+)
+def test_find_workflow_literals_ignores_untagged_release_downloads(command):
+    """A command naming no tag or no repository has no literal to walk forward."""
+    github = [
+        lit
+        for lit in vs.find_workflow_literals(f"          {command}\n")
+        if lit.ecosystem == "github"
+    ]
+    assert github == []
+
+
+def test_apply_workflow_literals_release_tag():
+    """The tag is replaced whole, at its own span, whatever repeats it."""
+    content = (
+        "          gh release download v1.2.0 --output papaya-v1.2.0"
+        " --repo orchard/papaya\n"
+    )
+    new_content, changes = vs.apply_workflow_literals(
+        content, {("github", "orchard/papaya"): "v1.3.0"}
+    )
+    assert changes == [("orchard/papaya", "v1.2.0", "v1.3.0")]
+    assert new_content == content.replace("download v1.2.0", "download v1.3.0")
+
+
 def test_apply_workflow_literals():
     content = "          uvx --no-progress 'papaya-cli==11.2.8'\n"
     new_content, changes = vs.apply_workflow_literals(

@@ -1246,7 +1246,7 @@ def sync_action_pins(
 
 
 @subcommand(
-    short_help="Bump npm/PyPI version literals in workflow YAML",
+    short_help="Bump npm, PyPI and release-tag literals in workflow YAML",
     examples=(
         (
             "Bump every workflow version literal past the cooldown",
@@ -1265,14 +1265,14 @@ def sync_workflow_pins(
     release_notes: bool,
     held_back: bool,
 ) -> None:
-    """Bump npm and PyPI version literals embedded in workflow YAML.
+    """Bump npm, PyPI and release-tag version literals embedded in workflow YAML.
 
     \b
     Scans workflow and composite-action files for `npm install pkg@x`,
-    `npx pkg@x`, `uvx 'pkg==x'` and `--with 'pkg==x'` pins, and for the uv
-    `version:` input of `astral-sh/setup-uv`. Resolves each to its latest
-    release passing the [tool.repomatic] minimum-release-age cooldown, and
-    rewrites the literal.
+    `npx pkg@x`, `uvx 'pkg==x'` and `--with 'pkg==x'` pins, the tag of
+    `gh release download vX --repo owner/repo`, and the uv `version:` input of
+    `astral-sh/setup-uv`. Resolves each to its latest release passing the
+    [tool.repomatic] minimum-release-age cooldown, and rewrites the literal.
     """
     _run_version_sync(
         ctx,
