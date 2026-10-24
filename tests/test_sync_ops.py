@@ -1530,3 +1530,63 @@ def test_workflow_pins_invite_nothing_without_a_repomatic_bump() -> None:
     ):
         plan = _resolve_workflow_pins(rc)
     assert plan.upgrade_section == ""
+
+
+HELD_PIN_RELEASES = {
+    "shexli": [
+        Candidate("0.2.0", "2026-08-01", "0.2.0"),
+        Candidate("0.2.1", "2026-08-02", "0.2.1"),
+    ],
+    "tree-sitter": [
+        Candidate("0.25.2", "2026-08-01", "0.25.2"),
+        Candidate("0.26.0", "2026-08-03", "0.26.0"),
+    ],
+}
+"""Two packages with a newer release each, all clear of the cooldown on `GATE_TODAY`."""
+
+
+def _resolve_held_pins(ignore: list[str]) -> SyncPlan:
+    """Resolve a job pinning `shexli` and `tree-sitter`, with *ignore* listed."""
+    workflow = {
+        Path("tests.yaml"): (
+            "jobs:\n  lint:\n    steps:\n"
+            "      - run: uvx --from 'shexli==0.2.0' --with 'tree-sitter==0.25.2'"
+            " shexli\n"
+        )
+    }
+    rc = ResolveContext(config=Config(workflow_pins_ignore=ignore), today=GATE_TODAY)
+    with (
+        patch("repomatic.deps.sync._pinnable_files", return_value=workflow),
+        patch(
+            "repomatic.deps.pins.pypi_candidates",
+            side_effect=lambda package: list(HELD_PIN_RELEASES[package]),
+        ),
+    ):
+        return _resolve_workflow_pins(rc)
+
+
+@pytest.mark.parametrize(
+    ("ignore", "moved"),
+    [
+        pytest.param([], {"shexli", "tree-sitter"}, id="nothing-held"),
+        pytest.param(["tree-sitter"], {"shexli"}, id="one-held"),
+    ],
+)
+def test_workflow_pins_leave_an_ignored_package_as_written(ignore, moved):
+    """A package in `workflow-pins.ignore` keeps its pin; the others still move."""
+    plan = _resolve_held_pins(ignore)
+    assert {name for name, _old, _new in plan.changes} == moved
+    written = plan.file_writes[Path("tests.yaml")]
+    assert ("'tree-sitter==0.25.2'" in written) == ("tree-sitter" in ignore)
+
+
+def test_workflow_pins_ignore_cannot_hold_the_upstream_pin() -> None:
+    """The self-pin follows the `uses:` refs even when the list names it."""
+    rc = ResolveContext(
+        config=Config(workflow_pins_ignore=["repomatic"]), today=GATE_TODAY
+    )
+    with patch(
+        "repomatic.deps.sync._pinnable_files", return_value=_lockstep_workflow("7.14.0")
+    ):
+        plan = _resolve_workflow_pins(rc)
+    assert ("repomatic", "7.14.0", "7.15.0") in plan.changes

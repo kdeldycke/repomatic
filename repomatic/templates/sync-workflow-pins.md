@@ -13,4 +13,5 @@ labels: [🔗 dependencies]
 Relevant [`[tool.repomatic]`](https://repomatic.net/configuration) options:
 
 - [`minimum-release-age`](https://repomatic.net/configuration#minimum-release-age)
+- [`workflow-pins.ignore`](https://repomatic.net/configuration#workflow-pins-ignore)
 - [`workflow-pins.sync`](https://repomatic.net/configuration#workflow-pins-sync)

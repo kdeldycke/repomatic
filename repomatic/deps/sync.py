@@ -1254,6 +1254,7 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             if lockstep_version is None or is_newer(version, lockstep_version):
                 lockstep_version = version
 
+    ignored = frozenset(rc.config.workflow_pins_ignore)
     resolved: dict[tuple[str, str], str] = {}
     for (ecosystem, package), current_version in sorted(current.items()):
         if (
@@ -1272,6 +1273,14 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             plan.name_urls[package] = ecosystem.package_url(package)
             plan.released_overrides[package] = _docs_marker(
                 "⛓️ lockstep with `uses:` refs"
+            )
+            continue
+        if package in ignored:
+            # Checked after the lockstep branch, which the list cannot hold: a
+            # self-pin left behind its refs fails `lint-repo` on every run.
+            logging.info(
+                f"Leaving {package} at {current_version}: `workflow-pins.ignore`"
+                " lists it."
             )
             continue
         candidates = ecosystem.candidates(package)

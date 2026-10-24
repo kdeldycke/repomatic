@@ -1446,6 +1446,28 @@ class Config:
     workflow: WorkflowConfig = field(default_factory=WorkflowConfig)
     """Workflow sync configuration."""
 
+    workflow_pins_ignore: list[str] = field(
+        default_factory=list,
+        metadata={CONFIG_PATH_METADATA_KEY: "workflow-pins.ignore"},
+    )
+    """Packages whose workflow pins `sync-workflow-pins` leaves as written.
+
+    The job moves every exact literal to the newest release past the cooldown,
+    a new major included, so a pin held below a release that breaks the job
+    comes back as a proposal on every run. Naming the package here is the
+    one-line commit that keeps it where it is:
+
+    ```toml
+    [tool.repomatic]
+    # tree-sitter 0.26 crashes the analyzer this job runs.
+    workflow-pins.ignore = [ "tree-sitter" ]
+    ```
+
+    Names are npm or PyPI package names, and `uv` holds the `version:` of
+    `astral-sh/setup-uv`. The upstream toolkit's own pin is the exception: it
+    follows the `uses:` refs, whatever this list says.
+    """
+
     workflow_pins_sync: bool = field(
         default=True,
         metadata={CONFIG_PATH_METADATA_KEY: "workflow-pins.sync"},
