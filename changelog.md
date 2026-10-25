@@ -147,6 +147,7 @@
 - Fix the thin-caller secrets check reading the first job with secrets instead of the job that calls the reusable workflow.
 - Fix the binaries leaving out the `prepare-release` and `release-sync-report` templates.
 - Fix the Linux binaries baking no git field: the build job now trusts the checkout inside the manylinux container.
+- Fix the binary of a CLI that starts worker processes, which ran the whole CLI again in each worker since `7.18.0`.
 - Fix the file lists of `repomatic` commands including the files that `.git/info/exclude` ignores, like an agent worktree under `.claude/worktrees/`.
 - Fix stale claims of the bundled `babysit-ci`, `repomatic-ship` and `repomatic-test-matrix` skills on release runs, binary skips and `format-python` pull requests.
 - Fix a dependency pull request picking up the staged changes of an updater whose commit failed.

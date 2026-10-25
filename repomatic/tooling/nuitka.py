@@ -19,10 +19,12 @@
 The `nuitka` entry of {data}`~repomatic.tooling.registry.TOOL_REGISTRY` reads
 two hooks from here:
 
-- {func}`nuitka_params`, its computed parameters: the modules the binary
-  leaves out, and the options of the build target this machine compiles for.
-- {func}`prepare_nuitka_build`, its preparation: the extras to install, the
-  compile cache to trim and configure, and the environment of the target.
+- {func}`nuitka_params`, its computed parameters: the plugin that guards the
+  entry point, the modules the binary leaves out, and the options of the build
+  target this machine compiles for.
+- {func}`prepare_nuitka_build`, its preparation: the plugin to write, the extras
+  to install, the compile cache to trim and configure, and the environment of
+  the target.
 
 Each of them reads the machine it runs on, so the release workflow hands a
 compile job nothing but the entry point to build.
@@ -33,9 +35,11 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 from ..deps.uv import run_uv, uv_cmd
+from ..file_ops import atomic_write
 from ..release.binary import current_build_target
 
 TYPE_CHECKING = False
@@ -59,20 +63,99 @@ cache. Past this size, the cache starts a fresh lineage.
 CCACHE_CONFIG: Final[str] = "ccache.conf"
 """The file ccache reads its settings from, inside its cache directory."""
 
+ENTRY_POINT_GUARD: Final[str] = "repomatic-entry-point-guard.py"
+"""The file {func}`write_entry_point_guard` writes the Nuitka plugin to."""
+
+ENTRY_POINT_GUARD_PLUGIN: Final[str] = r'''
+"""Nuitka user plugin that `repomatic run nuitka` writes and loads.
+
+It adds a `__name__ == "__main__"` guard to the launcher Nuitka writes for
+`--main-entry-point`.
+"""
+
+from nuitka.plugins.PluginBase import NuitkaPluginBase
+
+
+class EntryPointGuard(NuitkaPluginBase):
+    plugin_name = "repomatic-entry-point-guard"
+    plugin_desc = "Call the --main-entry-point function in the main process only."
+
+    def onModuleSourceCode(self, module_name, source_filename, source_code):
+        lines = source_code.splitlines()
+        if (
+            len(lines) == 3
+            and lines[0] == "import sys"
+            and lines[1].endswith(" as user_main")
+            and lines[2].startswith("sys.exit(user_main.")
+        ):
+            lines[2:] = ['if __name__ == "__main__":', "    " + lines[2]]
+            return "\n".join(lines) + "\n"
+        return source_code
+'''
+"""Nuitka plugin calling the `--main-entry-point` function in the main process only.
+
+```{note}
+Nuitka writes the launcher of `--main-entry-point` with no `__name__ ==
+"__main__"` guard: it imports the module of the entry point, then calls the
+function at once. Nuitka compiles that launcher twice: as the main program, and
+as the `__parents_main__` module that each multiprocessing worker runs before
+its task. So each worker runs the whole CLI again. A CLI that starts workers then
+fails, or starts more workers from each worker.
+
+The plugin adds the guard to both copies, through the `onModuleSourceCode` hook
+of Nuitka, and leaves every other source as it is.
+```
+
+```{todo}
+Report the unguarded launcher to Nuitka. Drop this plugin and its `--user-plugin`
+option once a Nuitka release guards that launcher.
+```
+"""
+
+
+def entry_point_guard_path() -> Path:
+    """Where {func}`write_entry_point_guard` writes the plugin.
+
+    In the temporary directory of the job on a runner, which outlives this
+    process, and in the temporary directory of the system elsewhere. The name
+    is fixed, so each build replaces the file of the build before it.
+    """
+    temp_dir = os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()
+    return Path(temp_dir) / ENTRY_POINT_GUARD
+
+
+def write_entry_point_guard() -> Path:
+    """Write {data}`ENTRY_POINT_GUARD_PLUGIN` where `--user-plugin` reads it.
+
+    The write renames a full temporary file into place, so a build that starts
+    at the same time never reads half a plugin.
+
+    :return: The path of the plugin.
+    """
+    path = entry_point_guard_path()
+    atomic_write(
+        path,
+        f".{ENTRY_POINT_GUARD}.",
+        lambda tmp: tmp.write_text(ENTRY_POINT_GUARD_PLUGIN, encoding="UTF-8"),
+    )
+    return path
+
 
 def nuitka_params(metadata: Metadata) -> list[str]:
     """Build the options `repomatic run nuitka` passes after the shared ones.
 
     :param metadata: The project the binary is built from.
-    :return: A `--nofollow-import-to` option per module of `[tool.repomatic]
-        nuitka.nofollow-imports`, then the options of the build target this
-        machine compiles for (see
+    :return: The `--user-plugin` option of the plugin that
+        {func}`prepare_nuitka_build` writes, a `--nofollow-import-to` option
+        per module of `[tool.repomatic] nuitka.nofollow-imports`, then the
+        options of the build target this machine compiles for (see
         {attr}`~repomatic.release.binary.BuildTarget.nuitka_flags`).
     """
-    params = [
+    params = [f"--user-plugin={entry_point_guard_path()}"]
+    params.extend(
         f"--nofollow-import-to={module}"
         for module in metadata.config.nuitka_nofollow_imports
-    ]
+    )
     target = current_build_target()
     if target is not None:
         params.extend(target.nuitka_flags)
@@ -148,9 +231,9 @@ def prepare_compile_cache(
 def prepare_nuitka_build(metadata: Metadata) -> dict[str, str]:
     """Ready this machine for the Nuitka build `repomatic run nuitka` starts.
 
-    Installs the `[tool.repomatic] nuitka.extras`, then prepares the compile
-    cache when the job relocated it under `NUITKA_CACHE_DIR` and the target
-    keeps one (see
+    Writes the plugin that {func}`nuitka_params` loads, and installs the
+    `[tool.repomatic] nuitka.extras`. Then prepares the compile cache when the
+    job relocated it under `NUITKA_CACHE_DIR` and the target keeps one (see
     {attr}`~repomatic.release.binary.BuildTarget.compile_cache`). Outside CI
     the variable is unset, and the cache is left alone.
 
@@ -158,6 +241,7 @@ def prepare_nuitka_build(metadata: Metadata) -> dict[str, str]:
     :return: The environment variables the build of this machine's target
         needs, from {attr}`~repomatic.release.binary.BuildTarget.build_env`.
     """
+    write_entry_point_guard()
     install_extras(metadata.config.nuitka_extras)
 
     target = current_build_target()
