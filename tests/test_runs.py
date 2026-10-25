@@ -24,7 +24,9 @@ from unittest.mock import patch
 from urllib.parse import parse_qs
 
 import pytest
+from click_extra.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.github.gh import GhCommandError
 from repomatic.github.runs import (
     RUN_LISTING_WINDOW,
@@ -89,6 +91,20 @@ def test_cancel_superseded_runs_spares_current_run():
         "repos/{owner}/{repo}/actions/runs/11/cancel",
         "repos/{owner}/{repo}/actions/runs/33/cancel",
     ]
+
+
+def test_cancel_runs_spares_the_run_of_github_run_id():
+    """`cancel-runs` spares the run `$GITHUB_RUN_ID` names, and counts the others."""
+    with patch("repomatic.cli.ci.cancel_superseded_runs", return_value=2) as sweep:
+        result = CliRunner().invoke(
+            repomatic,
+            ["cancel-runs", "--branch", "melon"],
+            env={"GITHUB_RUN_ID": "22"},
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "Cancelled 2 run(s) for branch 'melon'." in result.output
+    sweep.assert_called_once_with("melon", "22")
 
 
 def test_cancel_superseded_runs_queries_both_statuses():

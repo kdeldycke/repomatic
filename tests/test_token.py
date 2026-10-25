@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from email.message import Message
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import call, patch
 from urllib.error import HTTPError
 
 import pytest
@@ -42,6 +42,7 @@ from repomatic.github.token import (
     validate_gh_api_access,
     validate_notifications_token,
 )
+from repomatic.github.unsubscribe import UnsubscribeResult
 from tests.conftest import FakeResponse
 
 TYPE_CHECKING = False
@@ -153,20 +154,38 @@ def test_validate_notifications_token_propagates():
         validate_notifications_token()
 
 
-def test_unsubscribe_threads_runs_the_notifications_validator():
-    """`unsubscribe-threads` stops on the validator of this module, and says why."""
+@pytest.mark.parametrize(
+    ("refusal", "exit_code", "message", "engine_calls"),
+    (
+        pytest.param(RuntimeError("bad scope"), 1, "bad scope", [], id="refused"),
+        pytest.param(
+            None,
+            0,
+            "## 🔕 Unsubscribe report (dry-run)",
+            [call(3, 200, True)],
+            id="accepted",
+        ),
+    ),
+)
+def test_unsubscribe_threads_runs_the_notifications_validator(
+    refusal, exit_code, message, engine_calls
+):
+    """`unsubscribe-threads` runs only past the validator of this module."""
     with (
         patch(
             "repomatic.github.token.validate_notifications_token",
-            side_effect=RuntimeError("bad scope"),
+            side_effect=refusal,
         ),
-        patch("repomatic.cli.github.unsubscribe_threads") as unsubscribe,
+        patch(
+            "repomatic.cli.github.unsubscribe_threads",
+            return_value=UnsubscribeResult(dry_run=True, months=3),
+        ) as unsubscribe,
     ):
         result = CliRunner().invoke(repomatic, ["unsubscribe-threads", "--dry-run"])
 
-    assert result.exit_code == 1
-    assert "bad scope" in result.output
-    unsubscribe.assert_not_called()
+    assert result.exit_code == exit_code, result.output
+    assert message in result.output
+    assert unsubscribe.call_args_list == engine_calls
 
 
 @pytest.mark.parametrize("probe", PAT_PERMISSION_PROBES, ids=lambda p: p.field)

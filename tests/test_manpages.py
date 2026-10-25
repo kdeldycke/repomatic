@@ -83,3 +83,34 @@ def test_pack_manpages_cli_names_the_tarball_after_the_asset(
     assert result.stdout.strip() == "papaya-manpages.tar.gz"
     with tarfile.open(tmp_path / "papaya-manpages.tar.gz") as tar:
         assert len(tar.getnames()) == 3
+
+
+@pytest.mark.parametrize(
+    ("args", "exit_code", "message"),
+    (
+        pytest.param(
+            [],
+            2,
+            "No asset name: pass --output, or set manpages.asset-name",
+            id="no-asset-name",
+        ),
+        pytest.param(
+            ["--output", "papaya-manpages.tar.gz"],
+            1,
+            "holds no man page to pack.",
+            id="no-page",
+        ),
+    ),
+)
+def test_pack_manpages_cli_writes_no_tarball_it_cannot_fill(
+    tmp_path, monkeypatch, args, exit_code, message
+):
+    """A project with no package name, or a `man/` holding no page, packs nothing."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "man").mkdir()
+
+    result = CliRunner().invoke(repomatic, ["pack-manpages", *args])
+
+    assert result.exit_code == exit_code
+    assert message in result.output
+    assert list(tmp_path.glob("*.tar.gz")) == []

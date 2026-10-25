@@ -1123,17 +1123,44 @@ def test_ci_status_command_writes_the_failed_logs(tmp_path):
     assert log.read_text(encoding="UTF-8") == "boom\n"
 
 
-def test_ci_status_command_reports_the_automation_and_release_prs():
-    """The extra reads print one line per automation PR, and one for the release PR."""
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    (
+        pytest.param(
+            CIStatus(branch="main", tip_sha=TIP_SHA, runs=[]),
+            ["No run found on 'main' for: tests.yaml."],
+            id="no-run",
+        ),
+        pytest.param(
+            _status(_tests_run("", sha=PARENT_SHA)),
+            [
+                (
+                    f"… no run on the tip of 'main' ({TIP_SHA[:8]}) yet: every run"
+                    " above belongs to an earlier commit."
+                ),
+                "… some jobs have not settled yet.",
+            ],
+            id="tip-not-run-yet",
+        ),
+    ),
+)
+def test_ci_status_command_says_what_it_has_no_result_for(status, expected):
+    """A branch with no run, or a tip not run yet, is reported and exits clean."""
     with (
         patch("repomatic.cli.ci.monitored_workflows", return_value=["tests.yaml"]),
-        patch(
-            "repomatic.cli.ci.read_ci_status",
-            return_value=_status(_tests_run("success")),
-        ),
-        patch(
-            "repomatic.cli.ci.list_automation_prs",
-            return_value=[
+        patch("repomatic.cli.ci.read_ci_status", return_value=status),
+    ):
+        result = CliRunner().invoke(repomatic, ["ci-status"])
+    assert result.exit_code == 0, result.output
+    for line in expected:
+        assert line in result.output
+
+
+@pytest.mark.parametrize(
+    ("automation_prs", "release_pr", "expected"),
+    (
+        pytest.param(
+            [
                 {
                     "number": 12,
                     "headRefName": "sync-uv-lock",
@@ -1146,10 +1173,7 @@ def test_ci_status_command_reports_the_automation_and_release_prs():
                     "behindBy": 3,
                 }
             ],
-        ),
-        patch(
-            "repomatic.cli.ci.release_pr_status",
-            return_value={
+            {
                 "number": 13,
                 "title": "Release v1.2.3",
                 "url": "https://example.test/pull/13",
@@ -1157,17 +1181,45 @@ def test_ci_status_command_reports_the_automation_and_release_prs():
                 "headRefOid": "feedfacefeedface",
                 "behindBy": 0,
             },
+            [
+                (
+                    "🔀 #12 sync-uv-lock: Sync `uv.lock` (1 file(s), +4/-4, 3"
+                    " commit(s) behind main) https://example.test/pull/12"
+                ),
+                (
+                    "🚀 Release PR #13 (draft): Release v1.2.3, head feedface, 0"
+                    " commit(s) behind main. https://example.test/pull/13"
+                ),
+            ],
+            id="open",
         ),
+        pytest.param(
+            [],
+            None,
+            [
+                "No automation pull request is open.",
+                "No release pull request is open on 'prepare-release'.",
+            ],
+            id="none-open",
+        ),
+    ),
+)
+def test_ci_status_command_reports_the_automation_and_release_prs(
+    automation_prs, release_pr, expected
+):
+    """The extra reads print one line per automation PR, and one for the release PR."""
+    with (
+        patch("repomatic.cli.ci.monitored_workflows", return_value=["tests.yaml"]),
+        patch(
+            "repomatic.cli.ci.read_ci_status",
+            return_value=_status(_tests_run("success")),
+        ),
+        patch("repomatic.cli.ci.list_automation_prs", return_value=automation_prs),
+        patch("repomatic.cli.ci.release_pr_status", return_value=release_pr),
     ):
         result = CliRunner().invoke(
             repomatic, ["ci-status", "--automation-prs", "--release-pr"]
         )
     assert result.exit_code == 0, result.output
-    assert (
-        "🔀 #12 sync-uv-lock: Sync `uv.lock` (1 file(s), +4/-4, 3 commit(s) behind"
-        " main) https://example.test/pull/12" in result.output
-    )
-    assert (
-        "🚀 Release PR #13 (draft): Release v1.2.3, head feedface, 0 commit(s)"
-        " behind main. https://example.test/pull/13" in result.output
-    )
+    for line in expected:
+        assert line in result.output

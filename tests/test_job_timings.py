@@ -22,7 +22,9 @@ import json
 from unittest.mock import patch
 
 import pytest
+from click_extra.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.github.job_timings import (
     UNATTRIBUTED,
     JobTiming,
@@ -165,3 +167,32 @@ def test_render_markdown_carries_its_own_caveat() -> None:
     assert "| `img` | 1 | 00m42s | x | 00m42s |" in table
     assert "5 most recent successful" in table
     assert table.endswith("\n")
+
+
+def test_job_timings_command_prints_the_table() -> None:
+    """Each runner image gets a row, from the default sample of `tests.yaml` runs."""
+    with patch(
+        "repomatic.cli.ci.fetch_job_timings",
+        return_value=[JobTiming("x", "img", 42.0)],
+    ) as fetch:
+        result = CliRunner().invoke(repomatic, ["--table-format", "csv", "job-timings"])
+
+    assert result.exit_code == 0, result.output
+    assert "img,1,00m42s,x,00m42s" in result.stdout
+    fetch.assert_called_once_with("tests.yaml", "main", 5)
+
+
+def test_job_timings_command_writes_the_report(tmp_path) -> None:
+    """`--output` also writes the table as Markdown, caveat included."""
+    report = tmp_path / "timings.md"
+    with patch(
+        "repomatic.cli.ci.fetch_job_timings",
+        return_value=[JobTiming("x", "img", 42.0)],
+    ):
+        result = CliRunner().invoke(repomatic, ["job-timings", "--output", str(report)])
+
+    assert result.exit_code == 0, result.output
+    assert "img" in result.stdout
+    text = report.read_text(encoding="UTF-8")
+    assert "| `img` | 1 | 00m42s | x | 00m42s |" in text
+    assert "5 most recent successful" in text

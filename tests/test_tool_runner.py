@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import threading
 from dataclasses import replace
 from itertools import combinations
@@ -74,6 +75,7 @@ from repomatic.tooling.registry import (
     BinaryInstallError,
     BinarySpec,
     NativeFormat,
+    ResolvedBinary,
     ToolBackend,
     ToolInstallError,
     ToolSpec,
@@ -98,6 +100,7 @@ from repomatic.tooling.runner import (
     _npm_supports_cooldown,
     _path_tools_env,
     _prepare,
+    _store_config_to_cache,
     _venv_install_args,
     find_unmodified_configs,
     resolve_config,
@@ -681,6 +684,28 @@ def test_install_npm_without_npm_raises(mock_which, tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("returncode", "message"),
+    [
+        pytest.param(1, "failed with exit code 1", id="install-fails"),
+        # The install reports success but leaves no executable behind.
+        pytest.param(0, "'npm' not found under", id="no-executable"),
+    ],
+)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.shutil.which", return_value="/usr/bin/npm")
+def test_install_npm_stops_at_a_failed_install(
+    mock_which, mock_run, tmp_path, returncode, message
+):
+    """A failed bootstrap install stops before the tool install and the audit."""
+    mock_run.return_value = MagicMock(returncode=returncode)
+
+    with pytest.raises(ToolInstallError, match=message):
+        _install_npm(TOOL_REGISTRY["awesome-lint"], tmp_path, cooldown_days=0)
+
+    assert mock_run.call_count == 1
+
+
+@pytest.mark.parametrize(
     ("version_output", "supported"),
     [
         ("10.8.2\n", False),
@@ -732,6 +757,28 @@ def test_pinned_npm_enforces_the_cooldown():
     pinned = TOOL_REGISTRY[NPM_BOOTSTRAP_TOOL]
     assert pinned.npm is not None
     assert Version(pinned.version) >= Version(NPM_MIN_VERSION_FOR_COOLDOWN)
+
+
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner._install_npm")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
+def test_run_tool_npm_runs_the_installed_executable(
+    mock_ci, mock_install_npm, mock_run, tmp_path, monkeypatch
+):
+    """An npm tool runs from its scratch prefix, installed with the cooldown in days."""
+    monkeypatch.chdir(tmp_path)
+    bin_path = tmp_path / "awesome-lint"
+    mock_install_npm.return_value = bin_path
+    mock_run.return_value = MagicMock(returncode=0)
+
+    assert run_tool("awesome-lint") == 0
+
+    spec, prefix, cooldown = mock_install_npm.call_args.args
+    assert spec is TOOL_REGISTRY["awesome-lint"]
+    assert prefix.name.startswith("repomatic-awesome-lint-npm-")
+    # The default `minimum-release-age` of one week, in whole days.
+    assert cooldown == 7
+    assert mock_run.call_args[0][0][0] == str(bin_path)
 
 
 @pytest.mark.parametrize(
@@ -848,6 +895,33 @@ def test_resolve_binary_refuses_a_tool_without_binary():
     """Only a binary tool has a download to resolve."""
     with pytest.raises(ValueError, match="ships no binary"):
         TOOL_REGISTRY["ruff"].resolve_binary()
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        pytest.param("https://example.com/1.2.3/papaya.zip", id="other-host"),
+        pytest.param(
+            "https://github.com/orchard/papaya/archive/v1.2.3.zip", id="too-short"
+        ),
+        pytest.param(
+            "https://github.com/orchard/papaya/raw/v1.2.3/bin/papaya.zip",
+            id="not-a-release",
+        ),
+    ),
+)
+def test_release_source_refuses_a_download_off_github_releases(url):
+    """Only a GitHub release asset names the release that serves it."""
+    resolved = ResolvedBinary(
+        key=(WINDOWS, X86_64),
+        url=url,
+        checksum=None,
+        archive_format=ArchiveFormat.ZIP,
+        strip_components=0,
+        executable="papaya",
+    )
+    with pytest.raises(ValueError, match="is not a GitHub release download"):
+        _ = resolved.release_source
 
 
 def test_with_overrides_pins_another_version_and_checksum():
@@ -1135,6 +1209,32 @@ def test_get_archive_format_dict_resolution():
     assert spec.get_archive_format((WINDOWS, X86_64)) == ArchiveFormat.ZIP
 
 
+def test_get_archive_format_exact_key_resolution():
+    """An exact platform key wins, a bare Platform matches every architecture.
+
+    A platform neither one names has no format, which raises instead of guessing.
+    """
+    spec = BinarySpec(
+        urls={},
+        checksums={},
+        archive_format={
+            (LINUX, AARCH64): ArchiveFormat.TAR_XZ,
+            MACOS: ArchiveFormat.ZIP,
+        },
+    )
+    assert spec.get_archive_format((LINUX, AARCH64)) == ArchiveFormat.TAR_XZ
+    assert spec.get_archive_format((MACOS, X86_64)) == ArchiveFormat.ZIP
+    with pytest.raises(ValueError, match=r"^No archive format for "):
+        spec.get_archive_format((WINDOWS, X86_64))
+
+
+@pytest.mark.parametrize("archive_format", (ArchiveFormat.RAW, ArchiveFormat.ZIP))
+def test_tarfile_mode_refuses_a_format_that_is_no_tar(archive_format):
+    """Only a tar archive has a `tarfile.open` mode."""
+    with pytest.raises(ValueError, match=f"^{archive_format.value} is not a tar"):
+        archive_format.tarfile_mode()
+
+
 def test_path_tools_env_skips_platform_without_binary(caplog):
     """A companion publishing no binary here is skipped, not fatal.
 
@@ -1157,6 +1257,25 @@ def test_path_tools_env_skips_platform_without_binary(caplog):
     assert "No binary for" in caplog.text
     # Nothing was prepended, so the child inherits the ambient PATH verbatim.
     assert env["PATH"] == os.environ.get("PATH", "")
+
+
+@patch("repomatic.tooling.binaries.install_binary")
+def test_path_tools_env_stops_at_a_companion_that_fails_to_install(
+    mock_install_binary,
+):
+    """A companion that fails for another reason than the platform stops the run.
+
+    The error names the companion and the tool it serves, which the bare
+    install error does not.
+    """
+    mock_install_binary.side_effect = BinaryInstallError(
+        "SHA-256 mismatch for https://example.com/shfmt"
+    )
+    with pytest.raises(
+        BinaryInstallError,
+        match=r"^Cannot provision shfmt on PATH for mdformat: SHA-256 mismatch",
+    ):
+        _path_tools_env(TOOL_REGISTRY["mdformat"], skip_checksum=False, no_cache=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1568,6 +1687,22 @@ def test_native_format_toml_serialize_inline_section():
     out = NativeFormat.TOML.serialize(section)
 
     assert tomlrt.loads(out).to_dict() == {"a": 1, "sub": {"b": 2}}
+
+
+def test_native_format_editorconfig_serialize_matches_every_file():
+    """A `[tool.shfmt]` table becomes one `[*]` section of editorconfig keys.
+
+    TOML hyphens turn to editorconfig underscores, and a boolean to lowercase.
+    """
+    out = NativeFormat.EDITORCONFIG.serialize(
+        {"indent-size": 4, "binary-next-line": True}, tool_name="shfmt"
+    )
+
+    # The generated-by header comes first, and holds a timestamp.
+    assert out.startswith("#")
+    assert out.endswith(
+        "\nroot = true\n\n[*]\nindent_size = 4\nbinary_next_line = true\n"
+    )
 
 
 def test_resolve_config_json_translation(tmp_path, monkeypatch, cache_env):
@@ -2000,6 +2135,28 @@ def test_run_tool_runs_unlocked_when_the_cache_is_unwritable(
 
     mock_run.assert_called_once()
     assert not (tmp_path / ".mdformat.toml").exists()
+
+
+def test_store_config_falls_back_to_a_temp_file(tmp_path, monkeypatch):
+    """A cache that cannot be written still hands the tool its config.
+
+    The config goes to a temp file instead, returned for the caller to delete.
+    """
+    # A regular file where the cache root should be: no directory fits under it.
+    blocker = tmp_path / "cache"
+    blocker.write_text("", encoding="UTF-8")
+    monkeypatch.setenv("REPOMATIC_CACHE_DIR", str(blocker))
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    spec = TOOL_REGISTRY["yamllint"]
+
+    args, temp_file = _store_config_to_cache(spec, "rules:\n  truthy: disable\n")
+
+    assert temp_file is not None
+    assert args == [spec.config_flag, str(temp_file)]
+    assert temp_file.parent == tmp_path
+    assert temp_file.name.startswith("repomatic-yamllint-")
+    assert temp_file.suffix == ".yaml"
+    assert temp_file.read_text(encoding="UTF-8") == "rules:\n  truthy: disable\n"
 
 
 @patch("repomatic.tooling.runner.subprocess.run")
@@ -3177,6 +3334,57 @@ def test_verify_via_write_path_reports_a_path_it_cannot_copy(
     assert not list(tmp_path.glob(".repomatic-verify-*"))
 
 
+def test_verify_via_write_path_copies_a_directory_and_an_outside_file(
+    tmp_path, monkeypatch
+):
+    """A directory is copied whole, a file outside the tree under its own name.
+
+    The check flag is dropped: it would stop the write path the comparison
+    reads. Each file of the directory is compared on its own.
+    """
+    inside = tmp_path / "inside"
+    orchard = inside / "orchard"
+    orchard.mkdir(parents=True)
+    (orchard / "pear.md").write_text("# Pear\n", encoding="UTF-8")
+    (orchard / "plum.md").write_text("# Plum\n", encoding="UTF-8")
+    outside_kiwi = tmp_path / "kiwi.md"
+    outside_kiwi.write_text("# Kiwi\n", encoding="UTF-8")
+    monkeypatch.chdir(inside)
+
+    def reformat_pear(name, extra_args):
+        """Rewrite one file of the copied directory, as a formatter would."""
+        (Path(extra_args[0]) / "pear.md").write_text("# Ripe pear\n", encoding="UTF-8")
+        return 0
+
+    with patch(
+        "repomatic.tooling.runner.run_tool", side_effect=reformat_pear
+    ) as mock_run_tool:
+        outcome = verify_via_write_path(
+            "mdformat", extra_args=("--check", "orchard", str(outside_kiwi))
+        )
+
+    assert outcome == (1, [str(Path("orchard", "pear.md"))])
+    copies = [Path(arg) for arg in mock_run_tool.call_args.kwargs["extra_args"]]
+    assert [copy.name for copy in copies] == ["orchard", "kiwi.md"]
+    # Both land at the root of the one scratch directory.
+    assert copies[0].parent == copies[1].parent
+    assert copies[0].parent.name.startswith(".repomatic-verify-")
+    # The originals are left as they were.
+    assert (orchard / "pear.md").read_text(encoding="UTF-8") == "# Pear\n"
+    assert not list(inside.glob(".repomatic-verify-*"))
+
+
+@patch("repomatic.tooling.runner.run_tool", return_value=0)
+def test_verify_via_write_path_without_targets_has_nothing_to_verify(
+    mock_run_tool, tmp_path, monkeypatch
+):
+    """A bare call in a tree holding none of the tool's files is clean, as `run` is."""
+    monkeypatch.chdir(tmp_path)
+
+    assert verify_via_write_path("mdformat") == (0, [])
+    mock_run_tool.assert_not_called()
+
+
 def test_run_rejects_an_unknown_tool_as_a_usage_error():
     """An unknown tool name is refused at parse time, naming the registry.
 
@@ -3204,6 +3412,42 @@ def test_run_reports_an_install_failure_as_an_error(
     assert result.exit_code == 1, result.output
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert "SHA-256 mismatch" in result.output
+
+
+def test_run_lists_every_tool_with_its_pinned_version(tmp_path, monkeypatch):
+    """`--list` prints each tool beside its pin, and runs none of them."""
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(repomatic, ["run", "--list"])
+    assert result.exit_code == 0, result.output
+    rows = result.output.splitlines()
+    for spec in TOOL_REGISTRY.values():
+        assert any(
+            re.search(
+                rf"\b{re.escape(spec.name)}\b.*\b{re.escape(spec.version)}\b", row
+            )
+            for row in rows
+        ), spec.name
+
+
+@patch("repomatic.cli.tools.verify_via_write_path", return_value=(1, ["harvest.md"]))
+def test_run_verify_names_each_file_it_would_rewrite(
+    mock_verify, tmp_path, monkeypatch
+):
+    """`--verify` prints one line per drifted file, and exits with the verdict."""
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        repomatic, ["run", "mdformat", "--verify", "--", "harvest.md"]
+    )
+    assert result.exit_code == 1, result.output
+    assert "Would rewrite: harvest.md" in result.output
+    mock_verify.assert_called_once_with(
+        "mdformat",
+        extra_args=("harvest.md",),
+        version=None,
+        checksum=None,
+        skip_checksum=False,
+        no_cache=False,
+    )
 
 
 @pytest.mark.parametrize(

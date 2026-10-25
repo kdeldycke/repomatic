@@ -25,12 +25,17 @@ and the `<br>` endpoint markup that follows every display name.
 
 from __future__ import annotations
 
+import base64
+from unittest.mock import patch
+
 import pytest
 from extra_platforms import AARCH64, X86_64
 
 from repomatic.matrix.runners import (
+    CATALOG_REPO,
     RunnerCatalog,
     RunnerImage,
+    fetch_catalog,
     parse_catalog,
     runner_architecture,
 )
@@ -203,6 +208,13 @@ def test_newer_version_is_strict(catalog, label: str, expected: str | None) -> N
         pytest.param(
             "| Image | Architecture | YAML Label |\n| - | - | - |\n", id="no-rows"
         ),
+        # The header closes the readme, so no row follows it, and the row above
+        # it belongs to no table.
+        pytest.param(
+            "| Ubuntu 22.04 | x64 | `ubuntu-22.04` |\n"
+            "| Image | Architecture | YAML Label |",
+            id="header-closes-the-readme",
+        ),
     ],
 )
 def test_parse_fails_closed(readme: str) -> None:
@@ -213,6 +225,45 @@ def test_parse_fails_closed(readme: str) -> None:
     job in the repository; a missing one costs a cycle of not noticing.
     """
     assert not parse_catalog(readme)
+
+
+def test_rows_without_a_usable_label_are_skipped() -> None:
+    """A row too short to hold a label, or listing only an alias, is no image."""
+    readme = (
+        "| Image | Architecture | YAML Label |\n"
+        "| - | - | - |\n"
+        "| Ubuntu 20.04 | x64 |\n"
+        "| Ubuntu 24.04 | x64 | `ubuntu-latest` |\n"
+        "| Ubuntu 22.04 | x64 | `ubuntu-22.04` |\n"
+    )
+    assert [image.display_name for image in parse_catalog(readme)] == ["Ubuntu 22.04"]
+
+
+def test_fetch_catalog_decodes_the_readme() -> None:
+    """The readme arrives base64-encoded, in lines, and parses like the fixture."""
+    content = base64.encodebytes(README.encode("UTF-8")).decode("ascii")
+    with patch(
+        "repomatic.matrix.runners.gh_json", return_value={"content": content}
+    ) as mock_gh:
+        catalog = fetch_catalog()
+
+    mock_gh.assert_called_once_with(["api", f"repos/{CATALOG_REPO}/readme"], soft=True)
+    # Not empty, so the comparison below cannot match two empty catalogs.
+    assert catalog
+    assert catalog == parse_catalog(README)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(base64.b64encode(b"\xff").decode("ascii"), id="not-utf-8"),
+        pytest.param("papaya", id="not-base64"),
+    ],
+)
+def test_fetch_catalog_fails_closed_on_an_undecodable_readme(content: str) -> None:
+    """A readme that does not decode is an unavailable catalog, never a crash."""
+    with patch("repomatic.matrix.runners.gh_json", return_value={"content": content}):
+        assert not fetch_catalog()
 
 
 @pytest.mark.parametrize(

@@ -26,6 +26,7 @@ The `repomatic.deps.report` renderers these helpers feed are covered by
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
 import subprocess
@@ -57,8 +58,14 @@ from repomatic.deps.cooldown import (
     resolve_exclude_newer_span,
 )
 from repomatic.deps.lockfile import LockFile
-from repomatic.deps.report import BYPASS_NEEDS_RELEASE, BypassForecast
+from repomatic.deps.report import BYPASS_NEEDS_RELEASE, BypassForecast, ProvenanceHold
+from repomatic.deps.sources import ReleaseSwap
+from repomatic.deps.sync import OPERATIONS_BY_NAME, SyncPlan, UvProjectExtras
 from repomatic.deps.uv import UvError, relock, run_uv, uv_lock_command
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from repomatic.deps.sync import SyncOperation
 
 REPO_ROOT = Path(__file__).parent.parent
 
@@ -297,6 +304,37 @@ def test_audit_fix_no_fixable_exits_zero(monkeypatch, default_config, no_github_
     )
     assert result.exit_code == 0
     assert "No fixable vulnerabilities found." in result.output
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    (
+        pytest.param(
+            RuntimeError("cherry lock unreadable"),
+            "cherry lock unreadable",
+            id="engine",
+        ),
+        pytest.param(
+            UvError(1, ["uv", "lock"], "", "No solution found for cherry."),
+            "No solution found for cherry.",
+            id="uv",
+        ),
+    ),
+)
+def test_audit_fix_reports_an_engine_failure(
+    monkeypatch, default_config, no_github_repo, error, message
+):
+    """A fix that cannot run ends the command on its message, not a traceback."""
+
+    def broken(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(cli_deps, "fix_vulnerable_deps", broken)
+    result = CliRunner().invoke(
+        repomatic, ["--no-color", "audit", "--fix"], catch_exceptions=False
+    )
+    assert result.exit_code == 1
+    assert message in result.output
 
 
 def test_audit_fix_skipped_when_sync_disabled(tmp_path, monkeypatch, no_github_repo):
@@ -1074,6 +1112,43 @@ def test_lock_specifiers_isolate_unconditional_declarations() -> None:
     assert "sphinx" not in specs.by_main
 
 
+def test_lock_specifiers_skip_what_names_no_package() -> None:
+    """An entry that names no package, or is not a table, lands in no view.
+
+    A declaration naming a package without a specifier still counts: it is kept
+    with an empty specifier, which only the edge-label view leaves out.
+    """
+    lock_data = {
+        "package": [
+            {"metadata": {}},
+            {
+                "name": "basket",
+                "metadata": {
+                    "requires-dist": ["kiwi>=1", {"specifier": ">=2"}, {"name": "fig"}],
+                    "requires-dev": {
+                        "lint": ["plum"],
+                        "docs": [{"specifier": ">=3"}],
+                        "test": [{"name": "pear"}],
+                    },
+                },
+            },
+        ],
+    }
+
+    specs = LockFile(lock_data).specifiers
+
+    assert specs.by_package == {}
+    assert specs.by_subgraph == {"test": {"pear": ""}}
+    assert specs.by_main == {"basket": {"fig": ""}}
+
+
+def test_lock_reads_an_absolute_exclude_newer_as_written() -> None:
+    """A cutoff the lock records as an instant needs no span to resolve."""
+    lock = LockFile({"options": {"exclude-newer": "2026-10-18T00:00:00Z"}})
+    assert lock.exclude_newer == "2026-10-18T00:00:00Z"
+    assert lock.cooldown_span is None
+
+
 def test_lock_views_of_a_missing_file(tmp_path):
     """A lock that does not exist yet reads as an empty one."""
     lock = LockFile.load(tmp_path / "uv.lock")
@@ -1177,3 +1252,98 @@ def test_sync_uv_lock_reports_a_failed_lock_and_restores_the_project(locked_bask
     assert isinstance(result.exception, SystemExit)
     assert "No solution found for cherry." in result.output
     assert (locked_basket / "pyproject.toml").read_text(encoding="UTF-8") == pyproject
+
+
+def _resolving_to(name: str, plan: SyncPlan) -> dict[str, SyncOperation]:
+    """An `OPERATIONS_BY_NAME` whose *name* resolves to *plan*, and writes nothing."""
+    operation = dataclasses.replace(
+        OPERATIONS_BY_NAME[name], resolve=lambda rc: plan, apply=lambda _plan: None
+    )
+    return {name: operation}
+
+
+@pytest.mark.parametrize(("flag", "tabled"), (("--table", True), ("--no-table", False)))
+def test_sync_uv_lock_reports_a_run_that_only_edits_bypasses(
+    tmp_path, monkeypatch, flag, tabled
+):
+    """A run moving no version still names each bypass it cleared or froze.
+
+    The cutoff and the tables print with `--table` alone.
+    """
+    plan = SyncPlan(
+        operation="sync-uv-lock",
+        subject="Package",
+        heading="Updated packages",
+        provenance_holds=[ProvenanceHold("cherry", "1.0.0", "1.1.0", "orchard/cherry")],
+        uv_project=UvProjectExtras(
+            exclude_newer="2026-10-18T00:00:00Z",
+            pruned_bypasses=[BypassForecast("mango", "2.0.0", "2026-10-01")],
+            frozen_bypasses=["papaya"],
+            bypass_forecasts=[
+                BypassForecast("papaya", "3.1.0", "2026-10-30 (in 5 days)")
+            ],
+        ),
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        cli_deps, "OPERATIONS_BY_NAME", _resolving_to("sync-uv-lock", plan)
+    )
+
+    result = CliRunner().invoke(repomatic, ["sync-uv-lock", flag])
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "Expired cooldown bypass(es) cleared from pyproject.toml: mango"
+        in result.output
+    )
+    assert "Cooldown bypass(es) frozen at their locked version: papaya" in result.output
+    assert "Synced [tool.uv]" not in result.output
+    assert "package(s) updated" not in result.output
+    assert ("exclude-newer cutoff: 2026-10-18\n" in result.output) is tabled
+    assert ("Cooldown bypasses:\n" in result.output) is tabled
+    assert ("Held back for missing provenance:\n" in result.output) is tabled
+
+
+# ---------------------------------------------------------------------------
+# The sync-dep-sources command
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("changes", "counted"),
+    (
+        pytest.param([("mango", "2.1.0.dev0", "2.1.0")], True, id="version-moved"),
+        # A branch already carrying the release version moves nothing in the lock.
+        pytest.param([], False, id="version-kept"),
+    ),
+)
+def test_sync_dep_sources_names_each_swap(tmp_path, monkeypatch, changes, counted):
+    """Each swap prints its own line, and the count covers the versions that moved."""
+    swap = ReleaseSwap(
+        name="mango",
+        source_key="mango",
+        branch="main",
+        floor="2.1.0.dev0",
+        release="2.1.0",
+        released="2026-07-10",
+    )
+    plan = SyncPlan(
+        operation="sync-dep-sources",
+        subject="Package",
+        heading="Updated packages",
+        changes=changes,
+        uv_project=UvProjectExtras(frozen_bypasses=["mango"], source_swaps=[swap]),
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        cli_deps, "OPERATIONS_BY_NAME", _resolving_to("sync-dep-sources", plan)
+    )
+
+    result = CliRunner().invoke(repomatic, ["sync-dep-sources"])
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "Swapped mango from git branch 'main' to released 2.1.0, frozen until it"
+        " clears the cooldown."
+    ) in result.output
+    assert ("1 package(s) updated." in result.output) is counted

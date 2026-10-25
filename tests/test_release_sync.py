@@ -36,7 +36,7 @@ from repomatic.github.release_sync import (
     render_sync_report,
     sync_github_releases,
 )
-from repomatic.github.releases import GitHubRelease
+from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
 from repomatic.tabular import ReportAction
 
 SAMPLE_CHANGELOG = """\
@@ -386,6 +386,49 @@ def test_sync_missing_changelog_section(changelog_path):
     )
 
     assert result.total == 3
+
+
+def test_sync_counts_an_empty_changelog_section(tmp_path):
+    """A released version whose section holds nothing is counted, not compared."""
+    path = tmp_path / "changelog.md"
+    section = "## [`0.9.0` (2025-12-01)](https://github.com/user/repo)\n"
+    path.write_text(f"{SAMPLE_CHANGELOG}\n{section}", encoding="UTF-8")
+    result = run_sync(
+        path,
+        {
+            "1.0.0": GitHubRelease(date="2026-01-01", body=expected_body("1.0.0")),
+            "0.9.0": GitHubRelease(date="2025-12-01", body="Seedlings."),
+        },
+    )
+
+    assert result.total == 4
+    assert result.in_sync == 1
+    assert result.missing_changelog == 1
+    assert [row.version for row in result.rows] == ["1.0.0"]
+    assert "| ❓ Missing changelog | 1 |" in render_sync_report(result)
+
+
+@pytest.mark.parametrize(
+    ("repo_url", "answer"),
+    (
+        pytest.param("https://gitlab.com/user/repo", {}, id="not-on-github"),
+        pytest.param(
+            "https://github.com/user/repo",
+            GitHubReleasesUnavailable("HTTP 502: Bad Gateway"),
+            id="api-unavailable",
+        ),
+        pytest.param("https://github.com/user/repo", {}, id="no-release"),
+    ),
+)
+def test_sync_without_releases_to_compare(changelog_path, repo_url, answer):
+    """A repository off GitHub, an unhealthy API or no release syncs nothing."""
+    # A mock raises an exception found in its side effects, and returns the rest.
+    with patch(
+        "repomatic.github.release_sync.get_github_releases", side_effect=[answer]
+    ):
+        result = sync_github_releases(repo_url, changelog_path)
+
+    assert result == SyncResult(dry_run=True)
 
 
 def test_sync_live_failure(changelog_path):

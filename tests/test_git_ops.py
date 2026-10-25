@@ -22,8 +22,10 @@ import logging
 import subprocess
 
 import pytest
+from click_extra.testing import CliRunner
 from packaging.version import Version
 
+from repomatic.cli.main import repomatic
 from repomatic.git_ops import (
     COMMIT_IDENTITY_EMAIL,
     COMMIT_IDENTITY_NAME,
@@ -152,6 +154,36 @@ def test_create_and_push_tag_matches_the_exact_tag(git_workdir):
     """A tag whose name only ends like the one asked for is not a match."""
     run_git("tag", "release/v1.0.0", cwd=git_workdir)
     assert create_and_push_tag("v1.0.0", push=False) is True
+
+
+def test_git_tag_command_reports_each_outcome(git_workdir, tmp_path):
+    """The command reports a new tag, skips an existing one, or fails on it."""
+    output = tmp_path / "github-output.txt"
+    runner = CliRunner()
+
+    result = runner.invoke(
+        repomatic, ["git-tag", "--tag", "v1.0.0", "--output", str(output)]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Created and pushed tag 'v1.0.0'" in result.output
+    assert output.read_text(encoding="UTF-8") == "created=true\n"
+
+    result = runner.invoke(
+        repomatic, ["git-tag", "--tag", "v1.0.0", "--output", str(output)]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Tag 'v1.0.0' already exists, skipped." in result.output
+    assert output.read_text(encoding="UTF-8") == "created=false\n"
+
+    result = runner.invoke(repomatic, ["git-tag", "--tag", "v1.0.1", "--no-push"])
+    assert result.exit_code == 0, result.output
+    assert "Created tag 'v1.0.1'" in result.output
+
+    result = runner.invoke(
+        repomatic, ["git-tag", "--tag", "v1.0.0", "--error-existing"]
+    )
+    assert result.exit_code == 1, result.output
+    assert "Tag 'v1.0.0' already exists." in result.output
 
 
 def test_version_tags_skip_names_that_do_not_parse(git_workdir):

@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
 
 from repomatic.broken_links import (
+    FIX_LINK_LABEL,
     LYCHEE_INSTALL_FAILURE_EXIT,
     LYCHEE_REPORT_FORMAT,
     NO_BROKEN_LINKS,
@@ -474,6 +476,44 @@ def test_a_completed_run_files_or_closes_the_issue(
     assert lifecycle.call_args.kwargs["labels"] == ["📚 documentation"]
 
 
+def test_a_ci_run_detects_every_default(tmp_path, monkeypatch):
+    """In CI, the name, the linkcheck output and its source URL are all detected."""
+    sha = "a1b2c3d4" * 5
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "orchard/awesome-papaya")
+    monkeypatch.setenv("GITHUB_SHA", sha)
+    output = tmp_path / "docs" / "_linkcheck" / "output.json"
+    output.parent.mkdir(parents=True)
+    entry = {
+        "filename": "index.rst",
+        "lineno": 3,
+        "status": "broken",
+        "uri": "https://example.com/kiwi",
+    }
+    output.write_text(json.dumps(entry) + "\n", encoding="UTF-8")
+
+    with patch("repomatic.broken_links.manage_issue_lifecycle") as lifecycle:
+        verdict = manage_combined_broken_links_issue()
+
+    assert verdict is LinkVerdict.BROKEN
+    kwargs = lifecycle.call_args.kwargs
+    assert kwargs["labels"] == [FIX_LINK_LABEL]
+    assert f"orchard/awesome-papaya/blob/{sha}/docs/index.rst" in kwargs["body"]
+    assert "https://example.com/kiwi" in kwargs["body"]
+
+
+def test_no_repository_name_to_detect_is_an_error(tmp_path, monkeypatch):
+    """With neither `$GITHUB_REPOSITORY` nor a clone, no name selects the label."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    with (
+        patch("repomatic.broken_links.manage_issue_lifecycle") as lifecycle,
+        pytest.raises(ValueError, match="No repository name specified"),
+    ):
+        manage_combined_broken_links_issue()
+    lifecycle.assert_not_called()
+
+
 def test_no_checker_leaves_the_issue_alone(tmp_path, monkeypatch, caplog):
     """With no checker run, nothing is known about the links: the issue stays.
 
@@ -503,6 +543,26 @@ def test_cli_with_no_checker_exits_clean(tmp_path, monkeypatch):
             repomatic, ["broken-links", "--no-lychee", "--repo-name", "orchard"]
         )
     assert result.exit_code == 0, result.output
+    lifecycle.assert_not_called()
+
+
+def test_cli_without_a_repository_name_is_a_usage_error(tmp_path, monkeypatch):
+    """No `--repo-name` and nothing to detect one from fails before any check."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GH_TOKEN", "fake-token")
+    with (
+        patch(
+            "repomatic.broken_links.Metadata",
+            return_value=SimpleNamespace(repo_name=None),
+        ),
+        patch("repomatic.broken_links.manage_issue_lifecycle") as lifecycle,
+    ):
+        result = CliRunner().invoke(repomatic, ["broken-links", "--no-lychee"])
+    assert result.exit_code == 2
+    assert (
+        "No repository name specified. Set --repo-name or $GITHUB_REPOSITORY."
+        in result.output
+    )
     lifecycle.assert_not_called()
 
 

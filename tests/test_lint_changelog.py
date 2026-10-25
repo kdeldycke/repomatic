@@ -23,6 +23,7 @@ from functools import partial
 from textwrap import dedent
 
 import pytest
+from click_extra.testing import CliRunner
 
 from repomatic.changelog import (
     AVAILABLE_VERB,
@@ -30,6 +31,7 @@ from repomatic.changelog import (
     Changelog,
     availability_admonition,
 )
+from repomatic.cli.main import repomatic
 from repomatic.git_ops import GitError
 from repomatic.github.releases import GitHubRelease, GitHubReleasesUnavailable
 from repomatic.lint_changelog import (
@@ -181,6 +183,35 @@ def test_lint_changelog_dates_pypi_mismatch(changelog_file, monkeypatch):
     )
 
     assert lint_changelog_dates(changelog_file) == 1
+
+
+@pytest.mark.parametrize(
+    ("published", "exit_code"),
+    (
+        pytest.param("2026-02-10", 0, id="dates-match"),
+        pytest.param("2026-02-09", 1, id="date-mismatch"),
+    ),
+)
+def test_lint_changelog_command_exits_with_the_verdict(
+    changelog_file, monkeypatch, published, exit_code
+):
+    """The command exits with the code of the date check.
+
+    It runs from the changelog's directory, which holds no `pyproject.toml`, so
+    the `[tool.repomatic]` table of this repository stays out of the check.
+    """
+    _patch_sources(
+        monkeypatch,
+        pypi={"1.1.0": (published, False), "1.0.0": ("2025-12-01", False)},
+        github=["1.1.0", "1.0.0"],
+    )
+    monkeypatch.chdir(changelog_file.parent)
+
+    result = CliRunner().invoke(
+        repomatic, ["lint-changelog", "--changelog", str(changelog_file)]
+    )
+
+    assert result.exit_code == exit_code, result.output
 
 
 def test_lint_changelog_dates_fallback_to_tags(changelog_file, monkeypatch):

@@ -757,6 +757,17 @@ def test_lint_deps_reports_an_allowed_source_without_blocking(
     assert "ℹ cherry: workspace source in tool.uv.sources" in result.stdout
 
 
+def test_lint_deps_warns_on_a_resolution_override_without_blocking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An `override-dependencies` entry prints as a warning, and the gate passes."""
+    doc = SHIPPABLE_PYPROJECT + '[tool.uv]\noverride-dependencies = [ "cherry==1.2" ]\n'
+    result = _lint_deps(tmp_path, monkeypatch, doc, "--no-policy")
+    assert result.exit_code == 0, result.output
+    assert "⚠ cherry: registry source in tool.uv.override-dependencies" in result.stdout
+    assert "✗" not in result.stdout
+
+
 @pytest.mark.parametrize(
     ("policy", "warned"), (("--policy", True), ("--no-policy", False))
 )

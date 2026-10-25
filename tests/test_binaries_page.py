@@ -19,11 +19,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from click_extra.testing import CliRunner
 from extra_platforms import LINUX, MACOS
 
-from repomatic.github.releases import ReleaseAsset, ReleaseWithAssets
+from repomatic.cli.main import repomatic
+from repomatic.github.releases import (
+    GitHubReleasesUnavailable,
+    ReleaseAsset,
+    ReleaseWithAssets,
+)
 from repomatic.release.binaries_page import (
     CATALOG_CSV,
     CSV_HEADERS,
@@ -324,6 +331,76 @@ def test_update_catalog_is_idempotent(tmp_path):
         page.parent / CATALOG_CSV: False,
         page: False,
     }
+
+
+# --- sync-binaries ---
+
+
+def test_sync_binaries_reports_each_file_then_converges(tmp_path, monkeypatch):
+    """A first run writes the CSV and the page, and a second run changes neither."""
+    monkeypatch.chdir(tmp_path)
+    page = tmp_path / "docs" / "binaries.md"
+    csv_path = page.parent / CATALOG_CSV
+    release = _release("v1.0.0", (_asset("papaya-1.0.0-linux-x64.bin"),))
+    args = ["sync-binaries", "--repo", REPO, "--page", str(page)]
+
+    with patch(
+        "repomatic.cli.release.get_releases_with_assets", return_value=[release]
+    ) as fetch:
+        first = CliRunner().invoke(repomatic, args)
+        second = CliRunner().invoke(repomatic, args)
+
+    assert first.exit_code == 0, first.output
+    assert first.stdout.splitlines() == [f"Updated {csv_path}.", f"Updated {page}."]
+    assert second.exit_code == 0, second.output
+    assert second.stdout.splitlines() == [
+        f"{csv_path} already up to date.",
+        f"{page} already up to date.",
+    ]
+    fetch.assert_called_with(f"https://github.com/{REPO}")
+
+
+def test_sync_binaries_fails_when_the_releases_are_unreadable(tmp_path, monkeypatch):
+    """An unreadable Releases API fails the run before any file is written."""
+    monkeypatch.chdir(tmp_path)
+    page = tmp_path / "binaries.md"
+
+    with patch(
+        "repomatic.cli.release.get_releases_with_assets",
+        side_effect=GitHubReleasesUnavailable("Releases API timed out for papaya."),
+    ):
+        result = CliRunner().invoke(
+            repomatic, ["sync-binaries", "--repo", REPO, "--page", str(page)]
+        )
+
+    assert result.exit_code == 1
+    assert "Releases API timed out for papaya." in result.output
+    assert not page.exists()
+
+
+def test_sync_binaries_refuses_a_json_scan_history(tmp_path, monkeypatch):
+    """A JSON history in place of the CSV one fails the run before any write."""
+    monkeypatch.chdir(tmp_path)
+    page = tmp_path / "binaries.md"
+    (tmp_path / "scans.json").write_text("[]", encoding="UTF-8")
+
+    with patch("repomatic.cli.release.get_releases_with_assets", return_value=[]):
+        result = CliRunner().invoke(
+            repomatic,
+            [
+                "sync-binaries",
+                "--repo",
+                REPO,
+                "--page",
+                str(page),
+                "--records",
+                "scans.csv",
+            ],
+        )
+
+    assert result.exit_code == 1
+    assert "holds the scan history in the JSON format" in result.output
+    assert not page.exists()
 
 
 # --- update_binaries_page ---

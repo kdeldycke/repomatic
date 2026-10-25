@@ -33,6 +33,7 @@ import pytest
 from click_extra import Context
 from click_extra.testing import CliRunner
 from extra_platforms import is_windows
+from extra_platforms.pytest import skip_windows
 
 from repomatic.cli.ci import (
     CELL_STATE_SEPARATOR,
@@ -1043,6 +1044,77 @@ def test_linked_worktree_reads_the_exclude_file_of_its_main_checkout(
     assert FileInventory().glob_files("*.md", "*.txt") == [Path("mango.md")]
 
 
+@pytest.mark.parametrize(
+    ("dot_git", "exclude", "kept"),
+    (
+        pytest.param(
+            "gitdir: ../.git/modules/fig\n",
+            Path("..", ".git", "modules", "fig", "info", "exclude"),
+            [Path("mango.md")],
+            id="submodule",
+        ),
+        pytest.param(
+            "papaya\n",
+            None,
+            [Path("apple.txt"), Path("mango.md")],
+            id="no-gitdir-line",
+        ),
+    ),
+)
+def test_dot_git_file_layouts(tmp_path, monkeypatch, dot_git, exclude, kept):
+    """A `.git` file finds the exclude file only through its `gitdir:` line.
+
+    Git writes the `.git` file of a submodule in this layout: its git directory
+    sits in the superproject and holds no `commondir` file, so the exclude
+    file is the one of that directory.
+    """
+    modules = tmp_path / "orchard" / ".git" / "modules" / "fig"
+    (modules / "info").mkdir(parents=True)
+    (modules / "info" / "exclude").write_text("*.txt\n", encoding="UTF-8")
+    fig = tmp_path / "orchard" / "fig"
+    fig.mkdir()
+    (fig / ".git").write_text(dot_git, encoding="UTF-8")
+    for name in ("apple.txt", "mango.md"):
+        (fig / name).write_text("", encoding="UTF-8")
+    monkeypatch.chdir(fig)
+    inventory = FileInventory()
+    assert inventory.exclude_path == exclude
+    assert inventory.glob_files("*.md", "*.txt") == kept
+
+
+@skip_windows(reason="Windows restricts symbolic links to privileged accounts.")
+def test_glob_files_resolves_links(tmp_path, monkeypatch):
+    """A dangling link is dropped, and a link out of the directory stays absolute."""
+    kiwi = tmp_path / "kiwi.md"
+    kiwi.write_text("", encoding="UTF-8")
+    orchard = tmp_path / "orchard"
+    orchard.mkdir()
+    (orchard / "pear.md").write_text("", encoding="UTF-8")
+    (orchard / "dangling.md").symlink_to(orchard / "absent.md")
+    (orchard / "outside.md").symlink_to(kiwi)
+    monkeypatch.chdir(orchard)
+    assert FileInventory().glob_files("*.md") == [kiwi.resolve(), Path("pear.md")]
+
+
+def test_shell_groups_split_sh_files_on_their_shebang(tmp_path, monkeypatch):
+    """A `.sh` file joins the group its shebang names, read once per inventory."""
+    (tmp_path / "orchard.sh").write_text(
+        "#!/usr/bin/env zsh\necho papaya\n", encoding="UTF-8"
+    )
+    grove = tmp_path / "grove.sh"
+    grove.write_text("#!/usr/bin/env bash\necho kiwi\n", encoding="UTF-8")
+    (tmp_path / "tasks.zsh").write_text("echo mango\n", encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    inventory = FileInventory()
+
+    assert inventory.zsh_files == [Path("orchard.sh"), Path("tasks.zsh")]
+    # The verdict read for `zsh_files` holds, so a new shebang changes nothing.
+    grove.write_text("#!/usr/bin/env zsh\necho kiwi\n", encoding="UTF-8")
+    assert inventory.shfmt_files == [Path("grove.sh")]
+    # A file that cannot be read has no dialect.
+    assert inventory.shebang_names_zsh(Path("absent.sh")) is None
+
+
 @pytest.mark.repo_maintenance
 def test_metadata_json_format():
     metadata = Metadata().dump(Dialect.json)
@@ -1366,6 +1438,50 @@ def test_show_test_matrix_rejects_an_unknown_axis():
     assert result.exit_code != 0
     assert "papaya" in result.output
     assert PYTHON_VERSION_AXIS in result.output
+
+
+FRUIT_AXIS_PYPROJECT = """\
+[project]
+name = "orchard"
+version = "1.0.0"
+
+[tool.repomatic.test-matrix.variations]
+fruit = ["papaya", "kiwi", "mango"]
+"""
+"""A full-matrix axis with no canonical order, its values declared unsorted."""
+
+
+def test_show_test_matrix_refuses_a_full_only_axis_on_pr(tmp_path, monkeypatch):
+    """An axis the `pr` matrix drops is refused there, though the full one has it."""
+    metadata_from_pyproject(tmp_path, monkeypatch, FRUIT_AXIS_PYPROJECT)
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        repomatic, ["show-test-matrix", "pr", "--col-axis", "fruit"]
+    )
+    assert result.exit_code == 2, result.output
+    assert "'fruit' is not a key of the pr matrix" in result.output
+
+
+@pytest.mark.parametrize("view", ([], ["--grid"]), ids=("listing", "grid"))
+@pytest.mark.parametrize("axis_option", ("--row-axis", "--col-axis"))
+def test_show_test_matrix_keeps_job_order_on_an_axis_without_one(
+    tmp_path, monkeypatch, view, axis_option
+):
+    """An axis with no canonical order lists its values in job order, unsorted."""
+    metadata_from_pyproject(tmp_path, monkeypatch, FRUIT_AXIS_PYPROJECT)
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        repomatic,
+        ["--table-format", "json", "show-test-matrix", *view, axis_option, "fruit"],
+    )
+    assert result.exit_code == 0, result.output
+    rows = json.loads(result.output)
+    if view and axis_option == "--col-axis":
+        fruits = list(rows[0])[1:]
+    else:
+        # An include job the variation does not reach lists no fruit.
+        fruits = list(dict.fromkeys(row["fruit"] for row in rows if row["fruit"]))
+    assert fruits == ["papaya", "kiwi", "mango"]
 
 
 @pytest.mark.parametrize("axis_option", ("--row-axis", "--col-axis"))

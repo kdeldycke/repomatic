@@ -42,11 +42,13 @@ from repomatic.deps.report import (
 from repomatic.deps.sync import (
     ResolveContext,
     SyncPlan,
+    _pinned_with_packages,
     _resolve_tool_versions,
     _review_lock_provenance,
 )
+from repomatic.github.releases import ReleaseNotesRequest
 from repomatic.http import FetchError, Response
-from repomatic.pypi import ReleaseProvenance, release_provenance
+from repomatic.pypi import PYPI_PACKAGE_URL, ReleaseProvenance, release_provenance
 from repomatic.tooling.registry import TOOL_REGISTRY
 
 ATTESTED = ReleaseProvenance(known=True, attested=True, publisher="orchard/fig")
@@ -118,6 +120,20 @@ def test_release_provenance_tells_an_absence_from_a_failure(
     """Only a 404 of the integrity API says the release carries no provenance."""
     with patch("repomatic.pypi.request", side_effect=error):
         assert release_provenance("fig", "1.0") == expected
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(b"<html>", id="not-json"),
+        pytest.param(b"[]", id="not-an-object"),
+    ],
+)
+@patch("repomatic.pypi.get_json_soft", return_value=RELEASE_FILES)
+def test_release_provenance_of_an_unreadable_body_is_unknown(mock_files, body):
+    """A body that is no JSON object proves no presence and no absence either."""
+    with patch("repomatic.pypi.request", return_value=Response(200, {}, body)):
+        assert release_provenance("fig", "1.0") == UNKNOWN
 
 
 @pytest.mark.parametrize("files", [None, {}, {"urls": []}])
@@ -242,6 +258,81 @@ def test_tool_versions_withhold_a_pypi_tool_that_lost_provenance(monkeypatch):
     content = next(iter(plan.file_writes.values()))
     assert f'version="{yamllint.version}"' in content
     assert plan.provenance["typos"] == "✅ immutable release attestation"
+
+
+def test_tool_versions_bump_the_packages_pinned_beside_a_tool(monkeypatch):
+    """A `with_packages` pin is reviewed and bumped like a tool of its own.
+
+    The pin that lost provenance is held, and the others are rewritten. Each
+    links to the repository PyPI names, else to its PyPI page. Only a package
+    with a repository asks for release notes.
+    """
+    yamllint = TOOL_REGISTRY["yamllint"]
+    assert yamllint.source_url is not None
+    pins = _pinned_with_packages()
+    (held, held_pin), (noted, noted_pin), (plain, plain_pin) = pins[:3]
+    repository = "https://github.com/orchard/kiwi"
+    release = [Candidate("99.0.0", "2025-12-01", "99.0.0")]
+
+    table = {
+        ("yamllint", yamllint.version): NONE,
+        ("yamllint", "99.0.0"): NONE,
+        (held, held_pin): ATTESTED,
+        (held, "99.0.0"): NONE,
+        (noted, noted_pin): ATTESTED,
+        (noted, "99.0.0"): ATTESTED,
+        (plain, plain_pin): NONE,
+        (plain, "99.0.0"): NONE,
+    }
+    fetch = Mock(return_value={noted: (repository, [("v99.0.0", "Riper kiwis.")])})
+    monkeypatch.setattr(
+        "repomatic.deps.sync.tool_candidates",
+        lambda spec: release if spec.name == "yamllint" else [],
+    )
+    monkeypatch.setattr(
+        "repomatic.deps.pins.pypi_candidates",
+        lambda package: release if package in (held, noted, plain) else [],
+    )
+    monkeypatch.setattr("repomatic.deps.provenance.release_provenance", _lookup(table))
+    monkeypatch.setattr(
+        "repomatic.deps.sync.get_source_url",
+        lambda package: repository if package == noted else None,
+    )
+    monkeypatch.setattr("repomatic.deps.sync.fetch_github_release_notes", fetch)
+
+    plan = _resolve_tool_versions(
+        ResolveContext(config=Config(), today=date(2026, 1, 1), release_notes=True)
+    )
+
+    assert plan.provenance_holds == [
+        ProvenanceHold(held, held_pin, "99.0.0", "orchard/fig")
+    ]
+    assert plan.changes == [
+        ("yamllint", yamllint.version, "99.0.0"),
+        (noted, noted_pin, "99.0.0"),
+        (plain, plain_pin, "99.0.0"),
+    ]
+    # A tool with no binary has no attestation to verify, so its cell keeps the
+    # verdict of the PyPI review.
+    assert plan.provenance["yamllint"] == "none"
+    content = next(iter(plan.file_writes.values()))
+    assert f'"{held}=={held_pin}"' in content
+    assert f'"{noted}==99.0.0"' in content
+    assert f'"{plain}==99.0.0"' in content
+    assert plan.name_urls[noted] == repository
+    assert plan.name_urls[plain] == PYPI_PACKAGE_URL.format(package=plain)
+    assert held not in plan.name_urls
+    assert fetch.call_args.args[0] == [
+        ReleaseNotesRequest(
+            "yamllint",
+            yamllint.source_url,
+            yamllint.version,
+            "99.0.0",
+            yamllint.tag_pattern,
+        ),
+        ReleaseNotesRequest(noted, repository, noted_pin, "99.0.0"),
+    ]
+    assert "Riper kiwis." in plan.notes_section
 
 
 # ---------------------------------------------------------------------------

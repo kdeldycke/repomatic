@@ -24,7 +24,9 @@ from functools import partial
 from unittest.mock import patch
 
 import pytest
+from click_extra.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.github.threads import (
     BOT_ISSUE_LABEL,
     LOCK_ISSUE_COMMENT,
@@ -266,6 +268,43 @@ def test_dry_run_reports_without_writing():
         ("PR", "#2", TITLE, "would lock"),
     ]
     assert [call[:2] for call in calls] == [["search", "issues"]]
+
+
+@pytest.mark.parametrize(
+    ("threads", "expected"),
+    (
+        pytest.param(
+            [],
+            "No closed thread in kevin/fruits has been inactive for 90 days.\n",
+            id="none-stale",
+        ),
+        pytest.param(
+            [_thread(42)],
+            f"Kind,Thread,Title,Outcome\nissue,#42,{TITLE},would lock\n",
+            id="one-stale",
+        ),
+    ),
+)
+def test_lock_threads_command_prints_a_row_per_thread(threads, expected):
+    """The command tables what a run would lock, or says no thread qualifies."""
+
+    def fake_gh(args):
+        if args[:2] == ["search", "issues"]:
+            return json.dumps(threads)
+        return ""
+
+    with patch_gh(side_effect=fake_gh) as mock_gh:
+        result = CliRunner().invoke(
+            repomatic,
+            ["--table-format", "csv", "lock-threads", "--repo", "kevin/fruits"],
+            env={"GH_TOKEN": "x"},
+        )
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == expected
+    assert [call.args[0][:2] for call in mock_gh.call_args_list] == [
+        ["search", "issues"]
+    ]
 
 
 def test_empty_comment_skips_the_comment_call():

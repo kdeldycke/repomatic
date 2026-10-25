@@ -24,6 +24,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from click_extra.testing import CliRunner
 from extra_platforms.pytest import skip_windows
 
 from repomatic.cache import (
@@ -44,6 +45,7 @@ from repomatic.cache import (
     store_config,
     store_response,
 )
+from repomatic.cli.main import repomatic
 from repomatic.config import CacheConfig, Config
 
 # ---------------------------------------------------------------------------
@@ -254,18 +256,34 @@ def test_store_binary_stamps_store_time(monkeypatch, tmp_path, cache_env):
     assert abs(result.stat().st_mtime - time.time()) < 60
 
 
-def test_store_binary_unwritable_cache_returns_none(tmp_path, cache_env):
+@pytest.mark.parametrize(
+    "store",
+    (
+        pytest.param(
+            lambda source: store_binary("ruff", "0.11.0", "linux-x64", source),
+            id="binary",
+        ),
+        pytest.param(
+            lambda _source: store_response("pypi", "requests", b"{}"), id="response"
+        ),
+        pytest.param(
+            lambda _source: store_config("ruff", "ruff.toml", "line-length = 88\n"),
+            id="config",
+        ),
+    ),
+)
+def test_store_unwritable_cache_returns_none(tmp_path, cache_env, store):
     """An unwritable cache root degrades to `None` instead of raising.
 
-    Matches the fail-soft contract of `store_response` and `store_config`:
-    the caller falls back to its staging copy.
+    Every store shares that fail-soft contract: the caller goes on with the
+    staging copy or the content it already holds.
     """
     source = tmp_path / "staging" / "ruff"
     source.parent.mkdir()
     source.write_bytes(b"data")
 
     with patch("repomatic.cache.atomic_write", side_effect=OSError("read-only")):
-        assert store_binary("ruff", "0.11.0", "linux-x64", source) is None
+        assert store(source) is None
 
 
 # ---------------------------------------------------------------------------
@@ -599,6 +617,16 @@ def test_clear_http_cache_by_age(cache_env):
     assert entries[0].key == "new-pkg"
 
 
+def test_clear_keeps_an_entry_it_cannot_remove(cache_env):
+    """An entry the clear cannot delete stays in place, and is not counted."""
+    store_response("pypi", "requests", b"{}")
+
+    with patch.object(HttpCacheEntry, "remove", side_effect=PermissionError("busy")):
+        assert HttpCacheEntry.clear() == (0, 0)
+
+    assert [entry.key for entry in HttpCacheEntry.entries()] == ["requests"]
+
+
 # ---------------------------------------------------------------------------
 # Config cache
 # ---------------------------------------------------------------------------
@@ -706,6 +734,20 @@ def test_cache_rows_lists_every_cache_in_order(tmp_path, cache_env):
     assert [row[0] for row in rows] == ["binary", "http", "config"]
     assert [row[1] for row in rows] == ["ruff", "pypi", "ruff"]
     assert total > 0
+
+
+def test_cache_commands_list_then_remove_every_entry(tmp_path, cache_env):
+    """`cache show` counts the three caches, and `cache clean` empties them."""
+    _fill_every_cache(tmp_path)
+
+    shown = CliRunner().invoke(repomatic, ["cache", "show"])
+    cleaned = CliRunner().invoke(repomatic, ["cache", "clean"])
+
+    assert shown.exit_code == 0, shown.output
+    assert "\nTotal: 3 file(s), " in shown.output
+    assert cleaned.exit_code == 0, cleaned.output
+    assert "Removed 3 file(s), freed " in cleaned.output
+    assert cache_rows() == ([], 0)
 
 
 # ---------------------------------------------------------------------------

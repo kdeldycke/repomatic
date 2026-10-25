@@ -22,8 +22,11 @@ import hashlib
 from unittest.mock import MagicMock, patch
 
 import pytest
+from click_extra.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.github.gh import GhCommandError
+from repomatic.http import FetchError
 from repomatic.tooling.checksums import (
     AttestationError,
     _download_sha256,
@@ -35,6 +38,9 @@ from repomatic.tooling.registry import LINUX, TOOL_REGISTRY, X86_64
 
 FAKE_HASH_OLD = "a" * 64
 FAKE_HASH_NEW = "b" * 64
+
+FIG_URL = "https://github.com/orchard/fig/releases/download/v1.0.0/fig_linux_amd64"
+"""A release artifact whose checksum a stubbed recompute reports as stale."""
 
 
 def _real_hash(url: str, verify=None) -> str:
@@ -101,6 +107,47 @@ def test_update_registry_checksums_replaces_stale_hash(tmp_path):
     content = registry.read_text(encoding="UTF-8")
     assert old_hash not in content
     assert FAKE_HASH_NEW in content
+
+
+@pytest.mark.parametrize(
+    ("outcome", "exit_code", "message"),
+    (
+        pytest.param(
+            {"return_value": [(FIG_URL, FAKE_HASH_OLD, FAKE_HASH_NEW)]},
+            0,
+            f"Updated: {FIG_URL}\n  Old: {FAKE_HASH_OLD}\n  New: {FAKE_HASH_NEW}\n",
+            id="stale",
+        ),
+        pytest.param(
+            {"return_value": []}, 0, "All checksums are up to date.", id="current"
+        ),
+        pytest.param(
+            {"side_effect": FetchError("HTTP 503")},
+            1,
+            "Cannot download a release artifact: HTTP 503",
+            id="unreachable",
+        ),
+        pytest.param(
+            {"side_effect": AttestationError("fig did not verify")},
+            1,
+            "fig did not verify",
+            id="unattested",
+        ),
+    ),
+)
+def test_update_checksums_reports_each_outcome(outcome, exit_code, message):
+    """The command lists each rewritten hash, or ends on the error that stopped it.
+
+    The recompute is stubbed: the real one rewrites the installed registry.
+    """
+    with patch("repomatic.cli.tools.update_registry_checksums", **outcome) as update:
+        result = CliRunner().invoke(
+            repomatic, ["--verbosity", "INFO", "update-checksums"]
+        )
+
+    assert result.exit_code == exit_code, result.output
+    assert message in result.output
+    update.assert_called_once()
 
 
 def test_update_registry_checksums_noop_when_current(tmp_path):

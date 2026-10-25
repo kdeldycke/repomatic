@@ -45,6 +45,8 @@ from repomatic.cli.main import repomatic
 from repomatic.components import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComponent
 from repomatic.config import Config, config_key_paths
 from repomatic.deps import sources as dep_sources
+from repomatic.deps.cooldown import UvSettings
+from repomatic.deps.lockfile import LockFile
 from repomatic.deps.pins import (
     SETUP_UV_SLUG,
     Candidate,
@@ -63,6 +65,7 @@ from repomatic.deps.sync import (
     UvProjectExtras,
     _apply_file_writes,
     _apply_tool_versions,
+    _finish_uv_plan,
     _gate_uv_on_checksums,
     _pinned_with_packages,
     _plan_file_rewrites,
@@ -82,6 +85,7 @@ from repomatic.http import FetchError
 from repomatic.pypi import PyPIRelease
 from repomatic.templating import PrTemplate, get_template_names
 from repomatic.tooling.registry import TOOL_REGISTRY
+from repomatic.upstream import UPSTREAM_REPO_SLUGS
 from repomatic.versions import is_newer
 from tests.conftest import load_workflow
 
@@ -316,15 +320,31 @@ def test_run_sync_operations_isolates_a_failing_resolve() -> None:
     assert applied == ["a", "c"]
 
 
+@pytest.mark.parametrize(
+    ("pyproject", "names", "message"),
+    (
+        pytest.param("", (), "No dependency updaters are enabled", id="none-applies"),
+        pytest.param(
+            "[tool.repomatic]\nuv-lock.sync = false\n",
+            ("sync-uv-lock",),
+            "None of the named updaters are enabled in [tool.repomatic].",
+            id="named-but-disabled",
+        ),
+    ),
+)
 def test_sync_deps_reports_nothing_to_do_in_an_empty_tree(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, pyproject, names, message
 ) -> None:
-    """With no lockfile, workflows, or source, no updater applies."""
+    """With no lockfile, workflows, or source, no updater applies.
+
+    A named updater runs whatever the tree holds, but never past its flag.
+    """
+    (tmp_path / "pyproject.toml").write_text(pyproject, encoding="UTF-8")
     runner = CliRunner()
     monkeypatch.chdir(tmp_path)
-    result = runner.invoke(repomatic, ["sync-deps", "--dry-run"])
+    result = runner.invoke(repomatic, ["sync-deps", "--dry-run", *names])
     assert result.exit_code == 0, result.output
-    assert "No dependency updaters are enabled" in result.output
+    assert message in result.output
 
 
 def _consolidated_job_steps() -> list[dict]:
@@ -500,6 +520,43 @@ def _recording_operation(
         apply=lambda plan: events.append(f"apply {name}"),
         applies_here=lambda: applies,
     )
+
+
+def test_sync_deps_applies_in_place_and_writes_one_report(
+    tmp_path, monkeypatch
+) -> None:
+    """Without `--pr-sync`, each updater applies to the tree, then reports."""
+    events: list[str] = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "repomatic.cli.deps.selected_operations",
+        lambda config, names: [_recording_operation("sync-uv-lock", events)],
+    )
+
+    result = CliRunner().invoke(
+        repomatic, ["sync-deps", "--output", "report.md", "sync-uv-lock"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert events == ["resolve sync-uv-lock", "apply sync-uv-lock"]
+    assert "Updated 1 via sync-uv-lock:" in result.output
+    assert "kiwi" in (tmp_path / "report.md").read_text(encoding="UTF-8")
+
+
+def test_sync_deps_fails_once_an_updater_cannot_resolve(tmp_path, monkeypatch) -> None:
+    """A resolve that raises applies nothing, and fails the command at the end."""
+    events: list[str] = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "repomatic.cli.deps.selected_operations",
+        lambda config, names: [_recording_operation("sync-uv-lock", events, fail=True)],
+    )
+
+    result = CliRunner().invoke(repomatic, ["sync-deps", "sync-uv-lock"])
+
+    assert result.exit_code == 1, result.output
+    assert events == ["resolve sync-uv-lock"]
+    assert "Failed to resolve: sync-uv-lock" in result.output
 
 
 def test_pr_sync_mode_runs_each_operation_from_a_clean_tree(monkeypatch) -> None:
@@ -752,6 +809,48 @@ def test_tool_versions_apply_downloads_with_the_jobs_width(tmp_path, monkeypatch
     recompute.assert_called_once_with(
         registry, version_overrides={"typos": "99.0.0"}, jobs=6
     )
+    assert registry.read_text(encoding="UTF-8") == "rewritten"
+
+
+@pytest.mark.parametrize(
+    ("change", "binary_overrides", "actionlint_version", "recomputes", "refreshes"),
+    (
+        pytest.param(("ruff", "0.14.0", "0.15.0"), {}, None, 0, 0, id="pypi-tool"),
+        pytest.param(
+            ("actionlint", "1.7.7", "1.7.9"),
+            {"actionlint": "1.7.9"},
+            "1.7.9",
+            1,
+            1,
+            id="actionlint",
+        ),
+    ),
+)
+def test_tool_versions_apply_reaches_only_what_the_bump_moved(
+    tmp_path,
+    monkeypatch,
+    change,
+    binary_overrides,
+    actionlint_version,
+    recomputes,
+    refreshes,
+):
+    """A binary bump recomputes checksums, and an actionlint bump the matcher."""
+    registry = tmp_path / "registry.py"
+    plan = SyncPlan(operation="sync-tool-versions", subject="Tool", heading="Tools")
+    plan.changes = [change]
+    plan.file_writes = {registry: "rewritten"}
+    plan.tool_versions.binary_overrides = binary_overrides
+    plan.tool_versions.actionlint_version = actionlint_version
+    recompute = Mock(return_value=[])
+    refresh = Mock()
+    monkeypatch.setattr("repomatic.deps.sync.update_registry_checksums", recompute)
+    monkeypatch.setattr("repomatic.deps.sync._sync_actionlint_matcher", refresh)
+
+    _apply_tool_versions(plan)
+
+    assert recompute.call_count == recomputes
+    assert refresh.call_count == refreshes
     assert registry.read_text(encoding="UTF-8") == "rewritten"
 
 
@@ -1125,6 +1224,41 @@ def test_resolve_dep_sources_noop_before_release(tmp_path, monkeypatch) -> None:
     assert (tmp_path / "pyproject.toml").read_text(encoding="UTF-8") == SWAP_PYPROJECT
 
 
+def test_finish_uv_plan_attaches_the_held_back_probe_and_the_notes(tmp_path) -> None:
+    """A uv plan with a change gets its held-back table, notes and compare links."""
+    plan = SyncPlan(
+        operation="sync-uv-lock",
+        subject="Package",
+        heading="Updated packages",
+        changes=[("cherry", "1.0.0", "1.1.0")],
+    )
+    rc = ResolveContext(
+        config=Config(),
+        today=date(2026, 7, 15),
+        release_notes=True,
+        lockfile=tmp_path / "uv.lock",
+    )
+    lock = LockFile()
+    held = [HeldBackPackage("papaya", "3.0.0", "3.1.0", "a day ago", "in a week")]
+    notes = {"cherry": ("https://github.com/orchard/cherry", [("v1.1.0", "Juicier.")])}
+
+    with (
+        patch(
+            "repomatic.deps.sync.compute_held_back_packages", return_value=held
+        ) as probe,
+        patch("repomatic.deps.sync.fetch_release_notes", return_value=notes),
+    ):
+        _finish_uv_plan(plan, rc, lock, UvSettings.load(tmp_path / "pyproject.toml"))
+
+    probe.assert_called_once_with(rc.lockfile, lock, {})
+    assert plan.held_back == held
+    assert plan.held_back_name_urls == {"papaya": "https://pypi.org/project/papaya/"}
+    assert "Juicier." in plan.notes_section
+    assert plan.comparison_urls == {
+        "cherry": "https://github.com/orchard/cherry/compare/v1.0.0...v1.1.0"
+    }
+
+
 SELF_PIN_WORKFLOW = (
     'env:\n  UV_EXCLUDE_NEWER: "1 week"\n'
     "          uvx --no-progress 'repomatic==7.11.0' metadata\n"
@@ -1241,6 +1375,85 @@ def test_resolve_action_pins_and_init_owned_files(
         assert new_sha in writes[action_key]
     else:
         assert action_key not in writes
+
+
+def test_resolve_action_pins_converge_a_straggler_with_no_release(caplog) -> None:
+    """An older pin moves onto the highest one, with no release to adopt.
+
+    The highest pin already carries its commit, so the straggler needs no
+    lookup. A release whose tag resolves to no commit is skipped with a
+    warning, and its pin stays as written.
+    """
+    fig_high, fig_low, kiwi, plum = "1" * 40, "2" * 40, "3" * 40, "4" * 40
+    workflows = {
+        Path("ripen.yaml"): (
+            "jobs:\n  ripen:\n    steps:\n"
+            f"      - uses: orchard/fig@{fig_high} # v2.0.0\n"
+            f"      - uses: orchard/kiwi@{kiwi} # v1.0.0\n"
+        ),
+        Path("harvest.yaml"): (
+            "jobs:\n  harvest:\n    steps:\n"
+            f"      - uses: orchard/fig@{fig_low} # v1.0.0\n"
+            f"      - uses: orchard/plum@{plum} # v1.0.0\n"
+        ),
+    }
+
+    def releases(repo_url: str) -> list[Candidate]:
+        if repo_url == "https://github.com/orchard/plum":
+            return [Candidate("1.1.0", "2026-07-01", "v1.1.0")]
+        return []
+
+    rc = ResolveContext(config=Config(), today=date(2026, 7, 15))
+    with (
+        patch("repomatic.deps.sync._pinnable_files", return_value=workflows),
+        patch("repomatic.deps.sync.github_candidates", side_effect=releases),
+        patch("repomatic.deps.sync.resolve_tag_to_sha", return_value=None),
+        caplog.at_level(logging.WARNING),
+    ):
+        plan = _resolve_action_pins(rc)
+
+    assert plan.changes == [("orchard/fig", "v1.0.0", "v2.0.0")]
+    assert list(plan.file_writes) == [Path("harvest.yaml")]
+    written = plan.file_writes[Path("harvest.yaml")]
+    assert f"orchard/fig@{fig_high} # v2.0.0" in written
+    assert f"orchard/plum@{plum} # v1.0.0" in written
+    # Neither the straggler's pin nor the skipped release carries a date.
+    assert not plan.dates
+    assert "Could not resolve orchard/plum@v1.1.0 to a commit SHA." in caplog.text
+
+
+@pytest.mark.parametrize("slug", UPSTREAM_REPO_SLUGS)
+def test_resolve_action_pins_skip_an_upstream_pin(slug) -> None:
+    """A root-form pin of the upstream repository, under any name, is left alone.
+
+    `repomatic init` moves it, so the scan neither looks it up nor bumps it,
+    while the action beside it still moves to its newest release.
+    """
+    upstream_pin = f"{slug}@{'5' * 40} # v4.0.0"
+    workflows = {
+        Path("tests.yaml"): (
+            "jobs:\n  test:\n    steps:\n"
+            f"      - uses: {upstream_pin}\n"
+            f"      - uses: orchard/fig@{'1' * 40} # v1.0.0\n"
+        )
+    }
+    lookups: list[str] = []
+
+    def releases(repo_url: str) -> list[Candidate]:
+        lookups.append(repo_url)
+        return [Candidate("9.9.9", "2026-07-01", "v9.9.9")]
+
+    rc = ResolveContext(config=Config(), today=date(2026, 7, 15))
+    with (
+        patch("repomatic.deps.sync._pinnable_files", return_value=workflows),
+        patch("repomatic.deps.sync.github_candidates", side_effect=releases),
+        patch("repomatic.deps.sync.resolve_tag_to_sha", return_value="2" * 40),
+    ):
+        plan = _resolve_action_pins(rc)
+
+    assert lookups == ["https://github.com/orchard/fig"]
+    assert plan.changes == [("orchard/fig", "v1.0.0", "v9.9.9")]
+    assert upstream_pin in plan.file_writes[Path("tests.yaml")]
 
 
 def test_bundled_pin_bearing_files_are_excluded_from_pin_scan() -> None:
@@ -1532,6 +1745,28 @@ def test_workflow_pins_invite_nothing_without_a_repomatic_bump() -> None:
     assert plan.upgrade_section == ""
 
 
+def test_workflow_pins_align_on_the_newest_ref_of_any_file() -> None:
+    """The inline pin follows the newest `uses:` ref, not the one beside it."""
+    workflows = {
+        Path("lint.yaml"): (
+            "jobs:\n  lint:\n"
+            "    uses: kdeldycke/repomatic/.github/workflows/lint.yaml"
+            f"@{'a' * 40} # v7.15.0\n"
+        ),
+        Path("tests.yaml"): (
+            "jobs:\n  build:\n    steps:\n"
+            "      - uses: kdeldycke/repomatic/.github/workflows/lint.yaml"
+            f"@{'b' * 40} # v7.14.0\n"
+            "      - run: uvx 'repomatic==7.14.0' metadata\n"
+        ),
+    }
+    rc = ResolveContext(config=Config(), today=GATE_TODAY)
+    with patch("repomatic.deps.sync._pinnable_files", return_value=workflows):
+        plan = _resolve_workflow_pins(rc)
+    assert plan.changes == [("repomatic", "7.14.0", "7.15.0")]
+    assert "'repomatic==7.15.0'" in plan.file_writes[Path("tests.yaml")]
+
+
 HELD_PIN_RELEASES = {
     "shexli": [
         Candidate("0.2.0", "2026-08-01", "0.2.0"),
@@ -1580,6 +1815,32 @@ def test_workflow_pins_leave_an_ignored_package_as_written(ignore, moved):
     assert ("'tree-sitter==0.25.2'" in written) == ("tree-sitter" in ignore)
 
 
+def test_workflow_pins_warn_about_a_pin_inside_the_cooldown(caplog) -> None:
+    """A pin still inside the cooldown is reported, with the day it ages out.
+
+    A `uvx` install in CI reads no per-package exemption, so it fails until then.
+    """
+    workflow = {
+        Path("tests.yaml"): (
+            "jobs:\n  lint:\n    steps:\n      - run: uvx 'shexli==0.2.1' check\n"
+        )
+    }
+    releases = [
+        Candidate("0.2.0", "2026-08-01", "0.2.0"),
+        Candidate("0.2.1", (GATE_TODAY - timedelta(days=2)).isoformat(), "0.2.1"),
+    ]
+    rc = ResolveContext(config=Config(), today=GATE_TODAY)
+    with (
+        patch("repomatic.deps.sync._pinnable_files", return_value=workflow),
+        patch("repomatic.deps.pins.pypi_candidates", return_value=releases),
+        caplog.at_level(logging.WARNING),
+    ):
+        plan = _resolve_workflow_pins(rc)
+    assert not plan.changes
+    assert "shexli==0.2.1 is pinned inside the 1 week cooldown" in caplog.text
+    assert "fail until it ages out on 2026-09-02" in caplog.text
+
+
 @pytest.mark.parametrize(
     ("ignore", "tag"),
     [
@@ -1613,6 +1874,31 @@ def test_workflow_pins_walk_a_release_download_tag(ignore, tag):
     written = plan.file_writes.get(Path("tests.yaml"), workflow[Path("tests.yaml")])
     assert f"gh release download {tag}\n" in written
     assert bool(plan.changes) == (tag == "v1.3.0")
+
+
+def test_workflow_pins_fetch_no_release_notes_for_an_npm_bump() -> None:
+    """An npm literal moves without release notes: npm names no repository."""
+    workflow = {
+        Path("lint.yaml"): (
+            "jobs:\n  lint:\n    steps:\n      - run: npx --yes papaya-lint@2.3.0\n"
+        )
+    }
+    releases = [
+        Candidate("2.3.0", "2026-08-01", "2.3.0"),
+        Candidate("2.4.0", "2026-08-02", "2.4.0"),
+    ]
+    rc = ResolveContext(config=Config(), today=GATE_TODAY, release_notes=True)
+    with (
+        patch("repomatic.deps.sync._pinnable_files", return_value=workflow),
+        patch("repomatic.deps.pins.npm_candidates", return_value=releases),
+        patch(
+            "repomatic.deps.sync.fetch_release_notes",
+            side_effect=AssertionError("npm names no repository"),
+        ),
+    ):
+        plan = _resolve_workflow_pins(rc)
+    assert plan.changes == [("papaya-lint", "2.3.0", "2.4.0")]
+    assert plan.notes_section == ""
 
 
 def test_workflow_pins_ignore_cannot_hold_the_upstream_pin() -> None:

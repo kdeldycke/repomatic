@@ -508,6 +508,71 @@ def test_prepare_release_commit_steps(release_checkout, tmp_path, monkeypatch):
     assert status.stdout == ""
 
 
+@pytest.mark.parametrize(
+    ("first", "second", "exit_code", "expected"),
+    (
+        pytest.param([], [], 0, "no files were modified", id="rerun"),
+        pytest.param([], ["--commit"], 0, "Committed", id="commit-on-rerun"),
+        pytest.param(["--commit"], ["--commit"], 1, "Cannot commit", id="commit-twice"),
+    ),
+)
+def test_prepare_release_reruns_on_a_frozen_tree(
+    release_checkout, first, second, exit_code, expected
+):
+    """A second run finds every file frozen, and commits what the first left."""
+    assert invoke(["prepare-release", *first]).exit_code == 0
+
+    result = invoke(["prepare-release", *second])
+
+    assert result.exit_code == exit_code, result.output
+    assert expected in result.output
+
+
+def test_prepare_release_hands_the_version_over_on_a_rerun(release_checkout, tmp_path):
+    """`--output` alone writes the version of a frozen tree, and commits nothing."""
+    output = tmp_path / "github-output.txt"
+    assert invoke(["prepare-release"]).exit_code == 0
+
+    result = invoke([
+        "prepare-release",
+        "--no-update-workflows",
+        "--output",
+        str(output),
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert output.read_text(encoding="UTF-8") == f"version={VERSION}\n"
+    assert run_git("log", "-1", "--format=%s", cwd=release_checkout).strip() == (
+        "Seed project"
+    )
+
+
+def test_prepare_release_detects_the_canonical_repository(
+    release_checkout, monkeypatch
+):
+    """The canonical workflows repository turns `--update-workflows` on."""
+    monkeypatch.setenv("GITHUB_REPOSITORY", DEFAULT_REPO)
+
+    result = invoke(["--verbosity", "INFO", "prepare-release"])
+
+    assert result.exit_code == 0, result.output
+    assert "Auto-detected --update-workflows" in result.output
+
+
+def test_prepare_release_needs_a_version_at_head(
+    release_checkout, tmp_path, monkeypatch
+):
+    """A post-release run fails, writing nothing, when `HEAD` declares no version."""
+    monkeypatch.setattr("repomatic.cli.release.version_at", lambda ref: None)
+    output = tmp_path / "github-output.txt"
+
+    result = invoke(["prepare-release", "--post-release", "--output", str(output)])
+
+    assert result.exit_code == 1, result.output
+    assert "Cannot read the released version off HEAD." in result.output
+    assert not output.exists()
+
+
 @pytest.mark.parametrize("allowed", (True, False))
 def test_bump_version_step(project, monkeypatch, allowed):
     """An allowed bump relocks before its pull request, a stale one closes."""

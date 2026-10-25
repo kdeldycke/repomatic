@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 from http.client import IncompleteRead
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import URLError
 
 import pytest
@@ -40,8 +40,10 @@ from repomatic.github.releases import (
     get_release_tags,
     release_exists,
     release_review_steps,
+    resolve_tag_to_sha,
     upload_release_files,
 )
+from repomatic.http import FetchError
 from tests.conftest import FakeResponse
 
 
@@ -162,6 +164,32 @@ def test_force_refresh_skips_the_cached_map(monkeypatch):
     assert set(get_release_tags("https://github.com/user/repo")) == {"v0.1.0"}
     with _paged_urlopen(page):
         tags = get_release_tags("https://github.com/user/repo", force_refresh=True)
+    assert set(tags) == {"v1.0.0"}
+
+
+@pytest.mark.parametrize(
+    "cached",
+    (
+        pytest.param(b"not json", id="not-json"),
+        pytest.param(
+            json.dumps({"v0.1.0": {"date": "2025-01-01"}}).encode(), id="no-body"
+        ),
+        pytest.param(json.dumps({"v0.1.0": "papaya"}).encode(), id="not-a-mapping"),
+    ),
+)
+def test_corrupt_cached_map_falls_through_to_the_api(monkeypatch, cached):
+    """A cached map that does not decode is fetched again, not trusted."""
+    monkeypatch.setattr(
+        "repomatic.github.releases.get_cached_response",
+        lambda namespace, key, ttl: cached,
+    )
+    monkeypatch.setattr(
+        "repomatic.github.releases.store_response", lambda namespace, key, data: None
+    )
+    page = json.dumps([_release_payload("1.0.0", "2026-01-01")]).encode()
+
+    with _paged_urlopen(page):
+        tags = get_release_tags("https://github.com/user/repo")
     assert set(tags) == {"v1.0.0"}
 
 
@@ -694,6 +722,54 @@ def test_release_review_steps_unavailable(monkeypatch, repo_url):
     )
 
     assert release_review_steps(repo_url, "1.2.3") == ("", "")
+
+
+@pytest.mark.parametrize(
+    ("repo_url", "answers", "expected"),
+    (
+        pytest.param(
+            "https://github.com/user/repo",
+            [{"object": {"type": "commit", "sha": "c" * 40}}],
+            "c" * 40,
+            id="lightweight-tag",
+        ),
+        pytest.param(
+            "https://github.com/user/repo",
+            [
+                {"object": {"type": "tag", "sha": "d" * 40}},
+                {"object": {"type": "commit", "sha": "c" * 40}},
+            ],
+            "c" * 40,
+            id="annotated-tag",
+        ),
+        pytest.param(
+            "https://github.com/user/repo", [{"object": {}}], None, id="no-object"
+        ),
+        pytest.param(
+            "https://github.com/user/repo",
+            [FetchError("HTTP 404: Not Found", status=404)],
+            None,
+            id="missing-tag",
+        ),
+        pytest.param(
+            "https://github.com/user/repo",
+            [
+                {"object": {"type": "tag", "sha": "d" * 40}},
+                FetchError("HTTP 502: Bad Gateway", status=502),
+            ],
+            None,
+            id="tag-object-unreachable",
+        ),
+        pytest.param("https://example.com/orchard", [], None, id="not-on-github"),
+    ),
+)
+def test_resolve_tag_to_sha(monkeypatch, repo_url, answers, expected):
+    """A tag resolves to its commit, one more lookup away for an annotated tag."""
+    get_json = Mock(side_effect=answers)
+    monkeypatch.setattr("repomatic.github.releases.get_json", get_json)
+
+    assert resolve_tag_to_sha(repo_url, "v1.2.3") == expected
+    assert get_json.call_count == len(answers)
 
 
 RANGE_RELEASES = {

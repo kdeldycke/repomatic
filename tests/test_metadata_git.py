@@ -119,6 +119,51 @@ def test_new_commits_degrades_when_git_fails(monkeypatch, caplog):
     assert "dubious ownership" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("fetchable", "fetched"),
+    (
+        pytest.param((), ["b" * 40], id="end-missing"),
+        pytest.param(("b" * 40,), ["b" * 40, "a" * 40], id="start-missing"),
+    ),
+)
+def test_new_commits_needs_both_ends_of_the_range(monkeypatch, fetchable, fetched):
+    """An end the remote does not serve leaves the range unknown.
+
+    The end is fetched first, so a missing end never costs a fetch of the start.
+    """
+    monkeypatch.setattr(Metadata, "commit_range", ("a" * 40, "b" * 40))
+    calls: list[str] = []
+
+    def fetch(sha: str) -> bool:
+        calls.append(sha)
+        return sha in fetchable
+
+    monkeypatch.setattr("repomatic.metadata.git.fetch_commit", fetch)
+    assert Metadata().new_commits is None
+    assert calls == fetched
+
+
+@pytest.mark.parametrize(
+    ("pull_request", "expected"),
+    (
+        pytest.param(
+            {"base": {"sha": "a" * 40}, "head": {"sha": "b" * 40}},
+            ("a" * 40, "b" * 40),
+            id="complete",
+        ),
+        pytest.param({"head": {"sha": "b" * 40}}, (None, "b" * 40), id="no-base"),
+    ),
+)
+def test_pull_request_range_runs_from_base_to_head(pull_request, expected, caplog):
+    """A pull request range spans its base to its head, and warns when incomplete."""
+    metadata = Metadata()
+    metadata.__dict__["event_type"] = WorkflowEvent.pull_request
+    metadata.__dict__["github_event"] = {"pull_request": pull_request}
+    with caplog.at_level(logging.WARNING):
+        assert metadata.commit_range == expected
+    assert ("Incomplete commit range" in caplog.text) is (expected[0] is None)
+
+
 def test_changed_files_surfaces_git_stderr(monkeypatch, caplog):
     """A `git diff` failure degrades changed_files to None and logs git's stderr."""
     monkeypatch.setattr(Metadata, "commit_range", ("a" * 40, "b" * 40))
@@ -181,6 +226,34 @@ def test_skip_binary_build_release_workflow_push(workflow_file):
     metadata = Metadata()
     _prime_push(metadata, (workflow_file,))
     assert metadata.skip_binary_build is False
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    (
+        pytest.param({}, False, id="binary-affecting-push"),
+        pytest.param({"head_branch": "sync-mailmap"}, True, id="housekeeping-branch"),
+        pytest.param(
+            {"head_commit_message": "[changelog] Bump minor version to `v1.3.0`"},
+            True,
+            id="version-bump-commit",
+        ),
+        pytest.param({"changed_files": ()}, True, id="nothing-changed"),
+        pytest.param(
+            {"changed_files": ("readme.md",)}, True, id="no-binary-affecting-path"
+        ),
+    ),
+)
+def test_skip_binary_build(overrides, expected):
+    """Each skip path skips the build of a push that would otherwise rebuild.
+
+    The primed push changes `pyproject.toml`, which affects binaries, so only
+    the overridden property can skip the build.
+    """
+    metadata = Metadata()
+    _prime_push(metadata, ("pyproject.toml",))
+    metadata.__dict__.update(overrides)
+    assert metadata.skip_binary_build is expected
 
 
 SRC_LAYOUT_PYPROJECT = """\
@@ -258,6 +331,18 @@ def test_version_at_prefers_the_bumpversion_file(repository):
 
     assert version_at(sha) == "1.0.0"
     assert version_at("HEAD") == "2.0.0"
+
+
+def test_version_at_skips_a_file_that_does_not_parse(repository):
+    """A `.bumpversion.toml` that does not parse yields to `pyproject.toml`."""
+    _commit_versions(repository, "1.0.0")
+    seed_commit(
+        repository,
+        ".bumpversion.toml",
+        'current_version = "2.0.0"\n[[[\n',
+        "Break config",
+    )
+    assert version_at("HEAD") == "1.0.0"
 
 
 def test_version_at_without_any_source(repository):

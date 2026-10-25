@@ -57,6 +57,7 @@ from repomatic.deps.report import (
     format_upload_date,
     pypi_name_urls,
 )
+from repomatic.github.releases import ReleaseNotesRequest
 from tests.conftest import FakeResponse
 
 CHANGES = [
@@ -436,6 +437,31 @@ def test_format_release_notes_nests_headings():
     assert format_release_notes({}) == ""
 
 
+def test_format_release_notes_truncates_a_long_body():
+    """A long body is cut at a line end and links the full release.
+
+    A tagless entry, the changelog link of the PyPI fallback, renders as is.
+    """
+    body = "\n".join(f"- Ripened crate {number}." for number in range(200))
+    notes = {
+        "papaya": ("https://github.com/orchard/papaya", [("v2.0.0", body)]),
+        "plum": (
+            "https://github.com/orchard/plum",
+            [("", "[Changelog](https://plum.example.com/changes)")],
+        ),
+    }
+    section = format_release_notes(notes)
+    assert "- Ripened crate 0.\n" in section
+    assert "- Ripened crate 199." not in section
+    assert (
+        "\n\n... [Full release notes]"
+        "(https://github.com/orchard/papaya/releases/tag/v2.0.0)\n" in section
+    )
+    assert "[Changelog](https://plum.example.com/changes)" in section
+    # The tagless entry gets no version heading of its own.
+    assert section.count("#### ") == 1
+
+
 # ---------------------------------------------------------------------------
 # Release notes
 # ---------------------------------------------------------------------------
@@ -494,3 +520,50 @@ def test_fetch_release_notes_lists_each_repository_once(cache_env):
         )
     }
     assert calls == {"pypi.org": 1, "api.github.com": 1}
+
+
+def test_fetch_release_notes_falls_back_to_the_changelog_link():
+    """A package with no release notes on GitHub links its PyPI changelog instead.
+
+    A removed package is never looked up. A package with no repository, or with
+    neither notes nor a changelog link, gets no entry.
+    """
+    sources = {
+        "papaya": "https://github.com/orchard/papaya",
+        "plum": "https://github.com/orchard/plum",
+    }
+    with (
+        patch(
+            "repomatic.deps.report.get_pypi_source_url", side_effect=sources.get
+        ) as source,
+        patch("repomatic.deps.report.pypi_release_dates", return_value={}),
+        patch(
+            "repomatic.deps.report.fetch_github_release_notes", return_value={}
+        ) as fetch,
+        patch(
+            "repomatic.deps.report.get_pypi_changelog_url",
+            side_effect={"papaya": "https://papaya.example.com/changes"}.get,
+        ),
+    ):
+        notes = fetch_release_notes([
+            ("fig", "1.0.0", ""),
+            ("kiwi", "2.0.0", "2.1.0"),
+            ("papaya", "3.0.0", "3.1.0"),
+            ("plum", "4.0.0", "4.1.0"),
+        ])
+
+    assert [call.args for call in source.call_args_list] == [
+        ("kiwi",),
+        ("papaya",),
+        ("plum",),
+    ]
+    assert fetch.call_args.args[0] == [
+        ReleaseNotesRequest("papaya", sources["papaya"], "3.0.0", "3.1.0"),
+        ReleaseNotesRequest("plum", sources["plum"], "4.0.0", "4.1.0"),
+    ]
+    assert notes == {
+        "papaya": (
+            sources["papaya"],
+            [("", "[Changelog](https://papaya.example.com/changes)")],
+        )
+    }

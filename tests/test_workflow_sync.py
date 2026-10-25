@@ -258,6 +258,28 @@ def test_no_python_literals_in_yaml(filename: str) -> None:
     assert "'}" not in content, f"{filename}: Python dict literal found in output"
 
 
+@pytest.mark.parametrize(
+    "value",
+    (
+        pytest.param(["kiwi", "mango"], id="scalar-list"),
+        pytest.param([{"fruit": "papaya", "city": "Lima"}], id="two-key-item"),
+        pytest.param(
+            {"harvest": [{"fruit": "papaya", "city": "Lima"}, "kiwi"]},
+            id="nested-two-key-item",
+        ),
+        pytest.param({"kiwi": None}, id="empty-key"),
+        pytest.param("papaya", id="scalar"),
+    ),
+)
+def test_render_trigger_value_round_trips(value: Any) -> None:
+    """A trigger value of any shape renders as YAML that parses back to itself.
+
+    No bundled workflow carries most of these shapes, so rendering the bundled
+    callers leaves them unchecked.
+    """
+    assert yaml.safe_load(ws._render_trigger_value(value, indent=4)) == value
+
+
 @pytest.mark.parametrize("filename", REUSABLE_WORKFLOWS)
 def test_generated_caller_ends_with_one_newline(filename: str) -> None:
     """Every generated caller ends with exactly one trailing newline.
@@ -948,6 +970,18 @@ def test_extract_extra_jobs_not_thin_caller() -> None:
 def test_extract_extra_jobs_invalid_yaml() -> None:
     """Return empty string for invalid YAML."""
     assert extract_extra_jobs("{{invalid yaml") == ""
+
+
+@pytest.mark.parametrize(
+    "content",
+    (
+        pytest.param("---\nname: Papaya\n", id="no-jobs"),
+        pytest.param("---\nname: Papaya\njobs:\n  - release\n", id="jobs-a-list"),
+    ),
+)
+def test_extract_extra_jobs_without_a_jobs_mapping(content: str) -> None:
+    """Return empty string when `jobs` is not a mapping."""
+    assert extract_extra_jobs(content) == ""
 
 
 def sync_caller(
@@ -1974,6 +2008,30 @@ def test_release_caller_preserves_downstream_needs(
     assert data["jobs"]["release"]["needs"] == expected
     # The packing job itself always survives, whatever the edge resolved to.
     assert "packer" in data["jobs"]
+
+
+@pytest.mark.parametrize(
+    ("existing", "expected"),
+    (
+        pytest.param({"jobs": ["release"]}, (), id="jobs-a-list"),
+        pytest.param({"jobs": {"release": {"runs-on": "ubuntu-slim"}}}, (), id="none"),
+        pytest.param(
+            {"jobs": {"release": {"needs": {"papaya": True}}, "papaya": {}}},
+            (),
+            id="needs-a-mapping",
+        ),
+        pytest.param(
+            {"jobs": {"release": {"needs": "papaya"}, "papaya": {}}},
+            ("papaya",),
+            id="needs-a-string",
+        ),
+    ),
+)
+def test_downstream_release_needs_reads_a_string_or_a_list(
+    existing: dict[str, Any], expected: tuple[str, ...]
+) -> None:
+    """A lone `needs:` string counts as a one-item list, any other shape as none."""
+    assert ws._downstream_release_needs(existing, DEFAULT_REPO) == expected
 
 
 def test_release_caller_drops_repomatic_local_needs() -> None:

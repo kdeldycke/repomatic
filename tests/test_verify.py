@@ -110,6 +110,19 @@ def test_verify_binary_rejects_an_unknown_target(tmp_path):
     assert "unknown-platform" in result.output
 
 
+def test_verify_binary_passes_a_matching_binary(tmp_path):
+    """A binary built for its target passes the architecture and OS floor checks."""
+    binary = tmp_path / "test.exe"
+    binary.write_bytes(make_pe(pe_machine_id(X86_64)))
+    result = CliRunner().invoke(
+        repomatic,
+        ["verify-binary", "--target", "windows-x64", "--binary", str(binary)],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Binary architecture verified for windows-x64" in result.output
+    assert "OS floor verified for windows-x64." in result.output
+
+
 def test_elf_info_without_verneed(tmp_path):
     """A sectionless ELF reports its machine and no glibc requirement."""
     sample = tmp_path / "sample.bin"

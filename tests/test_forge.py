@@ -18,17 +18,21 @@
 
 from __future__ import annotations
 
+from unittest.mock import Mock
+
 import pytest
 
 from repomatic.metrics.forge import (
     FORGE_APIS,
     GITHUB_HOST,
+    GITHUB_METRICS_QUERY,
     REST_ENDPOINTS,
     Forge,
     ForgeMetrics,
     canonical_url,
     forge_of,
     newest_dated,
+    repo_metrics,
     split_repo_url,
 )
 from repomatic.metrics.store import METRICS_BY_ID
@@ -280,3 +284,83 @@ def test_rest_metrics_answer_none_for_an_unreadable_repository(monkeypatch):
     """Check a repository the forge does not serve is unreadable, not empty."""
     monkeypatch.setattr("repomatic.metrics.forge.forge_json", lambda url: None)
     assert Forge.GITLAB.metrics("gitlab.example.org", "fruits/papaya") is None
+
+
+RELEASED = {"publishedAt": "2026-08-01T09:00:00Z"}
+"""The `latestRelease` object of a repository that cut a release."""
+
+BRANCH = {"target": {"committedDate": "2026-09-02T09:00:00Z"}}
+"""The `defaultBranchRef` object, its head commit dated."""
+
+
+@pytest.mark.parametrize(
+    ("release", "tag_node", "branch", "expected"),
+    (
+        pytest.param(
+            RELEASED,
+            # A lightweight tag points straight at its commit.
+            {"target": {"committedDate": "2026-09-01T09:00:00Z"}},
+            BRANCH,
+            ForgeMetrics(
+                stars=7,
+                created="2020-05-01",
+                release="2026-09-01",
+                release_source="tag",
+                commit="2026-09-02",
+            ),
+            id="tag-newer-than-release",
+        ),
+        pytest.param(
+            RELEASED,
+            # An annotated tag points at a tag object wrapping the commit.
+            {"target": {"target": {"committedDate": "2026-07-01T09:00:00Z"}}},
+            BRANCH,
+            ForgeMetrics(
+                stars=7,
+                created="2020-05-01",
+                release="2026-08-01",
+                release_source="release",
+                commit="2026-09-02",
+            ),
+            id="older-annotated-tag",
+        ),
+        pytest.param(
+            None,
+            {"target": {"target": {"committedDate": "2026-07-01T09:00:00Z"}}},
+            BRANCH,
+            ForgeMetrics(
+                stars=7,
+                created="2020-05-01",
+                release="2026-07-01",
+                release_source="tag",
+                commit="2026-09-02",
+            ),
+            id="no-release",
+        ),
+        pytest.param(
+            None,
+            # A tag on something that is no commit carries no date.
+            {"target": {}},
+            None,
+            ForgeMetrics(stars=7, created="2020-05-01"),
+            id="nothing-dated",
+        ),
+    ),
+)
+def test_github_metrics_read_the_whole_set_in_one_query(
+    monkeypatch, release, tag_node, branch, expected
+):
+    """Check one GraphQL answer yields the stars, the release or tag, and the commit."""
+    answer = {
+        "repository": {
+            "createdAt": "2020-05-01T10:00:00Z",
+            "stargazerCount": 7,
+            "latestRelease": release,
+            "defaultBranchRef": branch,
+            "refs": {"nodes": [tag_node]},
+        }
+    }
+    query = Mock(return_value=answer)
+    monkeypatch.setattr("repomatic.metrics.forge.gh_graphql", query)
+    assert repo_metrics("https://github.com/fruits/papaya") == expected
+    query.assert_called_once_with(GITHUB_METRICS_QUERY, owner="fruits", name="papaya")

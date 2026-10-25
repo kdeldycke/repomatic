@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -45,6 +46,7 @@ from repomatic.github.event import get_github_event
 from repomatic.github.labels import (
     DEFAULT_CONTENT_RULES,
     DEFAULT_FILE_RULES,
+    _run_labelmaker,
     apply_labels,
     compile_content_pattern,
     declared_label_names,
@@ -662,6 +664,80 @@ def test_apply_labels_applies_the_awesome_profile(
 
     assert [call[3] for call in calls] == ["default", "awesome"]
     assert {_staged_name(call) for call in calls} == {"labels.toml"}
+
+
+def test_sync_labels_reads_an_awesome_list_from_its_name(
+    tmp_path, monkeypatch, captured_labelmaker
+):
+    """`sync-labels` adds the `awesome` profile for an `awesome-*` repository."""
+    calls, _staged = captured_labelmaker
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        repomatic, ["sync-labels", "--repo", "owner/awesome-list"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Labels synced." in result.output
+    assert [call[3:] for call in calls] == [
+        ("default", "owner/awesome-list"),
+        ("awesome", "owner/awesome-list"),
+    ]
+
+
+def test_sync_labels_fails_on_a_labelmaker_failure(tmp_path, monkeypatch):
+    """A labelmaker run that fails ends the command with labelmaker's message."""
+    monkeypatch.chdir(tmp_path)
+    with (
+        patch(
+            "repomatic.github.labels.ensure_binary",
+            return_value=Path("/fake/labelmaker"),
+        ),
+        patch(
+            "repomatic.github.labels._run_labelmaker",
+            side_effect=RuntimeError("labelmaker failed: rate limited"),
+        ),
+    ):
+        result = CliRunner().invoke(repomatic, ["sync-labels", "--repo", "owner/repo"])
+
+    assert result.exit_code == 1
+    assert "labelmaker failed: rate limited" in result.output
+    assert "Labels synced." not in result.output
+
+
+@pytest.mark.parametrize(
+    ("stdout", "logged"),
+    (
+        pytest.param("", [], id="quiet"),
+        pytest.param("Applied 🥝 kiwi.", ["Applied 🥝 kiwi."], id="chatty"),
+    ),
+)
+def test_run_labelmaker_passes_the_promoted_token(caplog, stdout, logged):
+    """labelmaker runs with the `gh` environment, its output kept for the debug log."""
+    binary = Path("/fake/labelmaker")
+    finished = subprocess.CompletedProcess([], 0, stdout=stdout, stderr="")
+    with (
+        patch("repomatic.github.labels.gh_env", return_value={"GH_TOKEN": "kiwi"}),
+        patch("repomatic.github.labels.subprocess.run", return_value=finished) as run,
+        caplog.at_level(logging.DEBUG),
+    ):
+        _run_labelmaker(binary, "apply", "labels.toml", "owner/repo")
+
+    assert run.call_args.args[0] == [str(binary), "apply", "labels.toml", "owner/repo"]
+    assert run.call_args.kwargs["env"] == {"GH_TOKEN": "kiwi"}
+    debug = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+    assert debug == logged
+
+
+def test_run_labelmaker_raises_with_its_error_output():
+    """A failed run raises with what labelmaker printed on its error stream."""
+    failed = subprocess.CompletedProcess([], 1, stdout="", stderr="rate limited")
+    with (
+        patch("repomatic.github.labels.gh_env", return_value=None),
+        patch("repomatic.github.labels.subprocess.run", return_value=failed),
+        pytest.raises(RuntimeError, match=r"^labelmaker failed: rate limited$"),
+    ):
+        _run_labelmaker(Path("/fake/labelmaker"), "apply", "labels.toml", "owner/repo")
 
 
 def test_apply_labels_stages_outside_the_working_tree(

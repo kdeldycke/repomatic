@@ -30,6 +30,7 @@ from repomatic.cli.main import repomatic
 from repomatic.pypi import (
     PYPI_TRUSTED_PUBLISHER_SETTINGS_URL,
     TrustedPublisher,
+    get_changelog_url,
     get_latest_release_file,
     get_source_url,
     get_trusted_publishers,
@@ -87,6 +88,35 @@ def test_get_source_url_none_without_a_github_url():
     payload = {"info": {"project_urls": {"Docs": "https://kiwi.example.com"}}}
     with _patch_pypi_json(payload):
         assert get_source_url("kiwi") is None
+
+
+@pytest.mark.parametrize(
+    ("project_urls", "expected"),
+    [
+        pytest.param(
+            {"Changelog": "https://kiwi.example.com/changes/"},
+            "https://kiwi.example.com/changes",
+            id="trailing-slash",
+        ),
+        # Each key is looked up in priority order, whatever order PyPI lists them.
+        pytest.param(
+            {
+                "History": "https://kiwi.example.com/history",
+                "Release Notes": "https://kiwi.example.com/notes",
+            },
+            "https://kiwi.example.com/notes",
+            id="priority",
+        ),
+        pytest.param({"Docs": "https://kiwi.example.com"}, None, id="no-changelog"),
+        # An unreachable package declares no URL at all.
+        pytest.param(None, None, id="unreachable"),
+    ],
+)
+def test_get_changelog_url(project_urls, expected):
+    """The first changelog-like key wins, with its trailing slash dropped."""
+    payload = None if project_urls is None else {"info": {"project_urls": project_urls}}
+    with _patch_pypi_json(payload):
+        assert get_changelog_url("kiwi") == expected
 
 
 def test_latest_release_file_picks_most_recent_wheel():
@@ -337,6 +367,41 @@ def test_get_trusted_publishers_skips_malformed_entries():
             repository="owner/cherries",
             workflow="release.yaml",
             environment="production",
+        ),
+    ]
+
+
+def test_get_trusted_publishers_skips_bundles_of_the_wrong_shape():
+    """Skip bundles and publishers that are no object; drop a non-string environment."""
+    payload = {
+        "version": 1,
+        "attestation_bundles": [
+            "papaya",
+            {"publisher": "kiwi"},
+            {
+                "publisher": {
+                    "kind": "GitHub",
+                    "repository": "owner/cherries",
+                    "workflow": "release.yaml",
+                    "environment": 7,
+                },
+            },
+        ],
+    }
+    body = json.dumps(payload).encode()
+    with patch(
+        "repomatic.http.urlopen",
+        return_value=FakeResponse(body),
+    ):
+        result = get_trusted_publishers(
+            "cherries", "1.2.3", "cherries-1.2.3-py3-none-any.whl"
+        )
+    assert result == [
+        TrustedPublisher(
+            kind="GitHub",
+            repository="owner/cherries",
+            workflow="release.yaml",
+            environment=None,
         ),
     ]
 

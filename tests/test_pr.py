@@ -601,6 +601,66 @@ def test_pr_sync_cli_validates_its_inputs(cli_upsert, args, error):
     assert error in result.output
 
 
+def test_pr_sync_cli_draft_flag_overrides_frontmatter(cli_upsert):
+    """`--draft` holds a pull request in draft that its template opens ready."""
+    result = CliRunner().invoke(
+        repomatic,
+        ["pr-sync", "--template", "format-python", "--draft"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert cli_upsert["draft"] is True
+
+
+def test_pr_sync_cli_explicit_trio_names_the_pull_request(monkeypatch):
+    """Without a template, the trio and `--branch` reach the sync as given."""
+    captured = {}
+
+    def spy(**kwargs):
+        captured.update(kwargs)
+        return PrSyncResult(PrOperation.CREATED, kwargs["branch"], number=12)
+
+    monkeypatch.setattr("repomatic.cli.github.upsert_pr", spy)
+
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "pr-sync",
+            "--title",
+            "Pack the kiwis",
+            "--body",
+            "Ten crates of kiwi.",
+            "--commit-message",
+            "Pack ten crates of kiwi",
+            "--branch",
+            "kiwi",
+        ],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert "created: PR #12 on kiwi" in result.output
+    assert captured["branch"] == "kiwi"
+    assert captured["title"] == "Pack the kiwis"
+    assert captured["body"] == "Ten crates of kiwi."
+    assert captured["commit_message"] == "Pack ten crates of kiwi"
+    assert captured["draft"] is False
+
+
+def test_pr_sync_cli_names_the_missing_template_argument(monkeypatch):
+    """A template argument nothing supplies is a usage error, and nothing syncs."""
+    upsert = MagicMock()
+    monkeypatch.setattr("repomatic.cli.github.upsert_pr", upsert)
+
+    result = CliRunner().invoke(
+        repomatic, ["pr-sync", "--template", "bump-version", "--version", "1.2.0"]
+    )
+
+    assert result.exit_code == 2
+    assert "--part is required for template 'bump-version'" in result.output
+    upsert.assert_not_called()
+
+
 @pytest.mark.parametrize(
     ("tip", "restored", "expected"),
     (

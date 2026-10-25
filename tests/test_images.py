@@ -72,6 +72,27 @@ def test_format_images_reports_an_install_failure(tmp_path: Path) -> None:
     assert image.read_bytes() == b"\x89PNG" + b"\x00" * 2000
 
 
+def test_format_images_writes_its_summary(tmp_path: Path) -> None:
+    """Each optimized image lands in the summary table `--output` receives."""
+    summary = tmp_path / "summary.md"
+    optimized = [
+        OptimizationResult(path=Path("pear.png"), before_bytes=10240, after_bytes=8192)
+    ]
+    with (
+        patch("repomatic.cli.repo.Metadata") as mock_metadata,
+        patch("repomatic.cli.repo.optimize_images", return_value=optimized),
+    ):
+        mock_metadata.return_value.files.image_files = [tmp_path / "pear.png"]
+        result = CliRunner().invoke(
+            repomatic, ["format-images", "--output", str(summary)]
+        )
+
+    assert result.exit_code == 0, result.output
+    content = summary.read_text(encoding="UTF-8")
+    assert "| `pear.png`" in content
+    assert "**20.0%**" in content
+
+
 def test_optimization_result_saved_bytes() -> None:
     """Saved bytes is the difference between before and after."""
     result = OptimizationResult(

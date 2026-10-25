@@ -90,6 +90,7 @@ from repomatic.lint_repo.roster import (
 from repomatic.lint_repo.settings import (
     check_branch_ruleset_on_default,
     check_classic_branch_protection,
+    check_fork_pr_approval_policy,
     check_immutable_releases,
     check_pat_permissions,
     check_pat_scope,
@@ -115,9 +116,12 @@ from repomatic.lint_repo.tool_config import (
     template_member_name,
 )
 from repomatic.lint_repo.workflows import (
+    RELEASE_ONLY_GATES,
+    ReleaseGate,
     check_metadata_keys,
     check_pr_templates,
     check_python_version_consistency,
+    check_release_path,
     check_runner_images,
     check_test_matrix_excludes,
     check_thin_caller_pins,
@@ -515,6 +519,27 @@ def test_notifications_pat_check(unsubscribe_active, has_notifications_pat, expe
     )
     assert not _fails(ctx)
     found = _findings(ctx).get("notifications-pat-secret", [])
+    expected_passed = [] if expected is None else [expected]
+    assert [result.passed for result in found] == expected_passed
+
+
+@pytest.mark.parametrize(
+    ("nuitka_active", "has_virustotal_key", "expected"),
+    (
+        (False, False, None),
+        (True, False, False),
+        (True, True, True),
+    ),
+)
+def test_virustotal_secret_check(nuitka_active, has_virustotal_key, expected):
+    """The VirusTotal key check only fires when Nuitka compiles release binaries."""
+    ctx = LintContext(
+        config=Config(),
+        nuitka_active=nuitka_active,
+        has_virustotal_key=has_virustotal_key,
+    )
+    assert not _fails(ctx)
+    found = _findings(ctx).get("virustotal-secret", [])
     expected_passed = [] if expected is None else [expected]
     assert [result.passed for result in found] == expected_passed
 
@@ -3018,6 +3043,15 @@ def test_thin_caller_triggers_extra():
     assert "extra: workflow_dispatch" in result.message
 
 
+def test_thin_caller_triggers_skip_a_workflow_this_release_lacks():
+    """A caller of an upstream workflow this release does not ship is not judged."""
+    (result,) = check_thin_caller_triggers(_workflows(papaya=_caller("papaya.yaml")))
+    assert result.passed is None
+    assert result.message == (
+        "papaya.yaml: calls papaya.yaml, which this repomatic release does not bundle."
+    )
+
+
 def test_generated_release_caller_lints_clean():
     """The generated downstream `release.yaml` passes every workflow check.
 
@@ -3103,6 +3137,11 @@ ALL_RELEASE_SECRETS = (
             "all secrets passed",
             id="lint-all-passed",
         ),
+        pytest.param(
+            "autolock.yaml", "", True, "no secrets required", id="none-declared"
+        ),
+        # A workflow this release does not ship has no declaration to read.
+        pytest.param("papaya.yaml", "", None, "does not bundle", id="not-bundled"),
     ],
 )
 def test_thin_caller_secrets(workflow, secrets_block, passed, needle):
@@ -3431,6 +3470,60 @@ def test_metadata_keys_covers_every_workflow_of_this_repo():
 
 
 # ---------------------------------------------------------------------------
+# Release path check tests
+# ---------------------------------------------------------------------------
+
+
+def test_release_path_without_the_reusable_workflows():
+    """A repository holding no release workflow gets one line per gate, and no more.
+
+    That is every downstream repository: its thin caller holds no gated step.
+    """
+    results = check_release_path(_workflows(lint=_caller("lint.yaml")))
+    assert len(results) == len(RELEASE_ONLY_GATES)
+    assert all(r.passed is True for r in results)
+    assert all(r.message.startswith("Release path: ") for r in results)
+
+
+@pytest.mark.parametrize(
+    ("condition", "needle"),
+    [
+        pytest.param("", "no step or job of that name carries an `if:`", id="none"),
+        pytest.param(
+            "        if: fromJSON(needs.metadata.outputs.release_assets)\n",
+            "its `if:` never tests `manpages_script`",
+            id="wrong-key",
+        ),
+    ],
+)
+def test_release_path_reads_the_condition_of_each_gated_step(condition, needle):
+    """A release-only step whose `if:` misses its metadata key fails the check."""
+    engine = (
+        "---\njobs:\n  release:\n    steps:\n"
+        f"      - name: 📖 Man pages\n{condition}"
+        "      - name: 📎 Extra release assets\n"
+        "        if: fromJSON(needs.metadata.outputs.release_assets)\n"
+    )
+    results = check_release_path(_workflows(**{"_release-engine": engine}))
+    # One line per gate, then one per keyed gate of the engine. The build
+    # workflow is absent, so its gate has no step to read.
+    gated = results[len(RELEASE_ONLY_GATES) :]
+    assert [r.passed for r in gated] == [False, True]
+    assert gated[0].message.startswith("`📖 Man pages` ")
+    assert needle in gated[0].message
+    assert gated[1].message == "`📎 Extra release assets` gates on `release_assets`."
+
+
+def test_release_path_flags_a_gate_on_a_retired_metadata_key():
+    """A gate naming a key the metadata no longer carries never opens."""
+    gate = ReleaseGate("🍈 Melon", "_release-engine.yaml", "papaya_key", "a papaya")
+    with patch("repomatic.lint_repo.workflows.RELEASE_ONLY_GATES", (gate,)):
+        (result,) = check_release_path(_workflows())
+    assert result.passed is False
+    assert "`papaya_key`, which no longer exists" in result.message
+
+
+# ---------------------------------------------------------------------------
 # Ruleset and branch protection check tests
 # ---------------------------------------------------------------------------
 
@@ -3604,6 +3697,38 @@ def test_check_immutable_releases(response, passed, fragment):
     """The immutable releases setting reads as on, off or unknown."""
     with patch("repomatic.lint_repo.settings.gh_json", return_value=response):
         result = check_immutable_releases(SETTINGS_CONTEXT)
+    assert result.passed is passed
+    assert fragment in result.message
+
+
+@pytest.mark.parametrize(
+    ("response", "passed", "fragment"),
+    (
+        pytest.param(
+            {"approval_policy": "first_time_contributors"},
+            True,
+            "Fork PR approval policy: first_time_contributors.",
+            id="strict",
+        ),
+        pytest.param(
+            {"approval_policy": "first_time_contributors_new_to_github"},
+            False,
+            "https://github.com/owner/repo/settings/actions",
+            id="lax",
+        ),
+        # A policy GitHub adds later is neither, so the check cannot judge it.
+        pytest.param(
+            {"approval_policy": "papaya"},
+            None,
+            "skipped (unknown policy 'papaya')",
+            id="unknown",
+        ),
+    ),
+)
+def test_check_fork_pr_approval_policy(response, passed, fragment):
+    """The approval policy passes, fails or skips by the set its value is in."""
+    with patch("repomatic.lint_repo.settings.gh_json", return_value=response):
+        result = check_fork_pr_approval_policy(SETTINGS_CONTEXT)
     assert result.passed is passed
     assert fragment in result.message
 
@@ -4102,6 +4227,19 @@ LEMON_YAML = yaml.safe_dump(LEMON_CONFIG, allow_unicode=True)
         pytest.param("citrus.yml", LEMON_YAML, id="yml"),
         # `labelmaker` matches the extension case-insensitively.
         pytest.param("CITRUS.YAML", LEMON_YAML, id="uppercase"),
+        # A profile or a label of the wrong shape, and a blank name, declare nothing.
+        pytest.param(
+            "citrus.json",
+            json.dumps({
+                "profiles": {
+                    "default": {
+                        "labels": [{"name": "🍋 lemon"}, "lime", {"name": "  "}]
+                    },
+                    "orchard": ["kiwi"],
+                }
+            }),
+            id="malformed-entries",
+        ),
     ],
 )
 def test_names_in_labelmaker_config_reads_every_labelmaker_format(filename, text):

@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from click.testing import CliRunner
 
@@ -221,6 +223,63 @@ def test_render_pr_names_the_missing_argument(no_github_env):
             template=PrTemplate.load("bump-version"),
             version="1.2.0",
         )
+
+
+def test_render_pr_reads_the_version_from_bumpversion(no_github_env):
+    """Without `--version`, the bumpversion version is used, its `.devN` stripped."""
+    with patch(
+        "repomatic.github.pr_body.get_current_version", return_value="1.3.0.dev0"
+    ):
+        content = render_pr(
+            Metadata(),
+            Config(),
+            template=PrTemplate.load("bump-version"),
+            part="minor",
+        )
+    assert content.title == "[changelog] Bump minor version to `v1.3.0`"
+
+
+def test_render_pr_without_a_version_names_the_missing_config(no_github_env):
+    """No `--version` and no bumpversion config fails with what is missing."""
+    with (
+        patch("repomatic.github.pr_body.get_current_version", return_value=None),
+        pytest.raises(TemplateArgumentError, match="Cannot auto-detect version"),
+    ):
+        render_pr(
+            Metadata(),
+            Config(),
+            template=PrTemplate.load("bump-version"),
+            part="minor",
+        )
+
+
+def test_render_pr_fills_the_release_checklist_from_one_lookup(github_env):
+    """Both review steps come from one releases lookup, after the readiness verdict."""
+    steps = (
+        "1. **Taste the dev release** of the papaya harvest\n",
+        "1. **Weigh the changes** since the kiwi harvest\n",
+    )
+    with (
+        patch(
+            "repomatic.github.pr_body.release_review_steps", return_value=steps
+        ) as lookup,
+        patch(
+            "repomatic.github.pr_body.build_release_readiness",
+            return_value="The mango crates are packed. ",
+        ) as readiness,
+    ):
+        content = render_pr(
+            Metadata(),
+            Config(),
+            template=PrTemplate.load("prepare-release"),
+            version="1.2.0",
+        )
+    assert "The mango crates are packed. See the" in content.body
+    assert f"{steps[0]}{steps[1]}1. **Click `Ready for review`**" in content.body
+    lookup.assert_called_once_with("https://github.com/owner/repo", "1.2.0")
+    assert readiness.call_args.kwargs["source_url"] == (
+        "https://github.com/owner/repo/blob/abc12345def67890"
+    )
 
 
 def test_render_pr_reads_the_diff_table_from_its_file(
@@ -511,6 +570,70 @@ def test_cli_template_arg_invalid_format(tmp_path, monkeypatch):
 
     assert result.exit_code != 0
     assert "KEY=VALUE" in result.output
+
+
+def test_cli_template_arg_file_wins_over_template_arg(tmp_path, monkeypatch):
+    """A `--template-arg-file` value is read stripped, and wins over the inline pair."""
+    template_path = tmp_path / "fruit.md"
+    template_path.write_text(
+        '---\nargs: [fruit]\ntitle: "Pack $fruit"\n---\n\n### Pack $fruit\n',
+        encoding="UTF-8",
+    )
+    value_path = tmp_path / "fruit.txt"
+    value_path.write_text(" mango\n", encoding="UTF-8")
+
+    output_path = tmp_path / "body.txt"
+    result = _invoke_pr_body(
+        [
+            "--template-file",
+            str(template_path),
+            "--template-arg",
+            "fruit=kiwi",
+            "--template-arg-file",
+            f"fruit={value_path}",
+        ],
+        monkeypatch,
+        output_path,
+    )
+
+    assert result.exit_code == 0, result.output
+    rendered = output_path.read_text(encoding="UTF-8")
+    assert "### Pack mango\n" in rendered
+    assert "kiwi" not in rendered
+
+
+@pytest.mark.parametrize(
+    ("entry", "message"),
+    (
+        pytest.param(
+            "fruit",
+            "--template-arg-file expects KEY=PATH, got 'fruit'.",
+            id="no-separator",
+        ),
+        pytest.param(
+            "fruit=missing.txt",
+            "--template-arg-file cannot read 'missing.txt'.",
+            id="missing-file",
+        ),
+    ),
+)
+def test_cli_template_arg_file_invalid(tmp_path, monkeypatch, entry, message):
+    """A `--template-arg-file` without `=`, or naming no file, is a usage error."""
+    monkeypatch.chdir(tmp_path)
+    template_path = tmp_path / "fruit.md"
+    template_path.write_text(
+        '---\nargs: [fruit]\ntitle: "Pack $fruit"\n---\n\n### Pack $fruit\n',
+        encoding="UTF-8",
+    )
+
+    result = _invoke_pr_body(
+        ["--template-file", str(template_path), "--template-arg-file", entry],
+        monkeypatch,
+        tmp_path / "body.txt",
+    )
+
+    assert result.exit_code == 2
+    assert message in result.output
 
 
 def test_cli_missing_template_arg_is_a_usage_error(tmp_path, monkeypatch):

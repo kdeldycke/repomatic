@@ -22,7 +22,9 @@ from unittest.mock import patch
 from urllib.error import URLError
 
 import pytest
+from click_extra.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.config import Config, GitignoreConfig
 from repomatic.gitignore import (
     GITIGNORE_BASE_CATEGORIES,
@@ -33,6 +35,9 @@ from repomatic.gitignore import (
 )
 from repomatic.http import FetchError
 from tests.conftest import FakeResponse
+
+GENERATED = "*.pyc\n*.egg\n"
+"""What the stubbed gitignore.io fetch builds, in the `sync-gitignore` tests."""
 
 
 def _config(extra_categories: tuple[str, ...] = (), extra_content: str = "") -> Config:
@@ -139,3 +144,42 @@ def test_orphaned_rules_reports_what_the_sync_would_lose():
 def test_orphaned_rules_empty_when_nothing_is_lost(existing, generated):
     """Rewrites that keep every rule report no orphan, whatever the layout."""
     assert orphaned_rules(existing, generated) == []
+
+
+@pytest.mark.parametrize(
+    ("on_disk", "args"),
+    (
+        pytest.param(None, (), id="first-run-at-the-default-location"),
+        pytest.param("*.pyc\n", ("--output", ".gitignore"), id="nothing-lost"),
+        pytest.param(
+            "*.pyc\npapaya.log\n", ("--drop-orphans",), id="hand-added-rule-dropped"
+        ),
+    ),
+)
+def test_sync_gitignore_writes_the_generated_file(tmp_path, monkeypatch, on_disk, args):
+    """The sync writes the whole file when no rule on disk is lost, or when told."""
+    gitignore = tmp_path / ".gitignore"
+    if on_disk is not None:
+        gitignore.write_text(on_disk, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+
+    with patch("repomatic.cli.repo.build_gitignore", return_value=GENERATED):
+        result = CliRunner().invoke(repomatic, ["sync-gitignore", *args])
+
+    assert result.exit_code == 0, result.output
+    assert gitignore.read_text(encoding="UTF-8") == GENERATED
+
+
+def test_sync_gitignore_refuses_to_drop_a_hand_added_rule(tmp_path, monkeypatch):
+    """A rule on disk that the generated file lacks stops the write, by name."""
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("*.pyc\npapaya.log\n", encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+
+    with patch("repomatic.cli.repo.build_gitignore", return_value=GENERATED):
+        result = CliRunner().invoke(repomatic, ["sync-gitignore"])
+
+    assert result.exit_code == 1, result.output
+    assert "1 rule(s) on disk are absent from the generated file" in result.output
+    assert "  papaya.log\n" in result.output
+    assert gitignore.read_text(encoding="UTF-8") == "*.pyc\npapaya.log\n"

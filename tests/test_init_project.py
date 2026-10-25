@@ -35,7 +35,7 @@ from repomatic import __version__
 from repomatic.bundle import get_data_content
 from repomatic.changelog import CHANGELOG_HEADER, HEADING_PARTS_PATTERN, Changelog
 from repomatic.cli.main import repomatic
-from repomatic.cli.repo import init as init_command
+from repomatic.cli.repo import _emit_upgrade_report, init as init_command
 from repomatic.components import (
     ALL_WORKFLOW_FILES,
     BARE_INIT_COMPONENTS,
@@ -1629,6 +1629,46 @@ def test_upgrade_report_without_a_move(tmp_path, monkeypatch, previous, adopted)
 
 
 @pytest.mark.parametrize(
+    ("output", "builds"),
+    (
+        pytest.param(None, 0, id="no-output"),
+        pytest.param("report.md", 1, id="no-move"),
+    ),
+)
+def test_emit_upgrade_report_writes_nothing(tmp_path, monkeypatch, output, builds):
+    """No `--output`, or a run that moved no pin, writes no report.
+
+    Without a destination, the report is not even built.
+    """
+    target = _upgraded_tree(tmp_path, "7.15.0", "7.15.0")
+    monkeypatch.setattr(
+        init_upgrade,
+        "fetch_github_release_notes",
+        lambda _items: pytest.fail("no move"),
+    )
+    calls = []
+
+    def build(*args, **kwargs):
+        calls.append(args)
+        return upgrade_report(*args, **kwargs)
+
+    monkeypatch.setattr("repomatic.cli.repo.upgrade_report", build)
+
+    _emit_upgrade_report(
+        target,
+        Config(),
+        repo="fruit/orchard",
+        output_dir=tmp_path,
+        init_output="",
+        output=None if output is None else tmp_path / output,
+        output_format="markdown",
+    )
+
+    assert len(calls) == builds
+    assert not (tmp_path / "report.md").exists()
+
+
+@pytest.mark.parametrize(
     ("notes", "expected"),
     [
         pytest.param(
@@ -2471,6 +2511,7 @@ def test_init_idempotent(tmp_path: Path):
         "workflows",
         "skills",
         "labels",
+        "plugin",
     ],
 )
 def test_init_per_component_idempotent(tmp_path: Path, component: str):
@@ -2501,6 +2542,27 @@ def test_init_only_labels(tmp_path: Path):
     for filename in REUSABLE_WORKFLOWS:
         assert f".github/workflows/{filename}" not in created_set
     assert "changelog.md" not in created_set
+
+
+def test_init_labels_downloads_the_extra_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A `labels.extra-files` URL lands in `extra-labels/`, and a re-run is a no-op."""
+    write_project(
+        tmp_path,
+        monkeypatch,
+        'labels.extra-files = ["https://example.com/orchard/shared.toml"]\n',
+    )
+    definitions = b'[[profiles.default.labels]]\nname = "papaya"\n'
+    monkeypatch.setattr("repomatic.init.run.get_bytes", lambda url: definitions)
+
+    first = run_init_here(tmp_path, components=("labels",))
+    assert first.created == ["labels.toml", "extra-labels/shared.toml"]
+    assert (tmp_path / "extra-labels" / "shared.toml").read_bytes() == definitions
+
+    second = run_init_here(tmp_path, components=("labels",))
+    assert second.created == []
+    assert second.updated == []
 
 
 def test_init_only_skills(tmp_path: Path):
@@ -3717,6 +3779,22 @@ def test_init_changelog_excluded_existing_for_awesome_repo(
     result = run_init_here(tmp_path, repo_slug="user/awesome-python")
 
     assert "changelog.md" in result.excluded_existing
+
+
+def test_init_flags_no_scope_excluded_file_in_the_source_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The upstream source checkout never flags an out-of-scope file as excluded."""
+    changelog = tmp_path / "changelog.md"
+    changelog.write_text("# Changelog\n", encoding="UTF-8")
+    package = tmp_path / "repomatic"
+    (package / "data").mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+
+    result = run_init_here(tmp_path, repo_slug="user/awesome-python")
+
+    assert "changelog.md" not in result.excluded_existing
 
 
 def test_init_flags_a_scope_excluded_changelog_at_its_configured_location(
@@ -5543,6 +5621,19 @@ def test_awesome_template_rerun_writes_nothing(tmp_path: Path):
 
     assert second.created == []
     assert second.updated == []
+
+
+def test_awesome_template_sync_disabled_writes_nothing(tmp_path: Path):
+    """`awesome-template.sync = false` skips the template, even when named."""
+    result = run_init(
+        output_dir=tmp_path,
+        components=("awesome-template",),
+        repo_slug="fruit/awesome-papaya",
+        config=Config(awesome_template_sync=False),
+    )
+
+    assert result.created == []
+    assert not (tmp_path / ".github").exists()
 
 
 def test_awesome_template_rewrites_every_link_to_the_template(tmp_path: Path):

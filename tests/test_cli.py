@@ -36,6 +36,7 @@ import traceback
 from pathlib import Path
 from textwrap import dedent
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import click
 import pytest
@@ -61,8 +62,13 @@ from repomatic.cli.main import (
     write_output,
 )
 from repomatic.config import config_key_paths
+from repomatic.deps.uv import UvError
 from repomatic.github import outputs
+from repomatic.github.gh import GhCommandError
+from repomatic.github.pr import PrOperation, PrSyncResult
+from repomatic.github.pr_body import PrContent, TemplateArgumentError
 from repomatic.release.manpages import pack_manpages
+from repomatic.tooling.registry import ToolInstallError
 from tests.conftest import PACKAGE_FILES, PROJECT_ROOT
 
 CLI_PACKAGE = Path(cli_main.__file__).parent
@@ -596,6 +602,34 @@ def test_upload_without_a_repository_names_the_flag(tmp_path, monkeypatch):
     assert [path.name for path in dist.iterdir()] == ["papaya-1.2.3-linux-arm64.bin"]
 
 
+def test_upload_refused_by_gh_ends_on_its_error(tmp_path, monkeypatch):
+    """An upload `gh` refuses ends the command on the error `gh` gave."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "papaya-1.2.3-linux-arm64.bin").write_bytes(b"\x7fELF")
+    gh = Mock(side_effect=GhCommandError("HTTP 502: Bad Gateway"))
+    monkeypatch.setattr("repomatic.github.releases.run_gh_command", gh)
+
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "pack-binaries",
+            "--version",
+            "1.2.3",
+            "--dir",
+            str(dist),
+            "--upload-to",
+            "v1.2.3",
+            "--repo",
+            "kiwi/orchard",
+        ],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "HTTP 502: Bad Gateway" in result.output
+    gh.assert_called_once()
+
+
 def test_pack_commands_print_the_archive_they_write(tmp_path, monkeypatch):
     """`--output -` prints the bytes each packer writes to a file."""
     man = tmp_path / "man"
@@ -630,6 +664,67 @@ def test_refused_bump_names_the_pull_requests_it_closed(monkeypatch, closed, rep
 
 
 @pytest.mark.parametrize(
+    ("seam", "outcome", "exit_code", "message"),
+    (
+        pytest.param(
+            "run_tool",
+            {"side_effect": ToolInstallError("bump-my-version cannot install")},
+            1,
+            "bump-my-version cannot install",
+            id="install",
+        ),
+        pytest.param(
+            "relock",
+            {"side_effect": UvError(1, ["uv", "lock"], "", "No solution for kiwi.")},
+            1,
+            "No solution for kiwi.",
+            id="relock",
+        ),
+        pytest.param(
+            "render_pr",
+            {"side_effect": TemplateArgumentError("No value for the part argument.")},
+            2,
+            "No value for the part argument.",
+            id="template",
+        ),
+        pytest.param(
+            "upsert_pr",
+            {"return_value": PrSyncResult(PrOperation.NONE, "minor-version-increment")},
+            0,
+            "none: minor-version-increment\n",
+            id="unchanged-branch",
+        ),
+    ),
+)
+def test_allowed_bump_reports_the_step_that_ended_it(
+    monkeypatch, seam, outcome, exit_code, message
+):
+    """Each step of an allowed bump ends the run on its own error.
+
+    A branch left as it was names no pull request.
+    """
+    monkeypatch.setattr(cli_release, "is_version_bump_allowed", lambda part: True)
+    monkeypatch.setattr(cli_release, "run_tool", lambda name, args: 0)
+    monkeypatch.setattr(cli_release, "relock", lambda: None)
+    monkeypatch.setattr(
+        cli_release,
+        "render_pr",
+        lambda *args, **kwargs: PrContent("Title", "Body", "Message"),
+    )
+    monkeypatch.setattr(
+        cli_release,
+        "upsert_pr",
+        lambda **kwargs: PrSyncResult(PrOperation.CREATED, kwargs["branch"], 12),
+    )
+    monkeypatch.setattr(cli_release, seam, Mock(**outcome))
+
+    result = CliRunner().invoke(repomatic, ["bump-version", "--part", "minor"])
+
+    assert result.exit_code == exit_code, result.output
+    assert message in result.output
+
+
+@pytest.mark.parametrize(
     ("content", "warned"),
     (
         # CI creates `$GITHUB_OUTPUT` empty before each step runs.
@@ -648,6 +743,102 @@ def test_show_metadata_warns_only_over_content(tmp_path, content, warned):
     assert result.exit_code == 0, result.output
     assert ("Target file exists and will be overwritten." in result.output) is warned
     assert "is_python_project=" in target.read_text(encoding="UTF-8")
+
+
+def test_show_metadata_keeps_a_file_holding_content(tmp_path):
+    """`--no-overwrite` refuses a target that already holds content."""
+    target = tmp_path / "github-output"
+    target.write_text("harvest=mango\n", encoding="UTF-8")
+
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "show-metadata",
+            "--no-overwrite",
+            "--output",
+            str(target),
+            "is_python_project",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert target.read_text(encoding="UTF-8") == "harvest=mango\n"
+
+
+@pytest.mark.parametrize(
+    ("args", "exit_code", "message"),
+    (
+        pytest.param(["--list-keys"], 0, "Description", id="list-keys"),
+        pytest.param(
+            ["papaya"], 2, "Unknown metadata key(s): papaya.", id="unknown-key"
+        ),
+        pytest.param(
+            ["--overwrite", "is_python_project"],
+            0,
+            "Ignore the --overwrite option.",
+            id="overwrite-on-stdout",
+        ),
+    ),
+)
+def test_show_metadata_messages_on_a_stdout_run(args, exit_code, message):
+    """A stdout run lists the keys, refuses an unknown one, or drops `--overwrite`."""
+    result = CliRunner().invoke(repomatic, ["show-metadata", *args])
+
+    assert result.exit_code == exit_code, result.output
+    assert message in result.output
+
+
+@pytest.mark.parametrize(
+    ("github_output", "warned"),
+    (
+        pytest.param("github-output", False, id="same-file"),
+        pytest.param("elsewhere", True, id="other-file"),
+    ),
+)
+def test_show_metadata_in_ci_warns_off_the_step_output(
+    tmp_path, monkeypatch, github_output, warned
+):
+    """In CI, a target other than `$GITHUB_OUTPUT` earns a warning."""
+    target = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / github_output))
+    monkeypatch.setattr("repomatic.cli.repo.is_github_ci", lambda: True)
+
+    result = CliRunner().invoke(
+        repomatic, ["show-metadata", "--output", str(target), "is_python_project"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert ("is not the same as $GITHUB_OUTPUT" in result.output) is warned
+
+
+@pytest.mark.parametrize(
+    ("incomplete", "expected"),
+    (
+        pytest.param("sub", ["subagents"], id="component"),
+        pytest.param("subagents/q", ["subagents/qa-engineer"], id="file"),
+    ),
+)
+def test_init_completes_components_then_their_files(incomplete, expected):
+    """Shell completion offers component names, then the files of the one typed."""
+    command = repomatic.get_command(Context(repomatic), "init")
+    assert command is not None
+    param = next(p for p in command.params if p.name == "components")
+    with Context(command) as ctx:
+        completions = param.type.shell_complete(ctx, param, incomplete)
+    assert [item.value for item in completions] == expected
+
+
+def test_init_rejects_an_unknown_selector(tmp_path, monkeypatch):
+    """A selector naming no component fails the parse, before any file is written."""
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+
+    result = CliRunner().invoke(repomatic, ["init", "papaya"])
+
+    assert result.exit_code == 2, result.output
+    assert "Unknown selection 'papaya'" in result.output
+    assert not list(work.iterdir())
 
 
 def test_group_publishes_the_config_it_resolved(tmp_path, monkeypatch):
@@ -724,3 +915,61 @@ def test_changelog_prints_on_dash_and_leaves_the_file(relocated_changelog):
     assert result.exit_code == 0, result.output
     assert "(unreleased)" in result.output
     assert relocated_changelog.read_text(encoding="UTF-8") == RELEASED_CHANGELOG
+
+
+@pytest.mark.parametrize(
+    ("version", "args", "gh", "exit_code", "message"),
+    (
+        pytest.param(
+            "1.0.0",
+            ["--error-existing"],
+            {"return_value": '{"tagName": "v1.0.0"}'},
+            1,
+            "Release v1.0.0 already exists.",
+            id="existing-release",
+        ),
+        pytest.param(
+            "9.9.9",
+            [],
+            {"side_effect": [GhCommandError("release not found"), ""]},
+            0,
+            "holds no notes for 9.9.9.",
+            id="no-notes",
+        ),
+        pytest.param(
+            "1.0.0",
+            [],
+            {"side_effect": GhCommandError("HTTP 502: Bad Gateway")},
+            1,
+            "HTTP 502: Bad Gateway",
+            id="gh-failure",
+        ),
+    ),
+)
+def test_create_release_reports_what_the_draft_hit(
+    tmp_path, monkeypatch, version, args, gh, exit_code, message
+):
+    """An existing release, a version with no notes and a `gh` failure each say so."""
+    changelog = tmp_path / "changelog.md"
+    changelog.write_text(RELEASED_CHANGELOG, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("repomatic.github.releases.run_gh_command", Mock(**gh))
+
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "create-release",
+            "--version",
+            version,
+            "--commit",
+            "6f27db4",
+            "--repo",
+            "kiwi/orchard",
+            "--changelog",
+            str(changelog),
+            *args,
+        ],
+    )
+
+    assert result.exit_code == exit_code, result.output
+    assert message in result.output

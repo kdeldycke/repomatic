@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import pytest
+from click_extra.testing import CliRunner
 
 from repomatic.awesome_toc import (
     FORBIDDEN_HEADINGS,
@@ -28,6 +29,7 @@ from repomatic.awesome_toc import (
     headings,
     strip_toc_entries,
 )
+from repomatic.cli.main import repomatic
 
 ENGLISH_SECTIONS = (
     "Contents",
@@ -161,6 +163,19 @@ def test_fix_awesome_toc_strips_reference_and_translation(tmp_path):
         "Papaye",
         "Litchi",
     ]
+
+
+def test_fix_awesome_toc_command_names_what_it_removed(tmp_path, monkeypatch):
+    """The command reports the entries it removed, one readme per line."""
+    (tmp_path / "readme.md").write_text(
+        render_readme(ENGLISH_SECTIONS), encoding="UTF-8"
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(repomatic, ["fix-awesome-toc"])
+
+    assert result.exit_code == 0, result.output
+    assert "readme.md: removed Contents, Contributing, Footnotes\n" in result.output
 
 
 def test_fix_awesome_toc_matches_an_untranslated_section_by_name(tmp_path):
