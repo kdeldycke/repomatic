@@ -153,6 +153,7 @@
 - Fix the binary of a CLI that starts worker processes, which ran the whole CLI again in each worker since `7.18.0`.
 - Fix the file lists of `repomatic` commands including the files that `.git/info/exclude` ignores, like an agent worktree under `.claude/worktrees/`.
 - Fix stale claims of the bundled `babysit-ci`, `repomatic-ship` and `repomatic-test-matrix` skills on release runs, binary skips and `format-python` pull requests.
+- Fix the bundled `repomatic-ship` skill testing with repomatic's own dependency groups, including a `typing` group that downstream repositories may not define.
 - Fix a dependency pull request picking up the staged changes of an updater whose commit failed.
 - Fix the `sync-gitignore` help naming `gitignore-extra-content` and `gitignore-location` instead of the `gitignore.extra-content` and `gitignore.location` keys.
 - Fix `lint-repo`'s `pypi-trusted-publisher` check showing the raw `[project] name`, not the normalized one PyPI uses, in its messages and settings link.
