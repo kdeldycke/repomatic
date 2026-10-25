@@ -490,7 +490,7 @@ run.branch = true
 # The `once-tests` workflow job overrides this to 0: its slice covers only part
 # of the package. A focused local run trips it too, so pair those with
 # `--no-cov`.
-report.fail_under = 93
+report.fail_under = 96
 report.precision = 2
 
 [tool.bumpversion]
