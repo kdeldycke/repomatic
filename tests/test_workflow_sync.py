@@ -876,6 +876,49 @@ def test_extract_extra_jobs_odd_indent_body_stays_managed() -> None:
     assert "mine:" in extra
 
 
+FOUR_SPACE_CALLER = (
+    "---\nname: Lint\njobs:\n"
+    "    lint:\n"
+    f"        uses: {DEFAULT_REPO}/.github/workflows/lint.yaml@v6.0.0\n"
+    "\n"
+    "    # Ship the papaya build.\n"
+    "    deploy:\n"
+    "        needs: lint\n"
+    "        runs-on: ubuntu-latest\n"
+    "        steps:\n"
+    "            - run: echo papaya\n"
+)
+"""A thin caller indenting its jobs by four spaces, with one downstream job."""
+
+
+def test_extract_extra_jobs_reindents_a_four_space_caller() -> None:
+    """Extras of a four-space caller come back at the two-space job indent."""
+    assert extract_extra_jobs(FOUR_SPACE_CALLER) == (
+        "\n"
+        "  # Ship the papaya build.\n"
+        "  deploy:\n"
+        "      needs: lint\n"
+        "      runs-on: ubuntu-latest\n"
+        "      steps:\n"
+        "          - run: echo papaya\n"
+    )
+
+
+def test_thin_caller_sync_keeps_the_jobs_of_a_four_space_caller(
+    tmp_path: Path,
+) -> None:
+    """A sync of a four-space caller keeps its downstream job a job."""
+    target = tmp_path / "lint.yaml"
+    target.write_text(FOUR_SPACE_CALLER, encoding="UTF-8")
+
+    sync_caller("lint.yaml", target)
+
+    synced = load_workflow(target.read_text(encoding="UTF-8"))
+    assert synced is not None
+    assert synced["jobs"]["deploy"]["needs"] == "lint"
+    assert synced["jobs"]["deploy"]["steps"] == [{"run": "echo papaya"}]
+
+
 def test_extras_define_jobs_ignores_comment_only_tail() -> None:
     """A trailing comment after the managed lanes is not a downstream job.
 

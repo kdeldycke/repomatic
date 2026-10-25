@@ -916,6 +916,10 @@ def render_thin_caller_for_target(
     return content, existing
 
 
+CANONICAL_JOB_INDENT: Final[int] = 2
+"""The indent of the job keys in every workflow repomatic writes."""
+
+
 def _job_body_end(
     lines: Sequence[str], start: int, *, claim_indent_comments: bool
 ) -> int:
@@ -925,10 +929,10 @@ def _job_body_end(
     {func}`_extract_raw_job` and {func}`extract_extra_jobs`: both decide where
     a managed job ends in files `repomatic init` rewrites downstream, so two
     hand-kept copies of the rule risked duplicating or truncating job bodies
-    the day they diverged. Anything indented deeper than the two-space job key
-    is body whatever its exact depth (a hand-edited 3-space line must not end
-    the walk early), a blank line rides along without extending the body, and
-    a sibling key at the job indent or a dedent to column 0 ends it.
+    the day they diverged. Anything indented deeper than the job key is body
+    whatever its exact depth (a hand-edited 3-space line under a two-space key
+    must not end the walk early), a blank line rides along without extending
+    the body, and a sibling key at the job indent or a dedent ends it.
 
     The single deliberate divergence between the two callers is a comment at
     exactly the job indent. Extracting a bundled canonical job keeps it
@@ -937,10 +941,11 @@ def _job_body_end(
     survives with that job rather than being swallowed by the managed one.
 
     :param lines: The workflow's lines.
-    :param start: Index of the `  {job}:` key line.
+    :param start: Index of the `{job}:` key line, at whatever job indent.
     :param claim_indent_comments: Whether a job-indent comment counts as body.
     :return: Index of the body's last line; *start* itself for an empty body.
     """
+    key_indent = len(lines[start]) - len(lines[start].lstrip())
     end = start
     for i in range(start + 1, len(lines)):
         line = lines[i]
@@ -948,10 +953,10 @@ def _job_body_end(
         if not stripped:
             continue
         indent = len(line) - len(line.lstrip())
-        if indent > 2:
+        if indent > key_indent:
             end = i
             continue
-        if indent == 2 and stripped.startswith("#") and claim_indent_comments:
+        if indent == key_indent and stripped.startswith("#") and claim_indent_comments:
             end = i
             continue
         break
@@ -970,7 +975,7 @@ def _extract_raw_job(content: str, job_name: str) -> str | None:
     :param job_name: Job key to extract, like `publish-pypi`.
     :return: Raw text of the job, or `None` if the job is absent.
     """
-    key = f"  {job_name}:"
+    key = " " * CANONICAL_JOB_INDENT + f"{job_name}:"
     lines = content.split("\n")
     start = next(
         (i for i, ln in enumerate(lines) if ln == key or ln.startswith(key + " ")),
@@ -1411,6 +1416,46 @@ def _is_managed_job(config: Any, upstream_pattern: re.Pattern[str]) -> bool:
     )
 
 
+_JOBS_KEY_RE: Final = re.compile(r"""^(["']?)jobs\1:\s*(#.*)?$""")
+"""The top-level `jobs:` key line, quoted or not, with an optional comment."""
+
+
+def _job_indent(lines: Sequence[str]) -> int | None:
+    """The indent of the job keys under the top-level `jobs:` key.
+
+    Read off the first line below `jobs:` that is neither blank nor a comment.
+
+    :return: The indent in spaces, or `None` when no job key follows `jobs:`.
+    """
+    for index, line in enumerate(lines):
+        if not _JOBS_KEY_RE.match(line):
+            continue
+        for following in lines[index + 1 :]:
+            stripped = following.strip()
+            if stripped and not stripped.startswith("#"):
+                return len(following) - len(following.lstrip()) or None
+        return None
+    return None
+
+
+def _reindent(text: str, delta: int) -> str:
+    """Shift each non-blank line of *text* by *delta* columns, left when negative.
+
+    A line indented less than a leftward shift, like a comment at column 0,
+    loses only the spaces it has.
+    """
+    shifted = []
+    for line in text.split("\n"):
+        if not line.strip():
+            shifted.append(line)
+        elif delta > 0:
+            shifted.append(" " * delta + line)
+        else:
+            indent = len(line) - len(line.lstrip(" "))
+            shifted.append(line[min(-delta, indent) :])
+    return "\n".join(shifted)
+
+
 def extract_extra_jobs(
     content: str,
     repo: str = DEFAULT_REPO,
@@ -1424,7 +1469,10 @@ def extract_extra_jobs(
     text after that job: blank lines, comments, and additional job definitions.
 
     Uses raw text slicing (not YAML round-tripping) to preserve formatting and
-    comments, consistent with the rest of the module.
+    comments, consistent with the rest of the module. The one exception is the
+    indent: the managed lanes come back at {data}`CANONICAL_JOB_INDENT`, and a
+    YAML mapping takes a single indent for all its keys, so extras written at
+    another job indent shift by the difference.
 
     :param content: Full workflow file content.
     :param repo: Upstream repository to match against.
@@ -1455,12 +1503,15 @@ def extract_extra_jobs(
         return ""
 
     # In raw text, walk past each managed job body. Find each job header line
-    # then advance through its body (4+ space indent). Use the last managed
-    # job's boundary as the cutoff for extras.
+    # at the file's own job indent, then advance through its body. Use the last
+    # managed job's boundary as the cutoff for extras.
     all_lines = content.split("\n")
+    job_indent = _job_indent(all_lines)
+    if job_indent is None:
+        return ""
     last_body_idx = -1
     for managed_key in managed_keys:
-        managed_prefix = f"  {managed_key}:"
+        managed_prefix = " " * job_indent + f"{managed_key}:"
         managed_idx = None
         for i, line in enumerate(all_lines):
             if i <= last_body_idx:
@@ -1483,6 +1534,8 @@ def extract_extra_jobs(
     extra = "\n".join(all_lines[last_body_idx + 1 :])
     if not extra.strip():
         return ""
+    if job_indent != CANONICAL_JOB_INDENT:
+        extra = _reindent(extra, CANONICAL_JOB_INDENT - job_indent)
     return extra
 
 

@@ -159,6 +159,7 @@
 - Fix `show-metadata` crashing on `nuitka_matrix` for a project with a CLI but no bump-my-version configuration.
 - Fix the help of `sync-workflow-pins`, which named two of the five pin shapes it rewrites, and the `unsubscribe-threads` examples, which lacked `--live`.
 - Fix the note `init` prints for a removed codecov file, which named `--cov-fail-under` instead of `[tool.coverage] report.fail_under`.
+- Fix `init` dropping the downstream jobs of a thin caller that indents its jobs by four spaces.
 
 ## [`7.18.0` (2026-10-13)](https://github.com/kdeldycke/repomatic/compare/v7.17.1...v7.18.0)
 
