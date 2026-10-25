@@ -13,7 +13,6 @@ exclude-newer-span = "P1W"
 [options.exclude-newer-package]
 certifi = "2026-10-22T00:00:00Z"
 click-extra = "2026-10-24T00:00:00Z"
-nuitka = "2026-10-18T00:00:00Z"
 repomatic = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
 
 [[package]]
@@ -1063,14 +1062,15 @@ wheels = [
 
 [[package]]
 name = "sphinx-autodoc-typehints"
-version = "3.13.10"
+version = "3.17.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "sphinx" },
+    { name = "typing-extensions", marker = "python_full_version < '3.15'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/44/e4/bd4791d4f954ef1b9e91d0c19d0a146018e3d5f93d43b36059bedebc999e/sphinx_autodoc_typehints-3.13.10.tar.gz", hash = "sha256:f73464a09355a9f63b688a5b9093b1c0f56dc4854ea30ca326268e3d5a8e27cd", size = 100076, upload-time = "2026-10-13T18:35:31.856Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/fa/c967fd665cc102c90338a90292aba336f852ee6f9b3477ffe4da565edb11/sphinx_autodoc_typehints-3.17.2.tar.gz", hash = "sha256:de41ed4001f4818bb6d37c22fd10ee44a93e6c8e945c6c7e3984e28a9df87d1c", size = 570767, upload-time = "2026-10-17T18:30:30.923Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/b7/ea2999f049d23f41d386487b02b9231af46e733109d35ca406103f83e722/sphinx_autodoc_typehints-3.13.10-py3-none-any.whl", hash = "sha256:ab8474dd7c2ef297488849214da29dd6da140ff458592ddc30188a3b070b31f9", size = 49718, upload-time = "2026-10-13T18:35:30.336Z" },
+    { url = "https://files.pythonhosted.org/packages/78/d4/8fc500ff2fafe8a6e1847abd8b1072494dc1a5f136f8e890e973db7de4eb/sphinx_autodoc_typehints-3.17.2-py3-none-any.whl", hash = "sha256:b0ad1f96503d69b63c2a1c043f12e2a727c9549e6503d4adbf2125dbf5ff50ed", size = 140285, upload-time = "2026-10-17T18:30:28.728Z" },
 ]
 
 [[package]]
@@ -1327,14 +1327,14 @@ wheels = [
 
 [[package]]
 name = "tomlrt"
-version = "2.3.0"
+version = "2.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions", marker = "python_full_version < '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/78/04/d8176d5bfe26d616819b215e3ed835f4539c50d96ed72616da0189b1dfd2/tomlrt-2.3.0.tar.gz", hash = "sha256:c2443a8d7aeb26a04474ffc04a6eeb17b16d7e0a37b9d801261d58d4bc82037c", size = 473530, upload-time = "2026-10-09T22:28:19.564Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/c9/20d73d14ad95e5644adcad09ce5cbccb6273e7d07ef72261c2eb648bf9c4/tomlrt-2.3.1.tar.gz", hash = "sha256:0be2fdc2fe920be471452a2d01acc9e7e24eedbdd850c8e1d9f5abf9f998df44", size = 135478, upload-time = "2026-10-17T13:26:03.084Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3a/f8/a91b010c52ea67888b90b562931b1ec29609d37a665351a2e146dbad872a/tomlrt-2.3.0-py3-none-any.whl", hash = "sha256:72382e49ee3e8797a1ffbc4d971539226fa7da809186062362b1fc1f5cc565b0", size = 149893, upload-time = "2026-10-09T22:28:17.659Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/5b/ead54c3d76df9ddc358d4bd063a2619911623f76b08ed9f9bccbf80c7813/tomlrt-2.3.1-py3-none-any.whl", hash = "sha256:2dbec2aaf1e953b5a45749c0575c6cd1c8b8215ca3c2fc71c194b32789bc6f0c", size = 149315, upload-time = "2026-10-17T13:26:01.665Z" },
 ]
 
 [[package]]
