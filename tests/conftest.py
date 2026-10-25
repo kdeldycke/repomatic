@@ -19,11 +19,16 @@
 from __future__ import annotations
 
 import ast
+import base64
+import json
 import re
+import struct
 from contextlib import contextmanager
+from http.client import IncompleteRead
 from io import BytesIO
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CompletedProcess, run
+from textwrap import dedent
 from unittest.mock import Mock, patch
 from urllib.error import URLError
 
@@ -43,6 +48,8 @@ from repomatic.metadata.core import (
     _metadata_invocations,
     _positional_keys,
 )
+from repomatic.release.binary import MACHINE_IDS, BinaryFormat
+from repomatic.release.verify import SHT_GNU_VERNEED
 from repomatic.tooling.binaries import ensure_binary
 from repomatic.tooling.registry import ToolInstallError
 from repomatic.tooling.runner import run_tool
@@ -50,6 +57,8 @@ from repomatic.tooling.runner import run_tool
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from typing import Any, Self
+
+    from extra_platforms import Architecture
 
 PROJECT_ROOT = Path(__file__).parent.parent
 """Root of the repository."""
@@ -280,6 +289,63 @@ def hermetic_git(monkeypatch):
     monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 
 
+def run_git(*args: str, cwd) -> str:
+    """Run a git command in *cwd* and return its stdout."""
+    result = run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="UTF-8",
+    )
+    return result.stdout
+
+
+def seed_commit(workdir, filename: str, content: str, message: str) -> None:
+    """Create a file and commit it with a throwaway identity."""
+    (workdir / filename).write_text(content, encoding="UTF-8")
+    run_git("add", "--", filename, cwd=workdir)
+    run_git(
+        "-c",
+        "user.name=Seeder",
+        "-c",
+        "user.email=seeder@example.com",
+        "commit",
+        "--message",
+        message,
+        cwd=workdir,
+    )
+
+
+SHALLOW_HISTORY = ("apple", "banana", "cherry", "date", "elderberry")
+"""Content of the successive commits {func}`make_shallow_clone` pushes."""
+
+
+def make_shallow_clone(tmp_path: Path) -> tuple[Path, list[str]]:
+    """Clone a remote holding one commit per {data}`SHALLOW_HISTORY` entry.
+
+    The clone is one commit deep. The remote serves any commit it can reach by
+    SHA, as GitHub does, so a commit outside the clone can be fetched alone.
+
+    :return: The clone, and the SHAs of the remote's commits, oldest first.
+    """
+    remote = tmp_path / "remote.git"
+    run_git("init", "--bare", "--initial-branch=main", str(remote), cwd=tmp_path)
+    run_git("config", "uploadpack.allowReachableSHA1InWant", "true", cwd=remote)
+    seed = tmp_path / "seed"
+    run_git("clone", str(remote), str(seed), cwd=tmp_path)
+    run_git("checkout", "-B", "main", cwd=seed)
+    shas = []
+    for fruit in SHALLOW_HISTORY:
+        seed_commit(seed, "fruits.txt", f"{fruit}\n", f"Add {fruit}")
+        shas.append(run_git("rev-parse", "HEAD", cwd=seed).strip())
+    run_git("push", "origin", "main", cwd=seed)
+    clone = tmp_path / "clone"
+    run_git("clone", "--depth=1", remote.as_uri(), str(clone), cwd=tmp_path)
+    return clone, shas
+
+
 def _reset_process_caches() -> None:
     """Clear every process-level memo a test could have poisoned.
 
@@ -478,6 +544,13 @@ class FakeResponse:
         pass
 
 
+class CutShortBody(BytesIO):
+    """The body of an error answer whose connection drops mid-read."""
+
+    def read(self, *args: object) -> bytes:
+        raise IncompleteRead(b"<Error>")
+
+
 def pat_results(**overrides: tuple[bool, str]) -> PatPermissionResults:
     """Build a `PatPermissionResults` where every check passes by default.
 
@@ -580,3 +653,216 @@ def attribute_docstrings(body: list[ast.stmt]):
             owner = statement.target.id
         else:
             owner = ""
+
+
+def write_bundle(path: Path, *subjects: str) -> Path:
+    """Write a sigstore bundle attesting *subjects*.
+
+    Mirrors the shape `actions/attest` emits: a DSSE envelope whose base64
+    payload is an in-toto statement listing one entry per attested file.
+    """
+    statement = {
+        "_type": "https://in-toto.io/Statement/v1",
+        "predicateType": "https://slsa.dev/provenance/v1",
+        "subject": [
+            {"name": name, "digest": {"sha256": f"{index:064x}"}}
+            for index, name in enumerate(subjects)
+        ],
+    }
+    payload = base64.b64encode(json.dumps(statement).encode("UTF-8")).decode("ascii")
+    path.write_text(
+        json.dumps({
+            "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+            "dsseEnvelope": {
+                "payload": payload,
+                "payloadType": "application/vnd.in-toto+json",
+            },
+        }),
+        encoding="UTF-8",
+    )
+    return path
+
+
+MULTI_RELEASE_CHANGELOG = dedent(
+    """\
+    # Changelog
+
+    ## [2.0.0 (unreleased)](https://github.com/user/repo/compare/v1.1.0...main)
+
+    > [!WARNING]
+    > This version is **not released yet** and is under active development.
+
+    ## [1.1.0 (2026-02-10)](https://github.com/user/repo/compare/v1.0.0...v1.1.0)
+
+    - Second release.
+
+    ## [1.0.0 (2025-12-01)](https://github.com/user/repo/compare/v0.9.0...v1.0.0)
+
+    - Initial release.
+    """
+)
+"""Changelog with multiple released versions and one unreleased."""
+
+
+EM_AARCH64 = 183
+EM_X86_64 = 62
+
+SHT_STRTAB = 3
+"""ELF section type of a string table."""
+
+
+def make_elf(
+    machine: int,
+    versions: tuple[str, ...] = (),
+    *,
+    wide: bool = True,
+    big_endian: bool = False,
+    extended_numbering: bool = False,
+) -> bytes:
+    """Craft a minimal ELF file, requiring *versions* of libc when given.
+
+    Without *versions* the file holds a bare header and no section table. With
+    them it carries a `.dynstr` string table and a `.gnu.version_r` section
+    naming each one under a single `libc.so.6` requirement, the way the linker
+    writes them. *wide* picks ELF64 over ELF32, and *big_endian* the byte
+    order, as the identification bytes declare them. *extended_numbering*
+    moves the section count out of `e_shnum` into the `sh_size` of entry `0`,
+    the encoding a file with `0xff00` sections or more has to use.
+    """
+    order = ">" if big_endian else "<"
+    ident = b"\x7fELF" + bytes([2 if wide else 1, 2 if big_endian else 1, 1, 0])
+    ident += bytes(8)
+    header_layout = f"{order}HHIQQQIHHHHHH" if wide else f"{order}HHIIIIIHHHHHH"
+    section_layout = f"{order}IIQQQQIIQQ" if wide else f"{order}IIIIIIIIII"
+    header_size = len(ident) + struct.calcsize(header_layout)
+    section_size = struct.calcsize(section_layout)
+    if not versions:
+        header = struct.pack(
+            header_layout,
+            2,
+            machine,
+            1,
+            0,
+            0,
+            0,
+            0,
+            header_size,
+            0,
+            0,
+            section_size,
+            0,
+            0,
+        )
+        return ident + header
+    strings = b"\0"
+    offsets: dict[str, int] = {}
+    for name in ("libc.so.6", *versions):
+        offsets[name] = len(strings)
+        strings += name.encode() + b"\0"
+    verneed = struct.pack(
+        f"{order}HHIII", 1, len(versions), offsets["libc.so.6"], 16, 0
+    )
+    for index, name in enumerate(versions):
+        next_aux = 0 if index == len(versions) - 1 else 16
+        verneed += struct.pack(
+            f"{order}IHHII", 0, 0, 2 + index, offsets[name], next_aux
+        )
+    strtab_offset = header_size
+    verneed_offset = strtab_offset + len(strings)
+    shoff = verneed_offset + len(verneed)
+    section_count = 3
+    sections = struct.pack(
+        section_layout,
+        0,
+        0,
+        0,
+        0,
+        0,
+        section_count if extended_numbering else 0,
+        0,
+        0,
+        0,
+        0,
+    )
+    sections += struct.pack(
+        section_layout, 0, SHT_STRTAB, 0, 0, strtab_offset, len(strings), 0, 0, 1, 0
+    )
+    sections += struct.pack(
+        section_layout,
+        0,
+        SHT_GNU_VERNEED,
+        0,
+        0,
+        verneed_offset,
+        len(verneed),
+        1,
+        1,
+        4,
+        0,
+    )
+    header = struct.pack(
+        header_layout,
+        2,
+        machine,
+        1,
+        0,
+        0,
+        shoff,
+        0,
+        header_size,
+        0,
+        0,
+        section_size,
+        0 if extended_numbering else section_count,
+        0,
+    )
+    return ident + header + strings + verneed + sections
+
+
+def pack_macho_version(version: str) -> int:
+    """Pack a `major.minor` string into a Mach-O version integer."""
+    major, _, minor = version.partition(".")
+    return (int(major) << 16) | (int(minor or 0) << 8)
+
+
+def make_macho(cpu_type: int, min_os: str = "11.0") -> bytes:
+    """Craft a minimal 64-bit Mach-O header with one LC_BUILD_VERSION command."""
+    build_version = struct.pack(
+        "<IIIIII", 0x32, 24, 1, pack_macho_version(min_os), 0, 0
+    )
+    header = struct.pack(
+        "<IIIIIIII", 0xFEEDFACF, cpu_type, 0, 2, 1, len(build_version), 0, 0
+    )
+    return header + build_version
+
+
+def make_fat(slices: list[bytes]) -> bytes:
+    """Wrap Mach-O slices into a universal (fat) container."""
+    header = struct.pack(">II", 0xCAFEBABE, len(slices))
+    offset = 8 + 20 * len(slices)
+    entries = b""
+    for chunk in slices:
+        entries += struct.pack(">iiIII", 0, 0, offset, len(chunk), 0)
+        offset += len(chunk)
+    return header + entries + b"".join(slices)
+
+
+def make_pe(machine: int) -> bytes:
+    """Craft a minimal PE header exposing only the COFF machine type."""
+    dos_header = b"MZ" + bytes(58) + struct.pack("<I", 64)
+    return dos_header + b"PE\0\0" + struct.pack("<H", machine) + bytes(18)
+
+
+def macho_cpu_type(arch: Architecture) -> int:
+    """The Mach-O `cputype` for an architecture, read for the byte builders.
+
+    {data}`~repomatic.release.binary.MACHINE_IDS` spans every format. These two
+    accessors name the format for the helpers below, which write real header
+    bytes.
+    """
+    return MACHINE_IDS[BinaryFormat.MACHO, arch]
+
+
+def pe_machine_id(arch: Architecture) -> int:
+    """The PE COFF `Machine` value for an architecture."""
+    return MACHINE_IDS[BinaryFormat.PE, arch]

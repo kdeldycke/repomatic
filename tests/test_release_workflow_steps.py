@@ -44,9 +44,7 @@ from repomatic.github.pr_body import PrContent
 from repomatic.github.threads import BOT_ISSUE_LABEL
 from repomatic.metadata.core import Metadata
 from repomatic.upstream import DEFAULT_REPO
-from tests.conftest import load_workflow
-from tests.test_attestation import write_bundle
-from tests.test_git_ops import _run_git, _seed_commit
+from tests.conftest import load_workflow, run_git, seed_commit, write_bundle
 
 REPO_ROOT = Path(__file__).parent.parent
 
@@ -444,16 +442,16 @@ def release_checkout(tmp_path, monkeypatch, hermetic_git):
     """A repository whose version was just stripped of its `.dev` suffix."""
     checkout = tmp_path / "checkout"
     checkout.mkdir()
-    _run_git("init", "--initial-branch=main", str(checkout), cwd=checkout)
+    run_git("init", "--initial-branch=main", str(checkout), cwd=checkout)
     (checkout / ".github" / "workflows").mkdir(parents=True)
-    _seed_commit(
+    seed_commit(
         checkout,
         "changelog.md",
         f"# Changelog\n\n## [`{VERSION}` (unreleased)]"
         f"(https://github.com/{REPOSITORY}/compare/v1.2.2...main)\n\n- Juicer.\n",
         "Seed changelog",
     )
-    _seed_commit(
+    seed_commit(
         checkout,
         "pyproject.toml",
         f'[project]\nname = "papaya"\nversion = "{VERSION}"\n\n'
@@ -479,7 +477,7 @@ def test_prepare_release_commit_steps(release_checkout, tmp_path, monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert output.read_text(encoding="UTF-8") == f"version={VERSION}\n"
-    assert _run_git("log", "-1", "--format=%s", cwd=release_checkout).strip() == (
+    assert run_git("log", "-1", "--format=%s", cwd=release_checkout).strip() == (
         f"[changelog] Release v{VERSION}"
     )
     changelog = (release_checkout / "changelog.md").read_text(encoding="UTF-8")
@@ -496,7 +494,7 @@ def test_prepare_release_commit_steps(release_checkout, tmp_path, monkeypatch):
     result = invoke(step_argv(unfreeze, {}))
 
     assert result.exit_code == 0, result.output
-    assert _run_git("log", "-1", "--format=%s", cwd=release_checkout).strip() == (
+    assert run_git("log", "-1", "--format=%s", cwd=release_checkout).strip() == (
         f"[changelog] Post-release bump v{VERSION} → v1.2.4.dev0"
     )
     status = subprocess.run(

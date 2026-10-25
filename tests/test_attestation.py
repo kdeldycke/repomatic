@@ -18,8 +18,6 @@
 
 from __future__ import annotations
 
-import base64
-import json
 from unittest.mock import patch
 
 import pytest
@@ -33,38 +31,7 @@ from repomatic.release.attestation import (
     verify_attestation,
 )
 from repomatic.upstream import DEFAULT_REPO
-
-TYPE_CHECKING = False
-if TYPE_CHECKING:
-    from pathlib import Path
-
-
-def write_bundle(path: Path, *subjects: str) -> Path:
-    """Write a sigstore bundle attesting *subjects*.
-
-    Mirrors the shape `actions/attest` emits: a DSSE envelope whose base64
-    payload is an in-toto statement listing one entry per attested file.
-    """
-    statement = {
-        "_type": "https://in-toto.io/Statement/v1",
-        "predicateType": "https://slsa.dev/provenance/v1",
-        "subject": [
-            {"name": name, "digest": {"sha256": f"{index:064x}"}}
-            for index, name in enumerate(subjects)
-        ],
-    }
-    payload = base64.b64encode(json.dumps(statement).encode("UTF-8")).decode("ascii")
-    path.write_text(
-        json.dumps({
-            "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
-            "dsseEnvelope": {
-                "payload": payload,
-                "payloadType": "application/vnd.in-toto+json",
-            },
-        }),
-        encoding="UTF-8",
-    )
-    return path
+from tests.conftest import write_bundle
 
 
 def test_bundle_subjects_reads_every_name(tmp_path):

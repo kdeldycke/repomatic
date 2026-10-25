@@ -43,7 +43,7 @@ from repomatic.http import (
     get_text,
     request,
 )
-from tests.conftest import FakeResponse
+from tests.conftest import CutShortBody, FakeResponse
 
 PAYLOAD = {"time": {"1.0.0": "2026-01-02T00:00:00.000Z"}}
 RAW = json.dumps(PAYLOAD).encode()
@@ -246,13 +246,6 @@ def test_request_keeps_the_status_and_body_of_an_http_error():
     assert excinfo.value.status == 401
     assert excinfo.value.body.startswith('{"message": "Bad credentials"}')
     assert len(excinfo.value.body) == ERROR_BODY_EXCERPT
-
-
-class CutShortBody(BytesIO):
-    """The body of an error answer whose connection drops mid-read."""
-
-    def read(self, *args: object) -> bytes:
-        raise IncompleteRead(b"<Error>")
 
 
 def test_error_excerpt_reads_an_unreadable_body_as_empty():

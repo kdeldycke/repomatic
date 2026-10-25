@@ -29,8 +29,12 @@ from repomatic.git_ops import NULL_SHA, Commit, GitError, head_sha
 from repomatic.github.event import WorkflowEvent
 from repomatic.metadata.core import Metadata
 from repomatic.metadata.git import commit_matrix, version_at
-from tests.conftest import metadata_from_pyproject
-from tests.test_git_ops import _run_git, _seed_commit, make_shallow_clone
+from tests.conftest import (
+    make_shallow_clone,
+    metadata_from_pyproject,
+    run_git,
+    seed_commit,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +53,7 @@ def _scrub_workflow_event(monkeypatch):
 @pytest.fixture
 def repository(tmp_path, monkeypatch, hermetic_git):
     """A fresh repository, the current directory."""
-    _run_git("init", "--initial-branch=main", str(tmp_path), cwd=tmp_path)
+    run_git("init", "--initial-branch=main", str(tmp_path), cwd=tmp_path)
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -216,7 +220,7 @@ def _commit_versions(repository, *versions: str) -> list[str]:
     """Commit one `[tool.bumpversion]` version per commit, returning the SHAs."""
     shas = []
     for version in versions:
-        _seed_commit(
+        seed_commit(
             repository,
             "pyproject.toml",
             f'[tool.bumpversion]\ncurrent_version = "{version}"\n',
@@ -258,7 +262,7 @@ def test_commit_matrix_of_nothing_is_none():
 def test_version_at_prefers_the_bumpversion_file(repository):
     """`.bumpversion.toml` wins over `pyproject.toml`, as bump-my-version reads it."""
     (sha,) = _commit_versions(repository, "1.0.0")
-    _seed_commit(
+    seed_commit(
         repository, ".bumpversion.toml", 'current_version = "2.0.0"\n', "Add config"
     )
 
@@ -268,7 +272,7 @@ def test_version_at_prefers_the_bumpversion_file(repository):
 
 def test_version_at_without_any_source(repository):
     """A commit carrying no bump-my-version configuration declares no version."""
-    _seed_commit(repository, "pyproject.toml", '[project]\nname = "kiwi"\n', "Seed")
+    seed_commit(repository, "pyproject.toml", '[project]\nname = "kiwi"\n', "Seed")
     assert version_at("HEAD") is None
 
 
@@ -281,7 +285,7 @@ def test_release_commit_is_the_newest_of_a_release_push(
     is the last of the list. Reading its first entry would build and lint the
     older release.
     """
-    _seed_commit(repository, "fruits.txt", "apple\n", "Seed")
+    seed_commit(repository, "fruits.txt", "apple\n", "Seed")
     base = head_sha()
     shas = []
     for message in (
@@ -290,7 +294,7 @@ def test_release_commit_is_the_newest_of_a_release_push(
         "[changelog] Release v1.0.1",
         "[changelog] Post-release bump v1.0.1 → v1.0.2.dev0",
     ):
-        _seed_commit(repository, "fruits.txt", f"{message}\n", message)
+        seed_commit(repository, "fruits.txt", f"{message}\n", message)
         shas.append(head_sha())
     _push_event(tmp_path, monkeypatch, base, shas[-1])
     monkeypatch.setenv("GITHUB_REF", "refs/heads/main")

@@ -61,7 +61,7 @@ from repomatic.cloudflare.r2 import (
 )
 from repomatic.cloudflare.redirects import MAX_STATIC_RULES, parse_redirects
 from repomatic.tabular import ReportAction
-from tests.test_http import CutShortBody
+from tests.conftest import CutShortBody
 
 DOMAIN = "files.example.com"
 

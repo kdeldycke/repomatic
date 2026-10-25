@@ -36,7 +36,7 @@ from repomatic.release.verify import (
     verify_binary_arch,
     verify_binary_floor,
 )
-from tests.test_binary import (
+from tests.conftest import (
     EM_AARCH64,
     EM_X86_64,
     macho_cpu_type,

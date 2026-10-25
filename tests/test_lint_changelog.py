@@ -40,8 +40,10 @@ from repomatic.lint_changelog import (
     warn_on_positional_references,
 )
 from repomatic.pypi import PyPIRelease
-from tests.conftest import assert_shipped_text_reads_true_downstream
-from tests.test_changelog import MULTI_RELEASE_CHANGELOG
+from tests.conftest import (
+    MULTI_RELEASE_CHANGELOG,
+    assert_shipped_text_reads_true_downstream,
+)
 
 
 @pytest.fixture

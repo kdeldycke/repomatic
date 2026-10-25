@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import json
-import struct
 from string import ascii_lowercase, digits
 
 import pytest
@@ -40,7 +39,6 @@ from packaging.version import Version
 from repomatic.metadata.core import Metadata
 from repomatic.release.binary import (
     BINARY_ASSET_SUFFIXES,
-    MACHINE_IDS,
     NUITKA_BUILD_TARGETS,
     NUITKA_DISABLE_CCACHE_FLAG,
     BinaryFormat,
@@ -48,175 +46,14 @@ from repomatic.release.binary import (
     current_build_target,
     pack_binary_assets,
 )
-from repomatic.release.verify import SHT_GNU_VERNEED
-from tests.conftest import metadata_from_pyproject
-
-TYPE_CHECKING = False
-if TYPE_CHECKING:
-    from extra_platforms import Architecture
-
-EM_AARCH64 = 183
-EM_X86_64 = 62
-
-SHT_STRTAB = 3
-"""ELF section type of a string table."""
-
-
-def make_elf(
-    machine: int,
-    versions: tuple[str, ...] = (),
-    *,
-    wide: bool = True,
-    big_endian: bool = False,
-    extended_numbering: bool = False,
-) -> bytes:
-    """Craft a minimal ELF file, requiring *versions* of libc when given.
-
-    Without *versions* the file holds a bare header and no section table. With
-    them it carries a `.dynstr` string table and a `.gnu.version_r` section
-    naming each one under a single `libc.so.6` requirement, the way the linker
-    writes them. *wide* picks ELF64 over ELF32, and *big_endian* the byte
-    order, as the identification bytes declare them. *extended_numbering*
-    moves the section count out of `e_shnum` into the `sh_size` of entry `0`,
-    the encoding a file with `0xff00` sections or more has to use.
-    """
-    order = ">" if big_endian else "<"
-    ident = b"\x7fELF" + bytes([2 if wide else 1, 2 if big_endian else 1, 1, 0])
-    ident += bytes(8)
-    header_layout = f"{order}HHIQQQIHHHHHH" if wide else f"{order}HHIIIIIHHHHHH"
-    section_layout = f"{order}IIQQQQIIQQ" if wide else f"{order}IIIIIIIIII"
-    header_size = len(ident) + struct.calcsize(header_layout)
-    section_size = struct.calcsize(section_layout)
-    if not versions:
-        header = struct.pack(
-            header_layout,
-            2,
-            machine,
-            1,
-            0,
-            0,
-            0,
-            0,
-            header_size,
-            0,
-            0,
-            section_size,
-            0,
-            0,
-        )
-        return ident + header
-    strings = b"\0"
-    offsets: dict[str, int] = {}
-    for name in ("libc.so.6", *versions):
-        offsets[name] = len(strings)
-        strings += name.encode() + b"\0"
-    verneed = struct.pack(
-        f"{order}HHIII", 1, len(versions), offsets["libc.so.6"], 16, 0
-    )
-    for index, name in enumerate(versions):
-        next_aux = 0 if index == len(versions) - 1 else 16
-        verneed += struct.pack(
-            f"{order}IHHII", 0, 0, 2 + index, offsets[name], next_aux
-        )
-    strtab_offset = header_size
-    verneed_offset = strtab_offset + len(strings)
-    shoff = verneed_offset + len(verneed)
-    section_count = 3
-    sections = struct.pack(
-        section_layout,
-        0,
-        0,
-        0,
-        0,
-        0,
-        section_count if extended_numbering else 0,
-        0,
-        0,
-        0,
-        0,
-    )
-    sections += struct.pack(
-        section_layout, 0, SHT_STRTAB, 0, 0, strtab_offset, len(strings), 0, 0, 1, 0
-    )
-    sections += struct.pack(
-        section_layout,
-        0,
-        SHT_GNU_VERNEED,
-        0,
-        0,
-        verneed_offset,
-        len(verneed),
-        1,
-        1,
-        4,
-        0,
-    )
-    header = struct.pack(
-        header_layout,
-        2,
-        machine,
-        1,
-        0,
-        0,
-        shoff,
-        0,
-        header_size,
-        0,
-        0,
-        section_size,
-        0 if extended_numbering else section_count,
-        0,
-    )
-    return ident + header + strings + verneed + sections
-
-
-def pack_macho_version(version: str) -> int:
-    """Pack a `major.minor` string into a Mach-O version integer."""
-    major, _, minor = version.partition(".")
-    return (int(major) << 16) | (int(minor or 0) << 8)
-
-
-def make_macho(cpu_type: int, min_os: str = "11.0") -> bytes:
-    """Craft a minimal 64-bit Mach-O header with one LC_BUILD_VERSION command."""
-    build_version = struct.pack(
-        "<IIIIII", 0x32, 24, 1, pack_macho_version(min_os), 0, 0
-    )
-    header = struct.pack(
-        "<IIIIIIII", 0xFEEDFACF, cpu_type, 0, 2, 1, len(build_version), 0, 0
-    )
-    return header + build_version
-
-
-def make_fat(slices: list[bytes]) -> bytes:
-    """Wrap Mach-O slices into a universal (fat) container."""
-    header = struct.pack(">II", 0xCAFEBABE, len(slices))
-    offset = 8 + 20 * len(slices)
-    entries = b""
-    for chunk in slices:
-        entries += struct.pack(">iiIII", 0, 0, offset, len(chunk), 0)
-        offset += len(chunk)
-    return header + entries + b"".join(slices)
-
-
-def make_pe(machine: int) -> bytes:
-    """Craft a minimal PE header exposing only the COFF machine type."""
-    dos_header = b"MZ" + bytes(58) + struct.pack("<I", 64)
-    return dos_header + b"PE\0\0" + struct.pack("<H", machine) + bytes(18)
-
-
-def macho_cpu_type(arch: Architecture) -> int:
-    """The Mach-O `cputype` for an architecture, read for the byte builders.
-
-    {data}`~repomatic.release.binary.MACHINE_IDS` spans every format. These two
-    accessors name the format for the helpers below, which write real header
-    bytes.
-    """
-    return MACHINE_IDS[BinaryFormat.MACHO, arch]
-
-
-def pe_machine_id(arch: Architecture) -> int:
-    """The PE COFF `Machine` value for an architecture."""
-    return MACHINE_IDS[BinaryFormat.PE, arch]
+from tests.conftest import (
+    EM_X86_64,
+    make_elf,
+    make_fat,
+    make_macho,
+    make_pe,
+    metadata_from_pyproject,
+)
 
 
 @pytest.mark.parametrize(

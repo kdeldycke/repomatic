@@ -61,84 +61,23 @@ from repomatic.git_ops import (
 )
 from repomatic.metadata.project import is_version_bump_allowed
 from repomatic.pyproject import get_current_version
-
-TYPE_CHECKING = False
-if TYPE_CHECKING:
-    from pathlib import Path
-
+from tests.conftest import make_shallow_clone, run_git, seed_commit
 
 # --- Repository fixtures ---
-
-
-def _run_git(*args: str, cwd) -> str:
-    """Run a git command in *cwd* and return its stdout."""
-    result = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="UTF-8",
-    )
-    return result.stdout
-
-
-def _seed_commit(workdir, filename: str, content: str, message: str) -> None:
-    """Create a file and commit it with a throwaway identity."""
-    (workdir / filename).write_text(content, encoding="UTF-8")
-    _run_git("add", "--", filename, cwd=workdir)
-    _run_git(
-        "-c",
-        "user.name=Seeder",
-        "-c",
-        "user.email=seeder@example.com",
-        "commit",
-        "--message",
-        message,
-        cwd=workdir,
-    )
 
 
 @pytest.fixture
 def git_workdir(tmp_path, monkeypatch, hermetic_git):
     """A working clone (cwd) of a bare `origin` remote, one commit on main."""
     remote = tmp_path / "remote.git"
-    _run_git("init", "--bare", "--initial-branch=main", str(remote), cwd=tmp_path)
+    run_git("init", "--bare", "--initial-branch=main", str(remote), cwd=tmp_path)
     work = tmp_path / "work"
-    _run_git("clone", str(remote), str(work), cwd=tmp_path)
-    _run_git("checkout", "-B", "main", cwd=work)
-    _seed_commit(work, "seed.txt", "seed\n", "Seed commit")
-    _run_git("push", "--set-upstream", "origin", "main", cwd=work)
+    run_git("clone", str(remote), str(work), cwd=tmp_path)
+    run_git("checkout", "-B", "main", cwd=work)
+    seed_commit(work, "seed.txt", "seed\n", "Seed commit")
+    run_git("push", "--set-upstream", "origin", "main", cwd=work)
     monkeypatch.chdir(work)
     return work
-
-
-SHALLOW_HISTORY = ("apple", "banana", "cherry", "date", "elderberry")
-"""Content of the successive commits {func}`make_shallow_clone` pushes."""
-
-
-def make_shallow_clone(tmp_path: Path) -> tuple[Path, list[str]]:
-    """Clone a remote holding one commit per {data}`SHALLOW_HISTORY` entry.
-
-    The clone is one commit deep. The remote serves any commit it can reach by
-    SHA, as GitHub does, so a commit outside the clone can be fetched alone.
-
-    :return: The clone, and the SHAs of the remote's commits, oldest first.
-    """
-    remote = tmp_path / "remote.git"
-    _run_git("init", "--bare", "--initial-branch=main", str(remote), cwd=tmp_path)
-    _run_git("config", "uploadpack.allowReachableSHA1InWant", "true", cwd=remote)
-    seed = tmp_path / "seed"
-    _run_git("clone", str(remote), str(seed), cwd=tmp_path)
-    _run_git("checkout", "-B", "main", cwd=seed)
-    shas = []
-    for fruit in SHALLOW_HISTORY:
-        _seed_commit(seed, "fruits.txt", f"{fruit}\n", f"Add {fruit}")
-        shas.append(_run_git("rev-parse", "HEAD", cwd=seed).strip())
-    _run_git("push", "origin", "main", cwd=seed)
-    clone = tmp_path / "clone"
-    _run_git("clone", "--depth=1", remote.as_uri(), str(clone), cwd=tmp_path)
-    return clone, shas
 
 
 @pytest.fixture
@@ -169,7 +108,7 @@ def test_git_error_carries_stderr(git_workdir):
 def test_show_file_reads_a_past_commit_in_place(git_workdir):
     """A past version of a file is read without moving `HEAD`."""
     first = head_sha()
-    _seed_commit(git_workdir, "seed.txt", "changed\n", "Change the seed")
+    seed_commit(git_workdir, "seed.txt", "changed\n", "Change the seed")
     tip = head_sha()
 
     assert show_file(first, "seed.txt") == "seed\n"
@@ -184,21 +123,21 @@ def test_show_file_reads_a_past_commit_in_place(git_workdir):
 def test_create_and_push_tag_publishes_the_tag(git_workdir, tmp_path):
     """The tag lands on the remote, at `HEAD` by default."""
     assert create_and_push_tag("v1.0.0") is True
-    remote_tags = _run_git("tag", "--list", cwd=tmp_path / "remote.git")
+    remote_tags = run_git("tag", "--list", cwd=tmp_path / "remote.git")
     assert remote_tags.split() == ["v1.0.0"]
-    tagged = _run_git("rev-list", "-n", "1", "v1.0.0", cwd=git_workdir)
+    tagged = run_git("rev-list", "-n", "1", "v1.0.0", cwd=git_workdir)
     assert tagged.strip() == head_sha()
 
 
 def test_create_and_push_tag_at_commit_without_push(git_workdir, tmp_path):
     """A tag can point at an older commit, and stay local."""
     base = head_sha()
-    _seed_commit(git_workdir, "fruits.txt", "papaya\n", "Add fruits")
+    seed_commit(git_workdir, "fruits.txt", "papaya\n", "Add fruits")
 
     assert create_and_push_tag("v1.0.0", commit=base, push=False) is True
-    tagged = _run_git("rev-list", "-n", "1", "v1.0.0", cwd=git_workdir)
+    tagged = run_git("rev-list", "-n", "1", "v1.0.0", cwd=git_workdir)
     assert tagged.strip() == base
-    assert not _run_git("tag", "--list", cwd=tmp_path / "remote.git").strip()
+    assert not run_git("tag", "--list", cwd=tmp_path / "remote.git").strip()
 
 
 def test_create_and_push_tag_skips_an_existing_tag(git_workdir):
@@ -211,14 +150,14 @@ def test_create_and_push_tag_skips_an_existing_tag(git_workdir):
 
 def test_create_and_push_tag_matches_the_exact_tag(git_workdir):
     """A tag whose name only ends like the one asked for is not a match."""
-    _run_git("tag", "release/v1.0.0", cwd=git_workdir)
+    run_git("tag", "release/v1.0.0", cwd=git_workdir)
     assert create_and_push_tag("v1.0.0", push=False) is True
 
 
 def test_version_tags_skip_names_that_do_not_parse(git_workdir):
     """A tag the glob selects but PEP 440 refuses is left out of every reader."""
     for tag in ("v1.2.3", "v1.2.3_hotfix", "v1.10.0", "nightly"):
-        _run_git("tag", tag, cwd=git_workdir)
+        run_git("tag", tag, cwd=git_workdir)
 
     assert get_latest_tag_version() == Version("1.10.0")
     assert set(get_all_version_tags()) == {"1.2.3", "1.10.0"}
@@ -467,7 +406,7 @@ def test_discard_changes_drops_what_a_failed_commit_staged(git_workdir):
     assert (git_workdir / "seed.txt").read_text(encoding="UTF-8") == "seed\n"
     assert not (git_workdir / "fruits.txt").exists()
     assert (git_workdir / "leftover.txt").exists()
-    assert _run_git("diff", "--cached", "--name-only", cwd=git_workdir) == ""
+    assert run_git("diff", "--cached", "--name-only", cwd=git_workdir) == ""
 
 
 def test_changed_paths_lists_what_a_reset_would_discard(git_workdir):
@@ -476,11 +415,11 @@ def test_changed_paths_lists_what_a_reset_would_discard(git_workdir):
     An untracked file is no change: no reset to `HEAD` touches it.
     """
     assert changed_paths() == ()
-    _seed_commit(git_workdir, "pears.txt", "pear\n", "Seed pears")
+    seed_commit(git_workdir, "pears.txt", "pear\n", "Seed pears")
     (git_workdir / "seed.txt").write_text("papaya\n", encoding="UTF-8")
-    _run_git("mv", "pears.txt", "plums.txt", cwd=git_workdir)
+    run_git("mv", "pears.txt", "plums.txt", cwd=git_workdir)
     (git_workdir / "kiwis.txt").write_text("kiwi\n", encoding="UTF-8")
-    _run_git("add", "kiwis.txt", cwd=git_workdir)
+    run_git("add", "kiwis.txt", cwd=git_workdir)
     (git_workdir / "notes.txt").write_text("untracked\n", encoding="UTF-8")
 
     assert changed_paths() == ("kiwis.txt", "pears.txt", "plums.txt", "seed.txt")
@@ -519,12 +458,12 @@ def test_commit_tracked_leaves_untracked_files_out(git_workdir):
     sha = commit_tracked("[changelog] Release v1.2.3")
 
     assert sha == head_sha()
-    log = _run_git("log", "-1", "--format=%an <%ae>%n%s", cwd=git_workdir)
+    log = run_git("log", "-1", "--format=%an <%ae>%n%s", cwd=git_workdir)
     assert log.splitlines() == [
         f"{COMMIT_IDENTITY_NAME} <{COMMIT_IDENTITY_EMAIL}>",
         "[changelog] Release v1.2.3",
     ]
-    assert _run_git(
+    assert run_git(
         "show", "--name-only", "--format=", "HEAD", cwd=git_workdir
     ).split() == ["seed.txt"]
     assert (git_workdir / "leftover.txt").exists()
@@ -730,7 +669,7 @@ def test_restore_paths_carries_a_file_without_moving_head(git_workdir):
     (git_workdir / "readings.csv").write_text("papaya,12\n", encoding="UTF-8")
     stage_all()
     create_branch("pending")
-    _seed_commit(git_workdir, "seed.txt", "branch edit\n", "Diverge the branch")
+    seed_commit(git_workdir, "seed.txt", "branch edit\n", "Diverge the branch")
     branch_tip = head_sha()
 
     checkout("main")

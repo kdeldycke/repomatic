@@ -31,7 +31,7 @@ from repomatic.changelog import (
 )
 from repomatic.templating import render_template
 from repomatic.tooling.runner import verify_via_write_path
-from tests.conftest import skip_unless_tool_runs
+from tests.conftest import MULTI_RELEASE_CHANGELOG, skip_unless_tool_runs
 
 SAMPLE_CHANGELOG = dedent(
     """\
@@ -414,27 +414,6 @@ def test_replace_section(version, new_section, expected, present, absent):
         assert text in changelog.content
     for text in absent:
         assert text not in changelog.content
-
-
-MULTI_RELEASE_CHANGELOG = dedent(
-    """\
-    # Changelog
-
-    ## [2.0.0 (unreleased)](https://github.com/user/repo/compare/v1.1.0...main)
-
-    > [!WARNING]
-    > This version is **not released yet** and is under active development.
-
-    ## [1.1.0 (2026-02-10)](https://github.com/user/repo/compare/v1.0.0...v1.1.0)
-
-    - Second release.
-
-    ## [1.0.0 (2025-12-01)](https://github.com/user/repo/compare/v0.9.0...v1.0.0)
-
-    - Initial release.
-    """
-)
-"""Changelog with multiple released versions and one unreleased."""
 
 
 @pytest.mark.parametrize(
