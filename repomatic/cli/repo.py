@@ -735,11 +735,10 @@ def show_metadata(
     # CI creates $GITHUB_OUTPUT before the step runs, so an empty target is the
     # normal case: only a file holding content has something to lose.
     elif output.exists() and output.stat().st_size:
-        msg = "Target file exists and will be overwritten."
         if overwrite:
-            logging.warning(msg)
+            logging.warning("Target file exists and will be overwritten.")
         else:
-            logging.critical(msg)
+            logging.critical("Target file exists and --no-overwrite keeps it.")
             ctx.exit(2)
 
     meta = Metadata()

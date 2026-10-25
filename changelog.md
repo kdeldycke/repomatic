@@ -162,6 +162,7 @@
 - Fix `init` dropping the downstream jobs of a thin caller that indents its jobs by four spaces.
 - Fix the commands that read GitHub releases crashing on a corrupt release cache holding a JSON list.
 - Fix `sync-deps` reporting all dependencies up to date when an updater failed to resolve.
+- Fix `show-metadata --no-overwrite` announcing that it overwrites the target file it then keeps.
 
 ## [`7.18.0` (2026-10-13)](https://github.com/kdeldycke/repomatic/compare/v7.17.1...v7.18.0)
 

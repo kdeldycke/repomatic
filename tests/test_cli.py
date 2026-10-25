@@ -763,6 +763,8 @@ def test_show_metadata_keeps_a_file_holding_content(tmp_path):
 
     assert result.exit_code == 2, result.output
     assert target.read_text(encoding="UTF-8") == "harvest=mango\n"
+    assert "Target file exists and --no-overwrite keeps it." in result.output
+    assert "will be overwritten" not in result.output
 
 
 @pytest.mark.parametrize(
