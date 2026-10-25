@@ -973,7 +973,7 @@ def sync_deps(
     ]
     failed = [op.name for op, plan in results if plan is None]
 
-    if not changed:
+    if not changed and not failed:
         echo("All dependencies are up to date.")
     verb = "Would update" if dry_run else "Updated"
     for op, plan in changed:

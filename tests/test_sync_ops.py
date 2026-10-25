@@ -557,6 +557,8 @@ def test_sync_deps_fails_once_an_updater_cannot_resolve(tmp_path, monkeypatch) -
     assert result.exit_code == 1, result.output
     assert events == ["resolve sync-uv-lock"]
     assert "Failed to resolve: sync-uv-lock" in result.output
+    # An updater that never resolved has no verdict to report.
+    assert "All dependencies are up to date." not in result.output
 
 
 def test_pr_sync_mode_runs_each_operation_from_a_clean_tree(monkeypatch) -> None:
