@@ -1348,13 +1348,27 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
         if name == UPSTREAM_PACKAGE and is_newer(adopted, previous):
             plan.upgrade_section = upgrade_invite(previous, adopted)
     if rc.release_notes:
-        # Only PyPI literals resolve to a source repo, reusing sync-uv-lock's
+        # A PyPI literal resolves to its source repo through sync-uv-lock's
         # path: PyPI `project_urls` to GitHub releases, with a changelog-link
-        # fallback. npm literals have no discovery path, so they are left out.
-        pypi_packages = {pkg for eco, pkg in resolved if eco == Ecosystem.PYPI}
+        # fallback. A `gh release download` literal names its repository
+        # outright. npm literals have no discovery path, so they are left out.
+        pypi_packages = {pkg for eco, pkg in resolved if eco is Ecosystem.PYPI}
+        github_slugs = {pkg for eco, pkg in resolved if eco is Ecosystem.GITHUB}
         pypi_changes = [c for c in plan.changes if c[0] in pypi_packages]
-        if pypi_changes:
-            notes = fetch_release_notes(pypi_changes)
+        github_requests = [
+            ReleaseNotesRequest(
+                slug,
+                Ecosystem.GITHUB.package_url(slug),
+                old.removeprefix("v"),
+                new.removeprefix("v"),
+            )
+            for slug, old, new in plan.changes
+            if slug in github_slugs
+        ]
+        notes = fetch_release_notes(pypi_changes) if pypi_changes else {}
+        if github_requests:
+            notes |= fetch_github_release_notes(github_requests)
+        if notes:
             plan.notes_section = format_release_notes(notes)
     return plan
 

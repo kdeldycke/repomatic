@@ -81,6 +81,7 @@ from repomatic.deps.sync import (
 )
 from repomatic.github.labels import DEFAULT_CONTENT_RULES, DEFAULT_FILE_RULES
 from repomatic.github.pr import PrOperation, PrSyncResult
+from repomatic.github.releases import ReleaseNotesRequest
 from repomatic.http import FetchError
 from repomatic.pypi import PyPIRelease
 from repomatic.templating import PrTemplate, get_template_names
@@ -1876,6 +1877,47 @@ def test_workflow_pins_walk_a_release_download_tag(ignore, tag):
     written = plan.file_writes.get(Path("tests.yaml"), workflow[Path("tests.yaml")])
     assert f"gh release download {tag}\n" in written
     assert bool(plan.changes) == (tag == "v1.3.0")
+
+
+def test_workflow_pins_fetch_the_release_notes_of_a_release_download_bump() -> None:
+    """A `gh release download` bump reads the notes of the repository it names."""
+    workflow = {
+        Path("tests.yaml"): (
+            "jobs:\n  fetch:\n    steps:\n      - run: >\n"
+            "          gh release download v1.2.0\n"
+            "          --repo orchard/papaya\n"
+        )
+    }
+    releases = [
+        Candidate("1.2.0", "2026-08-01", "v1.2.0"),
+        Candidate("1.3.0", "2026-08-02", "v1.3.0"),
+    ]
+    notes = {
+        "orchard/papaya": (
+            "https://github.com/orchard/papaya",
+            [("v1.3.0", "Riper papayas.")],
+        )
+    }
+    rc = ResolveContext(config=Config(), today=GATE_TODAY, release_notes=True)
+    with (
+        patch("repomatic.deps.sync._pinnable_files", return_value=workflow),
+        patch("repomatic.deps.pins.github_candidates", return_value=releases),
+        patch(
+            "repomatic.deps.sync.fetch_release_notes",
+            side_effect=AssertionError("no PyPI literal moved"),
+        ),
+        patch(
+            "repomatic.deps.sync.fetch_github_release_notes", return_value=notes
+        ) as fetch,
+    ):
+        plan = _resolve_workflow_pins(rc)
+
+    assert fetch.call_args.args[0] == [
+        ReleaseNotesRequest(
+            "orchard/papaya", "https://github.com/orchard/papaya", "1.2.0", "1.3.0"
+        )
+    ]
+    assert "Riper papayas." in plan.notes_section
 
 
 def test_workflow_pins_fetch_no_release_notes_for_an_npm_bump() -> None:
