@@ -70,6 +70,8 @@ The `tests` job of the bundled `tests.yaml` resolves the project again in a cell
 
 A `tests.yaml` whose jobs predate that step ignores the key, and the cell then repeats its twin. Copy the step that reads `matrix.resolution` from the upstream workflow first, at the tag the repository pins: `gh api 'repos/kdeldycke/repomatic/contents/.github/workflows/tests.yaml?ref=vX.Y.Z' -H 'Accept: application/vnd.github.raw'`. Then put `--frozen` on every `uv run` after it. A plain `uv run` finds the rewritten lockfile out of date and resolves it back to the newest releases.
 
+Replay the cell before you add the row, in a scratch copy of the repository, since the resolution rewrites `uv.lock`. On the floor Python, run `uv sync --resolution lowest-direct --all-extras --group test`, then the suite with `uv run --frozen`. Run it several times and judge each run by its exit code, never by its summary line. Test plugins have floors too: one below its floor can abort the collection under xdist, or end a passing run on an `INTERNALERROR`.
+
 A test that reads the matrix's `python-version` axis must also read its `include` rows. A `full-include` row flattens the full matrix into a job list with no axis.
 
 The cell cannot see a dependency that another requirement holds above its floor, or a library that the tests replace with a mock. Check those two by hand: the `/repomatic-deps` skill, when present, holds the procedure.
