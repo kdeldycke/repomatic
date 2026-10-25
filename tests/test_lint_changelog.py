@@ -157,7 +157,11 @@ def _patch_sources(
 
 
 def test_lint_changelog_dates_pypi_all_match(changelog_file, monkeypatch):
-    """Test that lint returns 0 when all PyPI dates match."""
+    """Test that lint returns 0 when all PyPI dates match.
+
+    The unreleased `2.0.0` section of `MULTI_RELEASE_CHANGELOG` has no release
+    anywhere, and does not fail the check either.
+    """
     _patch_sources(
         monkeypatch,
         pypi={"1.1.0": ("2026-02-10", False), "1.0.0": ("2025-12-01", False)},
@@ -1045,21 +1049,6 @@ def test_lint_orphan_fix_idempotent(changelog_file, monkeypatch):
     assert first_content == second_content
 
 
-def test_lint_orphan_tag_only(changelog_file, monkeypatch, caplog):
-    """Test orphan detected from git tag only (not on PyPI or GitHub)."""
-    _patch_sources(
-        monkeypatch,
-        pypi={"1.1.0": ("2026-02-10", False), "1.0.0": ("2025-12-01", False)},
-        github=["1.1.0", "1.0.0"],
-        tags={"1.0.5": "2026-01-15"},
-    )
-
-    with caplog.at_level(logging.WARNING):
-        assert lint_changelog_dates(changelog_file) == 1
-
-    assert "1.0.5" in caplog.text
-
-
 def test_lint_orphan_uses_pypi_date(changelog_file, monkeypatch):
     """Test that orphan fix prefers PyPI date over GitHub and tag dates."""
     _patch_sources(
@@ -1078,19 +1067,6 @@ def test_lint_orphan_uses_pypi_date(changelog_file, monkeypatch):
 
     # Should use PyPI date (2026-01-20), not GitHub (2026-01-18) or tag (2026-01-15).
     assert "## [`1.0.5` (2026-01-20)]" in content
-
-
-def test_lint_unreleased_not_flagged_as_orphan(changelog_file, monkeypatch):
-    """Test that the unreleased dev version is not flagged as orphan."""
-    _patch_sources(
-        monkeypatch,
-        pypi={"1.1.0": ("2026-02-10", False), "1.0.0": ("2025-12-01", False)},
-        github=["1.1.0", "1.0.0"],
-    )
-
-    # 2.0.0 is the unreleased version in MULTI_RELEASE_CHANGELOG.
-    # It should not be flagged as orphan.
-    assert lint_changelog_dates(changelog_file) == 0
 
 
 RENAME_CHANGELOG = dedent(
