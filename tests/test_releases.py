@@ -552,81 +552,82 @@ def _asset_payload(
     }
 
 
-def test_dev_release_url_and_previous_version_resolves_both():
+DRAFTS_URL = "https://github.com/user/repo/releases/tag"
+"""Base of the URL a draft release lives at before it gets a tag."""
+
+
+@pytest.mark.parametrize(
+    ("releases", "version", "expected"),
+    (
+        pytest.param(
+            [
+                _asset_payload(
+                    "v1.2.3.dev0",
+                    draft=True,
+                    prerelease=True,
+                    html_url=f"{DRAFTS_URL}/untagged-deadbeef",
+                ),
+                _asset_payload("v1.2.2"),
+                _asset_payload("v1.2.1"),
+            ],
+            "1.2.3",
+            (f"{DRAFTS_URL}/untagged-deadbeef", "1.2.2"),
+            id="resolves-both",
+        ),
+        # A `.dev1` draft matches by release segment. The pre-release `v3.0.0`,
+        # a tag that is no version and a draft of another version are skipped.
+        pytest.param(
+            [
+                _asset_payload("v3.0.0", prerelease=True, html_url="rc-ignored"),
+                _asset_payload("nightly"),
+                _asset_payload(
+                    "v2.5.0.dev1",
+                    draft=True,
+                    prerelease=True,
+                    html_url=f"{DRAFTS_URL}/untagged-feed",
+                ),
+                _asset_payload(
+                    "v2.4.1.dev0",
+                    draft=True,
+                    prerelease=True,
+                    html_url=f"{DRAFTS_URL}/untagged-other",
+                ),
+                _asset_payload("v2.4.0"),
+            ],
+            "2.5.0",
+            (f"{DRAFTS_URL}/untagged-feed", "2.4.0"),
+            id="matches-release-segment",
+        ),
+        pytest.param(
+            [_asset_payload("v2.0.0"), _asset_payload("v1.9.0")],
+            "2.1.0",
+            (None, "2.0.0"),
+            id="no-draft",
+        ),
+        pytest.param(
+            [
+                _asset_payload(
+                    "v1.0.0.dev0",
+                    draft=True,
+                    prerelease=True,
+                    html_url=f"{DRAFTS_URL}/untagged-cafe",
+                )
+            ],
+            "1.0.0",
+            (f"{DRAFTS_URL}/untagged-cafe", None),
+            id="first-release",
+        ),
+    ),
+)
+def test_dev_release_url_and_previous_version(releases, version, expected):
     """One fetch yields the draft dev URL and the highest final version."""
-    page = json.dumps([
-        _asset_payload(
-            "v1.2.3.dev0",
-            draft=True,
-            prerelease=True,
-            html_url="https://github.com/user/repo/releases/tag/untagged-deadbeef",
-        ),
-        _asset_payload("v1.2.2"),
-        _asset_payload("v1.2.1"),
-    ]).encode()
-    with _paged_urlopen(page, b"[]"):
-        dev_url, previous = dev_release_url_and_previous_version(
-            "https://github.com/user/repo", "1.2.3"
+    with _paged_urlopen(json.dumps(releases).encode(), b"[]"):
+        assert (
+            dev_release_url_and_previous_version(
+                "https://github.com/user/repo", version
+            )
+            == expected
         )
-
-    assert dev_url == "https://github.com/user/repo/releases/tag/untagged-deadbeef"
-    assert previous == "1.2.2"
-
-
-def test_dev_release_url_and_previous_version_matches_release_segment():
-    """A `.dev1` draft still matches by release segment, ignoring drafts' order."""
-    page = json.dumps([
-        _asset_payload("v3.0.0", prerelease=True, html_url="rc-should-be-ignored"),
-        _asset_payload(
-            "v2.5.0.dev1",
-            draft=True,
-            prerelease=True,
-            html_url="https://github.com/user/repo/releases/tag/untagged-feed",
-        ),
-        _asset_payload("v2.4.0"),
-    ]).encode()
-    with _paged_urlopen(page, b"[]"):
-        dev_url, previous = dev_release_url_and_previous_version(
-            "https://github.com/user/repo", "2.5.0"
-        )
-
-    # The pre-release v3.0.0 is excluded from the previous-version scan.
-    assert dev_url == "https://github.com/user/repo/releases/tag/untagged-feed"
-    assert previous == "2.4.0"
-
-
-def test_dev_release_url_and_previous_version_no_draft():
-    """A missing dev draft yields None for the URL but keeps the previous version."""
-    page = json.dumps([
-        _asset_payload("v2.0.0"),
-        _asset_payload("v1.9.0"),
-    ]).encode()
-    with _paged_urlopen(page, b"[]"):
-        dev_url, previous = dev_release_url_and_previous_version(
-            "https://github.com/user/repo", "2.1.0"
-        )
-
-    assert dev_url is None
-    assert previous == "2.0.0"
-
-
-def test_dev_release_url_and_previous_version_first_release():
-    """The very first release has a dev draft but no previous version."""
-    page = json.dumps([
-        _asset_payload(
-            "v1.0.0.dev0",
-            draft=True,
-            prerelease=True,
-            html_url="https://github.com/user/repo/releases/tag/untagged-cafe",
-        ),
-    ]).encode()
-    with _paged_urlopen(page, b"[]"):
-        dev_url, previous = dev_release_url_and_previous_version(
-            "https://github.com/user/repo", "1.0.0"
-        )
-
-    assert dev_url == "https://github.com/user/repo/releases/tag/untagged-cafe"
-    assert previous is None
 
 
 def test_dev_release_url_and_previous_version_unavailable(monkeypatch):

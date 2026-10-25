@@ -596,6 +596,25 @@ BARE_PYPROJECT = '[project]\nname = "test"\nversion = "0.1.0"\n'
 """A minimal PEP 621 project, the starting point for every merge test."""
 
 
+def write_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, repomatic: str = ""
+) -> Path:
+    """Write `BARE_PYPROJECT` with *repomatic* as `[tool.repomatic]`, and enter it.
+
+    :return: The `pyproject.toml` path, for a test that rewrites it later.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    table = f"\n[tool.repomatic]\n{repomatic}" if repomatic else ""
+    pyproject.write_text(BARE_PYPROJECT + table, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    return pyproject
+
+
+def run_init_here(tmp_path: Path, **kwargs) -> InitResult:
+    """Run `init` into *tmp_path* with the config of the current directory."""
+    return run_init(output_dir=tmp_path, config=load_repomatic_config(), **kwargs)
+
+
 @pytest.mark.parametrize(
     ("config_type", "expected"),
     (
@@ -1175,18 +1194,11 @@ def test_run_init_held_at_floor_leaves_workflows_untouched(tmp_path, pin_build):
     the caller half lands with nothing pinned to serve it.
     """
     pin_build(version="7.4.1", sha="c" * 40)
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
 
     # Running version moves inside the cooldown window; the repo stays at 7.4.1.
     pin_build(version="7.4.2", candidates=_CLOCK_ROBUST_CANDIDATES)
-    result = run_init(
-        output_dir=tmp_path, components=("workflows",), config=load_repomatic_config()
-    )
+    result = run_init_here(tmp_path, components=("workflows",))
 
     touched = [path for path in result.created + result.updated if "workflows/" in path]
     assert not touched, f"held-back pin still rewrote {touched}"
@@ -1208,9 +1220,7 @@ def test_run_init_first_adoption_writes_workflows_despite_step_back(
     skew stands as the lesser outcome.
     """
     pin_build(candidates=_CLOCK_ROBUST_CANDIDATES, tag_sha="b" * 40)
-    result = run_init(
-        output_dir=tmp_path, components=("workflows",), config=load_repomatic_config()
-    )
+    result = run_init_here(tmp_path, components=("workflows",))
 
     assert any("workflows/" in path for path in result.created)
     autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
@@ -1227,20 +1237,13 @@ def test_run_init_keeps_a_fresh_pin_already_on_disk(tmp_path, monkeypatch, pin_b
     on every push. The pin must survive untouched.
     """
     pin_build()
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
     monkeypatch.setattr(
         init_upgrade,
         "github_candidates",
         lambda _url: pytest.fail("a pin equal to the running version needs no lookup"),
     )
-    run_init(
-        output_dir=tmp_path, components=("workflows",), config=load_repomatic_config()
-    )
+    run_init_here(tmp_path, components=("workflows",))
     autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
         encoding="UTF-8"
     )
@@ -1255,40 +1258,20 @@ def test_run_init_records_the_pin_move(tmp_path, pin_build):
     an upgrade to review, which is what the closing hint keys on.
     """
     pin_build(version="7.4.1", sha="c" * 40)
-    first = run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    first = run_init_here(tmp_path, components=("workflows",), cooldown=False)
     assert first.previous_pin is None
     assert first.adopted_pin == "7.4.1"
     assert first.upgraded_pin() is None
 
     pin_build(version="7.4.2", sha="a" * 40)
-    upgrade = run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    upgrade = run_init_here(tmp_path, components=("workflows",), cooldown=False)
     assert upgrade.upgraded_pin() == ("7.4.1", "7.4.2")
 
-    rerun = run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    rerun = run_init_here(tmp_path, components=("workflows",), cooldown=False)
     assert rerun.previous_pin == "7.4.2"
     assert rerun.upgraded_pin() is None
 
-    rollback = run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        version="v7.4.1",
-        config=load_repomatic_config(),
-    )
+    rollback = run_init_here(tmp_path, components=("workflows",), version="v7.4.1")
     assert rollback.adopted_pin == "7.4.1"
     assert rollback.upgraded_pin() is None
 
@@ -1296,9 +1279,7 @@ def test_run_init_records_the_pin_move(tmp_path, pin_build):
 def test_run_init_reads_no_pin_without_a_workflow(tmp_path, pin_build):
     """A config-only run neither reads nor writes an upstream pin."""
     pin_build()
-    result = run_init(
-        output_dir=tmp_path, components=("skills",), config=load_repomatic_config()
-    )
+    result = run_init_here(tmp_path, components=("skills",))
     assert result.previous_pin is None
     assert result.adopted_pin is None
     assert result.upgraded_pin() is None
@@ -1312,12 +1293,7 @@ def test_init_cli_prints_the_upgrade_launcher(tmp_path, pin_build):
     release offers, then what the repository drifted from.
     """
     pin_build(version="7.4.1", sha="c" * 40)
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
 
     pin_build(version="7.4.2", sha="a" * 40)
     cli_result = CliRunner().invoke(
@@ -1336,11 +1312,8 @@ def test_init_cli_prints_the_upgrade_launcher(tmp_path, pin_build):
 def test_init_cli_skips_the_install_hint_once_the_skill_is_on_disk(tmp_path, pin_build):
     """The install line is for repositories that never installed the skill."""
     pin_build(version="7.4.1", sha="c" * 40)
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows", "skills/repomatic-upgrade"),
-        cooldown=False,
-        config=load_repomatic_config(),
+    run_init_here(
+        tmp_path, components=("workflows", "skills/repomatic-upgrade"), cooldown=False
     )
 
     pin_build(version="7.4.2", sha="a" * 40)
@@ -1390,12 +1363,7 @@ def test_run_init_no_cooldown_skips_datasource(tmp_path, monkeypatch, pin_build)
         "github_candidates",
         lambda _url: pytest.fail("cooldown=False must not hit the datasource"),
     )
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
     autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
         encoding="UTF-8"
     )
@@ -1729,12 +1697,7 @@ def test_init_upgrade_hands_off_to_the_newest_cleared_release(
     """A newer release runs as a child, and the report names both ends."""
     _upgrade_project(tmp_path, monkeypatch)
     pin_build(version="7.11.0", sha="c" * 40)
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
     commands: list[list[str]] = []
 
     def child(command, output_dir):
@@ -1803,12 +1766,7 @@ def test_init_upgrade_fails_with_the_child(tmp_path, monkeypatch, pin_build):
     """A failed child fails the command, and no report claims an upgrade."""
     _upgrade_project(tmp_path, monkeypatch)
     pin_build(version="7.11.0", sha="c" * 40)
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
     monkeypatch.setattr(
         init_upgrade,
         "run_upgrade",
@@ -1839,12 +1797,7 @@ def test_init_upgrade_runs_in_process_on_the_target(tmp_path, monkeypatch, pin_b
     """On the target already: no child, and no second cooldown verdict."""
     _upgrade_project(tmp_path, monkeypatch)
     pin_build(version="7.11.0", sha="c" * 40)
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
     pin_build(version="7.15.0", sha="d" * 40)
     monkeypatch.setattr(
         init_upgrade, "run_upgrade", lambda *_args: pytest.fail("child")
@@ -1926,21 +1879,11 @@ def test_run_init_preserves_downstream_release_needs(tmp_path, pin_build):
     called.
     """
     pin_build()
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
 
     release = tmp_path / ".github" / "workflows" / "release.yaml"
     _add_downstream_release_job(release)
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
 
     jobs = yaml.safe_load(release.read_text(encoding="UTF-8"))["jobs"]
     assert jobs["release"]["needs"] == ["build", "build-packer"]
@@ -1956,29 +1899,14 @@ def test_run_init_is_idempotent(tmp_path, pin_build):
     between the managed lanes and those extras is re-derived.
     """
     pin_build()
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
     _add_downstream_release_job(tmp_path / ".github" / "workflows" / "release.yaml")
 
     # First re-run absorbs the hand edit; every run after it must be a no-op.
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
     settled = _workflow_tree(tmp_path)
 
-    result = run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        cooldown=False,
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, components=("workflows",), cooldown=False)
     drifted = sorted(
         name
         for name, content in _workflow_tree(tmp_path).items()
@@ -2184,11 +2112,8 @@ def test_init_warns_about_a_metadata_key_this_version_dropped(tmp_path, monkeypa
     monkeypatch.setattr(init_upgrade, "__version__", "7.4.2")
     monkeypatch.setattr(init_upgrade, "__git_tag_sha__", "a" * 40)
 
-    result = run_init(
-        output_dir=tmp_path,
-        components=("workflows/tests.yaml",),
-        cooldown=False,
-        config=load_repomatic_config(),
+    result = run_init_here(
+        tmp_path, components=("workflows/tests.yaml",), cooldown=False
     )
 
     assert len(result.warnings) == 1
@@ -2214,11 +2139,8 @@ def test_init_warns_about_the_removed_metadata_alias(tmp_path, monkeypatch):
     monkeypatch.setattr(init_upgrade, "__version__", "7.4.2")
     monkeypatch.setattr(init_upgrade, "__git_tag_sha__", "a" * 40)
 
-    result = run_init(
-        output_dir=tmp_path,
-        components=("workflows/tests.yaml",),
-        cooldown=False,
-        config=load_repomatic_config(),
+    result = run_init_here(
+        tmp_path, components=("workflows/tests.yaml",), cooldown=False
     )
 
     assert len(result.warnings) == 1
@@ -2243,12 +2165,8 @@ def test_init_skips_the_metadata_key_check_behind_a_cooldown(tmp_path, monkeypat
     monkeypatch.setattr(init_upgrade, "__version__", "7.4.2")
     monkeypatch.setattr(init_upgrade, "__git_tag_sha__", "a" * 40)
 
-    result = run_init(
-        output_dir=tmp_path,
-        components=("workflows/tests.yaml",),
-        cooldown=False,
-        version="v7.4.1",
-        config=load_repomatic_config(),
+    result = run_init_here(
+        tmp_path, components=("workflows/tests.yaml",), cooldown=False, version="v7.4.1"
     )
 
     assert result.warnings == []
@@ -2339,9 +2257,7 @@ def test_run_init_cooldown_steps_back_in_generated_pin(
         ],
     )
     monkeypatch.setattr(init_upgrade, "resolve_tag_to_sha", lambda _url, _tag: "")
-    result = run_init(
-        output_dir=tmp_path, components=("workflows",), config=load_repomatic_config()
-    )
+    result = run_init_here(tmp_path, components=("workflows",))
     autofix = (tmp_path / ".github" / "workflows" / "autofix.yaml").read_text(
         encoding="UTF-8"
     )
@@ -2366,16 +2282,9 @@ def test_init_creates_all_default_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Verify all default component files are created (with no exclusions)."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["skills", "subagents"]\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, monkeypatch, 'include = ["skills", "subagents"]\n')
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
 
     # All components: agents, changelog, skills, workflows. Opt-in workflows
     # are excluded by default, and ephemeral components never materialize on a
@@ -2449,9 +2358,7 @@ def test_init_changelog_stub_without_a_version(tmp_path: Path):
 def test_init_creates_parent_dirs(tmp_path: Path):
     """Verify .github/workflows/ is created automatically."""
     assert not (tmp_path / ".github").exists()
-    run_init(
-        output_dir=tmp_path, components=("workflows",), config=load_repomatic_config()
-    )
+    run_init_here(tmp_path, components=("workflows",))
     assert (tmp_path / ".github" / "workflows").is_dir()
 
 
@@ -2527,9 +2434,7 @@ def test_init_existing_changelog_skipped(tmp_path: Path):
     changelog = tmp_path / "changelog.md"
     changelog.write_text("# My existing changelog\n", encoding="UTF-8")
 
-    result = run_init(
-        output_dir=tmp_path, components=("changelog",), config=load_repomatic_config()
-    )
+    result = run_init_here(tmp_path, components=("changelog",))
 
     assert "changelog.md" in result.skipped
     # Content should not be overwritten.
@@ -2548,12 +2453,12 @@ def test_init_idempotent(tmp_path: Path):
         encoding="UTF-8",
     )
 
-    result1 = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result1 = run_init_here(tmp_path)
     assert len(result1.created) > 0
     assert len(result1.updated) == 0
     assert len(result1.skipped) == 0
 
-    result2 = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result2 = run_init_here(tmp_path)
     assert len(result2.created) == 0
     assert len(result2.updated) == 0
     # Only changelog is skipped (never overwritten).
@@ -2576,24 +2481,18 @@ def test_init_per_component_idempotent(tmp_path: Path, component: str):
     `updated`. Regression guard for skills/workflows wrongly flagged as
     updated when their content was unchanged.
     """
-    first = run_init(
-        output_dir=tmp_path, components=(component,), config=load_repomatic_config()
-    )
+    first = run_init_here(tmp_path, components=(component,))
     assert len(first.created) > 0
     assert len(first.updated) == 0
 
-    second = run_init(
-        output_dir=tmp_path, components=(component,), config=load_repomatic_config()
-    )
+    second = run_init_here(tmp_path, components=(component,))
     assert second.created == []
     assert second.updated == []
 
 
 def test_init_only_labels(tmp_path: Path):
     """Verify only label files are created."""
-    result = run_init(
-        output_dir=tmp_path, components=("labels",), config=load_repomatic_config()
-    )
+    result = run_init_here(tmp_path, components=("labels",))
 
     created_set = set(result.created)
     assert created_set == {"labels.toml"}
@@ -2612,9 +2511,7 @@ def test_init_only_skills(tmp_path: Path):
     the registry rather than written here: a literal makes adding a skill fail
     a test that has nothing to say about it.
     """
-    result = run_init(
-        output_dir=tmp_path, components=("skills",), config=load_repomatic_config()
-    )
+    result = run_init_here(tmp_path, components=("skills",))
 
     created_set = set(result.created)
     assert len(created_set) == sum(
@@ -2729,11 +2626,7 @@ def test_init_always_overwrites_managed_files(tmp_path: Path):
     target = workflows_dir / "lint.yaml"
     target.write_text("# Old content\n", encoding="UTF-8")
 
-    result = run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, components=("workflows",))
 
     assert ".github/workflows/lint.yaml" in result.updated
     assert len(result.skipped) == 0
@@ -2747,11 +2640,7 @@ def test_init_changelog_never_overwritten(tmp_path: Path):
     changelog = tmp_path / "changelog.md"
     changelog.write_text("# Old content\n", encoding="UTF-8")
 
-    result = run_init(
-        output_dir=tmp_path,
-        components=("changelog",),
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, components=("changelog",))
 
     assert "changelog.md" in result.skipped
     assert len(result.created) == 0
@@ -2763,11 +2652,7 @@ def test_init_changelog_never_overwritten(tmp_path: Path):
 
 def test_init_tool_configs_no_pyproject(tmp_path: Path):
     """Verify warning when pyproject.toml is missing."""
-    result = run_init(
-        output_dir=tmp_path,
-        components=("ruff",),
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, components=("ruff",))
 
     assert len(result.warnings) == 1
     assert "pyproject.toml not found" in result.warnings[0]
@@ -2775,12 +2660,7 @@ def test_init_tool_configs_no_pyproject(tmp_path: Path):
 
 def test_init_version_pinned(tmp_path: Path):
     """Verify generated workflows contain the specified version pin."""
-    run_init(
-        output_dir=tmp_path,
-        components=("workflows",),
-        version="v5.9.1",
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("workflows",), version="v5.9.1")
 
     # Check that generated workflow files contain the version pin.
     # Opt-in workflows are excluded by default.
@@ -2801,11 +2681,7 @@ def test_init_with_specific_tool_configs(tmp_path: Path):
         encoding="UTF-8",
     )
 
-    result = run_init(
-        output_dir=tmp_path,
-        components=("ruff", "bumpversion"),
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, components=("ruff", "bumpversion"))
 
     assert len(result.warnings) == 0
 
@@ -2828,11 +2704,7 @@ def test_init_tool_configs_report_pyproject_once_as_updated(tmp_path: Path):
         encoding="UTF-8",
     )
 
-    result = run_init(
-        output_dir=tmp_path,
-        components=("ruff", "mypy", "typos"),
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, components=("ruff", "mypy", "typos"))
 
     assert result.updated == ["pyproject.toml"]
     assert "pyproject.toml" not in result.created
@@ -2866,11 +2738,7 @@ def test_init_with_single_tool_config(tmp_path: Path):
         encoding="UTF-8",
     )
 
-    run_init(
-        output_dir=tmp_path,
-        components=("ruff",),
-        config=load_repomatic_config(),
-    )
+    run_init_here(tmp_path, components=("ruff",))
 
     # Only ruff should be merged, not bumpversion.
     content = pyproject.read_text(encoding="UTF-8")
@@ -3738,14 +3606,9 @@ def test_typos_skips_svg_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 def test_init_default_excludes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Verify default exclude skips agents, labels, and skills."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, monkeypatch)
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
 
     created_set = set(result.created)
     # Agents, labels, plugin, and skills are excluded by default.
@@ -3769,16 +3632,9 @@ def test_init_respects_exclude_components(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Verify exclude config skips listed components."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'exclude = ["skills", "labels"]\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, monkeypatch, 'exclude = ["skills", "labels"]\n')
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
 
     created_set = set(result.created)
     # Labels and skill files should not be created.
@@ -3798,16 +3654,13 @@ def test_init_respects_exclude_workflow_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Verify exclude config with workflow file entries skips those workflows."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
+    write_project(
+        tmp_path,
+        monkeypatch,
         'exclude = ["workflows/debug.yaml", "workflows/docs.yaml"]\n',
-        encoding="UTF-8",
     )
-    monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
 
     created_set = set(result.created)
     # Excluded workflows should not be created.
@@ -3823,17 +3676,14 @@ def test_init_respects_exclude_skill_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Verify exclude config with skill file entries skips those skills."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
+    write_project(
+        tmp_path,
+        monkeypatch,
         'include = ["skills"]\n'
         'exclude = ["skills/repomatic-audit", "skills/repomatic-topics"]\n',
-        encoding="UTF-8",
     )
-    monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
 
     created_set = set(result.created)
     # Excluded skills should not be created.
@@ -3850,11 +3700,7 @@ def test_init_changelog_excluded_for_awesome_repo(
     """Verify changelog.md is not created for awesome-* repos."""
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-python",
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, repo_slug="user/awesome-python")
 
     assert not (tmp_path / "changelog.md").exists()
     assert "changelog.md" not in result.created
@@ -3868,11 +3714,7 @@ def test_init_changelog_excluded_existing_for_awesome_repo(
     changelog.write_text("# Changelog\n", encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-python",
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, repo_slug="user/awesome-python")
 
     assert "changelog.md" in result.excluded_existing
 
@@ -3890,11 +3732,7 @@ def test_init_flags_a_scope_excluded_changelog_at_its_configured_location(
     history.write_text("# Changelog\n", encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-python",
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, repo_slug="user/awesome-python")
 
     assert "docs/history.md" in result.excluded_existing
     assert "changelog.md" not in result.excluded_existing
@@ -3909,11 +3747,7 @@ def test_init_scoped_component_excluded_existing_for_awesome_repo(
     action.write_text("name: Publish\nruns:\n  using: composite\n", encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-billing",
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, repo_slug="user/awesome-billing")
 
     assert ".github/actions/publish-pypi/action.yaml" in result.excluded_existing
 
@@ -3929,19 +3763,9 @@ def test_include_config_includes_all_skill_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, repo_slug: str
 ):
     """Config ``include = ["skills"]`` produces all skills regardless of repo type."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        (
-            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-            '[tool.repomatic]\ninclude = ["skills"]\n'
-        ),
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, monkeypatch, 'include = ["skills"]\n')
 
-    result = run_init(
-        output_dir=tmp_path, repo_slug=repo_slug, config=load_repomatic_config()
-    )
+    result = run_init_here(tmp_path, repo_slug=repo_slug)
 
     created_set = set(result.created)
     assert ".claude/skills/awesome-triage/SKILL.md" in created_set
@@ -3962,11 +3786,8 @@ def test_explicit_component_bypasses_scope_exclusion(
     """
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        components=["publish-pypi-action"],
-        output_dir=tmp_path,
-        repo_slug="user/awesome-billing",
-        config=load_repomatic_config(),
+    result = run_init_here(
+        tmp_path, components=["publish-pypi-action"], repo_slug="user/awesome-billing"
     )
 
     created_set = set(result.created)
@@ -3991,11 +3812,7 @@ def test_include_config_bypasses_scope_exclusion(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-billing",
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, repo_slug="user/awesome-billing")
 
     assert ".github/actions/publish-pypi/action.yaml" in set(result.created)
 
@@ -4010,21 +3827,9 @@ def test_include_bypasses_scope_for_tool_config(
     to config-key and file-level checks, then the tool config is merged
     into ``pyproject.toml``.
     """
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        (
-            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-            '[tool.repomatic]\ninclude = ["lychee"]\n'
-        ),
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    pyproject = write_project(tmp_path, monkeypatch, 'include = ["lychee"]\n')
 
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/some-project",
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, repo_slug="user/some-project")
 
     assert "pyproject.toml" in result.updated
     content = pyproject.read_text(encoding="UTF-8")
@@ -4037,11 +3842,7 @@ def test_bare_init_applies_scope_exclusion(
     """Bare init without ``include`` or CLI components applies scope exclusions."""
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-billing",
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, repo_slug="user/awesome-billing")
 
     created_set = set(result.created)
     # Scoped component and workflow files are scope-excluded in awesome repos.
@@ -4122,11 +3923,7 @@ def test_file_level_include_bypasses_scope(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-billing",
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, repo_slug="user/awesome-billing")
 
     created_set = set(result.created)
     # changelog.yaml (PYTHON_ONLY) included via file-level include.
@@ -4145,20 +3942,9 @@ def test_file_level_include_implies_parent_component(
     component (which is default-excluded) and bypass scope for that
     specific file, without bypassing scope for other AWESOME_ONLY files.
     """
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["skills/awesome-triage"]\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, monkeypatch, 'include = ["skills/awesome-triage"]\n')
 
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/some-project",
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, repo_slug="user/some-project")
 
     created_set = set(result.created)
     # awesome-triage created: parent component implicitly selected, scope bypassed.
@@ -4173,21 +3959,13 @@ def test_exclude_overrides_include_scope_bypass(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Explicit ``exclude`` entries take precedence over ``include`` scope bypass."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["skills"]\n'
-        'exclude = ["skills/awesome-triage"]\n',
-        encoding="UTF-8",
+    write_project(
+        tmp_path,
+        monkeypatch,
+        'include = ["skills"]\nexclude = ["skills/awesome-triage"]\n',
     )
-    monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/some-project",
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, repo_slug="user/some-project")
 
     created_set = set(result.created)
     # awesome-triage excluded by explicit exclude despite include scope bypass.
@@ -4210,9 +3988,7 @@ def test_publish_pypi_action_excluded_in_non_python_repo(
     pyproject.write_text("[tool.repomatic]\n", encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        output_dir=tmp_path, repo_slug="user/dotfiles", config=load_repomatic_config()
-    )
+    result = run_init_here(tmp_path, repo_slug="user/dotfiles")
 
     created_set = set(result.created)
     assert ".github/actions/publish-pypi/action.yaml" not in created_set
@@ -4229,11 +4005,7 @@ def test_publish_pypi_action_included_in_python_repo(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/fruitbasket",
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, repo_slug="user/fruitbasket")
 
     created_set = set(result.created)
     assert ".github/actions/publish-pypi/action.yaml" in created_set
@@ -4252,11 +4024,8 @@ def test_explicit_component_bypasses_python_only_scope(
     pyproject.write_text("[tool.repomatic]\n", encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        components=["publish-pypi-action"],
-        output_dir=tmp_path,
-        repo_slug="user/dotfiles",
-        config=load_repomatic_config(),
+    result = run_init_here(
+        tmp_path, components=["publish-pypi-action"], repo_slug="user/dotfiles"
     )
 
     created_set = set(result.created)
@@ -4274,9 +4043,7 @@ def test_include_config_bypasses_python_only_scope(
     )
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(
-        output_dir=tmp_path, repo_slug="user/dotfiles", config=load_repomatic_config()
-    )
+    result = run_init_here(tmp_path, repo_slug="user/dotfiles")
 
     created_set = set(result.created)
     assert ".github/actions/publish-pypi/action.yaml" in created_set
@@ -4286,37 +4053,25 @@ def test_init_respects_exclude_label_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Verify exclude config with label file entries skips those label files."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'exclude = ["labels/labels.toml"]\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, monkeypatch, 'exclude = ["labels/labels.toml"]\n')
 
     # `labels` is ephemeral, so only naming it explicitly writes it out. This
     # is the path `sync-labels` takes to stage definitions for labelmaker.
-    result = run_init(
-        output_dir=tmp_path, components=("labels",), config=load_repomatic_config()
-    )
+    result = run_init_here(tmp_path, components=("labels",))
 
     assert "labels.toml" not in set(result.created)
 
 
 def test_init_mixed_exclude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Verify exclude with both component and file entries."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
+    write_project(
+        tmp_path,
+        monkeypatch,
         'include = ["skills"]\n'
         'exclude = ["workflows/debug.yaml", "skills/repomatic-audit"]\n',
-        encoding="UTF-8",
     )
-    monkeypatch.chdir(tmp_path)
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
 
     created_set = set(result.created)
     assert "labels.toml" not in created_set
@@ -4328,119 +4083,87 @@ def test_init_mixed_exclude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert ".claude/skills/repomatic-init/SKILL.md" in created_set
 
 
-def test_init_detects_excluded_component_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Verify init reports excluded component files that still exist on disk."""
-    # Stage the label files the way the labeller jobs do, by naming the
-    # ephemeral component explicitly.
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-    run_init(
-        output_dir=tmp_path, components=("labels",), config=load_repomatic_config()
-    )
-
-    labels_toml = tmp_path / "labels.toml"
-    assert labels_toml.exists()
-
-    # A bare init leaves them out, so the staged copies read as excluded.
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
-
-    # File is detected but not deleted (deletion requires --delete-excluded).
-    assert labels_toml.exists()
-    assert "labels.toml" in result.excluded_existing
-
-
-def test_init_detects_excluded_skill_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Verify init reports a file-level excluded skill that still exists on disk."""
-    # First create all skills (include overrides default exclusion).
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        (
-            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-            '[tool.repomatic]\ninclude = ["skills"]\n'
+@pytest.mark.parametrize(
+    ("before", "components", "after", "slugs", "path", "reported"),
+    (
+        # The labeller jobs stage label files by naming their component, and a
+        # bare init leaves that component out.
+        pytest.param(
+            "",
+            ("labels",),
+            None,
+            (None, None),
+            "labels.toml",
+            "labels.toml",
+            id="staged-labels",
         ),
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-    run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-list",
-        config=load_repomatic_config(),
-    )
-
-    skill_file = tmp_path / ".claude" / "skills" / "awesome-triage" / "SKILL.md"
-    assert skill_file.exists()
-
-    # Now exclude just that skill and re-run.
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["skills"]\n'
-        'exclude = ["skills/awesome-triage"]\n',
-        encoding="UTF-8",
-    )
-
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-list",
-        config=load_repomatic_config(),
-    )
-
-    # File is detected but not deleted.
-    assert skill_file.exists()
-    assert ".claude/skills/awesome-triage" in result.excluded_existing
-    # Other skills should still exist.
-    assert (tmp_path / ".claude" / "skills" / "repomatic-init" / "SKILL.md").exists()
-
-
-def test_init_detects_auto_excluded_awesome_triage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Verify awesome-triage is detected as excluded for non-awesome repos.
-
-    When ``include`` does not cover skills, scope exclusions still apply
-    and stale awesome-only files are flagged in ``excluded_existing``.
-    """
-    # Create skills including awesome-triage (as an awesome repo).
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        (
-            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-            '[tool.repomatic]\ninclude = ["skills"]\n'
+        pytest.param(
+            'include = ["skills"]\n',
+            (),
+            'include = ["skills"]\nexclude = ["skills/awesome-triage"]\n',
+            ("user/awesome-list", "user/awesome-list"),
+            ".claude/skills/awesome-triage/SKILL.md",
+            ".claude/skills/awesome-triage",
+            id="excluded-skill",
         ),
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-    run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-list",
-        config=load_repomatic_config(),
-    )
+        # Without an `include` covering skills, scope exclusions apply again.
+        pytest.param(
+            'include = ["skills"]\n',
+            (),
+            "",
+            ("user/awesome-list", "user/regular-project"),
+            ".claude/skills/awesome-triage/SKILL.md",
+            ".claude/skills/awesome-triage",
+            id="out-of-scope-skill",
+        ),
+        pytest.param(
+            'include = ["subagents"]\nsubagents.location = "./custom/agents/"\n',
+            (),
+            'include = ["subagents"]\n'
+            'exclude = ["subagents/grunt-qa"]\n'
+            'subagents.location = "./custom/agents/"\n',
+            (None, None),
+            "custom/agents/grunt-qa.md",
+            "custom/agents/grunt-qa.md",
+            id="excluded-agent-custom-location",
+        ),
+        pytest.param(
+            'include = ["skills"]\nskills.location = "./custom/skills/"\n',
+            (),
+            'include = ["skills"]\n'
+            'exclude = ["skills/awesome-triage"]\n'
+            'skills.location = "./custom/skills/"\n',
+            ("user/awesome-list", "user/awesome-list"),
+            "custom/skills/awesome-triage/SKILL.md",
+            "custom/skills/awesome-triage",
+            id="excluded-skill-custom-location",
+        ),
+    ),
+)
+def test_init_reports_excluded_files_left_on_disk(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    before,
+    components,
+    after,
+    slugs,
+    path,
+    reported,
+):
+    """A file `init` stops managing is reported, and stays until deleted."""
+    write_project(tmp_path, monkeypatch, before)
+    first = run_init_here(tmp_path, components=components, repo_slug=slugs[0])
+    target = tmp_path / path
+    assert target.exists()
+    assert reported not in first.excluded_existing
 
-    skill_file = tmp_path / ".claude" / "skills" / "awesome-triage" / "SKILL.md"
-    assert skill_file.exists()
+    if after is not None:
+        write_project(tmp_path, monkeypatch, after)
+    result = run_init_here(tmp_path, repo_slug=slugs[1])
 
-    # Re-run as a non-awesome repo without include covering skills.
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.repomatic]\n',
-        encoding="UTF-8",
-    )
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/regular-project",
-        config=load_repomatic_config(),
-    )
-
-    # File is detected but not deleted.
-    assert skill_file.exists()
-    assert ".claude/skills/awesome-triage" in result.excluded_existing
+    # Deletion takes --delete-excluded.
+    assert target.exists()
+    assert reported in result.excluded_existing
 
 
 @pytest.mark.parametrize(
@@ -4508,156 +4231,61 @@ def test_resolve_target_ignores_components_with_fixed_location():
     )
 
 
-def test_init_skills_custom_location(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Verify skills are written to a custom location when configured."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["skills"]\n'
-        'skills.location = "./custom/skills/"\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
-
-    # Skills should be in the custom location.
-    custom_skill = tmp_path / "custom" / "skills" / "repomatic-init" / "SKILL.md"
-    assert custom_skill.exists()
-    assert "custom/skills/repomatic-init/SKILL.md" in result.created
-
-    # Default location should not exist.
-    assert not (tmp_path / ".claude" / "skills" / "repomatic-init").exists()
-
-
-def test_init_agents_custom_location(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Verify agents are written to a custom location when configured."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["subagents"]\n'
-        'subagents.location = "./custom/agents/"\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
-
-    # Agents should be in the custom location.
-    custom_agent = tmp_path / "custom" / "agents" / "grunt-qa.md"
-    assert custom_agent.exists()
-    assert "custom/agents/grunt-qa.md" in result.created
-
-    # Default location should not exist.
-    assert not (tmp_path / ".claude" / "agents" / "grunt-qa.md").exists()
-
-
-def test_init_detects_excluded_agent_custom_location(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("component", "location", "path", "default_path"),
+    (
+        (
+            "skills",
+            "./custom/skills/",
+            "custom/skills/repomatic-init/SKILL.md",
+            ".claude/skills/repomatic-init",
+        ),
+        (
+            "subagents",
+            "./custom/agents/",
+            "custom/agents/grunt-qa.md",
+            ".claude/agents/grunt-qa.md",
+        ),
+    ),
+)
+def test_init_custom_location(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    component,
+    location,
+    path,
+    default_path,
 ):
-    """Verify excluded agent detection works at custom locations."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["subagents"]\n'
-        'subagents.location = "./custom/agents/"\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-    run_init(output_dir=tmp_path, config=load_repomatic_config())
-
-    agent_file = tmp_path / "custom" / "agents" / "grunt-qa.md"
-    assert agent_file.exists()
-
-    # Exclude that agent and re-run.
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["subagents"]\n'
-        'exclude = ["subagents/grunt-qa"]\n'
-        'subagents.location = "./custom/agents/"\n',
-        encoding="UTF-8",
+    """A configured location receives the files, the default one stays empty."""
+    write_project(
+        tmp_path,
+        monkeypatch,
+        f'include = ["{component}"]\n{component}.location = "{location}"\n',
     )
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
 
-    assert agent_file.exists()
-    assert "custom/agents/grunt-qa.md" in result.excluded_existing
-
-
-def test_init_detects_excluded_skill_custom_location(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Verify excluded skill detection works at custom locations."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["skills"]\n'
-        'skills.location = "./custom/skills/"\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-    run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-list",
-        config=load_repomatic_config(),
-    )
-
-    skill_file = tmp_path / "custom" / "skills" / "awesome-triage" / "SKILL.md"
-    assert skill_file.exists()
-
-    # Exclude that skill and re-run.
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["skills"]\n'
-        'exclude = ["skills/awesome-triage"]\n'
-        'skills.location = "./custom/skills/"\n',
-        encoding="UTF-8",
-    )
-
-    result = run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-list",
-        config=load_repomatic_config(),
-    )
-
-    assert skill_file.exists()
-    assert "custom/skills/awesome-triage" in result.excluded_existing
+    assert (tmp_path / path).exists()
+    assert path in result.created
+    assert not (tmp_path / default_path).exists()
 
 
 def test_init_detects_disabled_opt_in_workflow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Verify disabled opt-in workflows on disk are detected as excluded."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        "notification.unsubscribe = true\n",
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, monkeypatch, "notification.unsubscribe = true\n")
 
     # Create the opt-in workflow while it's enabled.
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
     wf = tmp_path / ".github" / "workflows" / "unsubscribe.yaml"
     assert wf.exists()
     assert ".github/workflows/unsubscribe.yaml" not in result.excluded_existing
 
     # Disable the opt-in workflow and re-run.
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        "notification.unsubscribe = false\n",
-        encoding="UTF-8",
-    )
+    write_project(tmp_path, monkeypatch, "notification.unsubscribe = false\n")
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
 
     # File is detected as stale but not deleted.
     assert wf.exists()
@@ -4668,31 +4296,17 @@ def test_init_detects_disabled_opt_in_workflow(
 
 def test_init_cli_delete_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Verify --delete-excluded deletes excluded files and cleans empty dirs."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        (
-            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-            '[tool.repomatic]\ninclude = ["skills"]\n'
-        ),
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-    run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-list",
-        config=load_repomatic_config(),
-    )
+    write_project(tmp_path, monkeypatch, 'include = ["skills"]\n')
+    run_init_here(tmp_path, repo_slug="user/awesome-list")
 
     skill_file = tmp_path / ".claude" / "skills" / "awesome-triage" / "SKILL.md"
     assert skill_file.exists()
 
     # Exclude awesome-triage and re-run with --delete-excluded.
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["skills"]\n'
-        'exclude = ["skills/awesome-triage"]\n',
-        encoding="UTF-8",
+    write_project(
+        tmp_path,
+        monkeypatch,
+        'include = ["skills"]\nexclude = ["skills/awesome-triage"]\n',
     )
 
     runner = CliRunner()
@@ -4713,31 +4327,17 @@ def test_init_cli_no_delete_excluded_warns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Verify excluded files are reported but not deleted without --delete-excluded."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        (
-            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-            '[tool.repomatic]\ninclude = ["skills"]\n'
-        ),
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-    run_init(
-        output_dir=tmp_path,
-        repo_slug="user/awesome-list",
-        config=load_repomatic_config(),
-    )
+    write_project(tmp_path, monkeypatch, 'include = ["skills"]\n')
+    run_init_here(tmp_path, repo_slug="user/awesome-list")
 
     skill_file = tmp_path / ".claude" / "skills" / "awesome-triage" / "SKILL.md"
     assert skill_file.exists()
 
     # Exclude awesome-triage and re-run without --delete-excluded.
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["skills"]\n'
-        'exclude = ["skills/awesome-triage"]\n',
-        encoding="UTF-8",
+    write_project(
+        tmp_path,
+        monkeypatch,
+        'include = ["skills"]\nexclude = ["skills/awesome-triage"]\n',
     )
 
     runner = CliRunner()
@@ -5377,21 +4977,14 @@ def test_init_explicit_components_bypass_exclude(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Verify explicit CLI components override exclusion."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
+    write_project(
+        tmp_path,
+        monkeypatch,
         'exclude = ["labels", "skills", "changelog"]\n',
-        encoding="UTF-8",
     )
-    monkeypatch.chdir(tmp_path)
 
     # Explicitly request excluded components.
-    result = run_init(
-        output_dir=tmp_path,
-        components=("labels", "changelog"),
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, components=("labels", "changelog"))
 
     created_set = set(result.created)
     # Explicitly requested components should be created despite exclusion.
@@ -5402,72 +4995,31 @@ def test_init_explicit_components_bypass_exclude(
     assert result.excluded == []
 
 
-def test_init_exclude_unknown_component_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("setting", "match"),
+    (
+        ('exclude = ["nonexistent-component"]\n', "Unknown exclude"),
+        ('exclude = ["workflows/nonexistent.yaml"]\n', "Unknown file"),
+        ('include = ["nonexistent-component"]\n', "Unknown include"),
+    ),
+)
+def test_init_rejects_an_unknown_selector(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, setting, match
 ):
-    """Verify unknown component name in exclude raises ValueError."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'exclude = ["nonexistent-component"]\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    """An unknown component or file in `include` or `exclude` raises."""
+    write_project(tmp_path, monkeypatch, setting)
 
-    with pytest.raises(ValueError, match="Unknown exclude"):
-        run_init(output_dir=tmp_path, config=load_repomatic_config())
-
-
-def test_init_exclude_unknown_file_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Verify unknown file identifier in exclude raises ValueError."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'exclude = ["workflows/nonexistent.yaml"]\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-
-    with pytest.raises(ValueError, match="Unknown file"):
-        run_init(output_dir=tmp_path, config=load_repomatic_config())
-
-
-def test_init_include_unknown_component_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Verify unknown component name in include raises ValueError."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'include = ["nonexistent-component"]\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
-
-    with pytest.raises(ValueError, match="Unknown include"):
-        run_init(output_dir=tmp_path, config=load_repomatic_config())
+    with pytest.raises(ValueError, match=match):
+        run_init_here(tmp_path)
 
 
 def test_init_include_overrides_default_exclusions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Verify include overrides default exclusions additively."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        (
-            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-            '[tool.repomatic]\ninclude = ["subagents"]\n'
-        ),
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, monkeypatch, 'include = ["subagents"]\n')
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
 
     created_set = set(result.created)
     # Agents included via include; labels, skills still excluded by default.
@@ -5487,17 +5039,9 @@ def test_init_include_cannot_materialize_ephemeral(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ):
     """Verify `include` cannot opt a bare init into an ephemeral component."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        (
-            '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-            '[tool.repomatic]\ninclude = ["labels"]\n'
-        ),
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, monkeypatch, 'include = ["labels"]\n')
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
 
     assert "labels.toml" not in set(result.created)
     assert not (tmp_path / "labels.toml").exists()
@@ -5509,9 +5053,7 @@ def test_init_include_cannot_materialize_ephemeral(
 
 def test_init_explicit_selection_materializes_ephemeral(tmp_path: Path):
     """Verify naming an ephemeral component explicitly still writes its files."""
-    result = run_init(
-        output_dir=tmp_path, components=("labels",), config=load_repomatic_config()
-    )
+    result = run_init_here(tmp_path, components=("labels",))
 
     assert set(result.created) == {"labels.toml"}
 
@@ -5520,16 +5062,9 @@ def test_init_exclude_additive_to_defaults(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Verify user exclude is additive to default exclusions."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n\n'
-        "[tool.repomatic]\n"
-        'exclude = ["workflows/debug.yaml"]\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, monkeypatch, 'exclude = ["workflows/debug.yaml"]\n')
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
 
     created_set = set(result.created)
     # Default exclusions (labels, skills) still apply.
@@ -5831,16 +5366,12 @@ def test_init_reports_unmodified_configs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Init reports native config files that match bundled defaults."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n', encoding="UTF-8"
-    )
-    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, monkeypatch)
 
     content = get_data_content("yamllint.yaml")
     (tmp_path / ".yamllint.yaml").write_text(content, encoding="UTF-8")
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
     assert ".yamllint.yaml" in result.unmodified_configs
 
 
@@ -5848,17 +5379,13 @@ def test_init_no_unmodified_when_different(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Init does not flag modified config files as unmodified."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test"\nversion = "0.1.0"\n', encoding="UTF-8"
-    )
-    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, monkeypatch)
 
     (tmp_path / ".yamllint.yaml").write_text(
         "rules:\n  line-length:\n    max: 80\n", encoding="UTF-8"
     )
 
-    result = run_init(output_dir=tmp_path, config=load_repomatic_config())
+    result = run_init_here(tmp_path)
     assert result.unmodified_configs == []
 
 
@@ -5925,20 +5452,14 @@ def test_parse_component_entries_rejects_invalid_entries(
 
 def test_init_single_skill(tmp_path: Path):
     """Qualified entry creates only the specified skill."""
-    result = run_init(
-        output_dir=tmp_path,
-        components=("skills/repomatic-topics",),
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, components=("skills/repomatic-topics",))
     assert result.created == [".claude/skills/repomatic-topics/SKILL.md"]
 
 
 def test_init_multiple_qualified_same_component(tmp_path: Path):
     """Multiple qualified entries for same component creates all specified."""
-    result = run_init(
-        output_dir=tmp_path,
-        components=("skills/repomatic-topics", "skills/repomatic-audit"),
-        config=load_repomatic_config(),
+    result = run_init_here(
+        tmp_path, components=("skills/repomatic-topics", "skills/repomatic-audit")
     )
     created_set = set(result.created)
     assert created_set == {
@@ -5949,11 +5470,7 @@ def test_init_multiple_qualified_same_component(tmp_path: Path):
 
 def test_init_bare_overrides_qualified(tmp_path: Path):
     """Bare component name includes all files, ignoring qualified filter."""
-    result = run_init(
-        output_dir=tmp_path,
-        components=("skills", "skills/repomatic-topics"),
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, components=("skills", "skills/repomatic-topics"))
     # All skills created: explicit component request bypasses scope.
     total_skills = sum(
         written_file_count(f) for f in COMPONENTS_BY_NAME["skills"].files
@@ -5963,11 +5480,7 @@ def test_init_bare_overrides_qualified(tmp_path: Path):
 
 def test_init_mixed_bare_and_qualified(tmp_path: Path):
     """Bare + qualified for different components work independently."""
-    result = run_init(
-        output_dir=tmp_path,
-        components=("labels", "skills/repomatic-topics"),
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, components=("labels", "skills/repomatic-topics"))
     created_set = set(result.created)
     assert created_set == {
         "labels.toml",
@@ -5977,22 +5490,15 @@ def test_init_mixed_bare_and_qualified(tmp_path: Path):
 
 def test_init_qualified_workflow(tmp_path: Path):
     """Single workflow file selection."""
-    result = run_init(
-        output_dir=tmp_path,
-        components=("workflows/autofix.yaml",),
-        config=load_repomatic_config(),
-    )
+    result = run_init_here(tmp_path, components=("workflows/autofix.yaml",))
     assert len(result.created) == 1
     assert result.created[0] == ".github/workflows/autofix.yaml"
 
 
 def test_init_qualified_scope_bypassed_when_explicit(tmp_path: Path):
     """Explicit selection bypasses scope: awesome-triage created in non-awesome repo."""
-    result = run_init(
-        output_dir=tmp_path,
-        components=("skills/awesome-triage",),
-        repo_slug="user/some-project",
-        config=load_repomatic_config(),
+    result = run_init_here(
+        tmp_path, components=("skills/awesome-triage",), repo_slug="user/some-project"
     )
     assert result.created == [".claude/skills/awesome-triage/SKILL.md"]
 
@@ -6011,11 +5517,8 @@ def test_init_awesome_template_not_auto_included_with_explicit_components(
     tmp_path: Path,
 ):
     """awesome-template is not auto-included when explicit components are given."""
-    result = run_init(
-        output_dir=tmp_path,
-        components=("skills/repomatic-topics",),
-        repo_slug="user/awesome-list",
-        config=load_repomatic_config(),
+    result = run_init_here(
+        tmp_path, components=("skills/repomatic-topics",), repo_slug="user/awesome-list"
     )
     created_set = set(result.created)
     assert created_set == {".claude/skills/repomatic-topics/SKILL.md"}

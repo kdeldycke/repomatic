@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from textwrap import dedent
 
 import pytest
@@ -373,52 +374,6 @@ def _unreleased_changelog(bullet: str) -> str:
     ).format(bullet=bullet)
 
 
-def test_warn_on_long_bullets_flags_unreleased(caplog):
-    """An over-long unreleased bullet emits a non-fatal warning."""
-    changelog = Changelog(_unreleased_changelog(_LONG_BULLET))
-    with caplog.at_level(logging.WARNING):
-        warn_on_long_bullets(changelog, threshold=5)
-    assert "1.2.3: changelog entry 1 runs" in caplog.text
-
-
-def test_warn_on_long_bullets_short_entry_is_silent(caplog):
-    """A short unreleased bullet stays under the ceiling and warns nothing."""
-    changelog = Changelog(_unreleased_changelog(_SHORT_BULLET))
-    with caplog.at_level(logging.WARNING):
-        warn_on_long_bullets(changelog, threshold=5)
-    assert caplog.records == []
-
-
-def test_warn_on_long_bullets_ignores_released_sections(caplog):
-    """Immutable released sections are never flagged, only the unreleased one."""
-    changelog = Changelog(
-        dedent(
-            """\
-            # Changelog
-
-            ## [`1.2.3` (unreleased)](https://github.com/user/repo/compare/v1.2.2...main)
-
-            - Add the seasonal fruit basket.
-
-            ## [`1.2.2` (2024-01-15)](https://github.com/user/repo/compare/v1.2.1...v1.2.2)
-
-            - This released entry is deliberately written far too long to fit within the strict word ceiling that the check would otherwise enforce.
-            """  # noqa: E501
-        )
-    )
-    with caplog.at_level(logging.WARNING):
-        warn_on_long_bullets(changelog, threshold=5)
-    assert caplog.records == []
-
-
-def test_warn_on_long_bullets_threshold_zero_disables(caplog):
-    """A threshold of 0 disables the check, even for a very long bullet."""
-    changelog = Changelog(_unreleased_changelog(_LONG_BULLET))
-    with caplog.at_level(logging.WARNING):
-        warn_on_long_bullets(changelog, threshold=0)
-    assert caplog.records == []
-
-
 def _released_changelog(body: str) -> str:
     return dedent(
         """\
@@ -433,32 +388,120 @@ def _released_changelog(body: str) -> str:
     ).format(body=body)
 
 
-def test_warn_on_empty_sections_flags_released(caplog):
-    """A released section with no entry emits a non-fatal warning."""
-    changelog = Changelog(_released_changelog(""))
+@pytest.mark.parametrize(
+    ("warn", "content", "expected"),
+    (
+        pytest.param(
+            partial(warn_on_long_bullets, threshold=5),
+            _unreleased_changelog(_LONG_BULLET),
+            "1.2.3: changelog entry 1 runs",
+            id="long-bullet",
+        ),
+        pytest.param(
+            partial(warn_on_long_bullets, threshold=5),
+            _unreleased_changelog(_SHORT_BULLET),
+            None,
+            id="short-bullet",
+        ),
+        # Immutable released sections are never flagged, only the unreleased one.
+        pytest.param(
+            partial(warn_on_long_bullets, threshold=5),
+            dedent(
+                """\
+                # Changelog
+
+                ## [`1.2.3` (unreleased)](https://github.com/user/repo/compare/v1.2.2...main)
+
+                - Add the seasonal fruit basket.
+
+                ## [`1.2.2` (2024-01-15)](https://github.com/user/repo/compare/v1.2.1...v1.2.2)
+
+                - This released entry is deliberately written far too long to fit within the strict word ceiling that the check would otherwise enforce.
+                """  # noqa: E501
+            ),
+            None,
+            id="long-released-bullet",
+        ),
+        # A threshold of 0 disables the check, even for a very long bullet.
+        pytest.param(
+            partial(warn_on_long_bullets, threshold=0),
+            _unreleased_changelog(_LONG_BULLET),
+            None,
+            id="threshold-zero",
+        ),
+        pytest.param(
+            warn_on_empty_sections,
+            _released_changelog(""),
+            "1.2.2: released section holds no entry",
+            id="empty-released-section",
+        ),
+        # The empty unreleased section the post-release bump creates is expected.
+        pytest.param(
+            warn_on_empty_sections,
+            _released_changelog("- Add the seasonal fruit basket."),
+            None,
+            id="empty-unreleased-section",
+        ),
+        # An availability caveat is not a statement of what changed.
+        pytest.param(
+            warn_on_empty_sections,
+            _released_changelog(
+                "> [!WARNING]\n> This version ships without `windows-arm64` binaries."
+            ),
+            "1.2.2: released section holds no entry",
+            id="admonition-only-section",
+        ),
+        # A Breaking entry filed after an ordinary one is reported with its index.
+        pytest.param(
+            warn_on_entry_order,
+            _unreleased_changelog(
+                "- Add the seasonal fruit basket.\n"
+                "- **Breaking:** Drop the apple crate."
+            ),
+            "1.2.3: changelog entry 2 opens on **Breaking:**",
+            id="late-breaking-entry",
+        ),
+        # A Deprecated entry sits after the Breaking ones and before the rest.
+        pytest.param(
+            warn_on_entry_order,
+            _unreleased_changelog(
+                "- **Breaking:** Drop the apple crate.\n"
+                "- Add the seasonal fruit basket.\n"
+                "- **Deprecated:** The pear crate goes in `2.0.0`."
+            ),
+            "1.2.3: changelog entry 3 opens on **Deprecated:**",
+            id="late-deprecated-entry",
+        ),
+        pytest.param(
+            warn_on_entry_order,
+            _unreleased_changelog(
+                "- **Breaking:** Drop the apple crate.\n"
+                "- **Deprecated:** The pear crate goes in `2.0.0`.\n"
+                "- Add the seasonal fruit basket."
+            ),
+            None,
+            id="canonical-entry-order",
+        ),
+        # A released section is immutable, so its order is never re-flagged.
+        pytest.param(
+            warn_on_entry_order,
+            _released_changelog(
+                "- Add the seasonal fruit basket.\n"
+                "- **Breaking:** Drop the apple crate."
+            ),
+            None,
+            id="released-entry-order",
+        ),
+    ),
+)
+def test_non_fatal_changelog_warnings(warn, content, expected, caplog):
+    """Each non-fatal changelog check warns on its own finding, and only there."""
     with caplog.at_level(logging.WARNING):
-        warn_on_empty_sections(changelog)
-    assert "1.2.2: released section holds no entry" in caplog.text
-
-
-def test_warn_on_empty_sections_ignores_the_unreleased_one(caplog):
-    """The empty unreleased section the post-release bump creates is expected."""
-    changelog = Changelog(_released_changelog("- Add the seasonal fruit basket."))
-    with caplog.at_level(logging.WARNING):
-        warn_on_empty_sections(changelog)
-    assert caplog.records == []
-
-
-def test_warn_on_empty_sections_counts_an_admonition_as_empty(caplog):
-    """An availability caveat is not a statement of what changed."""
-    changelog = Changelog(
-        _released_changelog(
-            "> [!WARNING]\n> This version ships without `windows-arm64` binaries."
-        )
-    )
-    with caplog.at_level(logging.WARNING):
-        warn_on_empty_sections(changelog)
-    assert "1.2.2: released section holds no entry" in caplog.text
+        warn(Changelog(content))
+    if expected is None:
+        assert caplog.records == []
+    else:
+        assert expected in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -1415,58 +1458,6 @@ def test_lint_tolerates_an_unreadable_tag_list(changelog_file, monkeypatch, capl
     with caplog.at_level(logging.WARNING):
         assert lint_changelog_dates(changelog_file) == 0
     assert "not a git repository" in caplog.text
-
-
-def test_warn_on_entry_order_flags_a_late_breaking_entry(caplog):
-    """A Breaking entry filed after an ordinary one is reported with its index."""
-    changelog = Changelog(
-        _unreleased_changelog(
-            "- Add the seasonal fruit basket.\n- **Breaking:** Drop the apple crate."
-        )
-    )
-    with caplog.at_level(logging.WARNING):
-        warn_on_entry_order(changelog)
-    assert "1.2.3: changelog entry 2 opens on **Breaking:**" in caplog.text
-
-
-def test_warn_on_entry_order_flags_a_deprecation_after_a_plain_entry(caplog):
-    """A Deprecated entry sits after the Breaking ones and before the rest."""
-    changelog = Changelog(
-        _unreleased_changelog(
-            "- **Breaking:** Drop the apple crate.\n"
-            "- Add the seasonal fruit basket.\n"
-            "- **Deprecated:** The pear crate goes in `2.0.0`."
-        )
-    )
-    with caplog.at_level(logging.WARNING):
-        warn_on_entry_order(changelog)
-    assert "1.2.3: changelog entry 3 opens on **Deprecated:**" in caplog.text
-
-
-def test_warn_on_entry_order_accepts_the_canonical_order(caplog):
-    """Breaking, then Deprecated, then the rest is the order the check wants."""
-    changelog = Changelog(
-        _unreleased_changelog(
-            "- **Breaking:** Drop the apple crate.\n"
-            "- **Deprecated:** The pear crate goes in `2.0.0`.\n"
-            "- Add the seasonal fruit basket."
-        )
-    )
-    with caplog.at_level(logging.WARNING):
-        warn_on_entry_order(changelog)
-    assert caplog.records == []
-
-
-def test_warn_on_entry_order_ignores_released_sections(caplog):
-    """A released section is immutable, so its order is never re-flagged."""
-    changelog = Changelog(
-        _released_changelog(
-            "- Add the seasonal fruit basket.\n- **Breaking:** Drop the apple crate."
-        )
-    )
-    with caplog.at_level(logging.WARNING):
-        warn_on_entry_order(changelog)
-    assert caplog.records == []
 
 
 def test_positional_reference_warns_when_no_thread_carries_the_number(

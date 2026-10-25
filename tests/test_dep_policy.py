@@ -40,22 +40,219 @@ def remedies(findings) -> list[str]:
     return [finding.remedy for finding in findings]
 
 
-def test_clean_declaration_reports_nothing(tmp_path):
-    """A list that follows every rule produces no finding."""
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-        dependencies = [
-          # boltons 25.0 dropped Python 3.9, matching our requires-python.
-          "boltons>=25",
-          # wcmatch 10.0 changed globbing semantics.
-          "wcmatch>=10",
-        ]
-        """,
+@pytest.mark.parametrize(
+    ("body", "threshold"),
+    (
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+            dependencies = [
+              # boltons 25.0 dropped Python 3.9, matching our requires-python.
+              "boltons>=25",
+              # wcmatch 10.0 changed globbing semantics.
+              "wcmatch>=10",
+            ]
+            """,
+            None,
+            id="clean-declaration",
+        ),
+        # A `[[...]]` header closes the table before it, like a `[...]` one.
+        #
+        # A comment scan reading on past it would take an array further down for the
+        # runtime list, and find it written inline.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+            dependencies = ["requests>=2"]
+
+            [[tool.mango.index]]
+            dependencies = [
+              "kiwi>=1",
+            ]
+            """,
+            None,
+            id="array-of-tables-ends-table",
+        ),
+        # A dev group may pin harder: nothing downstream inherits it.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+
+            [dependency-groups]
+            # Pinned to keep CI reproducible.
+            test = [
+              "pytest~=8.0",
+            ]
+            """,
+            None,
+            id="cap-outside-runtime",
+        ),
+        # `click-extra[sphinx]` selects an extra, it does not re-declare a floor.
+        #
+        # Repeating the floor on the second mention would just be a second number to
+        # keep in step with the first.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+            dependencies = [
+              # Floored once, here.
+              "click-extra>=8.8",
+            ]
+
+            [dependency-groups]
+            # Pulls the sphinx extra of the runtime dependency above.
+            docs = [
+              "click-extra[sphinx]",
+            ]
+            """,
+            None,
+            id="extra-of-floored-package",
+        ),
+        # An `all` extra rolling up the project's own extras can carry no floor.
+        #
+        # A project never declares itself with a specifier in its own file, so the
+        # "floored somewhere else" gate can never catch it, and the resolver picks the
+        # version being installed: there is no other release to exclude.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+            optional-dependencies.toml = [
+              # tomlkit.dumps() renders the harvest tables.
+              "tomlkit>=0.13",
+            ]
+            optional-dependencies.xml = [
+              # xmltodict.unparse() renders the harvest tables.
+              "xmltodict>=1",
+            ]
+            optional-dependencies.all = [
+              "orchard[toml,xml]",
+            ]
+            """,
+            None,
+            id="aggregate-self-extra",
+        ),
+        # Where they belong, stubs draw no finding.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+
+            [dependency-groups]
+            # Documented as a block.
+            typing = [
+              "types-boltons>=25.0",
+            ]
+            """,
+            None,
+            id="stub-in-typing-group",
+        ),
+        # A run of related entries is usually justified in one block.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+
+            [dependency-groups]
+            # types-boltons and types-pyyaml cover the stubs mypy needs.
+            typing = [
+              "types-boltons>=25.0",
+              "types-pyyaml>=6.0",
+            ]
+            """,
+            None,
+            id="array-comment-covers-group",
+        ),
+        # An inline list has no per-entry line to hang a comment on.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+            dependencies = ["boltons>=25"]
+            """,
+            None,
+            id="inline-array",
+        ),
+        # An unparsable entry is somebody else's error to report.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+            dependencies = [
+              # Not a PEP 508 requirement.
+              "=== nonsense ===",
+            ]
+            """,
+            None,
+            id="malformed-requirement",
+        ),
+        # The rule caps the narration, not the justification.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+            dependencies = [
+              # papaya 3.0 ships the peel() the harvest report calls.
+              "papaya>=3",
+            ]
+            """,
+            40,
+            id="short-floor-comment",
+        ),
+        # A caller with no configuration to read gets the presence check alone.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+            dependencies = [
+              # papaya 3.0 ships the peel() the harvest report calls, and this
+              # comment runs on well past any threshold a project would set, for
+              # the sake of counting more words than a reader would ever want to
+              # read about one single dependency floor in one single place.
+              "papaya>=3",
+            ]
+            """,
+            None,
+            id="length-unchecked-by-default",
+        ),
+        # A version-policy header justifies nothing, so length is not its measure.
+        #
+        # Every entry below carries its own comment, so the block is a preamble.
+        # Flagging it would report a rule about floor comments against a comment that
+        # documents no floor.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+            # Floors use `>=`, never `~=`, so a packager can ship a security
+            # hotfix without waiting on this project. Every floor below names the
+            # API it needs, and none of them caps a version from above, since a
+            # cap here propagates to everyone installing this orchard.
+            dependencies = [
+              # mango 2.0 ships the ripen() the harvest report calls.
+              "mango>=2",
+              # papaya 3.0 ships the peel() the crate packer calls.
+              "papaya>=3",
+            ]
+            """,
+            40,
+            id="policy-preamble",
+        ),
+    ),
+)
+def test_policy_accepts(tmp_path, body, threshold):
+    """A declaration that follows every rule produces no finding."""
+    path = write_pyproject(tmp_path, body)
+    findings = (
+        scan_policy(path)
+        if threshold is None
+        else scan_policy(path, comment_word_threshold=threshold)
     )
-    assert scan_policy(path) == []
+    assert findings == []
 
 
 def test_upper_bound_on_a_runtime_dependency(tmp_path):
@@ -101,28 +298,6 @@ def test_a_file_under_another_name_is_scanned(tmp_path):
     assert finding.location == "project.dependencies"
 
 
-def test_an_array_of_tables_ends_the_table_above_it(tmp_path):
-    """A `[[...]]` header closes the table before it, like a `[...]` one.
-
-    A comment scan reading on past it would take an array further down for the
-    runtime list, and find it written inline.
-    """
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-        dependencies = ["requests>=2"]
-
-        [[tool.mango.index]]
-        dependencies = [
-          "kiwi>=1",
-        ]
-        """,
-    )
-    assert scan_policy(path) == []
-
-
 def test_a_header_with_a_comment_opens_its_table(tmp_path):
     """A comment after a table header does not hide the table it opens.
 
@@ -166,92 +341,53 @@ def test_every_capping_operator_is_caught(tmp_path, specifier):
     assert "Drop the upper bound" in remedies(scan_policy(path))[0]
 
 
-def test_upper_bound_is_allowed_outside_runtime(tmp_path):
-    """A dev group may pin harder: nothing downstream inherits it."""
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
+@pytest.mark.parametrize(
+    ("body", "remedy"),
+    (
+        # No specifier means the tested version and the installed one can differ.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+            dependencies = [
+              # No floor at all.
+              "requests",
+            ]
+            """,
+            "Add a `>=` floor",
+            id="bare-dependency",
+        ),
+        # A floor nobody justified cannot be audited later.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+            dependencies = [
+              "boltons>=25",
+            ]
+            """,
+            "Add a comment above it",
+            id="uncommented-floor",
+        ),
+        # An unattached comment leaves the floor undocumented.
+        pytest.param(
+            """\
+            [project]
+            name = "orchard"
+            dependencies = [
+              # papaya 3.0 ships the peel() the harvest report calls.
 
-        [dependency-groups]
-        # Pinned to keep CI reproducible.
-        test = [
-          "pytest~=8.0",
-        ]
-        """,
-    )
-    assert scan_policy(path) == []
-
-
-def test_bare_dependency_is_flagged(tmp_path):
-    """No specifier means the tested version and the installed one can differ."""
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-        dependencies = [
-          # No floor at all.
-          "requests",
-        ]
-        """,
-    )
-    assert "Add a `>=` floor" in remedies(scan_policy(path))[0]
-
-
-def test_extra_of_an_already_floored_package_is_not_bare(tmp_path):
-    """`click-extra[sphinx]` selects an extra, it does not re-declare a floor.
-
-    Repeating the floor on the second mention would just be a second number
-    to keep in step with the first.
-    """
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-        dependencies = [
-          # Floored once, here.
-          "click-extra>=8.8",
-        ]
-
-        [dependency-groups]
-        # Pulls the sphinx extra of the runtime dependency above.
-        docs = [
-          "click-extra[sphinx]",
-        ]
-        """,
-    )
-    assert scan_policy(path) == []
-
-
-def test_aggregate_extra_selecting_the_project_itself_is_not_bare(tmp_path):
-    """An `all` extra rolling up the project's own extras can carry no floor.
-
-    A project never declares itself with a specifier in its own file, so the
-    "floored somewhere else" gate can never catch it, and the resolver picks
-    the version being installed: there is no other release to exclude.
-    """
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-        optional-dependencies.toml = [
-          # tomlkit.dumps() renders the harvest tables.
-          "tomlkit>=0.13",
-        ]
-        optional-dependencies.xml = [
-          # xmltodict.unparse() renders the harvest tables.
-          "xmltodict>=1",
-        ]
-        optional-dependencies.all = [
-          "orchard[toml,xml]",
-        ]
-        """,
-    )
-    assert scan_policy(path) == []
+              "papaya>=3",
+            ]
+            """,
+            "Add a comment above it",
+            id="blank-line-detaches-comment",
+        ),
+    ),
+)
+def test_policy_flags_a_floor_problem(tmp_path, body, remedy):
+    """A missing or undocumented floor draws the remedy that fixes it."""
+    assert remedy in remedies(scan_policy(write_pyproject(tmp_path, body)))[0]
 
 
 def test_unsorted_list_names_only_the_first_offender(tmp_path):
@@ -296,90 +432,9 @@ def test_type_stub_outside_the_typing_group(tmp_path):
     assert "typing" in finding.remedy
 
 
-def test_type_stub_inside_the_typing_group_is_fine(tmp_path):
-    """Where they belong, stubs draw no finding."""
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-
-        [dependency-groups]
-        # Documented as a block.
-        typing = [
-          "types-boltons>=25.0",
-        ]
-        """,
-    )
-    assert scan_policy(path) == []
-
-
-def test_uncommented_floor_is_flagged(tmp_path):
-    """A floor nobody justified cannot be audited later."""
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-        dependencies = [
-          "boltons>=25",
-        ]
-        """,
-    )
-    assert "Add a comment above it" in remedies(scan_policy(path))[0]
-
-
-def test_a_comment_above_the_array_documents_the_whole_group(tmp_path):
-    """A run of related entries is usually justified in one block."""
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-
-        [dependency-groups]
-        # types-boltons and types-pyyaml cover the stubs mypy needs.
-        typing = [
-          "types-boltons>=25.0",
-          "types-pyyaml>=6.0",
-        ]
-        """,
-    )
-    assert scan_policy(path) == []
-
-
-def test_inline_array_skips_the_comment_check(tmp_path):
-    """An inline list has no per-entry line to hang a comment on."""
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-        dependencies = ["boltons>=25"]
-        """,
-    )
-    assert scan_policy(path) == []
-
-
 def test_missing_file_reports_nothing(tmp_path):
     """A non-Python repo has nothing to check, and must not raise."""
     assert scan_policy(tmp_path / "pyproject.toml") == []
-
-
-def test_malformed_requirement_is_skipped(tmp_path):
-    """An unparsable entry is somebody else's error to report."""
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-        dependencies = [
-          # Not a PEP 508 requirement.
-          "=== nonsense ===",
-        ]
-        """,
-    )
-    assert scan_policy(path) == []
 
 
 @pytest.mark.parametrize(
@@ -418,58 +473,6 @@ def test_over_long_floor_comment_is_flagged(tmp_path):
     assert finding.package == "papaya"
     assert "documented in 50 words" in finding.detail
     assert "Superseded floors" in finding.remedy
-
-
-def test_a_short_floor_comment_passes(tmp_path):
-    """The rule caps the narration, not the justification."""
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-        dependencies = [
-          # papaya 3.0 ships the peel() the harvest report calls.
-          "papaya>=3",
-        ]
-        """,
-    )
-    assert scan_policy(path, comment_word_threshold=40) == []
-
-
-def test_comment_length_is_unchecked_by_default(tmp_path):
-    """A caller with no configuration to read gets the presence check alone."""
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-        dependencies = [
-          # papaya 3.0 ships the peel() the harvest report calls, and this
-          # comment runs on well past any threshold a project would set, for
-          # the sake of counting more words than a reader would ever want to
-          # read about one single dependency floor in one single place.
-          "papaya>=3",
-        ]
-        """,
-    )
-    assert scan_policy(path) == []
-
-
-def test_a_blank_line_detaches_the_comment_above(tmp_path):
-    """An unattached comment leaves the floor undocumented."""
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-        dependencies = [
-          # papaya 3.0 ships the peel() the harvest report calls.
-
-          "papaya>=3",
-        ]
-        """,
-    )
-    assert "Add a comment above it" in remedies(scan_policy(path))[0]
 
 
 def test_a_block_comment_excuses_absence_but_not_length(tmp_path):
@@ -527,33 +530,6 @@ def test_a_wall_moved_above_the_array_is_still_a_wall(tmp_path):
     (finding,) = scan_policy(path, comment_word_threshold=40)
     assert finding.package == "mango"
     assert "50-word block above the array" in finding.detail
-
-
-def test_an_array_preamble_documenting_no_floor_is_not_measured(tmp_path):
-    """A version-policy header justifies nothing, so length is not its measure.
-
-    Every entry below carries its own comment, so the block is a preamble.
-    Flagging it would report a rule about floor comments against a comment
-    that documents no floor.
-    """
-    path = write_pyproject(
-        tmp_path,
-        """\
-        [project]
-        name = "orchard"
-        # Floors use `>=`, never `~=`, so a packager can ship a security
-        # hotfix without waiting on this project. Every floor below names the
-        # API it needs, and none of them caps a version from above, since a
-        # cap here propagates to everyone installing this orchard.
-        dependencies = [
-          # mango 2.0 ships the ripen() the harvest report calls.
-          "mango>=2",
-          # papaya 3.0 ships the peel() the crate packer calls.
-          "papaya>=3",
-        ]
-        """,
-    )
-    assert scan_policy(path, comment_word_threshold=40) == []
 
 
 @pytest.mark.repo_maintenance

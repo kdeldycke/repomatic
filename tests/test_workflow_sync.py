@@ -130,16 +130,17 @@ def test_returns_trigger_info(filename: str) -> None:
     assert len(info.name) > 0
 
 
-def test_autofix_has_secrets() -> None:
-    """Verify autofix.yaml defines secrets."""
-    info = extract_trigger_info("autofix.yaml")
-    assert "REPOMATIC_PAT" in info.call_secrets
-
-
-def test_changelog_has_secrets() -> None:
-    """Verify changelog.yaml defines secrets."""
-    info = extract_trigger_info("changelog.yaml")
-    assert "REPOMATIC_PAT" in info.call_secrets
+@pytest.mark.parametrize(
+    ("filename", "secret"),
+    (
+        ("autofix.yaml", "REPOMATIC_PAT"),
+        ("changelog.yaml", "REPOMATIC_PAT"),
+        ("unsubscribe.yaml", "REPOMATIC_NOTIFICATIONS_PAT"),
+    ),
+)
+def test_reusable_workflow_declares_its_secret(filename: str, secret: str) -> None:
+    """A reusable workflow declares the secret its callers pass."""
+    assert secret in extract_trigger_info(filename).call_secrets
 
 
 def test_release_has_secrets() -> None:
@@ -152,12 +153,6 @@ def test_release_has_secrets() -> None:
     info = extract_trigger_info("_release-engine.yaml")
     assert "PYPI_TOKEN" not in info.call_secrets
     assert "REPOMATIC_PAT" in info.call_secrets
-
-
-def test_unsubscribe_has_secrets() -> None:
-    """Verify unsubscribe.yaml defines secrets."""
-    info = extract_trigger_info("unsubscribe.yaml")
-    assert "REPOMATIC_NOTIFICATIONS_PAT" in info.call_secrets
 
 
 def test_unsubscribe_has_call_inputs() -> None:
@@ -515,16 +510,10 @@ def test_quoted_on_key(filename: str) -> None:
     assert '"on":' in content
 
 
-def test_autofix_passes_secrets_explicitly() -> None:
-    """Verify autofix.yaml thin caller passes secrets explicitly."""
-    content = generate_thin_caller("autofix.yaml")
-    assert "secrets: inherit" not in content
-    assert "REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}" in content
-
-
-def test_changelog_passes_secrets_explicitly() -> None:
-    """Verify changelog.yaml thin caller passes secrets explicitly."""
-    content = generate_thin_caller("changelog.yaml")
+@pytest.mark.parametrize("filename", ("autofix.yaml", "changelog.yaml", "lint.yaml"))
+def test_thin_caller_passes_secrets_explicitly(filename: str) -> None:
+    """A thin caller names each secret instead of inheriting them all."""
+    content = generate_thin_caller(filename)
     assert "secrets: inherit" not in content
     assert "REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}" in content
 
@@ -748,13 +737,6 @@ def test_release_thin_caller_unrecognized_job_raises(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="publish-pypi"):
         generate_thin_caller("release.yaml", version="v9.9.9")
-
-
-def test_lint_passes_secrets_explicitly() -> None:
-    """Verify lint.yaml thin caller passes secrets explicitly."""
-    content = generate_thin_caller("lint.yaml")
-    assert "secrets: inherit" not in content
-    assert "REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}" in content
 
 
 def test_custom_version() -> None:
@@ -1598,38 +1580,23 @@ def test_needs_yaml_quote(value: str, expected: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_derive_source_paths_from_name() -> None:
-    """Derive source paths from [project.name]."""
-    pyproject_data = {"project": {"name": "extra-platforms"}}
-    result = derive_source_paths(pyproject_data)
-    assert result == ["extra_platforms"]
-
-
-def test_derive_source_paths_underscore_name() -> None:
-    """Derive source paths when name already uses underscores."""
-    pyproject_data = {"project": {"name": "meta_package_manager"}}
-    result = derive_source_paths(pyproject_data)
-    assert result == ["meta_package_manager"]
-
-
-def test_derive_source_paths_simple_name() -> None:
-    """Derive source paths from a simple name without hyphens."""
-    pyproject_data = {"project": {"name": "repomatic"}}
-    result = derive_source_paths(pyproject_data)
-    assert result == ["repomatic"]
-
-
-def test_derive_source_paths_no_name() -> None:
-    """Return empty list when no project name defined."""
-    pyproject_data: dict[str, Any] = {"project": {}}
-    result = derive_source_paths(pyproject_data)
-    assert result == []
-
-
-def test_derive_source_paths_empty_pyproject() -> None:
-    """Return empty list for empty pyproject data."""
-    result = derive_source_paths({})
-    assert result == []
+@pytest.mark.parametrize(
+    ("pyproject_data", "expected"),
+    (
+        pytest.param(
+            {"project": {"name": "orange-grove"}}, ["orange_grove"], id="hyphens"
+        ),
+        pytest.param(
+            {"project": {"name": "blood_orange"}}, ["blood_orange"], id="underscores"
+        ),
+        pytest.param({"project": {"name": "papaya"}}, ["papaya"], id="simple-name"),
+        pytest.param({"project": {}}, [], id="no-name"),
+        pytest.param({}, [], id="empty-pyproject"),
+    ),
+)
+def test_derive_source_paths(pyproject_data: dict[str, Any], expected) -> None:
+    """The source path is the project name as an importable package."""
+    assert derive_source_paths(pyproject_data) == expected
 
 
 # ---------------------------------------------------------------------------

@@ -98,24 +98,8 @@ def regex(pattern: str) -> re.Pattern:
     return re.compile(pattern, re.DOTALL)
 
 
-@pytest.fixture(autouse=True)
-def _scrub_workflow_event(monkeypatch):
-    """Detach every test from the CI run's own workflow event.
-
-    In CI the suite inherits the real run's ``GITHUB_EVENT_NAME`` and event
-    payload, which event-derived properties (``event_type``, ``commit_range``,
-    ``nuitka_matrix``'s canary gating) read, so expectations would differ
-    between CI and a local run. Deleting the event markers pins every test to
-    the deterministic local behavior; tests exercising CI context set the
-    variables back explicitly via ``monkeypatch.setenv``.
-    """
-    for envvar in (
-        "GITHUB_BASE_REF",
-        "GITHUB_EVENT_NAME",
-        "GITHUB_EVENT_PATH",
-        "GITHUB_HEAD_REF",
-    ):
-        monkeypatch.delenv(envvar, raising=False)
+# Every test of this module runs detached from the CI run's own workflow event.
+pytestmark = pytest.mark.usefixtures("scrub_workflow_event")
 
 
 class AnyBool:
@@ -2416,93 +2400,55 @@ nuitka.unstable-targets = ["linux-arm64", "unknown-target"]
     assert metadata.unstable_targets == {"linux-arm64"}
 
 
-def test_nuitka_entry_points_default_deduplicates(tmp_path, monkeypatch):
-    """Default: alias entry points sharing a callable are deduplicated."""
-    pyproject_content = """\
-[project]
-name = "test-project"
-version = "1.0.0"
+ALIASED_SCRIPTS = 'short = "my_pkg.__main__:main"\nlong-name = "my_pkg.__main__:main"\n'
+"""Two entry points sharing one callable."""
 
-[project.scripts]
-short = "my_pkg.__main__:main"
-long-name = "my_pkg.__main__:main"
-"""
+
+@pytest.mark.parametrize(
+    ("scripts", "config", "expected"),
+    (
+        # Both point to the same callable, so only the first is kept.
+        pytest.param(ALIASED_SCRIPTS, "", ["short"], id="default-deduplicates"),
+        # cli-a-alias duplicates the callable of cli-a, so it is dropped.
+        pytest.param(
+            'cli-a = "my_pkg.cli:main_a"\n'
+            'cli-b = "my_pkg.cli:main_b"\n'
+            'cli-a-alias = "my_pkg.cli:main_a"\n',
+            "",
+            ["cli-a", "cli-b"],
+            id="default-distinct",
+        ),
+        pytest.param(
+            ALIASED_SCRIPTS,
+            'nuitka.entry-points = ["long-name"]\n',
+            ["long-name"],
+            id="custom",
+        ),
+        pytest.param(
+            ALIASED_SCRIPTS,
+            'nuitka.entry-points = ["short", "long-name"]\n',
+            ["short", "long-name"],
+            id="all",
+        ),
+        # Every configured entry is unknown, so the first script is the fallback.
+        pytest.param(
+            'short = "my_pkg.__main__:main"\n',
+            'nuitka.entry-points = ["nonexistent"]\n',
+            ["short"],
+            id="unknown-falls-back",
+        ),
+    ),
+)
+def test_nuitka_entry_points(tmp_path, monkeypatch, scripts, config, expected):
+    """`nuitka.entry-points` picks the scripts; the default drops aliases."""
+    pyproject_content = (
+        '[project]\nname = "test-project"\nversion = "1.0.0"\n\n'
+        f"[project.scripts]\n{scripts}\n[tool.repomatic]\n{config}"
+    )
     metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
-    assert metadata.config.nuitka_entry_points == []
-    # Both point to the same callable, so only the first is kept.
-    assert metadata.nuitka_entry_points == ["short"]
-
-
-def test_nuitka_entry_points_default_distinct(tmp_path, monkeypatch):
-    """Default: entry points with different callables are all kept."""
-    pyproject_content = """\
-[project]
-name = "test-project"
-version = "1.0.0"
-
-[project.scripts]
-cli-a = "my_pkg.cli:main_a"
-cli-b = "my_pkg.cli:main_b"
-cli-a-alias = "my_pkg.cli:main_a"
-"""
-    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
-    # cli-a and cli-b have different callables, both kept.
-    # cli-a-alias duplicates cli-a's callable, dropped.
-    assert metadata.nuitka_entry_points == ["cli-a", "cli-b"]
-
-
-def test_nuitka_entry_points_custom(tmp_path, monkeypatch):
-    """Custom entry-points config selects specific entry points."""
-    pyproject_content = """\
-[project]
-name = "test-project"
-version = "1.0.0"
-
-[project.scripts]
-short = "my_pkg.__main__:main"
-long-name = "my_pkg.__main__:main"
-
-[tool.repomatic]
-nuitka.entry-points = ["long-name"]
-"""
-    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
-    assert metadata.nuitka_entry_points == ["long-name"]
-
-
-def test_nuitka_entry_points_all(tmp_path, monkeypatch):
-    """Listing all entry points explicitly builds all of them."""
-    pyproject_content = """\
-[project]
-name = "test-project"
-version = "1.0.0"
-
-[project.scripts]
-short = "my_pkg.__main__:main"
-long-name = "my_pkg.__main__:main"
-
-[tool.repomatic]
-nuitka.entry-points = ["short", "long-name"]
-"""
-    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
-    assert metadata.nuitka_entry_points == ["short", "long-name"]
-
-
-def test_nuitka_entry_points_ignores_unknown(tmp_path, monkeypatch):
-    """Unrecognized entry points are discarded; falls back to first if all invalid."""
-    pyproject_content = """\
-[project]
-name = "test-project"
-version = "1.0.0"
-
-[project.scripts]
-short = "my_pkg.__main__:main"
-
-[tool.repomatic]
-nuitka.entry-points = ["nonexistent"]
-"""
-    metadata = metadata_from_pyproject(tmp_path, monkeypatch, pyproject_content)
-    # All configured entries are invalid, so falls back to first.
-    assert metadata.nuitka_entry_points == ["short"]
+    if not config:
+        assert metadata.config.nuitka_entry_points == []
+    assert metadata.nuitka_entry_points == expected
 
 
 def test_script_entries_basic(tmp_path, monkeypatch):

@@ -101,71 +101,27 @@ def test_api_headers_unauthenticated_without_token():
 # -- Token resolution: REPOMATIC_PAT > GH_TOKEN > GITHUB_TOKEN ----------------
 
 
-def test_repomatic_pat_injected_as_gh_token():
-    """REPOMATIC_PAT is passed to gh as GH_TOKEN."""
+@pytest.mark.parametrize(
+    ("env", "expected_token"),
+    (
+        pytest.param({"REPOMATIC_PAT": "pat-value"}, "pat-value", id="repomatic-pat"),
+        pytest.param({"GH_TOKEN": "gh-tok"}, "gh-tok", id="native-gh-token"),
+        pytest.param({"GITHUB_TOKEN": "gha-tok"}, "gha-tok", id="github-token"),
+        # An empty REPOMATIC_PAT is an unconfigured secret: it loses to GH_TOKEN.
+        pytest.param(
+            {"REPOMATIC_PAT": "", "GH_TOKEN": "gh-tok"}, "gh-tok", id="empty-pat"
+        ),
+    ),
+)
+def test_gh_receives_the_winning_token(env, expected_token):
+    """The `resolve_gh_token()` winner reaches gh as an explicit GH_TOKEN."""
     with (
         patch("repomatic.github.gh.run") as mock_run,
-        patch.dict(
-            "os.environ",
-            {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value"},
-            clear=True,
-        ),
+        patch.dict("os.environ", {**_CLEAN_ENV, **env}, clear=True),
     ):
         mock_run.return_value = _make_result(stdout="ok\n")
         assert run_gh_command(["issue", "list"]) == "ok\n"
-        env_used = mock_run.call_args.kwargs["env"]
-        assert env_used["GH_TOKEN"] == "pat-value"
-
-
-def test_gh_token_used_when_no_repomatic_pat():
-    """Falls back to native GH_TOKEN when REPOMATIC_PAT is absent."""
-    with (
-        patch("repomatic.github.gh.run") as mock_run,
-        patch.dict(
-            "os.environ",
-            {**_CLEAN_ENV, "GH_TOKEN": "gh-tok"},
-            clear=True,
-        ),
-    ):
-        mock_run.return_value = _make_result(stdout="ok\n")
-        assert run_gh_command(["issue", "list"]) == "ok\n"
-        # The canonical resolve_gh_token() winner is injected explicitly,
-        # value-identical to the native GH_TOKEN.
-        env_used = mock_run.call_args.kwargs["env"]
-        assert env_used["GH_TOKEN"] == "gh-tok"
-
-
-def test_github_token_promoted_to_gh_token():
-    """GITHUB_TOKEN is promoted to GH_TOKEN when GH_TOKEN is absent."""
-    with (
-        patch("repomatic.github.gh.run") as mock_run,
-        patch.dict(
-            "os.environ",
-            {**_CLEAN_ENV, "GITHUB_TOKEN": "gha-tok"},
-            clear=True,
-        ),
-    ):
-        mock_run.return_value = _make_result(stdout="ok\n")
-        assert run_gh_command(["issue", "list"]) == "ok\n"
-        env_used = mock_run.call_args.kwargs["env"]
-        assert env_used["GH_TOKEN"] == "gha-tok"
-
-
-def test_empty_repomatic_pat_ignored():
-    """Empty REPOMATIC_PAT (unconfigured secret) is treated as absent."""
-    with (
-        patch("repomatic.github.gh.run") as mock_run,
-        patch.dict(
-            "os.environ",
-            {**_CLEAN_ENV, "REPOMATIC_PAT": "", "GH_TOKEN": "gh-tok"},
-            clear=True,
-        ),
-    ):
-        mock_run.return_value = _make_result(stdout="ok\n")
-        run_gh_command(["issue", "list"])
-        # The empty PAT loses to GH_TOKEN, whose value is injected explicitly.
-        env_used = mock_run.call_args.kwargs["env"]
-        assert env_used["GH_TOKEN"] == "gh-tok"
+        assert mock_run.call_args.kwargs["env"]["GH_TOKEN"] == expected_token
 
 
 # -- Fallback on 401 Bad Credentials ------------------------------------------

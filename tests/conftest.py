@@ -289,6 +289,27 @@ def hermetic_git(monkeypatch):
     monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 
 
+@pytest.fixture
+def scrub_workflow_event(monkeypatch):
+    """Detach a test from the CI run's own workflow event.
+
+    In CI the suite inherits the real run's `GITHUB_EVENT_NAME`, event payload
+    and `GITHUB_SHA`, which event-derived properties (`event_type`,
+    `commit_range`, the canary gating of `nuitka_matrix`) read, so expectations
+    would differ between CI and a local run. Deleting the event markers pins a
+    test to the deterministic local behavior; a test of the CI context sets the
+    variables back with `monkeypatch.setenv`.
+    """
+    for envvar in (
+        "GITHUB_BASE_REF",
+        "GITHUB_EVENT_NAME",
+        "GITHUB_EVENT_PATH",
+        "GITHUB_HEAD_REF",
+        "GITHUB_SHA",
+    ):
+        monkeypatch.delenv(envvar, raising=False)
+
+
 def run_git(*args: str, cwd) -> str:
     """Run a git command in *cwd* and return its stdout."""
     result = run(

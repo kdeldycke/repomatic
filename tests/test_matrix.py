@@ -294,49 +294,51 @@ def test_replace_variation_value_solve():
     )
 
 
-def test_includes():
-    """`add_includes` accumulates directives without touching the axes."""
+@pytest.mark.parametrize("directive", ["include", "exclude"])
+def test_include_and_exclude_directives(directive):
+    """`add_includes` and `add_excludes` accumulate without touching the axes."""
     matrix = Matrix()
+    add = getattr(matrix, f"add_{directive}s")
 
     matrix.add_variation("foo", ["a", "b", "c"])
     assert matrix.matrix() == {"foo": ("a", "b", "c")}
 
     # First addition.
-    matrix.add_includes({"foo": "a", "bar": "1"})
+    add({"foo": "a", "bar": "1"})
     assert matrix.matrix() == {
         "foo": ("a", "b", "c"),
-        "include": ({"foo": "a", "bar": "1"},),
+        directive: ({"foo": "a", "bar": "1"},),
     }
 
     # Second addition is cumulative.
-    matrix.add_includes({"foo": "b", "bar": "2"})
+    add({"foo": "b", "bar": "2"})
     assert matrix.matrix() == {
         "foo": ("a", "b", "c"),
-        "include": ({"foo": "a", "bar": "1"}, {"foo": "b", "bar": "2"}),
+        directive: ({"foo": "a", "bar": "1"}, {"foo": "b", "bar": "2"}),
     }
 
     # Deduplication.
-    matrix.add_includes({"foo": "b", "bar": "2"})
+    add({"foo": "b", "bar": "2"})
     assert matrix.matrix() == {
         "foo": ("a", "b", "c"),
-        "include": ({"foo": "a", "bar": "1"}, {"foo": "b", "bar": "2"}),
+        directive: ({"foo": "a", "bar": "1"}, {"foo": "b", "bar": "2"}),
     }
 
     # Rendering.
-    assert (
-        str(matrix) == '{"foo": ["a", "b", "c"], '
-        '"include": [{"foo": "a", "bar": "1"}, {"foo": "b", "bar": "2"}]}'
-    )
-    assert (
-        repr(matrix) == "<Matrix: {'foo': ('a', 'b', 'c'), "
-        "'include': ({'foo': 'a', 'bar': '1'}, {'foo': 'b', 'bar': '2'})}>"
-    )
+    assert str(matrix) == (
+        '{"foo": ["a", "b", "c"], '
+        '"DIRECTIVE": [{"foo": "a", "bar": "1"}, {"foo": "b", "bar": "2"}]}'
+    ).replace("DIRECTIVE", directive)
+    assert repr(matrix) == (
+        "<Matrix: {'foo': ('a', 'b', 'c'), "
+        "'DIRECTIVE': ({'foo': 'a', 'bar': '1'}, {'foo': 'b', 'bar': '2'})}>"
+    ).replace("DIRECTIVE", directive)
 
     # Multiple insertions.
-    matrix.add_includes({"foo": "c", "bar": "3"}, {"foo": "d", "bar": "4"})
+    add({"foo": "c", "bar": "3"}, {"foo": "d", "bar": "4"})
     assert matrix.matrix() == {
         "foo": ("a", "b", "c"),
-        "include": (
+        directive: (
             {"foo": "a", "bar": "1"},
             {"foo": "b", "bar": "2"},
             {"foo": "c", "bar": "3"},
@@ -346,66 +348,9 @@ def test_includes():
 
     # Forbidden values.
     with pytest.raises(ValueError):
-        matrix.add_includes({"include": "random"})
+        add({"include": "random"})
     with pytest.raises(ValueError):
-        matrix.add_includes({"exclude": "random"})
-
-
-def test_excludes():
-    """`add_excludes` accumulates directives without touching the axes."""
-    matrix = Matrix()
-
-    matrix.add_variation("foo", ["a", "b", "c"])
-    assert matrix.matrix() == {"foo": ("a", "b", "c")}
-
-    # First addition.
-    matrix.add_excludes({"foo": "a", "bar": "1"})
-    assert matrix.matrix() == {
-        "foo": ("a", "b", "c"),
-        "exclude": ({"foo": "a", "bar": "1"},),
-    }
-
-    # Second addition is cumulative.
-    matrix.add_excludes({"foo": "b", "bar": "2"})
-    assert matrix.matrix() == {
-        "foo": ("a", "b", "c"),
-        "exclude": ({"foo": "a", "bar": "1"}, {"foo": "b", "bar": "2"}),
-    }
-
-    # Deduplication.
-    matrix.add_excludes({"foo": "b", "bar": "2"})
-    assert matrix.matrix() == {
-        "foo": ("a", "b", "c"),
-        "exclude": ({"foo": "a", "bar": "1"}, {"foo": "b", "bar": "2"}),
-    }
-
-    # Rendering.
-    assert (
-        str(matrix) == '{"foo": ["a", "b", "c"], '
-        '"exclude": [{"foo": "a", "bar": "1"}, {"foo": "b", "bar": "2"}]}'
-    )
-    assert (
-        repr(matrix) == "<Matrix: {'foo': ('a', 'b', 'c'), "
-        "'exclude': ({'foo': 'a', 'bar': '1'}, {'foo': 'b', 'bar': '2'})}>"
-    )
-
-    # Multiple insertions.
-    matrix.add_excludes({"foo": "c", "bar": "3"}, {"foo": "d", "bar": "4"})
-    assert matrix.matrix() == {
-        "foo": ("a", "b", "c"),
-        "exclude": (
-            {"foo": "a", "bar": "1"},
-            {"foo": "b", "bar": "2"},
-            {"foo": "c", "bar": "3"},
-            {"foo": "d", "bar": "4"},
-        ),
-    }
-
-    # Forbidden values.
-    with pytest.raises(ValueError):
-        matrix.add_excludes({"include": "random"})
-    with pytest.raises(ValueError):
-        matrix.add_excludes({"exclude": "random"})
+        add({"exclude": "random"})
 
 
 def test_all_variations():

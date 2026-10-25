@@ -36,18 +36,8 @@ from tests.conftest import (
     seed_commit,
 )
 
-
-@pytest.fixture(autouse=True)
-def _scrub_workflow_event(monkeypatch):
-    """Detach every test from the CI run's own workflow event."""
-    for envvar in (
-        "GITHUB_BASE_REF",
-        "GITHUB_EVENT_NAME",
-        "GITHUB_EVENT_PATH",
-        "GITHUB_HEAD_REF",
-        "GITHUB_SHA",
-    ):
-        monkeypatch.delenv(envvar, raising=False)
+# Every test of this module runs detached from the CI run's own workflow event.
+pytestmark = pytest.mark.usefixtures("scrub_workflow_event")
 
 
 @pytest.fixture
