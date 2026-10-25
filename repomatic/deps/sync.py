@@ -926,8 +926,6 @@ def _resolve_tool_versions(rc: ResolveContext) -> SyncPlan:
 
 def _apply_tool_versions(plan: SyncPlan) -> None:
     """Rewrite `tooling/registry.py`, recompute checksums, refresh the matcher."""
-    if not plan.has_changes:
-        return
     for path, content in plan.file_writes.items():
         path.write_text(content, encoding="UTF-8")
         # Recompute checksums and VERSIONS stamps for bumped binary tools in

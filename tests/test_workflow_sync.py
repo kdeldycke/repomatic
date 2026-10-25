@@ -1219,9 +1219,10 @@ def test_canonical_workflow_sha_pinned() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_header_extraction_tests_yaml() -> None:
-    """Verify header extraction for tests.yaml."""
-    header = generate_workflow_header("tests.yaml")
+@pytest.mark.parametrize("filename", sorted(NON_REUSABLE_WORKFLOWS))
+def test_header_extraction_non_reusable_workflows(filename: str) -> None:
+    """Every bundled workflow whose header `init` syncs yields one."""
+    header = generate_workflow_header(filename)
     assert "name:" in header
     assert "concurrency:" in header
     assert "jobs:" not in header

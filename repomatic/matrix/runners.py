@@ -67,11 +67,13 @@ CATALOG_REPO = "actions/runner-images"
 TABLE_HEADER_RE = re.compile(
     r"^\|\s*Image\s*\|\s*Architecture\s*\|\s*YAML Label\s*\|", re.MULTILINE
 )
-"""The table's header row, matched by column name rather than by position.
+"""The table's header row, matched by its three leading column names.
 
-Anchoring on the names is what survives a column being added or reordered: the
-row is located by what it says, and the cells below it are read by the index
-this match establishes rather than by a hard-coded one.
+The pattern pins `Image`, `Architecture` and `YAML Label` as the first three
+columns, in this order, so {func}`parse_catalog` reads each row's cells at those
+positions. A column appended after them changes nothing. A column inserted
+before or between them, or a reorder, leaves the header unmatched, and the
+catalog reads as unavailable instead of misreading a cell.
 """
 
 BADGE_RE = re.compile(r"!\[(?P<state>preview|deprecated)\]")
@@ -327,14 +329,9 @@ def parse_catalog(readme: str) -> RunnerCatalog:
         logging.warning("Available Images table not found: catalog unavailable.")
         return RunnerCatalog()
 
-    columns = _split_row(readme[header.start() : header.end()].rstrip("|"))
-    try:
-        name_at = columns.index("Image")
-        arch_at = columns.index("Architecture")
-        label_at = columns.index("YAML Label")
-    except ValueError:
-        logging.warning("Available Images columns moved: catalog unavailable.")
-        return RunnerCatalog()
+    # The header pattern pins the three columns at the start of the row, in this
+    # order, so every row below holds their cells at the same positions.
+    name_at, arch_at, label_at = 0, 1, 2
 
     images: list[RunnerImage] = []
     # The header match ends at its third pipe, mid-line, so rows start after
@@ -348,7 +345,7 @@ def parse_catalog(readme: str) -> RunnerCatalog:
             # character elsewhere in the readme is never read as a row.
             break
         cells = _split_row(line)
-        if len(cells) <= max(name_at, arch_at, label_at):
+        if len(cells) <= label_at:
             continue
         raw_name = cells[name_at]
         # The separator row under the header is all dashes and yields no name.

@@ -393,14 +393,13 @@ def extract_trigger_info(filename: str) -> WorkflowTriggerInfo:
 def _render_trigger_value(value: Any, indent: int) -> str:
     """Render a single trigger's configuration value as YAML text.
 
-    :param value: The trigger configuration (None for empty, dict, list, etc.).
+    :param value: The trigger configuration: a mapping, a list or a scalar. An
+        empty trigger (`None`) never reaches this function:
+        {func}`_render_triggers` writes it as a bare key.
     :param indent: Current indentation level in spaces.
     :return: YAML fragment for this trigger value.
     """
     prefix = " " * indent
-    if value is None:
-        return ""
-
     if isinstance(value, list):
         lines = []
         for item in value:
@@ -1481,11 +1480,7 @@ def extract_extra_jobs(
         return ""
 
     # Everything after the last managed job body is extra content.
-    extra_start = last_body_idx + 1
-    if extra_start >= len(all_lines):
-        return ""
-
-    extra = "\n".join(all_lines[extra_start:])
+    extra = "\n".join(all_lines[last_body_idx + 1 :])
     if not extra.strip():
         return ""
     return extra
@@ -1560,10 +1555,10 @@ def generate_workflow_header(
         # and additions inherit the dominant style of the canonical block.
         unquoted: list[str] = []
         quotes: list[str] = []
+        # `_PATHS_BLOCK_RE` captures only `- ` entry lines, each indented deeper
+        # than the key, so the first line sets a non-empty entry indent.
         for line in body.splitlines():
             stripped = line.lstrip()
-            if not stripped.startswith("- "):
-                continue
             if not entry_indent:
                 entry_indent = line[: len(line) - len(stripped)]
             value, quote = _split_yaml_quote(stripped[2:].strip())
@@ -1572,8 +1567,6 @@ def generate_workflow_header(
         adapted = _apply_paths_spec(unquoted, filename, spec)
         if not adapted:
             return ""
-        if not entry_indent:
-            entry_indent = key_indent + "  "
         # Pick the dominant canonical quote style for new entries; use the
         # original quote when an entry was preserved by value.
         quote_by_value = dict(zip(unquoted, quotes, strict=False))

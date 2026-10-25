@@ -866,13 +866,9 @@ def _write_workflows(
         existing = run.yaml_texts.get(target)
         if existing is None:
             continue
-        try:
-            canonical_header = generate_workflow_header(
-                filename, paths_spec=paths_spec, config=config
-            )
-        except (ValueError, FileNotFoundError):
-            logging.warning(f"Cannot extract header for {filename}. Skipping.")
-            continue
+        canonical_header = generate_workflow_header(
+            filename, paths_spec=paths_spec, config=config
+        )
         jobs_match = re.search(r"^jobs:", existing, re.MULTILINE)
         if jobs_match is None:
             continue
