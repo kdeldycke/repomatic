@@ -107,8 +107,8 @@ of Nuitka, and leaves every other source as it is.
 ```
 
 ```{todo}
-Report the unguarded launcher to Nuitka. Drop this plugin and its `--user-plugin`
-option once a Nuitka release guards that launcher.
+Drop this plugin and its `--user-plugin` option once a Nuitka release fixes
+[Nuitka#4136](https://github.com/Nuitka/Nuitka/issues/4136).
 ```
 """
 

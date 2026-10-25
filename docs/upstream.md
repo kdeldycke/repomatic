@@ -207,6 +207,8 @@ repomatic post-processes the output of `mdformat` to undo two `mdformat-myst` re
 
 - [`Nuitka#3997` - Tool downloads are fetched and executed without integrity verification](https://github.com/Nuitka/Nuitka/issues/3997): the macOS builds turn ccache off, which keeps its unverified download out of the build.
 
+- [`Nuitka#4136` - `--main-entry-point` launcher runs the entry point again in every multiprocessing worker](https://github.com/Nuitka/Nuitka/issues/4136): the tool runner loads a Nuitka user plugin that adds the `__name__ == "__main__"` guard to that launcher.
+
 ### Dependency cooldowns
 
 - [`uv#20995` - Allow sharing exclude-newer-package across workspaces: file reference, env var, or repo-level config](https://github.com/astral-sh/uv/issues/20995): `uvx` reads no project configuration, and uv has no environment variable for `--exclude-newer-package`, so repomatic adds the exemption to every frozen command line. Glob exemptions ([`uv#20788`](https://github.com/astral-sh/uv/issues/20788)) or pin-based bypasses ([`uv#19864`](https://github.com/astral-sh/uv/issues/19864), [`uv#18921`](https://github.com/astral-sh/uv/pull/18921)) would remove the need too, but only if `uvx` can read them.
