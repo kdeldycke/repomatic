@@ -241,7 +241,8 @@ def get_release_tags(
                 tag: GitHubRelease(date=r["date"], body=r["body"])
                 for tag, r in data.items()
             }
-        except (json.JSONDecodeError, KeyError, TypeError):
+        # A corrupt cache entry, a JSON list included, falls through to a fetch.
+        except (AttributeError, json.JSONDecodeError, KeyError, TypeError):
             pass
 
     result: dict[str, GitHubRelease] = {}

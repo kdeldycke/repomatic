@@ -175,6 +175,7 @@ def test_force_refresh_skips_the_cached_map(monkeypatch):
             json.dumps({"v0.1.0": {"date": "2025-01-01"}}).encode(), id="no-body"
         ),
         pytest.param(json.dumps({"v0.1.0": "papaya"}).encode(), id="not-a-mapping"),
+        pytest.param(json.dumps(["v0.1.0"]).encode(), id="a-list"),
     ),
 )
 def test_corrupt_cached_map_falls_through_to_the_api(monkeypatch, cached):
