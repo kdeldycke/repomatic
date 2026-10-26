@@ -124,6 +124,7 @@ Also reported while building repomatic, and closed upstream:
 - [`bump-my-version#410` - Unlock dependency on `click` 8.4.1](https://github.com/callowayproject/bump-my-version/issues/410)
 - [`bump-my-version#300` - Nuitka-compilation fails with: `PydanticUndefinedAnnotation: name 'SCMInfo' is not defined`](https://github.com/callowayproject/bump-my-version/issues/300)
 - [`bump-my-version#148` - Read configuration from remote URL](https://github.com/callowayproject/bump-my-version/issues/148)
+- [`bump-my-version#146` - Non-matching glob patterns don't raise `FileNotFoundError`](https://github.com/callowayproject/bump-my-version/issues/146)
 - [`bump-my-version#145` - Add support for `ignore_missing_files` global option in configuration file](https://github.com/callowayproject/bump-my-version/issues/145)
 - [`bump-my-version#117` - Empty string replacement (`--replace ""`) is interpreted as absence of parameter](https://github.com/callowayproject/bump-my-version/issues/117)
 - [`bump-my-version#38` - Ignore missing files](https://github.com/callowayproject/bump-my-version/issues/38)
@@ -252,8 +253,6 @@ Pull requests and features that upstream maintainers rejected.
 Pull requests and issues still pending upstream.
 
 - [`awesome-lint#229` - Fix false positives in `balanced-punctuation`](https://github.com/sindresorhus/awesome-lint/pull/229)
-
-- [`bump-my-version#146` - Non-matching glob patterns don't raise `FileNotFoundError`](https://github.com/callowayproject/bump-my-version/issues/146)
 
 - [`lychee#2249` - Recognize `{#id}` heading anchors in `--include-fragments`](https://github.com/lycheeverse/lychee/issues/2249): closed by [`lychee#2250`](https://github.com/lycheeverse/lychee/pull/2250), which no stable release carries yet.
 

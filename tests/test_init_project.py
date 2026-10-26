@@ -91,6 +91,7 @@ from repomatic.skills import SKILL_PHASE_ORDER, SKILL_PHASES
 from repomatic.tooling.registry import TOOL_REGISTRY
 from repomatic.tooling.runner import run_tool
 from tests.conftest import (
+    PROJECT_ROOT,
     assert_shipped_text_reads_true_downstream,
     skip_unless_tool_runs,
 )
@@ -3004,6 +3005,177 @@ def test_bumpversion_template_is_pyproject_fmt_fixed_point(tmp_path: Path) -> No
         "will ping-pong on every push. Reorder repomatic/data/bumpversion.toml to "
         "match pyproject-fmt's output."
     )
+
+
+PACKAGE_INIT = "repomatic/__init__.py"
+"""The package file holding the version copy only a `glob` rule reaches."""
+
+PROJECT_VERSION_LABEL = "[project] version"
+CURRENT_VERSION_LABEL = "[tool.bumpversion] current_version"
+PACKAGE_VERSION_LABEL = f"{PACKAGE_INIT} __version__"
+"""The label {func}`_version_copies` gives each copy of the version."""
+
+DUNDER_VERSION_RE = re.compile(r'^__version__ = "(?P<version>[^"]+)"', re.MULTILINE)
+"""The assignment holding the package's copy of the version."""
+
+
+def _version_copies(root: Path) -> dict[str, str]:
+    """Every copy of the version in a checkout, labelled by where it lives.
+
+    :param root: Root of the checkout to read.
+    :return: Each label above, mapped to the version that file holds.
+    """
+    doc = tomlrt.loads((root / "pyproject.toml").read_text(encoding="UTF-8"))
+    found = DUNDER_VERSION_RE.search((root / PACKAGE_INIT).read_text(encoding="UTF-8"))
+    assert found is not None, f"No __version__ assignment in {PACKAGE_INIT}."
+    return {
+        PROJECT_VERSION_LABEL: doc["project"]["version"],
+        CURRENT_VERSION_LABEL: doc["tool"]["bumpversion"]["current_version"],
+        PACKAGE_VERSION_LABEL: found.group("version"),
+    }
+
+
+def _version_copy_disagreement(root: Path) -> str:
+    """Report the version copies of a checkout that hold different values.
+
+    :param root: Root of the checkout to read.
+    :return: Each copy and its value, or an empty string when all three agree.
+    """
+    copies = _version_copies(root)
+    if len(set(copies.values())) == 1:
+        return ""
+    return ", ".join(f"{label} is {value}" for label, value in copies.items())
+
+
+def _rules_reaching_package_init(root: Path) -> list[str]:
+    """The `[tool.bumpversion]` file rules that reach the package's version.
+
+    `pathlib` reads the patterns: its `**` recurses like the `GLOBSTAR` flag
+    bump-my-version passes to `wcmatch`. It also descends into a hidden
+    directory, which `wcmatch` does not, so only the membership of
+    {data}`PACKAGE_INIT` is read from the result.
+
+    :param root: Root of the checkout to read.
+    :return: Each rule that reaches it, as its `glob` or `filename` line.
+    """
+    doc = tomlrt.loads((root / "pyproject.toml").read_text(encoding="UTF-8"))
+    reaching = []
+    for entry in doc["tool"]["bumpversion"].get("files", []):
+        pattern = entry.get("glob")
+        if pattern:
+            matched = {path.relative_to(root).as_posix() for path in root.glob(pattern)}
+            if PACKAGE_INIT in matched:
+                reaching.append(f'glob = "{pattern}"')
+            continue
+        filename = entry.get("filename")
+        if filename and Path(filename).as_posix() == PACKAGE_INIT:
+            reaching.append(f'filename = "{filename}"')
+    return reaching
+
+
+def _seed_project(
+    root: Path, *, files_entry: str = 'glob = "./**/__init__.py"', diverged: str = ""
+) -> None:
+    """Write a checkout holding the three copies of one version.
+
+    :param root: Directory to write into.
+    :param files_entry: Body of the single `[[tool.bumpversion.files]]` entry.
+    :param diverged: Label of the copy to leave one version behind, as
+        {func}`_version_copies` spells it. Empty keeps the three in step.
+    """
+    current = "1.2.4.dev0"
+    copies = {
+        PROJECT_VERSION_LABEL: current,
+        CURRENT_VERSION_LABEL: current,
+        PACKAGE_VERSION_LABEL: current,
+    }
+    if diverged:
+        copies[diverged] = "1.2.3"
+    (root / "pyproject.toml").write_text(
+        f'[project]\nname = "papaya"\nversion = "{copies[PROJECT_VERSION_LABEL]}"\n'
+        f"\n[tool.bumpversion]\n"
+        f'current_version = "{copies[CURRENT_VERSION_LABEL]}"\n'
+        f"\n[[tool.bumpversion.files]]\n{files_entry}\n",
+        encoding="UTF-8",
+    )
+    package_init = root / PACKAGE_INIT
+    package_init.parent.mkdir(parents=True, exist_ok=True)
+    package_init.write_text(
+        f'__version__ = "{copies[PACKAGE_VERSION_LABEL]}"\n', encoding="UTF-8"
+    )
+
+
+@pytest.mark.repo_maintenance
+def test_version_copies_agree() -> None:
+    """The three copies of this project's version hold one value.
+
+    A bump rewrites all three, but only through the file rules of
+    `[tool.bumpversion]`, and a rule that matches nothing is skipped without a
+    word: the template sets `ignore_missing_files` globally, which is also the
+    flag suppressing the `FileNotFoundError` upstream added for a non-matching
+    `glob` in `1.6.4`
+    ([callowayproject/bump-my-version#146](https://github.com/callowayproject/bump-my-version/issues/146)).
+    A release would then ship a wheel whose `__version__` still names the
+    previous version, and `resolve_default_pin`, the plugin manifest stamp and
+    the PR-body footer all read `__version__`.
+    """
+    disagreement = _version_copy_disagreement(PROJECT_ROOT)
+    assert not disagreement, f"Version copies disagree: {disagreement}."
+
+
+@pytest.mark.repo_maintenance
+def test_bumpversion_rules_reach_the_package_version() -> None:
+    """A `[tool.bumpversion]` file rule matches `repomatic/__init__.py`.
+
+    Fails on the cause {func}`test_version_copies_agree` reports only once a
+    bump has run: a layout change moving the package out of the `glob`
+    pattern's reach, which no release run notices.
+    """
+    assert _rules_reaching_package_init(PROJECT_ROOT), (
+        f"No [tool.bumpversion] file rule matches {PACKAGE_INIT}, so a bump "
+        "leaves its __version__ behind. Widen the glob in "
+        "repomatic/data/bumpversion.toml and in pyproject.toml."
+    )
+
+
+@pytest.mark.parametrize(
+    "diverged",
+    [PROJECT_VERSION_LABEL, CURRENT_VERSION_LABEL, PACKAGE_VERSION_LABEL],
+)
+def test_version_copy_disagreement_names_the_stale_copy(
+    tmp_path: Path, diverged: str
+) -> None:
+    """One copy left behind is reported, and named.
+
+    The same tree with all three in step reports nothing, so the message names
+    the perturbation rather than the fixture.
+    """
+    in_step = tmp_path / "in-step"
+    in_step.mkdir()
+    _seed_project(in_step)
+    assert not _version_copy_disagreement(in_step)
+
+    stale = tmp_path / "stale"
+    stale.mkdir()
+    _seed_project(stale, diverged=diverged)
+    assert diverged in _version_copy_disagreement(stale)
+
+
+@pytest.mark.parametrize(
+    ("files_entry", "reaches"),
+    [
+        ('glob = "./**/__init__.py"', True),
+        ('glob = "./src/**/__init__.py"', False),
+        ('filename = "./repomatic/__init__.py"', True),
+    ],
+    ids=("glob-reaches", "glob-misses", "filename-reaches"),
+)
+def test_rule_reach_follows_the_configured_pattern(
+    tmp_path: Path, files_entry: str, reaches: bool
+) -> None:
+    """A rule that misses the package is reported as not reaching it."""
+    _seed_project(tmp_path, files_entry=files_entry)
+    assert bool(_rules_reaching_package_init(tmp_path)) is reaches
 
 
 @pytest.mark.once
