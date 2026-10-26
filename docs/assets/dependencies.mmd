@@ -15,11 +15,11 @@ flowchart LR
     pygments(["`pygments`"])
     requests(["`requests`"])
     jinja2(["`jinja2`"])
+    typing_extensions(["`typing-extensions`"])
     beautifulsoup4(["`beautifulsoup4`"])
     cloup(["`cloup`"])
     docutils(["`docutils`"])
     markdown_it_py(["`markdown-it-py`"])
-    typing_extensions(["`typing-extensions`"])
     accessible_pygments(["`accessible-pygments`"])
     click_0(["`click`"])
     colorama(["`colorama`"])
@@ -66,10 +66,10 @@ flowchart LR
         sphinx_datatables{{"`sphinx-datatables >=1`"}}
         sphinxcontrib_mermaid{{"`sphinxcontrib-mermaid >=2.1`"}}
         coverage{{"`coverage >=7.16.2`"}}
+        sphinx_autodoc_typehints{{"`sphinx-autodoc-typehints >=3.10.4`"}}
         sphinxcontrib_jquery{{"`sphinxcontrib-jquery >=4`"}}
         pytest_github_actions_annotate_failures{{"`pytest-github-actions-annotate-failures >=0.4.2`"}}
         pytest_randomly{{"`pytest-randomly >=5`"}}
-        sphinx_autodoc_typehints{{"`sphinx-autodoc-typehints >=3.10.4`"}}
         sphinx_copybutton{{"`sphinx-copybutton >=0.5.2`"}}
         sphinx_design{{"`sphinx-design >=0.7`"}}
         sphinx_sitemap{{"`sphinx-sitemap >=2.6`"}}
@@ -155,13 +155,14 @@ flowchart LR
     sphinxcontrib_mermaid --> jinja2
     sphinxcontrib_mermaid --> pyyaml
     coverage --> tomli
+    sphinx_autodoc_typehints --> sphinx
+    sphinx_autodoc_typehints --> typing_extensions
     sphinxcontrib_jquery --> sphinx
     wcmatch --> bracex
     py_walk --> sly
     pyproject_metadata --> packaging
     pytest_github_actions_annotate_failures --> pytest
     pytest_randomly --> pytest
-    sphinx_autodoc_typehints --> sphinx
     sphinx_copybutton --> sphinx
     sphinx_design --> sphinx
     sphinx_sitemap --> sphinx_last_updated_by_git
