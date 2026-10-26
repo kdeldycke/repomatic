@@ -175,6 +175,8 @@ flowchart TD
 
 Two rules govern the loop. A run-level conclusion hides an already-failed fast job for as long as the slowest cell keeps running, so the babysitter reads individual jobs and fixes the first stable red it sees. And each push is timed by what its diff rebuilds: a source fix pushes immediately, since the run it cancels was validating an obsolete tree anyway, while a changelog- or docs-only commit waits for the heavy matrices to drain, because `release.yaml` runs on every push and a prose diff cancels the in-flight binary build without triggering a rebuild. Projects without binaries can push freely: everything a prose push cancels there is cheap to re-run.
 
+A short cycle skips the delegation. When the slowest run of the previous `main` HEAD took under 10 minutes, the whole wait fits one foreground command, so the orchestrator runs `repomatic ci-status --wait` itself and spawns the babysitter only when a required job turns red.
+
 A release is also when test debt gets paid. Once no stable job is red, the loop turns to the failures that never gate a merge: chronic platform flakes and allowed-failure `⁉️` probes that crash outright get fixed at the source (a tolerated exit set, an availability-gated skip, a real code fix) rather than catalogued as known reds.
 
 ## Agent Skills specification
