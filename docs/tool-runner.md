@@ -274,6 +274,19 @@ For tools with subcommands (ruff, biome, gitleaks), the subcommand goes after `-
 $ repomatic run mdformat --verify -- changelog.md
 ```
 
+Each file it would rewrite gets a `Would rewrite:` line, followed by the unified diff of the change. Both go to the standard output, so a caller that redirects it keeps them together. A file that is not UTF-8 text gets a one-line note in place of the diff:
+
+```shell-session
+$ repomatic run mdformat --verify -- harvest.md
+Would rewrite: harvest.md
+--- harvest.md
++++ harvest.md
+@@ -1,2 +1,3 @@
+ # Mango
++
+ Ripe.
+```
+
 It runs the write path against throwaway copies of the targets and diffs the results, rather than trusting the tool's own `--check` or `--dry-run` mode. That distinction matters for a tool whose check mode relies on a repomatic post-processing step that only runs after an actual write: for those, `--check` can report drift the write path would reconcile, or miss drift the write path would introduce. `--verify` is the authoritative answer either way.
 
 With no arguments after the tool name, `--verify` resolves the same defaults a bare `repomatic run <tool>` would, so `repomatic run mdformat --verify` checks every Markdown file in the repository.

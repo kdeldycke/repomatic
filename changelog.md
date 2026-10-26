@@ -45,6 +45,7 @@
 - `repomatic run nuitka` spells the macOS ccache opt-out `--disable-cache=ccache`, the documented form of the hidden `--disable-ccache` alias.
 - `repomatic run gitleaks` prints each finding with its file, line, commit and rule, and redacts the secret, so a red `lint-secrets` run names what it found.
 - `repomatic run typos` now installs on Windows ARM64, and `repomatic run lychee` on x86_64 macOS.
+- `repomatic run --verify` prints the unified diff of each file it would rewrite, below its `Would rewrite:` line.
 - An npm tool install now ends with `npm audit signatures`, which verifies the registry signature and the provenance of every installed package.
 - `repomatic run` manages `wrangler`, and the `deploy-docs-cloudflare` job deploys through it instead of an `npx` call.
 - `update-checksums` and `sync-tool-versions` verify the upstream attestation of each actionlint, Biome, gh, shfmt and typos download before recording its checksum.

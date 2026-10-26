@@ -3243,10 +3243,10 @@ def test_verify_via_write_path_propagates_a_crash(mock_run_tool, tmp_path, monke
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text(MESSY_PYPROJECT, encoding="UTF-8")
 
-    exit_code, drifted = verify_via_write_path("pyproject-fmt")
+    exit_code, diffs = verify_via_write_path("pyproject-fmt")
 
     assert exit_code == TOOL_CRASH_EXIT_CODE
-    assert drifted == []
+    assert diffs == {}
 
 
 @patch("repomatic.tooling.runner.run_tool", return_value=0)
@@ -3267,10 +3267,10 @@ def test_verify_via_write_path_accepts_the_working_directory(
     monkeypatch.chdir(tmp_path)
     (tmp_path / "harvest.md").write_text("# Mango\n\nRipe.\n", encoding="UTF-8")
 
-    exit_code, drifted = verify_via_write_path("mdformat", extra_args=(".",))
+    exit_code, diffs = verify_via_write_path("mdformat", extra_args=(".",))
 
     assert exit_code == 0
-    assert drifted == []
+    assert diffs == {}
     # The tool ran on a copy of the default set, not on `.` or on nothing.
     copies = [Path(arg) for arg in mock_run_tool.call_args.kwargs["extra_args"]]
     assert [copy.name for copy in copies] == ["harvest.md"]
@@ -3298,10 +3298,10 @@ def test_verify_via_write_path_fails_when_nothing_is_copied(
     """
     monkeypatch.chdir(tmp_path)
 
-    exit_code, drifted = verify_via_write_path(tool, extra_args=extra_args)
+    exit_code, diffs = verify_via_write_path(tool, extra_args=extra_args)
 
     assert exit_code == 2
-    assert drifted == []
+    assert diffs == {}
     mock_run_tool.assert_not_called()
     assert not list(tmp_path.glob(".repomatic-verify-*"))
 
@@ -3327,7 +3327,7 @@ def test_verify_via_write_path_reports_a_path_it_cannot_copy(
     ):
         outcome = verify_via_write_path("mdformat", extra_args=("harvest.md",))
 
-    assert outcome == (2, [])
+    assert outcome == (2, {})
     assert "cannot copy harvest.md" in caplog.text
     assert "Permission denied" in caplog.text
     mock_run_tool.assert_not_called()
@@ -3363,7 +3363,11 @@ def test_verify_via_write_path_copies_a_directory_and_an_outside_file(
             "mdformat", extra_args=("--check", "orchard", str(outside_kiwi))
         )
 
-    assert outcome == (1, [str(Path("orchard", "pear.md"))])
+    pear = str(Path("orchard", "pear.md"))
+    assert outcome == (
+        1,
+        {pear: f"--- {pear}\n+++ {pear}\n@@ -1 +1 @@\n-# Pear\n+# Ripe pear\n"},
+    )
     copies = [Path(arg) for arg in mock_run_tool.call_args.kwargs["extra_args"]]
     assert [copy.name for copy in copies] == ["orchard", "kiwi.md"]
     # Both land at the root of the one scratch directory.
@@ -3374,6 +3378,68 @@ def test_verify_via_write_path_copies_a_directory_and_an_outside_file(
     assert not list(inside.glob(".repomatic-verify-*"))
 
 
+@pytest.mark.parametrize(
+    ("before", "after", "expected"),
+    (
+        pytest.param(
+            b"# Mango\n\nRipe.\n",
+            b"# Mango\n\nRipe fruit.\n",
+            (
+                "--- harvest.md\n+++ harvest.md\n@@ -1,3 +1,3 @@\n"
+                " # Mango\n \n-Ripe.\n+Ripe fruit.\n"
+            ),
+            id="changed-line",
+        ),
+        pytest.param(
+            b"# Mango",
+            b"# Mango\n",
+            (
+                "--- harvest.md\n+++ harvest.md\n@@ -1 +1 @@\n"
+                "-# Mango\n\\ No newline at end of file\n+# Mango\n"
+            ),
+            id="added-final-newline",
+        ),
+        pytest.param(
+            b"# Mango\n",
+            b"# Mango",
+            (
+                "--- harvest.md\n+++ harvest.md\n@@ -1 +1 @@\n"
+                "-# Mango\n+# Mango\n\\ No newline at end of file\n"
+            ),
+            id="removed-final-newline",
+        ),
+        pytest.param(
+            b"\xff\xfe\n",
+            b"\xfe\xff\n",
+            "Binary file harvest.md would change, no diff to show.\n",
+            id="not-utf8",
+        ),
+    ),
+)
+def test_verify_via_write_path_returns_the_diff_of_each_rewrite(
+    before, after, expected, tmp_path, monkeypatch
+):
+    """Each rewritten path comes back with the unified diff of its rewrite.
+
+    A last line with no newline is marked as `diff -u` marks it, so it does not
+    run into the line after it. A file that is not UTF-8 text gets a note.
+    """
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "harvest.md"
+    target.write_bytes(before)
+
+    def reformat(name, extra_args):
+        """Rewrite the copy of the target, as a formatter would."""
+        Path(extra_args[0]).write_bytes(after)
+        return 0
+
+    with patch("repomatic.tooling.runner.run_tool", side_effect=reformat):
+        outcome = verify_via_write_path("mdformat", extra_args=("harvest.md",))
+
+    assert outcome == (1, {"harvest.md": expected})
+    assert target.read_bytes() == before
+
+
 @patch("repomatic.tooling.runner.run_tool", return_value=0)
 def test_verify_via_write_path_without_targets_has_nothing_to_verify(
     mock_run_tool, tmp_path, monkeypatch
@@ -3381,7 +3447,7 @@ def test_verify_via_write_path_without_targets_has_nothing_to_verify(
     """A bare call in a tree holding none of the tool's files is clean, as `run` is."""
     monkeypatch.chdir(tmp_path)
 
-    assert verify_via_write_path("mdformat") == (0, [])
+    assert verify_via_write_path("mdformat") == (0, {})
     mock_run_tool.assert_not_called()
 
 
@@ -3429,17 +3495,29 @@ def test_run_lists_every_tool_with_its_pinned_version(tmp_path, monkeypatch):
         ), spec.name
 
 
-@patch("repomatic.cli.tools.verify_via_write_path", return_value=(1, ["harvest.md"]))
+HARVEST_DIFF = "--- harvest.md\n+++ harvest.md\n@@ -1 +1,2 @@\n # Mango\n+Ripe.\n"
+"""Diff of a rewrite that adds a line to `harvest.md`."""
+
+
+@patch(
+    "repomatic.cli.tools.verify_via_write_path",
+    return_value=(1, {"harvest.md": HARVEST_DIFF}),
+)
 def test_run_verify_names_each_file_it_would_rewrite(
     mock_verify, tmp_path, monkeypatch
 ):
-    """`--verify` prints one line per drifted file, and exits with the verdict."""
+    """`--verify` prints each drifted file with its diff, and exits with the verdict.
+
+    The diff follows its `Would rewrite:` line on the standard output, and the
+    log stays free of it.
+    """
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(
         repomatic, ["run", "mdformat", "--verify", "--", "harvest.md"]
     )
     assert result.exit_code == 1, result.output
-    assert "Would rewrite: harvest.md" in result.output
+    assert f"Would rewrite: harvest.md\n{HARVEST_DIFF}" in result.stdout
+    assert HARVEST_DIFF not in result.stderr
     mock_verify.assert_called_once_with(
         "mdformat",
         extra_args=("harvest.md",),

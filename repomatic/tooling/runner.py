@@ -36,6 +36,7 @@ Config resolution precedence (first match wins, no merging):
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import logging
@@ -1068,7 +1069,7 @@ def verify_via_write_path(
     name: str,
     extra_args: Sequence[str] = (),
     **run_kwargs: Any,
-) -> tuple[int, list[str]]:
+) -> tuple[int, dict[str, str]]:
     """Check a `post_process` tool's formatting without touching the tree.
 
     A tool pairing `post_process` with `check_flags` has no trustworthy check
@@ -1097,10 +1098,12 @@ def verify_via_write_path(
         the copies are per-path already, so a `per_file` split would only cost
         extra invocations.
     :param run_kwargs: Forwarded verbatim to {func}`run_tool`.
-    :return: `(exit_code, drifted)`, where `exit_code` is `0` when every target
-        is already formatted and `1` otherwise, and `drifted` names the paths
-        the write path would have changed. A tool that fails on the copies
-        yields its own exit code and no drift, since it measured nothing. So
+    :return: `(exit_code, diffs)`, where `exit_code` is `0` when every target
+        is already formatted and `1` otherwise, and `diffs` maps each path the
+        write path would have changed to the unified diff of that change, in
+        path order. A file that is not UTF-8 text maps to a one-line note, since
+        a diff of its bytes shows nothing. A tool that fails on the copies
+        yields its own exit code and no diffs, since it measured nothing. So
         does a call with no existing path to copy, which yields `2`, and a
         path that cannot be copied, which is logged and yields `2` too.
     :raises ValueError: If no tool goes by *name*.
@@ -1122,7 +1125,7 @@ def verify_via_write_path(
     if not extra_args:
         batches = resolve_default_args(spec)
         if batches is None:
-            return 0, []
+            return 0, {}
         # Deduplicate while preserving order: a non-per-file tool repeats its
         # `default_args` in no batch, but a per-file one repeats them in each.
         seen: dict[str, None] = {}
@@ -1168,7 +1171,7 @@ def verify_via_write_path(
                     f"{name}: cannot copy {source} to verify it ({error}), nothing"
                     " verified."
                 )
-                return 2, []
+                return 2, {}
             pairs.append((source, copy))
             rewritten.append(str(copy))
 
@@ -1185,7 +1188,7 @@ def verify_via_write_path(
                     f"{name} declares no default path to copy: name the files or"
                     " directories to verify."
                 )
-            return 2, []
+            return 2, {}
 
         # A tool that died on the copies formatted nothing, so the comparison
         # below would find no difference and report the tree as clean. Surface
@@ -1198,18 +1201,21 @@ def verify_via_write_path(
                 f"{name} failed with code {run_code} on the throwaway copies; its "
                 "formatting cannot be verified."
             )
-            return run_code, []
+            return run_code, {}
 
-        drifted = sorted(
-            str(source_file)
-            for source, copy in pairs
-            for source_file, copied_file in _walk_pair(source, copy)
-            if source_file.read_bytes() != copied_file.read_bytes()
+        # Read each diff now: the copies it compares against go away below.
+        diffs = dict(
+            sorted(
+                (str(source_file), diff)
+                for source, copy in pairs
+                for source_file, copied_file in _walk_pair(source, copy)
+                if (diff := _drift_diff(source_file, copied_file)) is not None
+            )
         )
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
-    return (1 if drifted else 0), drifted
+    return (1 if diffs else 0), diffs
 
 
 def _walk_pair(original: Path, copy: Path) -> Iterator[tuple[Path, Path]]:
@@ -1221,6 +1227,38 @@ def _walk_pair(original: Path, copy: Path) -> Iterator[tuple[Path, Path]]:
         mirrored = copy / child.relative_to(original)
         if mirrored.is_file():
             yield child, mirrored
+
+
+def _drift_diff(original: Path, rewritten: Path) -> str | None:
+    """Return the unified diff from a file to its rewritten copy.
+
+    Both sides of the diff carry the path of the original, as `diff -u` labels
+    the two versions of one file.
+
+    :param original: The file in the working tree.
+    :param rewritten: Its copy, after the tool formatted it.
+    :return: The diff, every line ending with a newline. `None` when the two
+        files hold the same bytes. A file that is not UTF-8 text gets a one-line
+        note in place of a diff.
+    """
+    before, after = original.read_bytes(), rewritten.read_bytes()
+    if before == after:
+        return None
+    try:
+        before_lines = before.decode("UTF-8").splitlines(keepends=True)
+        after_lines = after.decode("UTF-8").splitlines(keepends=True)
+    except UnicodeDecodeError:
+        return f"Binary file {original} would change, no diff to show.\n"
+    diff = difflib.unified_diff(
+        before_lines, after_lines, fromfile=str(original), tofile=str(original)
+    )
+    # difflib ends its header lines with a newline but copies the body lines as
+    # they are, so a last line with no newline would run into the next line of
+    # the output. Mark it the way `diff -u` does.
+    marker = "\n\\ No newline at end of file\n"
+    return "".join(
+        line if line.endswith(("\n", "\r")) else line + marker for line in diff
+    )
 
 
 # ---------------------------------------------------------------------------

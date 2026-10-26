@@ -91,9 +91,10 @@ if TYPE_CHECKING:
     is_flag=True,
     default=False,
     help=(
-        "Report which targets the tool would rewrite, without touching them."
-        " Runs the write path against throwaway copies, so the answer holds"
-        " even for a tool whose own --check mode is unreliable."
+        "Report which targets the tool would rewrite, with the diff of each,"
+        " without touching them. Runs the write path against throwaway copies,"
+        " so the answer holds even for a tool whose own --check mode is"
+        " unreliable."
     ),
 )
 @option(
@@ -171,7 +172,7 @@ def run(
 
     try:
         if verify:
-            exit_code, drifted = verify_via_write_path(
+            exit_code, diffs = verify_via_write_path(
                 tool_name,
                 extra_args=extra_args,
                 version=tool_version,
@@ -179,8 +180,13 @@ def run(
                 skip_checksum=skip_checksum,
                 no_cache=no_cache,
             )
-            for path in drifted:
+            for path, diff in diffs.items():
                 echo(f"Would rewrite: {path}")
+                # The diff goes to stdout, the stream of the `Would rewrite:` line it
+                # follows, so redirecting one keeps the pair together. The log stays
+                # for errors. No line of a diff starts with `Would rewrite:`, so a
+                # reader that scans for it still finds one line per drifted file.
+                echo(diff, nl=False)
         else:
             exit_code = run_tool(
                 tool_name,
