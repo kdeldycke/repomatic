@@ -824,12 +824,12 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 ### 📈 Sample forge metrics (`sample-metrics`)
 
 - Reads every repository in `[tool.repomatic.metrics] subjects` through whichever API its host speaks (GitHub, GitLab or Forgejo) with [`repomatic sample-metrics`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metrics/store.py), and appends one CSV row per subject, metric and date
-- A counter like the star count accrues, so its curve can be charted; an attribute like the date of the newest release or commit keeps a single row, restamped only when it moves, so a quiet week leaves the file untouched
-- Rebuilds every GitHub subject's whole star curve from GitHub's star history, one reading per week that gained a star: those curves are complete from their first star rather than from the day sampling started. The endpoint is anonymous, so this covers the repositories a project merely tracks as well as the ones it owns
-- Redraws the configured SVG charts, stamped with the newest reading of the metric they plot rather than the run date, so a week that moved nothing rewrites nothing
+- A counter like the star count accrues, so its curve can be charted; an attribute like the date of the newest release or commit keeps a single row, restamped only when it moves, so a run that finds it unchanged leaves the file untouched
+- Rebuilds every GitHub subject's whole star curve from GitHub's star history, one reading per week that gained a star: those curves are complete from their first star rather than from the day sampling started. The endpoint is anonymous, so this covers the repositories a project merely tracks as well as the ones it owns. A subject on another forge has no such endpoint and is sampled forward instead, one reading per run, so for that curve the cadence is the resolution
+- Redraws the configured SVG charts, stamped with the newest reading of the metric they plot rather than the run date, so a run that moved nothing rewrites nothing
 - Publishes the store through one long-lived pull request that every run appends to, restoring the store from its branch before sampling so readings still awaiting review are added to rather than replaced (see [§ Sampling accumulates in one pull request](operation-contracts.md#sampling-accumulates-in-one-pull-request))
 - Until that pull request is merged, the charts published from the default branch lag behind. Merging it starts a fresh accrual
-- **Runs on**: weekly schedule, manual dispatch, and `workflow_call` from downstream repositories. Never on push: sampling the same value twice in a day writes the same row
+- **Runs on**: quarterly schedule, manual dispatch, and `workflow_call` from downstream repositories. Quarterly because the charts plot multi-year trends and every run rebuilds a GitHub subject's curve whole, so a finer cadence adds commits without moving a curve. Never on push: sampling the same value twice in a day writes the same row
 - **Requires**:
   - `REPOMATIC_PAT` secret with contents write permission, to open a pull request whose checks actually run
 - **Skipped if**:

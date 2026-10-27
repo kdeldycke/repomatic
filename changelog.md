@@ -104,6 +104,7 @@
 - Outside CI, the repository slug now comes from the `origin` remote before `gh`.
 - `sync-labels` picks the awesome-list label profile from `--repo` instead of the checkout.
 - `sample-metrics` refuses a metrics store holding an unknown source.
+- The `metrics.yaml` schedule moves from weekly to quarterly, which thin callers mirror at their next sync.
 - The `unsubscribe-threads` report warns when its first phase cannot fetch notifications, and shows dates beside relative times.
 - The `fix-typos` pull request title and commit message now read "Fix typos".
 - Release lookups leave out draft releases, and `sync-github-releases --live` reads fresh release bodies and continues past a failed edit.

@@ -148,7 +148,7 @@ For config file sync, `copier` and `cruft` sync files only as part of a full tem
 
 The vertical axis counts by powers of ten. The largest alternative here holds two orders of magnitude more stars than `repomatic`, and a linear axis draws every other project flat along the bottom edge.
 
-GitHub restricted its stargazer endpoints to a repository's own admins in June 2026, which left every third-party star chart on the web rendering an error card. It reopened an anonymous star history in September. [`repomatic sample-metrics`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metrics/store.py) reads every project on this page weekly into [`metrics.csv`](assets/metrics.csv), so the history accrues here and cannot be revoked a second time.
+GitHub restricted its stargazer endpoints to a repository's own admins in June 2026, which left every third-party star chart on the web rendering an error card. It reopened an anonymous star history in September. [`repomatic sample-metrics`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/metrics/store.py) reads every project on this page every quarter into [`metrics.csv`](assets/metrics.csv), so the history accrues here and cannot be revoked a second time.
 
 Every curve is reconstructed from the stars its repository *still* holds, dated to the week each was given, and runs back to that repository's creation. So a curve understates every past week by the stars withdrawn since, and converges on the true figure at the right edge: read a sagging stretch as a project shedding followers, which a monotonic chart would hide. The star counts below are live in every case. See [History](history.md) for `repomatic`'s own curve on its own scale.
 

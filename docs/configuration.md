@@ -159,9 +159,9 @@ Tune rules for precision, not recall. The labeller pre-labels for the maintainer
 
 `sample-metrics` records what forges say about a set of repositories, into one CSV committed here. It is opt-in, and `metrics.sync` is also what decides whether `repomatic init` hands the repository the `metrics.yaml` workflow at all.
 
-The weekly job publishes through one long-lived pull request that every run appends to, so enabling this leaves a pull request open for you to merge whenever you want the readings live. Leaving it open costs freshness and never a reading: see [§ Sampling accumulates in one pull request](operation-contracts.md#sampling-accumulates-in-one-pull-request).
+The quarterly job publishes through one long-lived pull request that every run appends to, so enabling this leaves a pull request open for you to merge whenever you want the readings live. Leaving it open costs freshness and never a reading: see [§ Sampling accumulates in one pull request](operation-contracts.md#sampling-accumulates-in-one-pull-request).
 
-Every reading is one row: which repository, which metric, on which date, what it said, and where the figure came from. How long a row is kept is a property of the metric rather than of the caller. A **counter** like the star count accrues, so its curve can be charted. An **attribute** like the date of a project's newest commit keeps a single row, restamped only when the value moves, since nothing reads it chronologically and a hundred subjects sampled weekly would otherwise pile up thousands of rows a year.
+Every reading is one row: which repository, which metric, on which date, what it said, and where the figure came from. How long a row is kept is a property of the metric rather than of the caller. A **counter** like the star count accrues, so its curve can be charted. An **attribute** like the date of a project's newest commit keeps a single row, restamped only when the value moves, since nothing reads it chronologically and a hundred subjects sampled every quarter would still pile up over a thousand rows a year.
 
 ```toml
 [tool.repomatic.metrics]
@@ -204,6 +204,8 @@ A chart plots one metric, `stars` unless `metric` names another, and only a metr
 One collector is GitHub-only and skips every other forge with a note. The **reconstruction** (`--reconstruct`, on by default) rebuilds a subject's whole star curve from GitHub's star history, so the curve is complete from the repository's first star rather than starting on the day sampling did. The endpoint is anonymous, so this covers every subject a project tracks and not only the ones its token administers.
 
 It reads by week and stores by week, keeping one reading per week that gained a star. The endpoint resolves to the day, but a cumulative curve counts the stars a repository *still* holds, so one withdrawal years ago lowers every later point: at daily resolution a single unstar would rewrite thousands of committed rows.
+
+The week is the endpoint's own bucket, not the run cadence: every run rebuilds each week's row whatever the gap since the last one, so the quarterly schedule keeps the same resolution and only dates the newest weeks later. A subject on another forge has no such endpoint and is sampled forward instead, one reading per run, so for that curve the cadence is the resolution and a scheduled run that never starts leaves a gap nothing refills.
 
 ### Repository scope
 

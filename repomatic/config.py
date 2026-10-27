@@ -586,7 +586,7 @@ class MetricsConfig:
     """Whether `sample-metrics` records readings for this repository.
 
     Opt-in, and the gate on the `metrics.yaml` workflow: a repository tracking
-    nothing should not carry a weekly job, and an accumulating store is a
+    nothing should not carry a quarterly job, and an accumulating store is a
     commitment a maintainer makes deliberately.
     """
 

@@ -4,9 +4,9 @@
 # GitHub restricted its stargazer endpoints to a repository's own admins on
 # 2026-06-30 (REST) and 2026-07-17 (GraphQL), which killed every third-party
 # star chart on the web. It reopened an anonymous star history on 2026-09-04,
-# and this job reads it weekly and publishes the result through one long-lived
-# pull request: a history that accrues in the repository cannot be revoked
-# upstream.
+# and this job reads it every quarter and publishes the result through one
+# long-lived pull request: a history that accrues in the repository cannot be
+# revoked upstream.
 #
 # Only the sampling needs the network. Whatever renders the data reads the
 # committed CSV and SVG, so a docs build stays hermetic.
@@ -22,10 +22,14 @@ name: "\U0001F4C8 Forge metrics"
         required: false
   workflow_dispatch:
   schedule:
-    # Weekly: the charts plot multi-year trends, so a finer cadence would only
-    # add commits without moving a curve. Deliberately never on push, since
-    # sampling the same value twice in a day writes the same row.
-    - cron: "41 5 * * 2"
+    # Quarterly: the charts plot multi-year trends, and a GitHub subject's whole
+    # curve is rebuilt from its star history on every run, so a finer cadence
+    # would add commits without moving a curve. A scheduled run that never
+    # starts costs a GitHub subject nothing for the same reason, and costs a
+    # subject on another forge that quarter's forward reading. Deliberately
+    # never on push, since sampling the same value twice in a day writes the
+    # same row.
+    - cron: "41 5 3 1,4,7,10 *"
 
 permissions: {}
 

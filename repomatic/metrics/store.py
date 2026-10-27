@@ -29,9 +29,10 @@ kept and charted. A star count is the one that motivated all this.
 
 An **attribute** does not: the date of a project's newest commit is a fact
 about today, nothing reads it chronologically, and a hundred subjects sampled
-weekly would pile up thousands of rows a year that no page ever opens. Only the
-newest reading is kept, dated when the value last *moved*, so a quiet week
-leaves the file untouched rather than restamping every row.
+every quarter would still pile up over a thousand rows a year that no page ever
+opens. Only the newest reading is kept, dated when the value last *moved*, so a
+run that finds it unchanged leaves the file alone rather than restamping every
+row.
 
 {class}`Retention` is where that choice lives, and {meth}`MetricStore.upsert`
 is the only code that has to know about it.
@@ -450,7 +451,7 @@ class MetricStore:
         - An accruing metric keeps every day, and a more authoritative source
           wins over a weaker one for the same day, per {attr}`Source.rank`.
         - An attribute keeps one row. An unchanged value leaves the stored date
-          alone, so a quiet week rewrites nothing; a moved value replaces the
+          alone, so a quiet run rewrites nothing; a moved value replaces the
           row and takes the new date, which is therefore when the value last
           changed rather than when it was last confirmed.
 
@@ -618,8 +619,12 @@ def reconstruct_from_github(
     of that week. The endpoint resolves to the day, but the store deliberately
     does not: a cumulative curve counts the stars a repository *still* holds, so
     one withdrawal in 2019 lowers every later point, and at daily resolution a
-    single unstar rewrites thousands of committed rows. A week is also the
-    cadence the job samples at and the unit the charts plot over years.
+    single unstar rewrites thousands of committed rows.
+
+    The week is the endpoint's own bucket and the unit the charts plot over
+    years, not the cadence the job runs at: a run rebuilds every week's row
+    whatever the gap since the last one, so a quarterly schedule keeps the same
+    resolution and only dates the newest weeks later.
 
     ```{caution}
     GitHub buckets the days in its own timezone, `America/Los_Angeles`, and
