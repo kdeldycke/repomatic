@@ -50,6 +50,7 @@
 - `repomatic run` manages `wrangler`, and the `deploy-docs-cloudflare` job deploys through it instead of an `npx` call.
 - `update-checksums` and `sync-tool-versions` verify the upstream attestation of each actionlint, Biome, gh, shfmt and typos download before recording its checksum.
 - `sync-uv-lock` and `sync-tool-versions` hold back a PyPI release that lost the PEP 740 provenance its predecessor had, and show each release's trusted publisher.
+- The updates table of a dependency PR moves its `Provenance` column next to `Change`, ahead of `Released`.
 - The documentation's copy button skips the prompt and output lines of a shell session, and its sitemap drops the search and index pages.
 - Set `wrap = "no"` in the bundled `mdformat.toml`, so `format-markdown` joins the lines of a hard-wrapped paragraph.
 - `lint-changelog` warns on an entry filed out of the Breaking, then Deprecated, then ordinary order and on a `#N` naming no issue, and `--fix` strips a `v` tag prefix off a heading.

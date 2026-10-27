@@ -429,12 +429,17 @@ def test_uv_lock_without_a_regression_keeps_the_upgrade(tmp_path, monkeypatch):
 def test_diff_table_gains_a_provenance_column():
     table = format_diff_table(
         [("fig", "1.0", "1.1"), ("kiwi", "2.0", "2.1")],
+        upload_times={
+            "fig": "2026-01-01T00:00:00Z",
+            "kiwi": "2026-01-02T00:00:00Z",
+        },
         provenance={"fig": "✅ `orchard/fig`"},
     )
-    assert "| Package | Change | Provenance |" in table
-    assert "✅ `orchard/fig`" in table
+    # Provenance sits right after the change, and dates close the row.
+    assert "| Package | Change | Provenance | Released |" in table
+    assert "| fig | `1.0` → `1.1` | ✅ `orchard/fig` | 2026-01-01 |" in table
     # A changed name without a cell shows a dash, not an empty cell.
-    assert table.rstrip().endswith("| — |")
+    assert "| kiwi | `2.0` → `2.1` | — | 2026-01-02 |" in table
 
 
 def test_diff_table_without_provenance_keeps_its_columns():

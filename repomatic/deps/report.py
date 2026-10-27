@@ -249,7 +249,9 @@ def format_diff_table(
         pin stepped back to an older release.
     :param provenance: Optional mapping of names to literal markdown for a
         "Provenance" column, which renders when any changed name has an entry.
-        A changed name without one shows a dash.
+        A changed name without one shows a dash. The column sits right after
+        "Change", before "Released": who published a release belongs with
+        what moved, and dates close the row.
     :return: A markdown string with a `## 🆙 {heading}` heading and table,
         or an empty string if there are no changes.
     """
@@ -276,6 +278,8 @@ def format_diff_table(
         else:
             change = f"🗑️ removed: `{old}`"
         cells = [link_name(name, name_urls), change]
+        if show_provenance:
+            cells.append(provenance.get(name, "—"))
         if show_uploaded:
             if name in released_overrides:
                 uploaded = released_overrides[name]
@@ -283,15 +287,13 @@ def format_diff_table(
                 raw_time = upload_times.get(name, "") if upload_times else ""
                 uploaded = format_released(raw_time, reference_date)
             cells.append(uploaded)
-        if show_provenance:
-            cells.append(provenance.get(name, "—"))
         rows.append(tuple(cells))
 
     headers: tuple[str, ...] = (subject, "Change")
-    if show_uploaded:
-        headers = (*headers, "Released")
     if show_provenance:
         headers = (*headers, "Provenance")
+    if show_uploaded:
+        headers = (*headers, "Released")
     return markdown_section(f"🆙 {heading}", cooldown_note, headers, rows)
 
 
