@@ -141,6 +141,8 @@ This repository uses three Claude Code agents in `.claude/agents/`, and `qa-engi
 
 **Skills are self-contained the same way.** `repomatic init skills` deploys each one as a standalone folder into repositories that have no `docs/` tree, and skills typically lack `WebFetch`, so a skill keeps its domain knowledge inline or in its own `references/`. Duplication between a skill and a docs page is intentional: `docs/` serves humans, the skill serves Claude at runtime.
 
+**A bundled asset is a symlink to its source, never a copy.** Each workflow, agent and skill file under `repomatic/data/` is a git symlink (mode `120000`) onto the canonical in-tree file in `.github/workflows/`, `.claude/agents/` or `.claude/skills/`. Edit the source: the bundled path then follows it, `git status` names one file, and a second edit aimed at `repomatic/data/` finds no text to replace.
+
 ### Mechanical vs analytical work
 
 The `repomatic` ecosystem has a **mechanical layer** (CLI commands and CI workflows that deterministically sync, lint, format, and fix files on every push to `main`) and an **analytical layer** (judgment-based tasks needing context comparison and trade-offs). Skills focus on the analytical gaps (custom job content analysis, cross-repo pattern comparison, judgment on intentional vs stale divergence); don't duplicate what CI handles mechanically: see [§ Automated operation contracts](#automated-operation-contracts).
