@@ -4,7 +4,7 @@
 
 ## Naming rules
 
-CLI commands, workflow job IDs, PR branch names and PR body template names share one verb prefix: the table in `claude.md` § Naming conventions for automated operations maps each prefix to its data source. These rules settle the rest.
+CLI commands, workflow job IDs, PR branch names and PR body template names share one verb prefix: the table in `AGENTS.md` § Naming conventions for automated operations maps each prefix to its data source. These rules settle the rest.
 
 1. **Pick the verb that matches the data source.** External template/API/canonical reference: `sync`. Local project state (lockfiles, git history, source): `update`. Reformatting: `format`.
 2. **Name the specific tool or file, not a generic category** (`sync-zizmor`, not `sync-linter-configs`). A second tool in a category gets its own operation.
@@ -51,7 +51,7 @@ Every `update-*` operation computes derived artifacts from project state (lockfi
 
 ## Format and fix job contract
 
-Every `format-*` and `fix-*` operation rewrites files using a pinned external tool. `format-*` enforces canonical style (semantics-preserving); `fix-*` corrects content errors such as typos (semantics-altering). The naming convention table in `claude.md` § Naming conventions for automated operations defines when to use each prefix.
+Every `format-*` and `fix-*` operation rewrites files using a pinned external tool. `format-*` enforces canonical style (semantics-preserving); `fix-*` corrects content errors such as typos (semantics-altering). The naming convention table in `AGENTS.md` § Naming conventions for automated operations defines when to use each prefix.
 
 **Required properties:**
 

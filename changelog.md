@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** Retire the `repomatic-audit` skill, folded into `repomatic-upgrade` as its second pass. A `[tool.repomatic] exclude` naming `skills/repomatic-audit` fails until the entry is dropped.
+- **Breaking:** Generated workflows and the bundled agents and skills now name `AGENTS.md` as the instructions file in place of `claude.md`. Rename a downstream `claude.md` to match.
 - The bundled `repomatic-upgrade` skill now counts every finding of a gating job the release adds as a row, old findings included.
 - The bundled `repomatic-upgrade` skill ends with two lists, the applied rows and the remaining `decide`/`implement`/`commit`/`push`/`report` actions, instead of prose.
 - The bundled `repomatic-upgrade` skill now compares the test matrix at both pins, since a shifted Python axis can turn a literal exclude against the new stable version.

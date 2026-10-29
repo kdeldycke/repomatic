@@ -24,7 +24,7 @@ name: 🆙 Changelog & versions
       # workflow_run backstop below (see the prepare-release job). That backstop
       # re-bases the PR after every successful Build & release, whatever paths it
       # touched, so a commit landing entirely outside this list (a skill, a
-      # composite action under .github/actions/, readme.md or claude.md) is caught
+      # composite action under .github/actions/, readme.md or AGENTS.md) is caught
       # then rather than leaving the PR stale.
       - "**/*.py"
       - "docs/**"

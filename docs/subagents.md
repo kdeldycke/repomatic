@@ -36,10 +36,10 @@ Without [`subagents.location`](configuration.md), they land in `./.claude/agents
 
 | Subagent                                                                                        | Role                                                                                                             |
 | :---------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------- |
-| [`grunt-qa`](https://github.com/kdeldycke/repomatic/blob/main/.claude/agents/grunt-qa.md)       | Hands-on worker that fixes typos, ordering, style, doc-sync issues, and other mechanical `claude.md` violations. |
+| [`grunt-qa`](https://github.com/kdeldycke/repomatic/blob/main/.claude/agents/grunt-qa.md)       | Hands-on worker that fixes typos, ordering, style, doc-sync issues, and other mechanical `AGENTS.md` violations. |
 | [`qa-engineer`](https://github.com/kdeldycke/repomatic/blob/main/.claude/agents/qa-engineer.md) | Senior engineer that handles deep code analysis, bug-class sweeps, and design decisions.                         |
 | [`sphinx-docs`](https://github.com/kdeldycke/repomatic/blob/main/.claude/agents/sphinx-docs.md) | Documentation steward that keeps `docs/` in sync with code and enforces MyST and click-extra conventions.        |
 
 ## Self-containment
 
-Like skills, subagents must be self-contained for downstream portability. They state each rule inline rather than pointing at an upstream `docs/` URL or a [`claude.md`](https://github.com/kdeldycke/repomatic/blob/main/claude.md) section, so a downstream repository's agent reads every rule locally, with no network access and no dependency on an instructions file it may not share.
+Like skills, subagents must be self-contained for downstream portability. They state each rule inline rather than pointing at an upstream `docs/` URL or a [`AGENTS.md`](https://github.com/kdeldycke/repomatic/blob/main/AGENTS.md) section, so a downstream repository's agent reads every rule locally, with no network access and no dependency on an instructions file it may not share.

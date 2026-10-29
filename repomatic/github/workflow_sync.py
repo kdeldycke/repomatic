@@ -130,7 +130,7 @@ def cooldown_env_block(config: Config | None = None) -> str:
     they do not have. Keep any wording added below equally context-free, and
     name a repomatic-private path only in a comment that never ships. For the
     same reason the rationale is cited by {data}`COOLDOWN_DOCS_URL` and not by
-    `claude.md`: a downstream repository holds no copy of that file.
+    `AGENTS.md`: a downstream repository holds no copy of that file.
     ```
 
     ```{note}

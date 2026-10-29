@@ -114,7 +114,7 @@ LINT_DOCS_URL = "https://repomatic.net/workflows#fix-changelog-fix-changelog"
 """Section of the published documentation on the content checks.
 
 Every check ends its annotation on it. An annotation is read in a downstream
-repository, which holds no copy of this project's `claude.md`, so the link
+repository, which holds no copy of this project's `AGENTS.md`, so the link
 aims at the site.
 """
 

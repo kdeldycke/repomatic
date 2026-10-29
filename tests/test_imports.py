@@ -25,7 +25,7 @@ the ``metadata`` step crashes after the package is already on PyPI, leaving it
 untagged with no GitHub release. So repomatic imports only click_extra's public
 API, promoting any needed helper to public in click_extra first. The companion
 release-ordering rule (ship the fixed repomatic and bump click_extra's pin
-before releasing click_extra) lives in ``claude.md`` § "click_extra is both a
+before releasing click_extra) lives in ``AGENTS.md`` § "click_extra is both a
 dependency and a release consumer".
 """
 

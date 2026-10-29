@@ -29,7 +29,7 @@ and the page carried 14 items while the tree held 16.
 Nothing reports it. A `{todo}` renders exactly the same way whether or not its
 owner is picked up, the build stays warning-free, and the only way to notice is
 to count the page against the tree by hand. That silence is what earns this a
-conformance test rather than a line in `claude.md`.
+conformance test rather than a line in `AGENTS.md`.
 
 The check reads the owner from the syntax tree instead of importing anything,
 so it runs everywhere the suite does. `tests/test_docstrings.py` covers the

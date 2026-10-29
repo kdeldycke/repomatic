@@ -560,7 +560,7 @@ def test_annotation_reads_true_downstream(warn, content, capsys):
     """A lint annotation cites a section the published documentation declares.
 
     The annotation shows in the checks of a downstream repository, which holds
-    no copy of this project's `claude.md`.
+    no copy of this project's `AGENTS.md`.
     """
     warn(Changelog(content))
     annotation = capsys.readouterr().out

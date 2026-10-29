@@ -29,16 +29,16 @@ name: 📚 Docs
     # translation-only push with no link check at all: on an awesome list,
     # where the translation carries the same few hundred links, that is most
     # of what the crawl exists to cover.
-    # `.github/code-of-conduct.md`, `claude.md` and `license` are what the
+    # `.github/code-of-conduct.md`, `AGENTS.md` and `license` are what the
     # `code-of-conduct`, `contributing` and `license` pages include from
     # outside `docs/`. Without an entry of its own, a push touching just one of
     # them skips the workflow, and its page stays stale.
     paths:
       - .github/code-of-conduct.md
       - .github/workflows/docs.yaml
+      - AGENTS.md
       - changelog.md
       - citation.cff
-      - claude.md
       - docs/**
       - license
       - pyproject.toml

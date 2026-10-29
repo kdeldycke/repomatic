@@ -153,7 +153,7 @@ def _attribute_docstrings(tree: ast.Module) -> Iterator[tuple[int, str, str]]:
     """Yield `(line, owner, text)` for each attribute docstring in *tree*.
 
     An attribute docstring is the bare string literal following an assignment.
-    `ast.get_docstring` cannot see one, yet `claude.md` makes it the convention
+    `ast.get_docstring` cannot see one, yet `AGENTS.md` makes it the convention
     for documenting a dataclass field and `automodule ... :undoc-members:`
     renders it, so it mangles exactly like any other docstring.
     """

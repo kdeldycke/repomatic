@@ -138,7 +138,7 @@ def assert_shipped_text_reads_true_downstream(origin: str, text: str) -> None:
     """Check a text that travels downstream cites nothing a repository lacks.
 
     A bundled configuration and a generated workflow comment both land in
-    repositories that hold no copy of this project's `claude.md`: the `agent`
+    repositories that hold no copy of this project's `AGENTS.md`: the `agent`
     component that shipped its sections retired in `7.14.0`. A pointer to that
     file is a dead end there. So such a text states its rationale inline, or
     cites a section of the published documentation, whose anchor is held here
@@ -147,9 +147,10 @@ def assert_shipped_text_reads_true_downstream(origin: str, text: str) -> None:
     :param origin: Name of the text under test, for the failure message.
     :param text: Content as it ships.
     """
-    assert not re.search(r"claude\.md", text, re.IGNORECASE), (
-        f"{origin} sends its reader to claude.md, which no downstream repository "
-        "holds. State the rationale inline, or cite a page of "
+    assert not re.search(r"(?:agents|claude)\.md", text, re.IGNORECASE), (
+        f"{origin} sends its reader to this project's instructions file, "
+        "which no downstream repository holds. State the rationale inline, or "
+        "cite a page of "
         "https://repomatic.net instead."
     )
     for match in SITE_ANCHOR_RE.finditer(text):

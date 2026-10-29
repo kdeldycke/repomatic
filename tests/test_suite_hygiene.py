@@ -480,7 +480,7 @@ def test_tool_probe_skips_a_tool_that_cannot_install(error: Exception) -> None:
 
 @pytest.mark.parametrize("test_file", TEST_FILES, ids=lambda p: p.name)
 def test_no_classes_for_grouping(test_file) -> None:
-    """No `Test*` classes: tests are top-level functions, per `claude.md`.
+    """No `Test*` classes: tests are top-level functions, per `AGENTS.md`.
 
     Non-test helper classes (doubles, matcher sentinels) are fine; only a
     class pytest would collect as a grouping container is flagged.

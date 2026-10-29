@@ -20,12 +20,12 @@ Skills and agents ship verbatim to every downstream repo through
 `repomatic init`, and nothing else audits their bodies: `test_skills.py`
 checks frontmatter against the Agent Skills spec, the release sweep reads
 them by hand once a cycle. So a cooldown window, a config key, a module
-path or a `claude.md` section quoted in one of them is a second copy of
+path or a `AGENTS.md` section quoted in one of them is a second copy of
 something the project already defines, free to drift the moment the
 original moves.
 
 A second family of checks holds the same assets to the prose rule in
-`claude.md` § Directives are written in Simplified Technical English: the
+`AGENTS.md` § Directives are written in Simplified Technical English: the
 directive a rule opens with stays short enough to read once, while the
 rationale following it is left alone.
 
@@ -758,21 +758,21 @@ def test_directives_are_short(asset_id: str, body: str) -> None:
         )
 
 
-CLAUDE_ANCHOR_RE = re.compile(r"claude\.md#(?P<anchor>[\w-]+)", re.IGNORECASE)
-"""A link to one section of `claude.md`, as the URL of a forge or a site spells it."""
+AGENTS_ANCHOR_RE = re.compile(r"agents\.md#(?P<anchor>[\w-]+)", re.IGNORECASE)
+"""A link to one section of `AGENTS.md`, as the URL of a forge or a site spells it."""
 
-CLAUDE_MD = PROJECT_ROOT / "claude.md"
+AGENTS_MD = PROJECT_ROOT / "AGENTS.md"
 """The instructions file every citation points into.
 
-Spelled lowercase because that is the tracked name. A case-insensitive
-filesystem resolves `CLAUDE.md` just the same, so the wrong spelling here
+Spelled uppercase because that is the tracked name. A case-insensitive
+filesystem resolves `agents.md` just the same, so the wrong spelling here
 passes locally and raises `FileNotFoundError` on a Linux runner.
 """
 
-CLAUDE_SECTION_RE = re.compile(
-    r"`?claude\.md`?\s+§\s+(?=(?P<tail>[^\n]{1,160}))", re.IGNORECASE
+AGENTS_SECTION_RE = re.compile(
+    r"`?agents\.md`?\s+§\s+(?=(?P<tail>[^\n]{1,160}))", re.IGNORECASE
 )
-"""A `claude.md § <section>` citation, plus the text that follows it.
+"""A `AGENTS.md § <section>` citation, plus the text that follows it.
 
 Where the name ends is not something the citation reliably marks: the corpus
 holds `§ Documentation sync (upstream maintainers).`, which closes on
@@ -790,7 +790,7 @@ LITERAL_SEAM_RE = re.compile(r"""["']\s*\n\s*[fFrR]{0,2}["']""")
 """The seam between two adjacent string literals of one Python expression.
 
 A URL too long for one line is split over two literals, which hides its
-anchor from {data}`CLAUDE_ANCHOR_RE` until the seam is closed.
+anchor from {data}`AGENTS_ANCHOR_RE` until the seam is closed.
 """
 
 PROSE_WRAP_RE = re.compile(r"\n[ \t]*(?:#+[ \t]?)?")
@@ -814,8 +814,8 @@ TEXT_SUFFIXES = frozenset({".md", ".py", ".toml", ".yaml", ".yml"})
 """Suffixes of the files that hold prose: docstrings, comments and pages."""
 
 
-def claude_headings() -> list[str]:
-    """Every section heading `claude.md` declares, fenced blocks excluded.
+def agents_headings() -> list[str]:
+    """Every section heading `AGENTS.md` declares, fenced blocks excluded.
 
     A `#` opening a line inside a fence is a shell or TOML comment rather than
     a heading, so the fence state is tracked the way {func}`directives` tracks
@@ -823,7 +823,7 @@ def claude_headings() -> list[str]:
     """
     headings = []
     in_fence = False
-    for line in CLAUDE_MD.read_text(encoding="UTF-8").splitlines():
+    for line in AGENTS_MD.read_text(encoding="UTF-8").splitlines():
         if FENCE_RE.match(line):
             in_fence = not in_fence
         elif not in_fence and line.startswith("#"):
@@ -831,15 +831,15 @@ def claude_headings() -> list[str]:
     return headings
 
 
-def claude_anchors() -> set[str]:
-    """Every anchor the headings of `claude.md` answer to.
+def agents_anchors() -> set[str]:
+    """Every anchor the headings of `AGENTS.md` answer to.
 
     A forge and the documentation site each derive an anchor from a heading
     in their own way, and a link can aim at the file on either one, so both
     slugs count: the forge's, and the site's {func}`~tests.conftest.docs_heading_slug`.
     """
     anchors = set()
-    for heading in claude_headings():
+    for heading in agents_headings():
         anchors.add(docs_heading_slug(heading))
         anchors.add(re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-"))
     return anchors
@@ -874,10 +874,10 @@ def repository_texts() -> list[tuple[str, str]]:
 
 
 def unresolved_citations(text: str) -> list[str]:
-    """Each citation of a `claude.md` section which that file does not declare.
+    """Each citation of a `AGENTS.md` section which that file does not declare.
 
-    Reads both forms a citation takes: the `claude.md § <section>` of prose
-    and the `claude.md#<anchor>` of a link. The text is unwrapped first, per
+    Reads both forms a citation takes: the `AGENTS.md § <section>` of prose
+    and the `AGENTS.md#<anchor>` of a link. The text is unwrapped first, per
     {data}`PROSE_WRAP_RE` and {data}`LITERAL_SEAM_RE`.
 
     A heading is matched as a prefix of the citation, which keeps the check as
@@ -888,11 +888,11 @@ def unresolved_citations(text: str) -> list[str]:
     :param text: Content of one file, or of one bundled asset.
     :return: One entry per dead citation, in the form the text spells it.
     """
-    headings = claude_headings()
-    anchors = claude_anchors()
+    headings = agents_headings()
+    anchors = agents_anchors()
     flat = PROSE_WRAP_RE.sub(" ", LITERAL_SEAM_RE.sub("", text))
     unresolved = []
-    for match in CLAUDE_SECTION_RE.finditer(flat):
+    for match in AGENTS_SECTION_RE.finditer(flat):
         tail = match.group("tail").lstrip('"')
         # A tail opening on a bracket is a placeholder, in a text that
         # describes the citation form itself.
@@ -905,18 +905,18 @@ def unresolved_citations(text: str) -> list[str]:
             unresolved.append(f"§ {tail[:60]}")
     unresolved.extend(
         f"#{match.group('anchor')}"
-        for match in CLAUDE_ANCHOR_RE.finditer(flat)
+        for match in AGENTS_ANCHOR_RE.finditer(flat)
         if match.group("anchor").lower() not in anchors
     )
     return unresolved
 
 
 @bundled_asset
-def test_cited_claude_sections_resolve(asset_id: str, body: str) -> None:
-    """Every citation of a `claude.md` section names one that file declares.
+def test_cited_agents_sections_resolve(asset_id: str, body: str) -> None:
+    """Every citation of a `AGENTS.md` section names one that file declares.
 
     Retiring the `agent` component in `7.14.0` moved the generic conventions
-    out of this repository's `claude.md`, and 32 citations reaching into them
+    out of this repository's `AGENTS.md`, and 32 citations reaching into them
     became dead ends inside assets that still ship verbatim. A downstream
     reader cannot tell a stale pointer from a section their own file is
     missing, so a citation either names something or gives way to the rule
@@ -927,21 +927,21 @@ def test_cited_claude_sections_resolve(asset_id: str, body: str) -> None:
     """
     unresolved = unresolved_citations(body)
     assert not unresolved, (
-        f"{asset_id} cites claude.md {unresolved[0]!r}, which claude.md does "
+        f"{asset_id} cites AGENTS.md {unresolved[0]!r}, which AGENTS.md does "
         "not declare. Drop the pointer and state the rule inline, or aim "
         "it at a section that exists."
     )
 
 
 def test_repository_citations_resolve() -> None:
-    """Every citation of a `claude.md` section, in any text here, resolves.
+    """Every citation of a `AGENTS.md` section, in any text here, resolves.
 
-    {func}`test_cited_claude_sections_resolve` reads the bundled assets alone,
+    {func}`test_cited_agents_sections_resolve` reads the bundled assets alone,
     and the same drift reaches every docstring, comment, workflow and page: a
-    section that leaves `claude.md` strands each citation of it, and nothing
+    section that leaves `AGENTS.md` strands each citation of it, and nothing
     fails. A citation in a workflow or in a field docstring of `Config` also
     travels, to a repository or to a reader of the published site, where
-    `claude.md` is not this file.
+    `AGENTS.md` is not this file.
 
     So a citation names a section this file declares, or gives way to one of
     three things: the rule stated inline, a section of `docs/`, or a
@@ -953,7 +953,7 @@ def test_repository_citations_resolve() -> None:
         for citation in unresolved_citations(text)
     ]
     assert not violations, (
-        f"{len(violations)} citations name a section that claude.md does not "
+        f"{len(violations)} citations name a section that AGENTS.md does not "
         "declare. State the rule inline, or aim each one at a section of "
         "docs/ or at the code that holds the rule:\n" + "\n".join(violations)
     )

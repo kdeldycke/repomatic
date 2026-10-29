@@ -1606,7 +1606,7 @@ def selected_operations(
         whose {attr}`SyncOperation.applies_here` is false (no `uv.lock`, no
         workflow files, not the repomatic checkout) are dropped too: naming an
         operation is an explicit opt-in that bypasses that probe (the "scope
-        exclusions are defaults, not absolutes" rule in `claude.md`).
+        exclusions are defaults, not absolutes" rule in `AGENTS.md`).
     """
     if names:
         return [

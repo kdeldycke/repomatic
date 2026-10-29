@@ -137,7 +137,7 @@ The generic rule lands a finding that belongs to `repomatic` as uncommitted edit
 
 This repository uses three Claude Code agents in `.claude/agents/`, and `qa-engineer` is the gatekeeper for changes to their definitions. Definitions stay lean, and each states its rules inline.
 
-**Agents must be self-contained for downstream portability.** Agents deploy downstream via `repomatic init subagents` as standalone files; Claude auto-invokes them from their `description:` frontmatter. All knowledge must be inline: a downstream repository receives no copy of this `claude.md`, of the upstream `docs/` or of any upstream-only path, so a pointer to one of them dangles there. When mining session history, default to local `claude.md` updates; file an upstream proposal only when the pattern is generic across repos.
+**Agents must be self-contained for downstream portability.** Agents deploy downstream via `repomatic init subagents` as standalone files; Claude auto-invokes them from their `description:` frontmatter. All knowledge must be inline: a downstream repository receives no copy of this `AGENTS.md`, of the upstream `docs/` or of any upstream-only path, so a pointer to one of them dangles there. When mining session history, default to local `AGENTS.md` updates; file an upstream proposal only when the pattern is generic across repos.
 
 **Skills are self-contained the same way.** `repomatic init skills` deploys each one as a standalone folder into repositories that have no `docs/` tree, and skills typically lack `WebFetch`, so a skill keeps its domain knowledge inline or in its own `references/`. Duplication between a skill and a docs page is intentional: `docs/` serves humans, the skill serves Claude at runtime.
 
