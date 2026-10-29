@@ -51,7 +51,7 @@ from tests.conftest import (
 
 @pytest.fixture
 def changelog_file(tmp_path):
-    """A changelog file holding {data}`~tests.test_changelog.MULTI_RELEASE_CHANGELOG`.
+    """A changelog file holding `tests.conftest.MULTI_RELEASE_CHANGELOG`.
 
     A test needing other content writes over the returned path.
     """

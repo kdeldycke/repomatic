@@ -89,7 +89,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Run repomatic show-metadata
         id: metadata
         run: >
@@ -124,7 +124,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       # Graphviz: backs the sphinx.ext.graphviz directive.
       # See: https://www.sphinx-doc.org/en/master/usage/extensions/graphviz.html
       # mandoc: renders the roff `.1` files written by the
@@ -192,7 +192,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       - *install-docs-toolchain
       - *build-docs
       - name: Offload files over the Pages upload limit
@@ -268,7 +268,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Compare live project against declared state
         # The command resolves the project the deploy job above reads from
         # `cloudflare_project`, so the two jobs address one project.
@@ -304,7 +304,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/repomatic/bin

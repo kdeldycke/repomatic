@@ -3013,7 +3013,7 @@ PACKAGE_INIT = "repomatic/__init__.py"
 PROJECT_VERSION_LABEL = "[project] version"
 CURRENT_VERSION_LABEL = "[tool.bumpversion] current_version"
 PACKAGE_VERSION_LABEL = f"{PACKAGE_INIT} __version__"
-"""The label {func}`_version_copies` gives each copy of the version."""
+"""The label `_version_copies` gives each copy of the version."""
 
 DUNDER_VERSION_RE = re.compile(r'^__version__ = "(?P<version>[^"]+)"', re.MULTILINE)
 """The assignment holding the package's copy of the version."""

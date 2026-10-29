@@ -187,7 +187,7 @@ jobs:
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         if: fromJSON(needs.build.outputs.metadata).is_release_push
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       # No --output: its default is the same filename `release-assets` declares,
       # and spelling it here would push the line past yamllint's cap once the
       # release freeze splices the pinned invocation in.

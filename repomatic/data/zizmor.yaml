@@ -22,3 +22,10 @@ rules:
   # would require per-repo settings configuration across all downstream repositories.
   secrets-outside-env:
     disable: true
+
+  # The binary matrix of _release-engine.yaml names the manylinux container of each Linux target
+  # through `container: ${{ matrix.container }}`, a value built from nuitka.targets. zizmor cannot
+  # resolve an expression, so it reads a pinned image as unpinned.
+  unpinned-images:
+    ignore:
+      - _release-engine.yaml

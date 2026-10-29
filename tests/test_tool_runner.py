@@ -3345,15 +3345,18 @@ def test_verify_via_write_path_copies_a_directory_and_an_outside_file(
     inside = tmp_path / "inside"
     orchard = inside / "orchard"
     orchard.mkdir(parents=True)
-    (orchard / "pear.md").write_text("# Pear\n", encoding="UTF-8")
-    (orchard / "plum.md").write_text("# Plum\n", encoding="UTF-8")
+    # Written as bytes: text mode turns `\n` into CRLF on Windows, and the diff
+    # compares the two files byte for byte, so the expected endings would then
+    # depend on the platform.
+    (orchard / "pear.md").write_bytes(b"# Pear\n")
+    (orchard / "plum.md").write_bytes(b"# Plum\n")
     outside_kiwi = tmp_path / "kiwi.md"
-    outside_kiwi.write_text("# Kiwi\n", encoding="UTF-8")
+    outside_kiwi.write_bytes(b"# Kiwi\n")
     monkeypatch.chdir(inside)
 
     def reformat_pear(name, extra_args):
         """Rewrite one file of the copied directory, as a formatter would."""
-        (Path(extra_args[0]) / "pear.md").write_text("# Ripe pear\n", encoding="UTF-8")
+        (Path(extra_args[0]) / "pear.md").write_bytes(b"# Ripe pear\n")
         return 0
 
     with patch(

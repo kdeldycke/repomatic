@@ -301,7 +301,10 @@ def test_lock_threads_command_prints_a_row_per_thread(threads, expected):
         )
 
     assert result.exit_code == 0, result.output
-    assert result.stdout == expected
+    # The `csv` table format renders through the `excel` dialect, whose line
+    # terminator is CRLF, and the captured stream translates it to the platform's
+    # own line ending. Compare with both forms folded into `\n`.
+    assert result.stdout.replace("\r\n", "\n") == expected
     assert [call.args[0][:2] for call in mock_gh.call_args_list] == [
         ["search", "issues"]
     ]

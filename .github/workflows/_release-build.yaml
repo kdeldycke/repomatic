@@ -75,7 +75,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Open or update the squash-merge issue, then fail
         env:
           GH_TOKEN: ${{ github.token }}
@@ -94,7 +94,7 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       # Every key this lane reads, and every key the caller and the engine lane read through the `metadata` output.
       - name: Run repomatic show-metadata
         id: metadata
@@ -126,7 +126,7 @@ jobs:
           ref: ${{ fromJSON(needs.metadata.outputs.metadata).release_commit }}
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Check dependency sources
         run: >
           uv --no-progress run --frozen -- repomatic lint-deps
@@ -158,7 +158,7 @@ jobs:
           ref: ${{ matrix.commit }}
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       # Bakes the tag SHA into the CLI module so a built artifact can report the
       # commit it came from. Gated on `cli_scripts` because click-extra locates that
       # module through `[project.scripts]`, and hard-errors with "No __init__.py

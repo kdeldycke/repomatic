@@ -113,7 +113,7 @@ jobs:
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
           enable-cache: false
-          version: "0.13.0"
+          version: "0.13.4"
       # Persist the Nuitka compile caches across runs: ccache objects on gcc
       # targets, Nuitka's internal clcache objects on MSVC, plus downloads
       # and demoted-module bytecode. The per-commit key never hits exactly,
@@ -325,7 +325,7 @@ jobs:
         run: chmod +x "${DOWNLOAD_PATH}/${BIN_NAME}"
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Run test suite for binary
         env:
           DOWNLOAD_PATH: ${{ steps.artifacts.outputs.download-path }}
@@ -370,7 +370,7 @@ jobs:
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
           enable-cache: false
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Create and push tag
         # Idempotent: skips if tag already exists instead of failing. This allows re-running
         # workflows interrupted after tag creation.
@@ -405,7 +405,7 @@ jobs:
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
           enable-cache: false
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Download Python package
         # Do not fetch build artifacts for non-Python projects (no wheel built).
         if: fromJSON(inputs.metadata).is_python_project
@@ -464,7 +464,7 @@ jobs:
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
           enable-cache: false
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Install project
         run: uv --no-progress sync --frozen
       - name: Generate man pages
@@ -533,7 +533,7 @@ jobs:
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
           enable-cache: false
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Download asset artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -620,7 +620,7 @@ jobs:
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
           enable-cache: false
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Upload binaries and attestation bundles to release
         # Exclude Python packages (.tar.gz, .whl) already uploaded by create-release.
         # Each versioned binary is also uploaded under a versionless alias
@@ -690,7 +690,7 @@ jobs:
         if: steps.vt-key.outputs.has_key
         with:
           enable-cache: false
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Download, upload to VirusTotal and record detections
         # See repomatic/release/virustotal.py for why the download waits on the
         # release's asset list and fetches only the versioned binaries.
@@ -771,7 +771,7 @@ jobs:
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
           enable-cache: false
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Download all build artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

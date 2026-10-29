@@ -53,6 +53,7 @@
 - The updates table of a dependency PR moves its `Provenance` column next to `Change`, ahead of `Released`.
 - The documentation's copy button skips the prompt and output lines of a shell session, and its sitemap drops the search and index pages.
 - Set `wrap = "no"` in the bundled `mdformat.toml`, so `format-markdown` joins the lines of a hard-wrapped paragraph.
+- The bundled `zizmor.yaml` ignores the `unpinned-images` audit of `_release-engine.yaml`, whose `container:` value the build matrix supplies.
 - `lint-changelog` warns on an entry filed out of the Breaking, then Deprecated, then ordinary order and on a `#N` naming no issue, and `--fix` strips a `v` tag prefix off a heading.
 - The `prepare-release` job waits until the unreleased changelog section holds an entry, read from the new `changelog_has_entries` metadata key.
 - Add `ci-status --wait`, which polls in-process until a required job fails or every run settled, with `--until-change` and `--state-file` for a re-armed watch.
@@ -84,8 +85,7 @@
 - `sync-tool-versions` now downloads only the artifacts of the tools it bumps, and fetches release data in parallel, like `sync-action-pins`.
 - `sync-workflow-pins` now realigns the inline `repomatic` pin in every shape `lint-repo` checks, extras included.
 - Add the `workflow-pins.ignore` key: `sync-workflow-pins` leaves the pins of each package it lists as written.
-- `sync-workflow-pins` now bumps the tag of a `gh release download vX.Y.Z --repo owner/repo` command to the newest release past the cooldown.
-- `sync-workflow-pins --release-notes` now collects the release notes of a bumped `gh release download` tag.
+- `sync-workflow-pins` now bumps the tag of a `gh release download vX.Y.Z --repo owner/repo` command, and `--release-notes` collects that release's notes.
 - Generated tool configs are cached under a content digest, so two checkouts no longer overwrite each other's config.
 - A bare `repomatic run gitleaks` now scans the git history, and a bare `repomatic run lychee` checks the documentation files.
 - Add `repomatic run shellcheck` and `repomatic run npm`. `repomatic run actionlint` puts shellcheck on `PATH` and annotates its findings in CI.
@@ -121,6 +121,7 @@
 - The bundled `tests.yaml` drops its step that forced a native Python on Windows ARM64, since uv `0.13.0` picks it unaided. A downstream copy can drop the same step.
 - The Windows binaries now build on uv's managed Python, like the binaries of the other platforms.
 - The test matrix now runs Python `3.15` as the stable release and `3.16` as the development one, and smoke-tests the free-threaded `3.15t`.
+- The managed `setup-uv` pin moves to `0.13.4`, the first uv release that ships the Python `3.16` alpha, so the development cell installs its interpreter again.
 - Bump Nuitka from `4.3` to `4.3.1`, which stops a new kind of local variable from recompiling every C file of the binary.
 - The bundled `benchmark-update` skill now grades each cell ✅, 🟡 or ❌, links it to its evidence, and audits blank cells against quoted sources.
 - The bundled `repomatic-audit` skill now reads the CI state of the default branch, and checks that `[tool.gitleaks]` keeps the built-in rules.
@@ -130,8 +131,7 @@
 - The bundled `repomatic-upgrade` skill now reads the binary self-test of `Build & release` when an upgrade changes how binaries build.
 - The bundled `repomatic-upgrade` skill now runs `repomatic run actionlint` after a row that touches a workflow.
 - The bundled skills and the `sphinx-docs` agent read the cooldown window from the repository's workflows instead of assuming `1 week`.
-- The bundled `repomatic-test-matrix` skill and the test matrix guide now say that a `lowest-direct` cell needs `--frozen` on every later `uv run`, and that `full-include` drops the `python-version` axis.
-- The bundled `repomatic-test-matrix` skill now replays a `lowest-direct` cell before adding it, and judges each run by its exit code.
+- The bundled `repomatic-test-matrix` skill now replays a `lowest-direct` cell, judges each run by its exit code, and needs `--frozen` on every later `uv run`. The skill and the test matrix guide now say that `full-include` drops the `python-version` axis.
 - The bundled `repomatic-ship` skill now watches CI itself after a cycle under 10 minutes, and spawns the babysitter only on a red required job.
 - Fix the YAML and workflow lint jobs running on every push: `yaml_changed`, `workflows_changed` and `zsh_changed` now read the commit range, shallow clones included.
 - Fix a later push cancelling the tests of a release push: they now run in a concurrency group of their own.

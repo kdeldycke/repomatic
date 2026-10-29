@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Run repomatic show-metadata
         id: metadata
         run: >
@@ -84,7 +84,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       # No `needs: metadata` here, so the job reads the pin its cache is keyed on
       # itself: `tool_versions` names the version the registry pins for each tool.
       - name: Read the tool pins
@@ -122,7 +122,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
-          version: "0.13.0"
+          version: "0.13.4"
       - name: Apply labels
         # Content rules run on issues and pull requests alike; file rules need
         # a diff, so the command adds them on pull requests by itself.
