@@ -80,7 +80,8 @@ matches the cut. urllib then raises no `IncompleteRead`, and only the parser
 finds the damage, with no retry.
 
 PyPI's CDN served the JSON metadata of a package this way, while its gzip copy
-was whole. A Trusted Publisher check then read the package as never released.
+was whole: [pypi/warehouse#20854](https://github.com/pypi/warehouse/issues/20854).
+A Trusted Publisher check then read the package as never released.
 """
 
 ERROR_BODY_EXCERPT = 400
