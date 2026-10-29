@@ -1440,6 +1440,55 @@ def test_run_tool_ruff_reads_pyproject_natively(
     assert "check" in cmd
 
 
+_ORCHARD = '[project]\nname = "orchard"\nversion = "1.0.0"\n'
+"""A PEP 621 `[project]` table with no `requires-python`."""
+
+_ORCHARD_310 = f'{_ORCHARD}requires-python = ">=3.10"\n'
+"""The same table, with a Python 3.10 floor."""
+
+
+@pytest.mark.parametrize(
+    ("pyproject", "native_file", "expected"),
+    [
+        # Bundled config: ruff cannot see `requires-python`, so repomatic passes it.
+        (_ORCHARD_310, None, "py310"),
+        # No floor declared: ruff keeps its own default.
+        (_ORCHARD, None, None),
+        # A `[tool.ruff]` table sits in the project, where ruff infers the floor.
+        (f"{_ORCHARD_310}\n[tool.ruff]\npreview = true\n", None, None),
+        # So does a native config file.
+        (_ORCHARD_310, "ruff.toml", None),
+    ],
+)
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
+def test_run_tool_ruff_target_version(
+    mock_ci, mock_run, tmp_path, monkeypatch, pyproject, native_file, expected
+):
+    """The bundled ruff config gets the `requires-python` floor as `target-version`.
+
+    Without it, ruff falls back to its oldest supported Python, and the safe `UP`
+    fixes rewrite code to an API the project's floor lacks.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(pyproject, encoding="UTF-8")
+    if native_file:
+        (tmp_path / native_file).write_text("preview = true\n", encoding="UTF-8")
+    mock_run.return_value = MagicMock(returncode=0)
+
+    run_tool("ruff", extra_args=("check",))
+
+    cmd = mock_run.call_args[0][0]
+    overrides = [arg for arg in cmd if arg.startswith("target-version")]
+    if expected is None:
+        assert overrides == []
+    else:
+        assert overrides == [f"target-version = '{expected}'"]
+        # The override is a global option: it must precede the subcommand.
+        assert cmd.index(overrides[0]) < cmd.index("check")
+        assert cmd[cmd.index(overrides[0]) - 1] == "--config"
+
+
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_bump_my_version_via_uvx(mock_ci, mock_run, tmp_path, monkeypatch):

@@ -95,6 +95,7 @@ from ..file_ops import generated_header
 from ..github.urls import parse_github_repo
 from ..npm import NPM_PACKAGE_URL
 from ..pypi import PYPI_PACKAGE_URL
+from ..pyproject import read_pyproject_toml
 from .nuitka import nuitka_params, prepare_nuitka_build
 
 TYPE_CHECKING = False
@@ -1602,6 +1603,35 @@ CI offline, without downloading anything.
 """
 
 
+def ruff_params(metadata: Metadata) -> list[str]:
+    """Pin ruff's `target-version` to the `requires-python` floor.
+
+    Ruff infers `target-version` from the `requires-python` of a
+    `pyproject.toml` beside or above its config file. The bundled `ruff.toml`
+    reaches ruff from the cache, outside the project, so ruff falls back to its
+    own default: the oldest Python it supports. Once that default passes the
+    project's floor, the safe fixes of the `UP` rules rewrite code to a syntax
+    or an API that floor lacks, like `datetime.UTC` on Python 3.10.
+
+    A config of the repository itself, a native file or a `[tool.ruff]` table,
+    sits in the project, so ruff infers the version there unaided, and an
+    explicit `target-version` in it must win.
+
+    :return: An inline `--config` override, or nothing when the repository
+        carries its own ruff config or declares no `requires-python` floor.
+    """
+    spec = TOOL_REGISTRY["ruff"]
+    if spec.find_native_config() is not None:
+        return []
+    if read_pyproject_toml().get("tool", {}).get(spec.pyproject_key):
+        return []
+    floor = metadata.requires_python_floor
+    if floor is None:
+        return []
+    major, minor = floor
+    return ["--config", f"target-version = 'py{major}{minor}'"]
+
+
 # ---------------------------------------------------------------------------
 # Tool registry
 # ---------------------------------------------------------------------------
@@ -2376,6 +2406,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         # `--force-exclude` flag exists only after the subcommand, so the same
         # setting goes in through the global `--config`, as an inline override.
         default_flags=("--config=force-exclude=true",),
+        computed_params=ruff_params,
         docs_notes=cleandoc(r"""
             **Try it:**
 
@@ -2392,7 +2423,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
 
             `ruff check .` lints; `ruff format .` reformats. Both read `[tool.ruff]`
             natively. With no project config, repomatic falls back to its bundled
-            `ruff.toml` baseline.
+            `ruff.toml` baseline, and sets its `target-version` from the
+            `requires-python` floor.
 
             The default `--config=force-exclude=true` applies `exclude` and
             `extend-exclude` to a path named on the command line too, as in `repomatic
