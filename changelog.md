@@ -7,6 +7,9 @@
 
 ## [`8.0.0` (2026-10-29)](https://github.com/kdeldycke/repomatic/compare/v7.18.0...v8.0.0)
 
+> [!NOTE]
+> `8.0.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/8.0.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v8.0.0).
+
 - **Breaking:** Drop Python 3.10, past its end of life: repomatic needs Python 3.11, and the default test matrix starts at 3.11 on every runner.
 - **Breaking:** Remove the `metadata` alias of `show-metadata` and the hidden `workflow lint` command, as their deprecation warnings announced. `lint-repo` and `init` flag a workflow step that still calls `metadata`.
 - **Breaking:** Remove `lint-workflows`: `lint-repo` runs its checks as `workflow-dispatch`, `thin-caller-pins`, `thin-caller-triggers` and `thin-caller-secrets`.
