@@ -94,7 +94,7 @@ jobs:
       - name: Run repomatic show-metadata
         id: metadata
         run: >
-          uv --no-progress run --frozen -- repomatic show-metadata
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
           is_bot is_awesome is_python_project python_files
           yaml_changed zsh_changed zsh_files workflows_changed tool_versions
@@ -120,7 +120,7 @@ jobs:
             && 'true' || '' }}
           HAS_REPOMATIC_NOTIFICATIONS_PAT: ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT && 'true' || '' }}
           HAS_VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY && 'true' || '' }}
-        run: uv --no-progress run --frozen -- repomatic lint-repo
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' lint-repo
 
   lint-python:
     name: 🐍 Lint Python
@@ -141,12 +141,12 @@ jobs:
         # so a finding it clears never reddens this job. Applied here first, the
         # step below reports only what no safe fix reaches: a rule with no fix, or
         # one whose fix is unsafe, which that job annotates and never gates.
-        run: uv --no-progress run --frozen -- repomatic run ruff -- check --fix-only
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run ruff -- check --fix-only
       - name: Run Ruff
         # No file list: the tool runner resolves ruff's targets from the same
         # inventory this workflow's `python_files` comes from.
         run: >
-          uv --no-progress run --frozen -- repomatic run ruff --
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run ruff --
           check --no-fix --output-format github
 
   lint-types:
@@ -173,7 +173,7 @@ jobs:
         # No file list: the tool runner resolves mypy's targets from the same
         # inventory this workflow's `python_files` comes from. See
         # `ToolSpec.default_paths` in repomatic/tooling/registry.py.
-        run: uv --no-progress run --frozen -- repomatic run mypy
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run mypy
 
   lint-yaml:
     name: 📄 Lint YAML
@@ -192,7 +192,7 @@ jobs:
         with:
           version: "0.13.4"
       - name: Run yamllint
-        run: uv --no-progress run --frozen -- repomatic run yamllint
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run yamllint
 
   lint-zsh:
     name: 🐚 Lint Zsh
@@ -245,7 +245,7 @@ jobs:
         # scripts, and registers actionlint's problem matcher for the run. See
         # `ToolSpec.path_tools` and `ToolSpec.problem_matcher` in
         # repomatic/tooling/registry.py.
-        run: uv --no-progress run --frozen -- repomatic run actionlint
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run actionlint
 
   lint-workflow-security:
     name: 🔒 Lint workflow security
@@ -263,7 +263,7 @@ jobs:
         with:
           version: "0.13.4"
       - name: Run zizmor
-        run: uv --no-progress run --frozen -- repomatic run zizmor
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run zizmor
 
   lint-awesome:
     name: 🌟 Lint awesome
@@ -284,7 +284,7 @@ jobs:
         # The npm of the runner image only installs the registry's pinned npm,
         # which enforces the min-release-age cooldown on the awesome-lint
         # install. See `NPM_BOOTSTRAP_TOOL` in repomatic/tooling/registry.py.
-        run: uv --no-progress run --frozen -- repomatic run awesome-lint
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run awesome-lint
 
   lint-secrets:
     name: 🔐 Lint secrets
@@ -313,4 +313,4 @@ jobs:
         # No arguments: the tool runner scans the git history of the
         # repository, through the registry's `gitleaks git .` default. See
         # `ToolSpec.default_args` in repomatic/tooling/registry.py.
-        run: uv --no-progress run --frozen -- repomatic run gitleaks
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run gitleaks
