@@ -994,7 +994,7 @@ class Config:
     {data}`~repomatic.components.DEFAULT_EXCLUDED_COMPONENTS`. Bare names
     exclude an entire component (like `"workflows"`). Qualified
     `component/identifier` entries exclude a specific file within a component
-    (like `"workflows/autolock.yaml"` or `"skills/repomatic-audit"`).
+    (like `"workflows/autolock.yaml"` or `"skills/repomatic-topics"`).
 
     Affects `repomatic init`. Explicit CLI positional arguments override this
     list.
