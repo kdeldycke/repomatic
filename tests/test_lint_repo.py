@@ -75,6 +75,7 @@ from repomatic.lint_repo.repo import (
     check_description_matches,
     check_funding_file,
     check_install_guide_downloads,
+    check_instructions_file_name,
     check_package_name_vs_repo,
     check_stale_draft_releases,
     check_topics_subset_of_keywords,
@@ -2037,6 +2038,50 @@ def test_funding_unreadable_payload(tmp_path, monkeypatch, repo_object, graphql_
         )
     assert result.passed is None
     assert "skipped" in result.message
+
+
+@pytest.mark.parametrize(
+    ("names", "passed", "needles"),
+    (
+        pytest.param(("AGENTS.md",), True, ("named AGENTS.md",), id="agents"),
+        pytest.param((), None, ("skipped",), id="no-instructions-file"),
+        pytest.param(
+            ("claude.md",),
+            False,
+            ("claude.md is the retired name", "Rename it to AGENTS.md"),
+            id="retired",
+        ),
+        pytest.param(
+            ("CLAUDE.md",),
+            False,
+            ("CLAUDE.md is the retired name",),
+            id="retired-uppercase",
+        ),
+        pytest.param(
+            ("AGENTS.md", "claude.md"),
+            False,
+            ("claude.md stands beside AGENTS.md", "Merge the rules"),
+            id="beside",
+        ),
+        pytest.param(("agents.md",), False, ("not spelled AGENTS.md",), id="miscased"),
+    ),
+)
+def test_instructions_file_name(tmp_path, monkeypatch, names, passed, needles):
+    """Report a retired `claude.md` or a wrong case in place of `AGENTS.md`."""
+    monkeypatch.chdir(tmp_path)
+    for name in names:
+        (tmp_path / name).write_text("# Rules\n", encoding="UTF-8")
+    result = check_instructions_file_name(LintContext())
+    assert result.passed is passed
+    for needle in needles:
+        assert needle in result.message
+
+
+def test_instructions_file_name_warns_without_a_repository():
+    """The check reads the root of the tree: it needs no repository and never fails."""
+    check = _roster_check("instructions-file-name")
+    assert check.fatal is False
+    assert check.applies(LintContext()) is True
 
 
 @pytest.mark.parametrize(

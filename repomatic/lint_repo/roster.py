@@ -44,6 +44,7 @@ from .repo import (
     check_description_matches,
     check_funding_file,
     check_install_guide_downloads,
+    check_instructions_file_name,
     check_package_name_vs_repo,
     check_stale_draft_releases,
     check_topics_subset_of_keywords,
@@ -397,6 +398,19 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             " button. Forks are skipped"
         ),
         applies=lambda ctx: bool(ctx.repo),
+    ),
+    RepoCheck(
+        "instructions-file-name",
+        check_instructions_file_name,
+        summary="Root instructions file is named AGENTS.md, with no claude.md",
+        description=(
+            "Warns when the repository root holds a `claude.md`, or an `agents.md`"
+            " in another case, in place of `AGENTS.md`. Agent harnesses look the file"
+            " up by that exact spelling, so a wrong case loads only on a"
+            " case-insensitive filesystem, and Claude Code reads `AGENTS.md` only"
+            " when no `CLAUDE.md` exists. A repository with no instructions file is"
+            " skipped"
+        ),
     ),
     RepoCheck(
         "stale-draft-releases",

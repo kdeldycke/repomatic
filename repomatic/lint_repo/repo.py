@@ -19,8 +19,8 @@
 The description, the website field and the topics come from the one
 repository object
 {attr}`~repomatic.lint_repo.context.LintContext.repo_object` reads. The other
-checks read the funding file, the labels, the draft releases and the release
-assets the install guide links to.
+checks read the funding file, the name of the instructions file, the labels,
+the draft releases and the release assets the install guide links to.
 """
 
 from __future__ import annotations
@@ -72,6 +72,17 @@ query($owner: String!) {
 
 GraphQL because the REST API does not expose `hasSponsorsListing`.
 """
+
+INSTRUCTIONS_FILE = "AGENTS.md"
+"""The name agent harnesses look the instructions file up by.
+
+Claude Code, pi and the other harnesses open it by that exact spelling. A
+case-insensitive filesystem hides a wrong case, and a case-sensitive one, like
+a Linux runner, finds nothing.
+"""
+
+RETIRED_INSTRUCTIONS_FILE = "claude.md"
+"""The name {data}`INSTRUCTIONS_FILE` replaces, matched in any case."""
 
 DEV_PRERELEASE_SUFFIX = ".dev0"
 """Tag suffix of the rolling dev pre-releases `sync-dev-release` manages."""
@@ -226,6 +237,47 @@ def check_funding_file(ctx: LintContext) -> CheckResult:
         " Create it to display the Sponsor button on the repository."
     )
     return CheckResult(False, msg)
+
+
+def check_instructions_file_name(ctx: LintContext) -> CheckResult:
+    """Check that the root instructions file is named `AGENTS.md`.
+
+    Reads the names on disk instead of testing for the file: a case-insensitive
+    filesystem answers for any case. A repository with no instructions file is
+    skipped, since the check names a file and does not ask for one.
+    """
+    names = {path.name for path in Path().iterdir() if path.is_file()}
+    retired = sorted(n for n in names if n.lower() == RETIRED_INSTRUCTIONS_FILE)
+    miscased = sorted(
+        n
+        for n in names
+        if n.lower() == INSTRUCTIONS_FILE.lower() and n != INSTRUCTIONS_FILE
+    )
+    if retired and INSTRUCTIONS_FILE in names:
+        return CheckResult(
+            False,
+            f"{retired[0]} stands beside {INSTRUCTIONS_FILE}: Claude Code reads"
+            f" {INSTRUCTIONS_FILE} only when no CLAUDE.md exists. Merge the rules"
+            f" into {INSTRUCTIONS_FILE} and delete {retired[0]}.",
+        )
+    if retired:
+        return CheckResult(
+            False,
+            f"{retired[0]} is the retired name of the instructions file. Rename it"
+            f" to {INSTRUCTIONS_FILE}, the name agent harnesses share.",
+        )
+    if miscased:
+        return CheckResult(
+            False,
+            f"{miscased[0]} is not spelled {INSTRUCTIONS_FILE}. Agent harnesses look"
+            " the file up by that exact spelling, so a case-sensitive filesystem"
+            " never finds it. Rename it.",
+        )
+    if INSTRUCTIONS_FILE in names:
+        return CheckResult(True, f"Instructions file named {INSTRUCTIONS_FILE}.")
+    return CheckResult(
+        None, "Instructions file check: skipped (no instructions file at the root)"
+    )
 
 
 def check_stale_draft_releases(ctx: LintContext) -> CheckResult:
