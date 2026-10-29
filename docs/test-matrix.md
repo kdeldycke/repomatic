@@ -81,6 +81,8 @@ Anything not yet shipped is an early-warning signal, not a support promise: a pr
 
 A prerelease Python says so in its job title. `repomatic` attaches a `python-label` key to those cells, spelling the version the way [pyenv](https://github.com/pyenv/pyenv) and [`actions/setup-python`](https://github.com/actions/setup-python/blob/main/docs/advanced-usage.md) name a development build, so the job reads `⁉️ ubuntu-26.04 / py3.16-dev` and its `continue-on-error` marking carries its own explanation. That label is display-only: `uv` does not parse the `-dev` form, so the `python-version` axis keeps the bare `3.16`, and `3.16` remains the value a `test-matrix` directive has to name.
 
+A development Python cell also needs a `uv` new enough to ship that interpreter. `uv` embeds the list of Python versions it can install, so an older release answers `No interpreter found for Python 3.16` and the cell fails before its first test. Move the `setup-uv` pin when a new alpha lands.
+
 (smoke-test-released-build-flavors-on-one-runner)=
 
 ### Smoke-test released build flavors on one runner
