@@ -422,8 +422,14 @@ default.extend-ignore-identifiers-re = [
   #     │
   # 2627 │             reports `alikes` and `mis-parses` reports `mis`. Accept the fragment by
   #     ╰╴                                  ━━━
+  # error: `cripts` should be `crypts`, `scripts`
+  #     ╭▸ ./repomatic/config.py:284:55
+  #     │
+  # 284 │     The base `virtualenv` category ignores every `[Ss]cripts` directory, which
+  #     ╰╴                                                      ━━━━━━
   # Anchored, so a word that merely contains one of the fragments stays checked.
   "^alikes$",
+  "^cripts$",
   "^mis$",
 ]
 # Check hidden files and directories too, which typos skips by default: the
