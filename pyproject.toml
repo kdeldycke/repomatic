@@ -412,6 +412,19 @@ default.extend-ignore-identifiers-re = [
   # 533 │     # Both sources available — NOTE only, no WARNINGs.
   #     ╰╴
   "WARNIN",
+  # error: `alikes` should be `alike`, `likes`
+  #     ╭▸ ./repomatic/tooling/registry.py:2626:71
+  #     │
+  # 2626 │             A word cut by a hyphen is checked as two tokens, so `look-alikes`
+  #     ╰╴                                                                      ━━━━━━
+  # error: `mis` should be `miss`, `mist`
+  #     ╭▸ ./repomatic/tooling/registry.py:2627:22
+  #     │
+  # 2627 │             reports `alikes` and `mis-parses` reports `mis`. Accept the fragment by
+  #     ╰╴                                  ━━━
+  # Anchored, so a word that merely contains one of the fragments stays checked.
+  "^alikes$",
+  "^mis$",
 ]
 # Check hidden files and directories too, which typos skips by default: the
 # `.github/` workflows and the `.claude/` agents and skills live there.
