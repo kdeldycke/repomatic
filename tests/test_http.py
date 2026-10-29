@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import urllib.request
@@ -32,6 +33,7 @@ import pytest
 
 from repomatic import http
 from repomatic.http import (
+    ACCEPT_ENCODING,
     ERROR_BODY_EXCERPT,
     USER_AGENT,
     FetchError,
@@ -299,6 +301,67 @@ def test_request_retries_a_truncated_body_only_when_safe(method, attempts):
     ):
         request("https://example.test/basket", method=method)
     assert mock_open.call_count == attempts
+
+
+GZIP_HEADERS = {"Content-Encoding": "gzip"}
+"""Response headers of a gzip body, spelled as a server sends them."""
+
+
+def test_request_asks_for_gzip_and_decodes_it():
+    """A gzip body comes back decoded, its headers as the server sent them."""
+    response = FakeResponse(gzip.compress(RAW), headers=GZIP_HEADERS)
+    with patch("repomatic.http.urlopen", return_value=response) as mock_open:
+        result = request("https://example.test/basket")
+    assert result.body == RAW
+    assert result.headers == {"content-encoding": "gzip"}
+    sent = mock_open.call_args.args[0]
+    assert sent.get_header("Accept-encoding") == ACCEPT_ENCODING
+
+
+def test_request_lets_the_caller_refuse_gzip():
+    """A caller header replaces the `Accept-Encoding` default."""
+    with patch("repomatic.http.urlopen", return_value=FakeResponse(RAW)) as mock_open:
+        request("https://example.test/basket", headers={"Accept-Encoding": "identity"})
+    assert mock_open.call_args.args[0].get_header("Accept-encoding") == "identity"
+
+
+def test_get_json_retries_a_cut_off_gzip_body():
+    """A gzip stream that ends early is a truncated body, so it is retried."""
+    cut_off = FakeResponse(gzip.compress(RAW)[:-8], headers=GZIP_HEADERS)
+    whole = FakeResponse(gzip.compress(RAW), headers=GZIP_HEADERS)
+    with (
+        patch("repomatic.http.urlopen", side_effect=[cut_off, whole]),
+        patch("repomatic.http.time.sleep") as mock_sleep,
+    ):
+        assert get_json("https://example.test/mango") == PAYLOAD
+    assert mock_sleep.call_args_list == [call(1)]
+
+
+def test_request_refuses_a_corrupt_gzip_body():
+    """A body that claims gzip but is not gzip fails without a retry."""
+    with (
+        patch(
+            "repomatic.http.urlopen",
+            return_value=FakeResponse(b"pomelo", headers=GZIP_HEADERS),
+        ) as mock_open,
+        pytest.raises(FetchError, match="Corrupt gzip body"),
+    ):
+        request("https://example.test/basket")
+    assert mock_open.call_count == 1
+
+
+def test_error_excerpt_decodes_a_gzip_body():
+    """The excerpt of a gzip error body is text, not compressed bytes."""
+    headers = Message()
+    headers["Content-Encoding"] = "gzip"
+    error = HTTPError(
+        "https://example.test",
+        404,
+        "Error",
+        headers,
+        BytesIO(gzip.compress(b'{"message": "No such fruit"}')),
+    )
+    assert error_excerpt(error) == '{"message": "No such fruit"}'
 
 
 class _StreamedBody(FakeResponse):

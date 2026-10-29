@@ -33,10 +33,12 @@ large artifact to disk instead of reading it into memory.
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import logging
 import time
+import zlib
 from contextlib import nullcontext
 from http.client import HTTPException, IncompleteRead
 from typing import NamedTuple
@@ -66,6 +68,19 @@ USER_AGENT = f"repomatic/{__version__}"
 Identifying the client beats urllib's anonymous default on every count: some
 registries throttle unidentified agents harder, and an operator reading an
 upstream access log can tell which release of this tool hit them.
+"""
+
+ACCEPT_ENCODING = "gzip"
+"""`Accept-Encoding` header {func}`request` sends, unless the caller overrides it.
+
+A gzip stream carries its own length and checksum in its trailer, so a cut-off
+body fails to decode instead of reading as complete. An uncompressed body has no
+such check: a CDN can cache a cut-off copy together with a `Content-Length` that
+matches the cut. urllib then raises no `IncompleteRead`, and only the parser
+finds the damage, with no retry.
+
+PyPI's CDN served the JSON metadata of a package this way, while its gzip copy
+was whole. A Trusted Publisher check then read the package as never released.
 """
 
 ERROR_BODY_EXCERPT = 400
@@ -166,7 +181,37 @@ def error_excerpt(error: HTTPError) -> str:
         raw = error.read()
     except (OSError, HTTPException, ValueError):
         return ""
+    # `urllib` builds an error with no headers when the server sent none.
+    encoding = error.headers.get("Content-Encoding", "") if error.headers else ""
+    if encoding.lower() == "gzip":
+        # Lenient on purpose: an excerpt of a cut-off stream beats none.
+        try:
+            raw = zlib.decompressobj(wbits=31).decompress(raw)
+        except zlib.error:
+            return ""
     return raw.decode("UTF-8", errors="replace")[:ERROR_BODY_EXCERPT]
+
+
+def _decode_body(body: bytes, encoding: str) -> bytes:
+    """Undo the `Content-Encoding` of a response body.
+
+    :param body: The body as it came over the wire.
+    :param encoding: The `Content-Encoding` header value, empty when absent.
+    :return: The decoded body. An encoding other than gzip is left as is, since
+        {data}`ACCEPT_ENCODING` asks for nothing else.
+    :raises IncompleteRead: When the gzip stream ends early, so {func}`request`
+        retries it like any other truncated body.
+    :raises FetchError: When the gzip stream is corrupt.
+    """
+    if encoding.lower() != "gzip" or not body:
+        return body
+    try:
+        return gzip.decompress(body)
+    except EOFError as exc:
+        raise IncompleteRead(body) from exc
+    except (OSError, zlib.error) as exc:
+        msg = f"Corrupt gzip body: {exc}"
+        raise FetchError(msg) from exc
 
 
 def request(
@@ -184,6 +229,10 @@ def request(
     pause in `_TRUNCATED_BODY_BACKOFF_SECONDS`. Every other failure mode, and
     a truncated answer to any other method (see {data}`RETRYABLE_METHODS`),
     fails straight away.
+
+    The request asks for a gzip body ({data}`ACCEPT_ENCODING`), and the
+    response body comes back decoded. A gzip stream that ends early counts as a
+    truncated body. The headers stay as the server sent them.
 
     :param url: The URL to request.
     :param method: The HTTP method.
@@ -207,16 +256,21 @@ def request(
             prepared = Request(
                 url,
                 data=data,
-                headers={"User-Agent": USER_AGENT, **(headers or {})},
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "Accept-Encoding": ACCEPT_ENCODING,
+                    **(headers or {}),
+                },
                 method=method,
             )
             with urlopen(prepared, timeout=timeout) as response:
-                body: bytes = response.read()
-                return Response(
-                    response.status,
-                    {key.lower(): value for key, value in response.headers.items()},
-                    body,
+                received = {
+                    key.lower(): value for key, value in response.headers.items()
+                }
+                body = _decode_body(
+                    response.read(), received.get("content-encoding", "")
                 )
+                return Response(response.status, received, body)
         except IncompleteRead as exc:
             if delay is None:
                 raise FetchError(str(exc)) from exc
