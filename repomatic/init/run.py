@@ -76,7 +76,7 @@ from ..pyproject import (
     resolve_source_paths,
 )
 from ..release.self_pin import add_cooldown_exemption, align_inline_pins
-from ..skills import AUDIT_SKILL, UPGRADE_SKILL, skill_launcher
+from ..skills import UPGRADE_SKILL, skill_launcher
 from ..templating import render_template
 from ..tooling.runner import find_unmodified_configs
 from ..upstream import DEFAULT_REPO, is_awesome_repo, is_source_repo
@@ -332,11 +332,12 @@ class InitResult:
         if moved:
             previous, adopted = moved
             # A moved pin is the moment to read what the new release offers,
-            # and the one this run knows both versions of.
+            # and the one this run knows both versions of. The same session then
+            # audits the drift against the adopted tag.
             lines = [
                 (
                     f"Apply what repomatic v{previous} to v{adopted} lets this"
-                    " repository adopt or drop:"
+                    " repository adopt or drop, then audit its drift:"
                 ),
                 f"  {skill_launcher(UPGRADE_SKILL, f'v{previous}', f'v{adopted}')}",
             ]
@@ -349,10 +350,6 @@ class InitResult:
                     f'The skill is not installed here: run "repomatic init'
                     f' skills/{UPGRADE_SKILL}" first, or use the Claude Code plugin.'
                 )
-            lines += [
-                f"Then audit the drift against v{adopted}, in a fresh session:",
-                f"  {skill_launcher(AUDIT_SKILL)}",
-            ]
             steps.append("\n".join(lines))
         return steps
 

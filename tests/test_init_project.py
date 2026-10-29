@@ -1305,7 +1305,6 @@ def test_init_cli_prints_the_upgrade_launcher(tmp_path, pin_build):
     assert cli_result.exit_code == 0, cli_result.output
     assert "Apply what repomatic v7.4.1 to v7.4.2 lets" in cli_result.output
     assert "claude --model opus '/repomatic-upgrade v7.4.1 v7.4.2'" in cli_result.output
-    assert "claude --model opus '/repomatic-audit'" in cli_result.output
     # The skill is not on disk in a fresh tree, and the hint says so.
     assert 'run "repomatic init skills/repomatic-upgrade" first' in cli_result.output
 
@@ -2590,7 +2589,6 @@ def test_init_only_skills(tmp_path: Path):
         "brand-assets",
         "file-bug-report",
         "github-housekeeping",
-        "repomatic-audit",
         "repomatic-changelog",
         "repomatic-deps",
         "repomatic-init",
@@ -3914,14 +3912,14 @@ def test_init_respects_exclude_skill_files(
         tmp_path,
         monkeypatch,
         'include = ["skills"]\n'
-        'exclude = ["skills/repomatic-audit", "skills/repomatic-topics"]\n',
+        'exclude = ["skills/upstream-audit", "skills/repomatic-topics"]\n',
     )
 
     result = run_init_here(tmp_path)
 
     created_set = set(result.created)
     # Excluded skills should not be created.
-    assert ".claude/skills/repomatic-audit/SKILL.md" not in created_set
+    assert ".claude/skills/upstream-audit/SKILL.md" not in created_set
     assert ".claude/skills/repomatic-topics/SKILL.md" not in created_set
 
     # Other skills should still be created.
@@ -4318,7 +4316,7 @@ def test_init_mixed_exclude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         tmp_path,
         monkeypatch,
         'include = ["skills"]\n'
-        'exclude = ["workflows/debug.yaml", "skills/repomatic-audit"]\n',
+        'exclude = ["workflows/debug.yaml", "skills/upstream-audit"]\n',
     )
 
     result = run_init_here(tmp_path)
@@ -4326,7 +4324,7 @@ def test_init_mixed_exclude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     created_set = set(result.created)
     assert "labels.toml" not in created_set
     assert ".github/workflows/debug.yaml" not in created_set
-    assert ".claude/skills/repomatic-audit/SKILL.md" not in created_set
+    assert ".claude/skills/upstream-audit/SKILL.md" not in created_set
 
     # Non-excluded items should be created.
     assert ".github/workflows/lint.yaml" in created_set
@@ -5645,7 +5643,7 @@ def test_init_no_unmodified_when_different(
         "workflows/debug.yaml",
         "workflows/tests.yaml",
         "workflows/autofix.yaml",
-        "skills/repomatic-audit",
+        "skills/upstream-audit",
         "labels/labels.toml",
     ],
 )
@@ -5673,9 +5671,9 @@ def test_parse_component_entries_bare_filename_without_component_fails() -> None
 
 
 def test_parse_component_entries_bare_skill_name_without_component_fails() -> None:
-    """Bare skill identifiers like 'repomatic-audit' must fail."""
+    """Bare skill identifiers like 'repomatic-ship' must fail."""
     with pytest.raises(ValueError, match="Unknown entry"):
-        parse_component_entries(["repomatic-audit"])
+        parse_component_entries(["repomatic-ship"])
 
 
 @pytest.mark.parametrize(
@@ -5709,12 +5707,12 @@ def test_init_single_skill(tmp_path: Path):
 def test_init_multiple_qualified_same_component(tmp_path: Path):
     """Multiple qualified entries for same component creates all specified."""
     result = run_init_here(
-        tmp_path, components=("skills/repomatic-topics", "skills/repomatic-audit")
+        tmp_path, components=("skills/repomatic-topics", "skills/repomatic-init")
     )
     created_set = set(result.created)
     assert created_set == {
         ".claude/skills/repomatic-topics/SKILL.md",
-        ".claude/skills/repomatic-audit/SKILL.md",
+        ".claude/skills/repomatic-init/SKILL.md",
     }
 
 

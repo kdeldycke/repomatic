@@ -38,8 +38,7 @@ invoke(repomatic, args=['list-skills'])
 | Maintenance | [`/awesome-triage`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/awesome-triage/SKILL.md)               | Triage issues and PRs on awesome-list repos (awesome-list only)                                   |
 | Maintenance | [`/file-bug-report`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/file-bug-report/SKILL.md)             | Write a bug report for an upstream project                                                        |
 | Maintenance | [`/github-housekeeping`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/github-housekeeping/SKILL.md)     | Backfill and curate labels and milestones across the full issue and PR history                    |
-| Maintenance | [`/repomatic-audit`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-audit/SKILL.md)             | Audit downstream repo alignment with upstream reference                                           |
-| Maintenance | [`/repomatic-upgrade`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-upgrade/SKILL.md)         | Review what a newer repomatic release lets the repository adopt, reuse or drop, then apply it     |
+| Maintenance | [`/repomatic-upgrade`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-upgrade/SKILL.md)         | Apply what a newer release lets the repo adopt or drop, then audit its drift from the adopted tag |
 | Maintenance | [`/sphinx-docs-sync`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/sphinx-docs-sync/SKILL.md)           | Compare and sync Sphinx docs across sibling projects                                              |
 | Maintenance | [`/translation-sync`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/translation-sync/SKILL.md)           | Detect stale translations and draft updates (awesome-list only)                                   |
 | Maintenance | [`/upstream-audit`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/upstream-audit/SKILL.md)               | Create or update an upstream contributions page tracking the project's relationship with its deps |
@@ -52,7 +51,7 @@ invoke(repomatic, args=['list-skills'])
 The typical lifecycle for maintaining a downstream repository follows this sequence. Each skill suggests next steps after completing, creating a guided flow:
 
 1. `/repomatic-init` — One-time setup: bootstrap workflows, labels, and configs
-2. `/repomatic-upgrade` — After each `repomatic` upgrade: adopt, reuse or drop what the new release changed. `repomatic init` prints the command launching it whenever it moves the upstream pin
+2. `/repomatic-upgrade` — After each `repomatic` upgrade: adopt, reuse or drop what the new release changed, then audit the repository against the tag it now pins. `repomatic init` prints the command launching it whenever it moves the upstream pin
 3. `/repomatic-deps` — As needed: visualize the dependency tree
 4. `/repomatic-changelog` — Before release: draft and validate changelog entries
 5. `/repomatic-ship` — Release time: reconcile, commit, push, and babysit CI to a ready-to-merge release PR

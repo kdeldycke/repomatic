@@ -33,9 +33,6 @@ from .bundle import get_data_content
 from .components import COMPONENTS_BY_NAME, SKILL_FILENAME
 from .frontmatter import split_frontmatter
 
-AUDIT_SKILL: str = "repomatic-audit"
-"""The bundled skill auditing a repository against the release it pins."""
-
 RECOMMENDED_MODEL_RE = re.compile(r"Recommended model: (?P<model>\w+)\.")
 """The model recommendation a skill's `compatibility` field carries.
 
@@ -71,7 +68,13 @@ SKILL_PHASES: dict[str, str] = {
 """Maps skill names to lifecycle phases for display grouping."""
 
 UPGRADE_SKILL: str = "repomatic-upgrade"
-"""The bundled skill reviewing what a newer upstream release lets a repo adopt."""
+"""The bundled skill reviewing a newer release, then auditing the repository.
+
+One name covers both passes because `repomatic init` invites the review at the
+pin bump, which is also the moment the drift against the new tag is worth
+reading. A skill cannot call another bundled skill, so the audit lives in this
+one rather than behind a second launch.
+"""
 
 
 def _skill_frontmatter(skill_id: str) -> dict[str, object]:

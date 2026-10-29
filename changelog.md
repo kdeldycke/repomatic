@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** Retire the `repomatic-audit` skill, folded into `repomatic-upgrade` as its second pass. A `[tool.repomatic] exclude` naming `skills/repomatic-audit` fails until the entry is dropped.
 - The bundled `repomatic-upgrade` skill now counts every finding of a gating job the release adds as a row, old findings included.
 - The bundled `repomatic-upgrade` skill ends with two lists, the applied rows and the remaining `decide`/`implement`/`commit`/`push`/`report` actions, instead of prose.
 - Fix `lint-repo` asking to remove a `lint-repo.declined` entry that names a list, where the entry needs the key of the missing member.
