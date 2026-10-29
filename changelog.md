@@ -133,6 +133,7 @@
 - The bundled skills and the `sphinx-docs` agent read the cooldown window from the repository's workflows instead of assuming `1 week`.
 - The bundled `repomatic-test-matrix` skill now replays a `lowest-direct` cell, judges each run by its exit code, and needs `--frozen` on every later `uv run`. The skill and the test matrix guide now say that `full-include` drops the `python-version` axis.
 - The bundled `repomatic-ship` skill now watches CI itself after a cycle under 10 minutes, and spawns the babysitter only on a red required job.
+- The bundled `repomatic-ship` skill now reads a `--version` banner captured from a checkout as the dev version, not as a sample lagging the released tag.
 - Fix the YAML and workflow lint jobs running on every push: `yaml_changed`, `workflows_changed` and `zsh_changed` now read the commit range, shallow clones included.
 - Fix a later push cancelling the tests of a release push: they now run in a concurrency group of their own.
 - Fix a failed lychee run, or a run where no link checker ran, closing the "Broken links" issue.
