@@ -176,7 +176,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
 ### When supersession never lets a run conclude
 
-A busy default branch can cancel the same workflow indefinitely. Every push shares the `${{ github.workflow }}-${{ github.ref }}` concurrency group, so an unrelated commit landing mid-matrix cancels yours, and the next one cancels its replacement. Only a release push escapes it, in `tests.yaml` and `release.yaml`. Three consecutive heads leaving `tests.yaml` cancelled is an ordinary afternoon, not a fault. Dispatching a fresh run does not escape it: a `workflow_dispatch` run joins the same group and is cancelled by the next push like any other.
+A busy default branch can cancel the same workflow indefinitely. Every push shares the `${{ github.workflow }}-${{ github.ref }}` concurrency group, so an unrelated commit landing mid-matrix cancels yours, and the next one cancels its replacement. Only a release push escapes it, in `tests.yaml` and `release.yaml`. Three consecutive heads leaving `tests.yaml` cancelled is an ordinary afternoon, not a fault. Dispatching a fresh run does not escape it: a `workflow_dispatch` run joins the same group and is cancelled by the next push like any other. A `gh run rerun` of an older run joins it too, and cancels the in-flight run of the current head: re-run only once that run is terminal.
 
 A dispatch does settle one case: a version-bump commit, whose subject starts with `[changelog] Bump`, merged right after your push. It cancels your runs, and `tests.yaml` skips the bump commit itself, so `ci-status` reads `cancelled` on your commit. Run `gh workflow run tests.yaml --ref <BRANCH>` once: the dispatched run tests the head, which holds your change.
 
