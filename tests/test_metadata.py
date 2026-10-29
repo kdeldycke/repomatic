@@ -496,7 +496,9 @@ expected: dict[str, Any] = {
     "zsh_files": [],
     "is_python_project": True,
     "is_python_package": True,
-    "changelog_has_entries": True,
+    # A fresh unreleased section is empty right after a release, so this tracks
+    # repository state like `is_bot` and `yaml_changed` do.
+    "changelog_has_entries": AnyBool(),
     "binaries_sync": True,
     "manpages_script": "repomatic.cli.main:repomatic",
     # The `<package-name>-manpages` default, `manpages.asset-name` being empty.
