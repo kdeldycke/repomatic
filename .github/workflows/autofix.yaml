@@ -81,7 +81,7 @@ jobs:
             && 'true' || '' }}
           HAS_REPOMATIC_NOTIFICATIONS_PAT: ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT && 'true' || '' }}
           HAS_VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY && 'true' || '' }}
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' setup-guide
+        run: uv --no-progress run --frozen -- repomatic setup-guide
 
   sync-runner-images:
     name: 🖥️ Sync runner images
@@ -114,14 +114,14 @@ jobs:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           PROPOSAL: ${{ runner.temp }}/runner-images-proposal.md
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           sync-runner-images --output "$PROPOSAL"
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           PROPOSAL: ${{ runner.temp }}/runner-images-proposal.md
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template sync-runner-images
           --template-arg-file proposal="$PROPOSAL"
 
@@ -151,7 +151,7 @@ jobs:
       - name: Run repomatic show-metadata
         id: metadata
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' show-metadata
+          uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
           gitignore_exists python_files json_files doc_files markdown_files
           is_python_project is_python_package is_awesome mailmap_exists
@@ -182,7 +182,7 @@ jobs:
         # An explicit file list is required, as autopep8 cannot find files in the
         # ".github" subdirectory on its own: the tool runner resolves it. See
         # `ToolSpec.default_paths` in repomatic/tooling/registry.py.
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run autopep8
+        run: uv --no-progress run --frozen -- repomatic run autopep8
       # XXX Ruff is planning to support linting and formatting in one unified command at one point.
       #     See: https://github.com/astral-sh/ruff/issues/8232
       - name: Run Ruff
@@ -192,15 +192,15 @@ jobs:
         # Linting gates in the lint workflow; here `check` only applies its safe fixes,
         # and the GitHub annotation still surfaces whatever it could not fix.
         run: |
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run ruff -- \
+          uv --no-progress run --frozen -- repomatic run ruff -- \
             check --output-format github --exit-zero
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run ruff -- \
+          uv --no-progress run --frozen -- repomatic run ruff -- \
             format --output-format github
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template format-python
   format-pyproject:
     name: 📐 Format pyproject.toml
@@ -223,12 +223,12 @@ jobs:
         # exits 1 with nothing rewritten. See `ToolSpec.rewrite_exit_code`. No
         # file list: the tool runner resolves it. See `ToolSpec.default_paths`
         # in repomatic/tooling/registry.py.
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run pyproject-fmt
+        run: uv --no-progress run --frozen -- repomatic run pyproject-fmt
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template format-pyproject
   format-markdown:
     name: ✍️ Format Markdown
@@ -267,18 +267,18 @@ jobs:
         # No file list: the tool runner resolves mdformat's targets and runs it
         # once per file, the way `xargs -n1` used to here. See
         # `ToolSpec.default_paths` in repomatic/tooling/registry.py.
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run mdformat
+        run: uv --no-progress run --frozen -- repomatic run mdformat
       # Runs inside this job, not its own: it corrects what mdformat just wrote,
       # so a separate job would fight this one across two PRs. See
       # repomatic/awesome_toc.py for rationale.
       - name: Markdown fixes for Awesome Lists
         if: fromJSON(needs.metadata.outputs.metadata).is_awesome
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' fix-awesome-toc
+        run: uv --no-progress run --frozen -- repomatic fix-awesome-toc
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template format-markdown
   format-shell:
     name: 🐚 Format Shell
@@ -308,12 +308,12 @@ jobs:
         # tool outright when there are none. A pathless shfmt reads stdin, and
         # an empty `xargs` list used to hand it exactly that. See
         # `ToolSpec.default_paths` in repomatic/tooling/registry.py.
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run shfmt
+        run: uv --no-progress run --frozen -- repomatic run shfmt
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template format-shell
   format-json:
     name: 🔧 Format JSON
@@ -342,12 +342,12 @@ jobs:
         # No arguments: the tool runner supplies biome's subcommand, its JSONC
         # parse flags and the file list. See `ToolSpec.default_args` in
         # repomatic/tooling/registry.py.
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run biome
+        run: uv --no-progress run --frozen -- repomatic run biome
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template format-json
   # --- Fixers: correct or improve existing content in-place. ---
 
@@ -377,7 +377,7 @@ jobs:
       - name: Read the tool pins
         id: pins
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' show-metadata
+          uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github --output "$GITHUB_OUTPUT" tool_versions
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -388,13 +388,13 @@ jobs:
           restore-keys: |
             repomatic-${{ runner.os }}-${{ runner.arch }}-typos-
       - name: Fix typos
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' run typos
+        run: uv --no-progress run --frozen -- repomatic run typos
       - name: Sync pull request
         env:
           # We need custom PAT with workflows permissions to fix typos in .github/workflows/*.yaml files.
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template fix-typos
   fix-vulnerable-deps:
     name: 🛡️ Fix vulnerable deps
@@ -424,7 +424,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' audit --fix
+          uv --no-progress run --frozen -- repomatic audit --fix
           --repo "${{ github.repository }}"
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - name: Sync pull request
@@ -432,7 +432,7 @@ jobs:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           REPOMATIC_DIFF_TABLE_FILE: ${{ steps.fix.outputs.diff_table_file }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template fix-vulnerable-deps
   sync-repomatic:
     name: 🔄 Sync repomatic
@@ -463,7 +463,7 @@ jobs:
           # The upgrade report reads release notes from the GitHub API.
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' init --upgrade
+          uv --no-progress run --frozen -- repomatic init --upgrade
           --delete-unmodified --delete-excluded
           --output "$GITHUB_OUTPUT" --output-format github-actions
       - name: Sync pull request
@@ -472,7 +472,7 @@ jobs:
           # We need custom PAT with workflows permissions to update .github/workflows/*.yaml files.
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template sync-repomatic
       - name: Sync upgrade pull request
         if: steps.sync.outputs.upgrade_version != ''
@@ -482,7 +482,7 @@ jobs:
           REPOMATIC_UPGRADE_REPORT_FILE: ${{ steps.sync.outputs.upgrade_report_file }}
           REPOMATIC_UPGRADE_VERSION: ${{ steps.sync.outputs.upgrade_version }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template sync-repomatic-upgrade --branch sync-repomatic
   format-images:
     name: 🖼️ Format images
@@ -522,14 +522,14 @@ jobs:
         env:
           SUMMARY: ${{ runner.temp }}/format-images-summary.md
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' format-images
+          uv --no-progress run --frozen -- repomatic format-images
           --output "$SUMMARY"
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           SUMMARY: ${{ runner.temp }}/format-images-summary.md
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template format-images
           --template-arg-file summary="$SUMMARY"
   # --- Syncers: regenerate files from external sources or project state. ---
@@ -550,12 +550,12 @@ jobs:
         with:
           version: "0.13.4"
       - name: Sync .gitignore
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' sync-gitignore
+        run: uv --no-progress run --frozen -- repomatic sync-gitignore
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template sync-gitignore
   sync-bumpversion:
     name: 🔄 Sync bumpversion config
@@ -575,12 +575,12 @@ jobs:
         with:
           version: "0.13.4"
       - name: Sync bumpversion config
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' sync-bumpversion
+        run: uv --no-progress run --frozen -- repomatic sync-bumpversion
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template sync-bumpversion
   sync-mailmap:
     name: 📬 Sync .mailmap
@@ -601,12 +601,12 @@ jobs:
         with:
           version: "0.13.4"
       - name: Sync .mailmap
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' sync-mailmap --skip-if-missing
+        run: uv --no-progress run --frozen -- repomatic sync-mailmap --skip-if-missing
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template sync-mailmap
   sync-deps:
     name: 🔗 Sync dependencies
@@ -664,7 +664,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PREFIX: repomatic-http-${{ runner.os }}-
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' prune-caches --prefix "$PREFIX"
+        run: uv --no-progress run --frozen -- repomatic prune-caches --prefix "$PREFIX"
       - name: Sync dependencies
         # GH_TOKEN opens the pull requests, and raises the GitHub API rate limit
         # of the release lookups. A bumper with nothing to act on in this
@@ -673,7 +673,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' sync-deps --pr-sync --release-notes
+          uv --no-progress run --frozen -- repomatic sync-deps --pr-sync --release-notes
           sync-dep-sources sync-uv-lock sync-action-pins sync-workflow-pins
 
   # The graph shows no package versions, so a lock refresh changes it only when
@@ -698,12 +698,12 @@ jobs:
           version: "0.13.4"
       - name: Generate graph
         # Package name and output path are auto-detected from pyproject.toml.
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' update-dep-graph
+        run: uv --no-progress run --frozen -- repomatic update-dep-graph
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template update-dep-graph
 
   update-docs:
@@ -729,10 +729,10 @@ jobs:
         # Runs sphinx-apidoc, converts RST stubs to MyST if applicable, runs docs/docs_update.py,
         # reformats a pyproject.toml that script changed, then refreshes self-updating directive
         # blocks with click-extra refresh-directives. See repomatic/docs.py for rationale.
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' update-docs
+        run: uv --no-progress run --frozen -- repomatic update-docs
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template update-docs

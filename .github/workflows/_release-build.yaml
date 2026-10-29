@@ -79,7 +79,7 @@ jobs:
       - name: Open or update the squash-merge issue, then fail
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' squashed-release
+        run: uv --no-progress run --frozen -- repomatic squashed-release
 
   metadata:
     name: 🧬 Project metadata
@@ -99,7 +99,7 @@ jobs:
       - name: Run repomatic show-metadata
         id: metadata
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' show-metadata
+          uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
           binaries_sync cli_scripts current_version is_python_project is_release_push
           manpages_asset_name manpages_script new_commits_matrix nuitka_matrix package_name
@@ -129,7 +129,7 @@ jobs:
           version: "0.13.4"
       - name: Check dependency sources
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.0' lint-deps
+          uv --no-progress run --frozen -- repomatic lint-deps
           ${{ fromJSON(needs.metadata.outputs.metadata).release_commits_matrix
           && '--fatal' || '--no-fatal' }}
 
