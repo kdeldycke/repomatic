@@ -46,6 +46,7 @@ from ..matrix.model import PYTHON_VERSION_AXIS
 from ..metadata.core import (
     METADATA_SUBCOMMAND,
     REMOVED_METADATA_ALIAS,
+    RENAMED_METADATA_OPTIONS,
     unknown_metadata_keys,
 )
 from ..metadata.output import Dialect
@@ -919,7 +920,8 @@ def check_metadata_keys(ctx: LintContext) -> list[CheckResult]:
     every other job in a test workflow reaches it through `needs:`, the whole
     run dies at the first job, on the next push, from a workflow file that
     looks freshly synced. A step still calling the `metadata` alias, which
-    `8.0.0` removed, dies the same way.
+    `8.0.0` removed, dies the same way, and so does one passing an option that
+    `8.0.0` renamed, like `--format`.
 
     That is not hypothetical: `coverage_cells` went away with the Codecov
     integration and took a downstream test workflow down with it. Failing here
@@ -943,7 +945,22 @@ def check_metadata_keys(ctx: LintContext) -> list[CheckResult]:
                     f" `{command}` instead.",
                 )
             )
-        elif request.unknown:
+        if request.renamed_options:
+            names = ", ".join(
+                f"`{old}` as `{RENAMED_METADATA_OPTIONS[old]}`"
+                for old in request.renamed_options
+            )
+            results.append(
+                CheckResult(
+                    False,
+                    f"{where} passes `{command}` an option that `8.0.0`"
+                    f" renamed, so this job fails on its next run, and every job"
+                    f" gated on it through `needs:` with it. Spell {names}.",
+                )
+            )
+        if request.removed_alias:
+            continue
+        if request.unknown:
             names = ", ".join(f"`{key}`" for key in request.unknown)
             results.append(
                 CheckResult(
@@ -955,7 +972,7 @@ def check_metadata_keys(ctx: LintContext) -> list[CheckResult]:
                     f" for the current set.",
                 )
             )
-        else:
+        elif not request.renamed_options:
             count = len(request.keys)
             plural = "" if count == 1 else "s"
             results.append(

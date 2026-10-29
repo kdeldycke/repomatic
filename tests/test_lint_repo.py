@@ -3499,6 +3499,43 @@ def test_metadata_keys_flags_the_removed_alias(command):
     assert "`repomatic show-metadata`" in failure.message
 
 
+@pytest.mark.parametrize(
+    "command",
+    (
+        pytest.param(
+            "uvx 'repomatic==8.0.0' show-metadata --format github-json test_matrix",
+            id="separate-value",
+        ),
+        pytest.param(
+            "uvx 'repomatic==8.0.0' show-metadata --format=json", id="inline-value"
+        ),
+    ),
+)
+def test_metadata_keys_flags_a_renamed_option(command):
+    """A step passing `--format` fails the lint, naming `--output-format`.
+
+    `8.0.0` renamed the option, so the call dies at its first job whatever keys
+    it asks for, and even when it asks for none.
+    """
+    ctx = _workflows(ci=_metadata_step(command))
+    results = check_metadata_keys(ctx)
+    (failure,) = [r for r in results if r.passed is False]
+    assert "`--format` as `--output-format`" in failure.message
+    # A step that fails is never also reported as passing.
+    assert all(r.passed is False for r in results)
+
+
+def test_metadata_keys_flags_a_renamed_option_beside_a_retired_key():
+    """Each fault of one step is reported, so one fix does not uncover another."""
+    ctx = _workflows(
+        ci=_metadata_step("repomatic show-metadata --format json coverage_cells")
+    )
+    messages = [r.message for r in check_metadata_keys(ctx) if r.passed is False]
+    assert len(messages) == 2
+    assert any("`--output-format`" in message for message in messages)
+    assert any("`coverage_cells`" in message for message in messages)
+
+
 def test_metadata_keys_accepts_current_keys():
     """Keys the command still answers raise nothing."""
     ctx = _workflows(

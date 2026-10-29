@@ -254,6 +254,15 @@ A workflow still calling it fails at its first job, so the readers below
 recognize it in order to report it.
 """
 
+RENAMED_METADATA_OPTIONS: Final[dict[str, str]] = {"--format": "--output-format"}
+"""Options of {data}`METADATA_SUBCOMMAND` that `8.0.0` renamed, mapped to the new name.
+
+The command rejects the old spelling with a `UsageError`, so a workflow still
+passing one fails at its first job, like a call of the removed alias. Header-only
+sync never reads the job body holding the call, so the readers below recognize
+the old spelling in order to report it.
+"""
+
 _METADATA_KEY_TOKEN: Final = re.compile(r"^[a-z][a-z0-9_]*$")
 """Shape of a metadata key, used to tell one from a neighbouring shell token.
 
@@ -360,6 +369,9 @@ class MetadataRequest(NamedTuple):
     removed_alias: bool
     """Whether the step calls the {data}`REMOVED_METADATA_ALIAS` spelling."""
 
+    renamed_options: tuple[str, ...] = ()
+    """The {data}`RENAMED_METADATA_OPTIONS` the step still passes, sorted."""
+
 
 def unknown_metadata_keys(
     workflows: Mapping[Path, Mapping[str, Any]], package: str
@@ -372,8 +384,9 @@ def unknown_metadata_keys(
     :param workflows: Parsed workflow documents, keyed by path.
     :param package: Upstream package name (like `repomatic`).
     :return: One entry per step that calls the metadata subcommand with keys,
-        or that calls the removed alias at all, in workflow order. A step
-        requesting only valid keys is listed with no unknown key.
+        or that calls the removed alias or passes a renamed option at all, in
+        workflow order. A step requesting only valid keys is listed with no
+        unknown key.
     """
     valid = all_metadata_keys()
     requests: list[MetadataRequest] = []
@@ -383,10 +396,17 @@ def unknown_metadata_keys(
             continue
         keys: list[str] = []
         removed_alias = False
+        renamed: set[str] = set()
         for subcommand, arguments in _metadata_invocations(command, package):
             removed_alias |= subcommand == REMOVED_METADATA_ALIAS
             keys.extend(_positional_keys(arguments))
-        if not keys and not removed_alias:
+            # `--format=json` names the option before its inline value.
+            renamed.update(
+                name
+                for name in (argument.split("=", 1)[0] for argument in arguments)
+                if name in RENAMED_METADATA_OPTIONS
+            )
+        if not keys and not removed_alias and not renamed:
             continue
         requests.append(
             MetadataRequest(
@@ -395,6 +415,7 @@ def unknown_metadata_keys(
                 keys=tuple(keys),
                 unknown=tuple(sorted(set(keys) - valid)),
                 removed_alias=removed_alias,
+                renamed_options=tuple(sorted(renamed)),
             )
         )
     return requests

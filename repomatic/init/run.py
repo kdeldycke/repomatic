@@ -66,6 +66,7 @@ from ..http import get_bytes
 from ..metadata.core import (
     METADATA_SUBCOMMAND,
     REMOVED_METADATA_ALIAS,
+    RENAMED_METADATA_OPTIONS,
     Metadata,
     unknown_metadata_keys,
 )
@@ -954,7 +955,7 @@ def _check_metadata_keys(run: _InitRun, version: str) -> None:
     key breaks every downstream workflow still asking for it, at the first push
     after the adoption, in the job every other job hangs off. A call of the
     `metadata` alias, which `8.0.0` removed, breaks the same way, and is warned
-    about the same way.
+    about the same way. So does an option `8.0.0` renamed, like `--format`.
 
     Reads the workflows through
     {func}`~repomatic.metadata.core.unknown_metadata_keys`, the scan the
@@ -991,11 +992,14 @@ def _check_metadata_keys(run: _InitRun, version: str) -> None:
     release = version.removeprefix("v")
     unknown: dict[Path, set[str]] = {}
     removed_alias: set[Path] = set()
+    renamed: dict[Path, set[str]] = {}
     workflows = parse_workflow_texts(run.workflow_texts())
     for request in unknown_metadata_keys(workflows, package):
         unknown.setdefault(request.path, set()).update(request.unknown)
         if request.removed_alias:
             removed_alias.add(request.path)
+        if request.renamed_options:
+            renamed.setdefault(request.path, set()).update(request.renamed_options)
     for target in sorted(unknown):
         label = run.label(target)
         if target in removed_alias:
@@ -1003,6 +1007,15 @@ def _check_metadata_keys(run: _InitRun, version: str) -> None:
                 f"{label} calls `{package} {REMOVED_METADATA_ALIAS}`, an alias"
                 f" {package} `8.0.0` removed. The job will fail; call"
                 f" `{command}` instead."
+            )
+        if target in renamed:
+            names = ", ".join(
+                f"`{old}` as `{RENAMED_METADATA_OPTIONS[old]}`"
+                for old in sorted(renamed[target])
+            )
+            run.result.warn(
+                f"{label} passes `{command}` an option {package} `8.0.0`"
+                f" renamed. The job will fail; spell {names}."
             )
         if unknown[target]:
             run.result.warn(

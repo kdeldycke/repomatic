@@ -2188,6 +2188,32 @@ def test_init_warns_about_the_removed_metadata_alias(tmp_path, monkeypatch):
     assert "`repomatic show-metadata`" in result.warnings[0]
 
 
+def test_init_warns_about_a_renamed_metadata_option(tmp_path, monkeypatch):
+    """A workflow still passing `--format` is told to spell `--output-format`.
+
+    `8.0.0` renamed the option, and header-only sync never rewrites the job body
+    holding the call, so the job fails on the first push after the upgrade.
+    """
+    target = tmp_path / ".github" / "workflows" / "tests.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        _DOWNSTREAM_TESTS_YAML.replace(
+            "echo hello",
+            "uvx 'repomatic==7.4.1' show-metadata --format github-json test_matrix",
+        ),
+        encoding="UTF-8",
+    )
+    monkeypatch.setattr(init_upgrade, "__version__", "7.4.2")
+    monkeypatch.setattr(init_upgrade, "__git_tag_sha__", "a" * 40)
+
+    result = run_init_here(
+        tmp_path, components=("workflows/tests.yaml",), cooldown=False
+    )
+
+    assert len(result.warnings) == 1
+    assert "`--format` as `--output-format`" in result.warnings[0]
+
+
 def test_init_skips_the_metadata_key_check_behind_a_cooldown(tmp_path, monkeypatch):
     """A pin held back to an older release is judged by no key set at all.
 
