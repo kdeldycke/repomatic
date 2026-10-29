@@ -254,10 +254,6 @@ autodoc_member_order = "bysource"
 always_use_bars_union = True
 
 autodoc_default_options = {
-    # The CLI modules import these two Click classes. Their annotations hold
-    # forward references that resolve inside Click alone, so each module that
-    # imports one logs a warning. No member of this project has either name.
-    "exclude-members": "Parameter, UsageError",
     "members": True,
     "undoc-members": True,
     "show-inheritance": True,

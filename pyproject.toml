@@ -167,10 +167,10 @@ docs = [
   # `automodule` page again (sphinx-doc/sphinx#14198): 9.0 dropped it, and
   # every class page lost its Bases line.
   "sphinx>=9.1",
-  # sphinx-autodoc-typehints 3.10.4 catches the `NameError` Python 3.14 raises
-  # when it evaluates an annotation naming a `TYPE_CHECKING`-only import, the
-  # idiom of every module here: below it each such signature loses its types.
-  "sphinx-autodoc-typehints>=3.10.4",
+  # sphinx-autodoc-typehints 3.14.0 resolves the forward references of a Click
+  # class the `repomatic/cli/` modules import, like `UsageError`: below it each
+  # import logs a `forward_reference` warning.
+  "sphinx-autodoc-typehints>=3.14",
   # sphinx-copybutton 0.5.2 strips nothing but what `copybutton_exclude` names,
   # which docs/conf.py sets to copy a shell-session command without its prompt
   # and output lines.
