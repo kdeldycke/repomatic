@@ -1198,6 +1198,26 @@ def test_bootstrap_config_drift_reports_an_entry_that_declines_nothing(leaf, ver
     assert verdict in results[1].message
 
 
+def test_bootstrap_config_drift_points_a_list_entry_at_its_missing_member():
+    """An entry naming a list the section carries points at the member it lacks.
+
+    The entry was right while the section had no such key. Once the section
+    gains the key without the member, the gap moves down to the member, and
+    the record has to follow it there.
+    """
+    local = tomlrt.loads(get_data_content("pytest.toml"))
+    local["addopts"].remove("--numprocesses=logical")
+    results = tuple(
+        check_bootstrap_config_drift(
+            _tools({"pytest": local}, _declining("pytest", "addopts"))
+        )
+    )
+    assert [result.passed for result in results] == [False, False]
+    assert '"--numprocesses=logical"' in results[0].message
+    assert "entry `pytest.addopts` declines nothing" in results[1].message
+    assert '`pytest.addopts."--numprocesses=logical"`' in results[1].message
+
+
 def test_bootstrap_config_drift_roster_entry_reads_the_declined_table():
     """The roster hands the check the table, not only the section it measures."""
     check = _roster_check("bootstrap-config-drift")

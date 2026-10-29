@@ -158,6 +158,9 @@ def check_bootstrap_config_drift(ctx: LintContext) -> Iterator[CheckResult]:
     # lack a reason to do so.
     applied: set[tuple[str, ...]] = set()
     unreasoned: set[tuple[str, ...]] = set()
+    # The members still reported under each list the section carries, keyed
+    # like an entry naming the list itself.
+    loose_members: dict[tuple[str, ...], list[str]] = {}
 
     for comp in seeded.values():
         local = tool_table.get(comp.tool_name)
@@ -201,6 +204,8 @@ def check_bootstrap_config_drift(ctx: LintContext) -> Iterator[CheckResult]:
                 continue
             if entry in declined:
                 unreasoned.add(entry)
+            if member is not None:
+                loose_members.setdefault(entry[:-1], []).append(member)
             missing.append((path, member))
 
         if missing:
@@ -245,6 +250,18 @@ def check_bootstrap_config_drift(ctx: LintContext) -> Iterator[CheckResult]:
             verdict = (
                 f"declines nothing: the repository has no"
                 f" `[{owner.tool_section}]` section. Remove the entry."
+            )
+        elif entry in loose_members:
+            # The section gained the list after the entry was written, so the
+            # gap is a member of it now, and so is the key that declines it.
+            keys = ", ".join(
+                f"`{_dotted_toml_key((*entry, member))}`"
+                for member in loose_members[entry]
+            )
+            verdict = (
+                f"declines nothing: `[{owner.tool_section}]` carries"
+                f" `{'.'.join(entry[1:])}`, and an entry declines one of its"
+                f" members by name: {keys}. Move the reason to that key."
             )
         else:
             verdict = (
