@@ -1789,8 +1789,15 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             ```
 
             `biome check` reports formatting and lint issues; add `--write` after `--`
-            to apply fixes. The `[tool.biome]` section is bridged to a temporary
-            `biome.json`, so keys keep Biome's camelCase spelling.
+            to apply fixes. The `[tool.biome]` section is bridged to a `biome.json`
+            the cache holds and hands over by `--config-path`, so keys keep Biome's
+            camelCase spelling.
+
+            That file sits outside the repository, and Biome resolves a
+            `files.includes` pattern against the config it reads, not against the
+            working directory. A pattern anchored at the repository root
+            (`!kiosk.json`) therefore matches nothing: prefix it (`!**/kiosk.json`)
+            to exclude a path. Verified on biome 2.5.15.
             """),
     ),
     "bump-my-version": ToolSpec(
@@ -2583,6 +2590,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
               "\\{query\\}",
             ]
             ```
+
+            A word cut by a hyphen is checked as two tokens, so `look-alikes`
+            reports `alikes` and `mis-parses` reports `mis`. Accept the fragment by
+            name to silence it: either an `extend-words` mapping it to itself
+            (`alikes = "alikes"`), or an `extend-ignore-identifiers-re` entry
+            anchored on it (`"^alikes$"`).
             """),
     ),
     "wrangler": ToolSpec(
