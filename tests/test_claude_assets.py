@@ -758,8 +758,14 @@ def test_directives_are_short(asset_id: str, body: str) -> None:
         )
 
 
-AGENTS_ANCHOR_RE = re.compile(r"agents\.md#(?P<anchor>[\w-]+)", re.IGNORECASE)
-"""A link to one section of `AGENTS.md`, as the URL of a forge or a site spells it."""
+ANCHOR_CITATION_RE = re.compile(
+    r"(?P<file>agents|claude)\.md#(?P<anchor>[\w-]+)", re.IGNORECASE
+)
+"""A link to one section of the instructions file, as a forge or a site spells it.
+
+Matches the retired name `claude.md` too, which {func}`unresolved_citations`
+reports whatever anchor it names.
+"""
 
 AGENTS_MD = PROJECT_ROOT / "AGENTS.md"
 """The instructions file every citation points into.
@@ -769,10 +775,14 @@ filesystem resolves `agents.md` just the same, so the wrong spelling here
 passes locally and raises `FileNotFoundError` on a Linux runner.
 """
 
-AGENTS_SECTION_RE = re.compile(
-    r"`?agents\.md`?\s+§\s+(?=(?P<tail>[^\n]{1,160}))", re.IGNORECASE
+SECTION_CITATION_RE = re.compile(
+    r"`?(?P<file>agents|claude)\.md`?\s+§\s+(?=(?P<tail>[^\n]{1,160}))",
+    re.IGNORECASE,
 )
-"""A `AGENTS.md § <section>` citation, plus the text that follows it.
+"""An `AGENTS.md § <section>` citation, plus the text that follows it.
+
+Matches the retired name `claude.md` too, which {func}`unresolved_citations`
+reports whatever section it names.
 
 Where the name ends is not something the citation reliably marks: the corpus
 holds `§ Documentation sync (upstream maintainers).`, which closes on
@@ -790,7 +800,7 @@ LITERAL_SEAM_RE = re.compile(r"""["']\s*\n\s*[fFrR]{0,2}["']""")
 """The seam between two adjacent string literals of one Python expression.
 
 A URL too long for one line is split over two literals, which hides its
-anchor from {data}`AGENTS_ANCHOR_RE` until the seam is closed.
+anchor from {data}`ANCHOR_CITATION_RE` until the seam is closed.
 """
 
 PROSE_WRAP_RE = re.compile(r"\n[ \t]*(?:#+[ \t]?)?")
@@ -874,11 +884,14 @@ def repository_texts() -> list[tuple[str, str]]:
 
 
 def unresolved_citations(text: str) -> list[str]:
-    """Each citation of a `AGENTS.md` section which that file does not declare.
+    """Each citation of an `AGENTS.md` section which that file does not declare.
 
     Reads both forms a citation takes: the `AGENTS.md § <section>` of prose
     and the `AGENTS.md#<anchor>` of a link. The text is unwrapped first, per
     {data}`PROSE_WRAP_RE` and {data}`LITERAL_SEAM_RE`.
+
+    A citation of the retired name `claude.md` is dead whatever it names: that
+    file is gone.
 
     A heading is matched as a prefix of the citation, which keeps the check as
     under-inclusive as its siblings: a name that merely opens on a real heading
@@ -892,28 +905,30 @@ def unresolved_citations(text: str) -> list[str]:
     anchors = agents_anchors()
     flat = PROSE_WRAP_RE.sub(" ", LITERAL_SEAM_RE.sub("", text))
     unresolved = []
-    for match in AGENTS_SECTION_RE.finditer(flat):
+    for match in SECTION_CITATION_RE.finditer(flat):
         tail = match.group("tail").lstrip('"')
         # A tail opening on a bracket is a placeholder, in a text that
         # describes the citation form itself.
         if not re.match(r"[\w`]", tail):
             continue
-        if not any(
+        is_retired = match.group("file").lower() == "claude"
+        if is_retired or not any(
             re.match(rf"{re.escape(heading)}(?![\w-])", tail, re.IGNORECASE)
             for heading in headings
         ):
-            unresolved.append(f"§ {tail[:60]}")
+            unresolved.append(f"{match.group('file')}.md § {tail[:60]}")
     unresolved.extend(
-        f"#{match.group('anchor')}"
-        for match in AGENTS_ANCHOR_RE.finditer(flat)
-        if match.group("anchor").lower() not in anchors
+        f"{match.group('file')}.md#{match.group('anchor')}"
+        for match in ANCHOR_CITATION_RE.finditer(flat)
+        if match.group("file").lower() == "claude"
+        or match.group("anchor").lower() not in anchors
     )
     return unresolved
 
 
 @bundled_asset
 def test_cited_agents_sections_resolve(asset_id: str, body: str) -> None:
-    """Every citation of a `AGENTS.md` section names one that file declares.
+    """Every citation of an `AGENTS.md` section names one that file declares.
 
     Retiring the `agent` component in `7.14.0` moved the generic conventions
     out of this repository's `AGENTS.md`, and 32 citations reaching into them
@@ -927,14 +942,14 @@ def test_cited_agents_sections_resolve(asset_id: str, body: str) -> None:
     """
     unresolved = unresolved_citations(body)
     assert not unresolved, (
-        f"{asset_id} cites AGENTS.md {unresolved[0]!r}, which AGENTS.md does "
-        "not declare. Drop the pointer and state the rule inline, or aim "
-        "it at a section that exists."
+        f"{asset_id} cites {unresolved[0]!r}, which AGENTS.md does not "
+        "declare. Drop the pointer and state the rule inline, or aim it at "
+        "a section that exists."
     )
 
 
 def test_repository_citations_resolve() -> None:
-    """Every citation of a `AGENTS.md` section, in any text here, resolves.
+    """Every citation of an `AGENTS.md` section, in any text here, resolves.
 
     {func}`test_cited_agents_sections_resolve` reads the bundled assets alone,
     and the same drift reaches every docstring, comment, workflow and page: a
@@ -954,6 +969,38 @@ def test_repository_citations_resolve() -> None:
     ]
     assert not violations, (
         f"{len(violations)} citations name a section that AGENTS.md does not "
-        "declare. State the rule inline, or aim each one at a section of "
-        "docs/ or at the code that holds the rule:\n" + "\n".join(violations)
+        "declare, or the retired claude.md. State the rule inline, or aim each "
+        "one at a section of docs/ or at the code that holds the rule:\n"
+        + "\n".join(violations)
     )
+
+
+RETIRED_CITATIONS = (
+    "see claude.md" + " § Naming conventions for automated operations",
+    "see `claude.md`" + " § Naming conventions for automated operations",
+    "https://example.com/blob/main/claude.md" + "#naming-conventions",
+)
+"""Citations of the retired name, split so that no text of this repository holds one."""
+
+
+@pytest.mark.parametrize("citation", RETIRED_CITATIONS)
+def test_retired_instructions_file_never_resolves(citation: str) -> None:
+    """A citation of `claude.md` is dead, whatever section or anchor it names.
+
+    The file is gone, so a pointer into it strands the reader. Reading the old
+    spelling as a miss is what stops a skill or a docstring from reaching for it
+    again out of habit.
+    """
+    assert unresolved_citations(citation)
+
+
+def test_citation_check_tells_a_live_section_from_a_dead_one() -> None:
+    """The check passes a heading of `AGENTS.md` and fails one it does not declare.
+
+    The control for {func}`test_retired_instructions_file_never_resolves`: a check
+    that reported every citation, or none, would satisfy that test alone.
+    """
+    live = f"see AGENTS.md § {agents_headings()[0]}"
+    dead = "see AGENTS.md" + " § A heading nothing declares"
+    assert unresolved_citations(live) == []
+    assert unresolved_citations(dead)
