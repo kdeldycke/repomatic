@@ -48,8 +48,8 @@ merely mentions a key in passing is skipped rather than guessed at. A missed
 reference costs nothing; a false failure costs a maintainer the afternoon.
 
 ```{note}
-The first run of {func}`test_config_keys_resolve` caught
-the audit pass of `repomatic-upgrade` recommending `[tool.repomatic.workflow.ignore_paths]`
+The first run of {func}`test_config_keys_resolve` caught the audit pass of
+`repomatic-upgrade` recommending `[tool.repomatic.workflow.ignore_paths]`
 and `[tool.repomatic.workflow.extra_paths]`: the dataclass attributes are
 snake_case, but the TOML keys are `workflow.ignore-paths` and
 `workflow.extra-paths`, so a downstream repo following that advice got a
