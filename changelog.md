@@ -12,6 +12,7 @@
 - Document three tool traps: the `**/` prefix a `[tool.biome]` `files.includes` pattern needs, silencing half a hyphenated `typos` word, and the `.gitignore` entries a symlinked user skills directory needs.
 - Fix `repomatic run ruff` with the bundled config targeting ruff's default Python, whose safe `UP` fixes broke a project with an older `requires-python` floor.
 - Fix PyPI lookups that read a released package as missing when the CDN served a cut-off body: every request now asks for gzip.
+- Fix `lint-repo` passing a `[tool.lychee] exclude` entry that the bundled template dropped, like the star-history.com pattern `8.0.0` removed.
 
 ## [`8.0.0` (2026-10-29)](https://github.com/kdeldycke/repomatic/compare/v7.18.0...v8.0.0)
 

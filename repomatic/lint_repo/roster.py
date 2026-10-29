@@ -688,7 +688,7 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "superseded-local-excludes",
         check_superseded_local_excludes,
-        summary="No bare [tool.lychee] exclude entry the bundled template now anchors",
+        summary="No [tool.lychee] exclude entry the bundled template retired",
         description=(
             "Warns when a `[tool.lychee] exclude` entry is the bare form of one the"
             " bundled template has since anchored. An ongoing sync grafts a local-only"
@@ -699,8 +699,10 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             " in `x.com`, which is what the anchoring was written to stop. A section"
             " no sync reaches holds the bare form alone, so there the warning names"
             " the anchored form to write in its place rather than advising a drop."
-            " Advisory, since only the maintainer can tell a superseded entry from"
-            " one the repository narrowed on purpose"
+            " An entry the template dropped outright, listed in"
+            " `RETIRED_TEMPLATE_EXCLUDES`, is reported the same way. Advisory, since"
+            " only the maintainer can tell a superseded entry from one the repository"
+            " narrowed on purpose, or still needs"
         ),
         applies=lambda ctx: bool(ctx.tool_table),
     ),

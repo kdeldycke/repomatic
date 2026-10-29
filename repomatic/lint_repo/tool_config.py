@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
+from typing import Final
 
 import tomlrt
 
@@ -290,6 +291,23 @@ anchored/bare distinction, so the check stays out of them.
 """
 
 
+RETIRED_TEMPLATE_EXCLUDES: Final[dict[str, dict[str, str]]] = {
+    "lychee": {
+        r"^https://star-history\.com/.*$": "8.0.0",
+    },
+}
+"""Exclude entries a bundled template dropped, mapped to the release that dropped them.
+
+Keyed by tool. An ongoing sync grafts a local-only array item back on, so an entry
+the template drops turns local-only and survives every later sync. A section no
+sync reaches, like `[tool.lychee]` outside an awesome list, keeps its hand copy
+too. Nothing at runtime tells such an entry from one the repository added, so
+record each removal from a bundled `exclude` array here, in the change that
+ships it. A bare pattern the template anchored needs no entry:
+{func}`anchored_exclude_core` recognizes that replacement on its own.
+"""
+
+
 def anchored_exclude_core(pattern: str) -> str | None:
     """Return the bare host pattern an anchored exclude entry supersedes.
 
@@ -311,7 +329,7 @@ def anchored_exclude_core(pattern: str) -> str | None:
 
 
 def check_superseded_local_excludes(ctx: LintContext) -> Iterator[CheckResult]:
-    """Report a local exclude entry the bundled template has since anchored.
+    """Report a local exclude entry the bundled template has anchored or dropped.
 
     An ongoing sync rebuilds a section from its template and grafts local-only
     content back on, and for an array the graft is a union by value: an item
@@ -335,8 +353,14 @@ def check_superseded_local_excludes(ctx: LintContext) -> Iterator[CheckResult]:
     excluding the host itself, so the result names the anchored form to write
     in its place.
 
+    A template that drops an entry outright leaves the same leftover, with no
+    replacement to pair it with. {data}`RETIRED_TEMPLATE_EXCLUDES` records those
+    removals, and the result asks to drop the entry unless a link the repository
+    still holds needs it.
+
     Advisory. Only the maintainer can separate a bare entry the template
-    superseded from one the repository narrowed on purpose.
+    superseded from one the repository narrowed on purpose, or a dropped entry
+    from one a link here still needs.
 
     ```{note}
     The test is deliberately narrow: it recognises the anchored/bare pair by
@@ -392,6 +416,13 @@ def check_superseded_local_excludes(ctx: LintContext) -> Iterator[CheckResult]:
             and not item.startswith("^")
             and item in anchors
         )
+        retired = RETIRED_TEMPLATE_EXCLUDES.get(comp.tool_name, {})
+        dropped = tuple(
+            item
+            for item in local
+            if isinstance(item, str) and item in retired and item not in bundled
+        )
+        findings = []
         if stale:
             listed = ", ".join(f"`{item}`" for item in stale)
             fixes = []
@@ -409,13 +440,20 @@ def check_superseded_local_excludes(ctx: LintContext) -> Iterator[CheckResult]:
                         f" lacks the anchored form, so dropping the bare one"
                         f" would stop excluding the host itself."
                     )
-            yield CheckResult(
-                False,
+            findings.append(
                 f"[{comp.tool_section}] exclude carries {listed}, which the"
                 f" bundled `{comp.source_file}` now anchors: lychee reads"
                 f" these as substring matches, so a bare form keeps excluding"
-                f" every domain ending in the same suffix. {' '.join(fixes)}",
+                f" every domain ending in the same suffix. {' '.join(fixes)}"
             )
+        findings.extend(
+            f"[{comp.tool_section}] exclude carries `{item}`, which the bundled"
+            f" `{comp.source_file}` dropped in `{retired[item]}`: an ongoing sync"
+            f" never retires it. Drop it unless a link here still needs it."
+            for item in dropped
+        )
+        if findings:
+            yield CheckResult(False, " ".join(findings))
             continue
 
         yield CheckResult(

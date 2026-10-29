@@ -109,6 +109,7 @@ from repomatic.lint_repo.site import (
     check_wrangler_config,
 )
 from repomatic.lint_repo.tool_config import (
+    RETIRED_TEMPLATE_EXCLUDES,
     anchored_exclude_core,
     check_bootstrap_config_drift,
     check_superseded_local_excludes,
@@ -1374,6 +1375,55 @@ def test_superseded_local_excludes_keeps_a_local_anchored_entry():
         check_superseded_local_excludes(_tools({"lychee": {"exclude": local}}))
     )
     assert [result.passed for result in results] == [True]
+
+
+def test_superseded_local_excludes_reports_an_entry_the_bundle_dropped():
+    """The graft keeps an entry the template dropped, with nothing to pair it with.
+
+    The bundle stopped excluding star-history.com in `8.0.0`, and a repository
+    whose section carried the entry kept it, though no link of its own needed it.
+    """
+    dropped = r"^https://star-history\.com/.*$"
+    assert dropped not in BUNDLED_LYCHEE_EXCLUDES
+    local = [*BUNDLED_LYCHEE_EXCLUDES, dropped]
+    results = tuple(
+        check_superseded_local_excludes(_tools({"lychee": {"exclude": local}}))
+    )
+    assert [result.passed for result in results] == [False]
+    assert f"`{dropped}`" in results[0].message
+    assert "dropped in `8.0.0`" in results[0].message
+
+
+def test_superseded_local_excludes_keeps_a_dropped_entry_the_bundle_restored():
+    """An entry the bundle carries again is canonical, whatever it dropped before."""
+    dropped = r"^https://star-history\.com/.*$"
+    with patch.dict(
+        "repomatic.lint_repo.tool_config.RETIRED_TEMPLATE_EXCLUDES",
+        {"lychee": {BUNDLED_LYCHEE_EXCLUDES[0]: "8.0.0", dropped: "8.0.0"}},
+    ):
+        results = tuple(
+            check_superseded_local_excludes(
+                _tools({"lychee": {"exclude": list(BUNDLED_LYCHEE_EXCLUDES)}})
+            )
+        )
+    assert [result.passed for result in results] == [True]
+
+
+@pytest.mark.parametrize(
+    ("tool", "entry"),
+    [
+        (tool, entry)
+        for tool, entries in sorted(RETIRED_TEMPLATE_EXCLUDES.items())
+        for entry in sorted(entries)
+    ],
+)
+def test_retired_template_excludes_are_gone_from_the_bundle(tool, entry):
+    """A retired entry the bundle still carries would be reported against itself."""
+    component = next(
+        comp for comp in SyncMode.ONGOING.components() if comp.tool_name == tool
+    )
+    template = tomlrt.loads(get_data_content(component.source_file))
+    assert entry not in template.get("exclude", [])
 
 
 def test_superseded_local_excludes_ignores_a_tool_with_no_patterns():
