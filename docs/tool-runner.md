@@ -207,11 +207,11 @@ $ repomatic run shfmt --version 3.14.0 --checksum abc123... -- .
 
 `repomatic run` downloads platform-specific binaries (actionlint, biome, gitleaks, labelmaker, lychee, etc.) from GitHub Releases. To avoid re-downloading on every invocation, binaries are cached under a platform-appropriate user cache directory:
 
-| Platform | Default cache path                                  |
-| :------- | :-------------------------------------------------- |
-| Linux    | `$XDG_CACHE_HOME/repomatic` or `~/.cache/repomatic` |
-| macOS    | `~/Library/Caches/repomatic`                        |
-| Windows  | `%LOCALAPPDATA%\repomatic\Cache`                    |
+| Platform | Default cache path                                          |
+| :------- | :---------------------------------------------------------- |
+| Linux    | `$XDG_CACHE_HOME/repomatic` or `~/.cache/repomatic`         |
+| macOS    | `$XDG_CACHE_HOME/repomatic` or `~/Library/Caches/repomatic` |
+| Windows  | `%LOCALAPPDATA%\repomatic\Cache`                            |
 
 A download is verified against the SHA-256 checksum the registry records, then cached with a digest of the extracted binary. Each later use checks the cached binary against that digest, and downloads it again on a mismatch. A failed download is tried again, except on a client error (`4xx`), which gets the same answer every time.
 

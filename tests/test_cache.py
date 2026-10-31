@@ -68,42 +68,39 @@ def test_cache_dir_env_override_tilde(monkeypatch):
     assert result.name == "my-cache"
 
 
-def test_cache_dir_darwin(monkeypatch):
-    """macOS uses ~/Library/Caches/repomatic."""
+@pytest.mark.parametrize(
+    ("platform", "environ", "expected"),
+    (
+        ("macos", {}, "/home/fig/Library/Caches/repomatic"),
+        ("macos", {"XDG_CACHE_HOME": "/orchard/cache"}, "/orchard/cache/repomatic"),
+        ("linux", {}, "/home/fig/.cache/repomatic"),
+        ("linux", {"XDG_CACHE_HOME": "/orchard/cache"}, "/orchard/cache/repomatic"),
+        # The XDG specification says to ignore a relative path.
+        ("macos", {"XDG_CACHE_HOME": "~/cache"}, "/home/fig/Library/Caches/repomatic"),
+        ("linux", {"XDG_CACHE_HOME": "orchard/cache"}, "/home/fig/.cache/repomatic"),
+        (
+            "windows",
+            {"LOCALAPPDATA": "/orchard/local", "XDG_CACHE_HOME": "/orchard/cache"},
+            "/orchard/local/repomatic/Cache",
+        ),
+        ("windows", {}, "/home/fig/AppData/Local/repomatic/Cache"),
+    ),
+)
+def test_cache_dir_platform_default(monkeypatch, platform, environ, expected):
+    """An absolute `XDG_CACHE_HOME` comes first, except on Windows."""
     monkeypatch.delenv("REPOMATIC_CACHE_DIR", raising=False)
-    monkeypatch.setattr("repomatic.cache.is_macos", lambda: True)
-    monkeypatch.setattr("repomatic.cache.is_windows", lambda: False)
-    result = cache_dir()
-    assert result == Path.home() / "Library" / "Caches" / "repomatic"
+    monkeypatch.setattr("repomatic.cache.load_repomatic_config", Config)
+    monkeypatch.setattr("repomatic.cache.is_macos", lambda: platform == "macos")
+    monkeypatch.setattr("repomatic.cache.is_windows", lambda: platform == "windows")
+    for name in ("LOCALAPPDATA", "XDG_CACHE_HOME"):
+        monkeypatch.delenv(name, raising=False)
+    # Path.home() reads HOME on POSIX and USERPROFILE on Windows.
+    monkeypatch.setenv("HOME", "/home/fig")
+    monkeypatch.setenv("USERPROFILE", "/home/fig")
+    for name, value in environ.items():
+        monkeypatch.setenv(name, value)
 
-
-def test_cache_dir_linux_xdg(monkeypatch):
-    """Linux with XDG_CACHE_HOME uses $XDG_CACHE_HOME/repomatic."""
-    monkeypatch.delenv("REPOMATIC_CACHE_DIR", raising=False)
-    monkeypatch.setattr("repomatic.cache.is_macos", lambda: False)
-    monkeypatch.setattr("repomatic.cache.is_windows", lambda: False)
-    monkeypatch.setenv("XDG_CACHE_HOME", "/tmp/xdg-cache")
-    assert cache_dir() == Path("/tmp/xdg-cache/repomatic")
-
-
-def test_cache_dir_linux_default(monkeypatch):
-    """Linux without XDG_CACHE_HOME uses ~/.cache/repomatic."""
-    monkeypatch.delenv("REPOMATIC_CACHE_DIR", raising=False)
-    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
-    monkeypatch.setattr("repomatic.cache.is_macos", lambda: False)
-    monkeypatch.setattr("repomatic.cache.is_windows", lambda: False)
-    result = cache_dir()
-    assert result == Path.home() / ".cache" / "repomatic"
-
-
-def test_cache_dir_windows_localappdata(monkeypatch):
-    """Windows uses %LOCALAPPDATA%/repomatic/Cache."""
-    monkeypatch.delenv("REPOMATIC_CACHE_DIR", raising=False)
-    monkeypatch.setattr("repomatic.cache.is_macos", lambda: False)
-    monkeypatch.setattr("repomatic.cache.is_windows", lambda: True)
-    monkeypatch.setenv("LOCALAPPDATA", "/tmp/fake-localappdata")
-    result = cache_dir()
-    assert result == Path("/tmp/fake-localappdata/repomatic/Cache")
+    assert cache_dir() == Path(expected)
 
 
 def test_cache_dir_from_config(monkeypatch, tmp_path):

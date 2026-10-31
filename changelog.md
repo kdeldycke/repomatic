@@ -16,6 +16,7 @@
 - The bundled `repomatic-changelog` and `repomatic-deps` skills now run `repomatic` at the version the workflows pin, like `repomatic-ship`.
 - The bundled `repomatic-ship` skill now waits out a CI cycle longer than 10 minutes with a background `ci-status --wait`, instead of spawning a babysitter.
 - Bump Nuitka from `4.3.1` to `4.3.3`, which guards the `--main-entry-point` launcher itself, and drop the plugin `repomatic run nuitka` loaded for it.
+- The default cache directory follows an absolute `XDG_CACHE_HOME` on macOS too, and ignores a relative one on Linux.
 - Fix `lint-repo` asking to remove a `lint-repo.declined` entry that names a list, where the entry needs the key of the missing member.
 - Fix `lint-repo` and `init` passing a workflow step that calls `show-metadata --format`, which `8.0.0` renamed to `--output-format`.
 - Document three tool traps: the `**/` prefix a `[tool.biome]` `files.includes` pattern needs, silencing half a hyphenated `typos` word, and the `.gitignore` entries a symlinked user skills directory needs.

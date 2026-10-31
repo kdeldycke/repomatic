@@ -53,10 +53,11 @@ class CacheConfig:
     """Override the binary cache directory path.
 
     When empty (the default), the cache uses the platform convention:
-    `~/Library/Caches/repomatic` on macOS, `$XDG_CACHE_HOME/repomatic`
-    or `~/.cache/repomatic` on Linux, `%LOCALAPPDATA%\\repomatic\\Cache`
-    on Windows. The `REPOMATIC_CACHE_DIR` environment variable takes
-    precedence over this setting.
+    `%LOCALAPPDATA%\\repomatic\\Cache` on Windows. Elsewhere, an absolute
+    `XDG_CACHE_HOME` puts it in `$XDG_CACHE_HOME/repomatic`, else in
+    `~/Library/Caches/repomatic` on macOS and `~/.cache/repomatic` on Linux.
+    The `REPOMATIC_CACHE_DIR` environment variable takes precedence over this
+    setting.
     """
 
     github_releases_ttl: int = 86400
