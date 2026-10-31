@@ -87,7 +87,7 @@ jobs:
       - name: Run repomatic show-metadata
         id: metadata
         run: >
-          uv --no-progress run --frozen -- repomatic show-metadata
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
           release_commits_matrix changelog_has_entries
 
@@ -118,7 +118,7 @@ jobs:
       - name: Fix changelog dates and admonitions
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv --no-progress run --frozen -- repomatic lint-changelog --fix
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' lint-changelog --fix
       - name: Sync pull request
         # This job checks out a detached HEAD at `github.sha`; pr-sync falls
         # back to the default branch from the event payload as its base.
@@ -127,7 +127,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1'
           pr-sync --template fix-changelog
   bump-version:
     name: 🆙 Bump versions
@@ -164,7 +164,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           PART: ${{ matrix.part }}
-        run: uv --no-progress run --frozen -- repomatic bump-version --part "${PART}"
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' bump-version --part "${PART}"
 
   prepare-release:
     name: 🎬 Prepare release
@@ -205,7 +205,7 @@ jobs:
       - name: Strip dev suffix for release
         # Bump the "dev" part: .dev0 → release (omitted), producing a clean X.Y.Z version.
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1'
           run bump-my-version -- bump --verbose dev
       - name: Sync uv.lock
         # Plain `uv lock`, not `--upgrade`: see repomatic/deps/uv.py::relock. Every
@@ -218,17 +218,17 @@ jobs:
         # commits as the CI bot, and hands the release version to the PR step.
         id: freeze
         run: >
-          uv --no-progress run --frozen -- repomatic prepare-release --commit
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' prepare-release --commit
           --output "$GITHUB_OUTPUT"
       # --- Unfreeze commit: revert to development references. ---
       - name: Re-target main branch in workflows
         # Reads the release version, so it runs before the patch bump. A no-op outside kdeldycke/repomatic.
-        run: uv --no-progress run --frozen -- repomatic prepare-release --post-release
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' prepare-release --post-release
       - name: Add new changelog entry
-        run: uv --no-progress run --frozen -- repomatic changelog
+        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' changelog
       - name: Version bump
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1'
           run bump-my-version -- bump --verbose patch
       - name: Sync uv.lock
         # Plain `uv lock`, not `--upgrade`: see repomatic/deps/uv.py::relock.
@@ -237,7 +237,7 @@ jobs:
         # The retargeting it repeats changes nothing by now. The commit names the
         # release version and the bumped one.
         run: >
-          uv --no-progress run --frozen -- repomatic prepare-release --post-release
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' prepare-release --post-release
           --commit
       - name: Sync pull request
         # The freeze and unfreeze commits above are already committed, so this
@@ -256,5 +256,5 @@ jobs:
           CURRENT_VERSION: ${{ steps.freeze.outputs.version }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uv --no-progress run --frozen -- repomatic
+          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1'
           pr-sync --template prepare-release --version "$CURRENT_VERSION"
