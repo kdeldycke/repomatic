@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import sys
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
@@ -30,50 +29,24 @@ from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from repomatic.tooling import nuitka
 from repomatic.tooling.nuitka import (
     CCACHE_CONFIG,
-    ENTRY_POINT_GUARD,
-    ENTRY_POINT_GUARD_PLUGIN,
     install_extras,
     nuitka_params,
     prepare_compile_cache,
     prepare_nuitka_build,
-    write_entry_point_guard,
 )
 from repomatic.tooling.registry import TOOL_REGISTRY
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from types import ModuleType
-
     from repomatic.metadata.core import Metadata
 
 MACOS_ARM = NUITKA_BUILD_TARGETS["macos-arm64"]
 LINUX_ARM = NUITKA_BUILD_TARGETS["linux-arm64"]
 
-LAUNCHER = """\
-import sys
-import papaya.__main__ as user_main
-sys.exit(user_main.main())
-"""
-"""The launcher Nuitka `4.3.1` writes for `--main-entry-point`."""
-
-GUARDED_LAUNCHER = """\
-import sys
-import papaya.__main__ as user_main
-if __name__ == "__main__":
-    sys.exit(user_main.main())
-"""
-"""{data}`LAUNCHER` once the entry-point guard plugin rewrote it."""
-
 
 def _metadata(**config: Any) -> Metadata:
     """A stand-in for `Metadata`, carrying a configuration and nothing else."""
     return cast("Metadata", SimpleNamespace(config=Config(**config)))
-
-
-@pytest.fixture(autouse=True)
-def _runner_temp(tmp_path, monkeypatch):
-    """Keep the plugin that each build writes in the directory of the test."""
-    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
 
 
 @pytest.fixture
@@ -84,18 +57,6 @@ def on_target(monkeypatch):
         monkeypatch.setattr(nuitka, "current_build_target", lambda: target)
 
     return pretend
-
-
-@pytest.fixture
-def entry_point_guard(monkeypatch):
-    """The plugin, loaded against a stand-in for the plugin base class of Nuitka."""
-    plugin_base = SimpleNamespace(NuitkaPluginBase=type("NuitkaPluginBase", (), {}))
-    monkeypatch.setitem(
-        sys.modules, "nuitka.plugins.PluginBase", cast("ModuleType", plugin_base)
-    )
-    namespace: dict[str, Any] = {"__name__": "repomatic_entry_point_guard"}
-    exec(ENTRY_POINT_GUARD_PLUGIN, namespace)
-    return namespace["EntryPointGuard"]()
 
 
 def test_registry_wires_the_hooks():
@@ -117,75 +78,18 @@ def test_registry_wires_the_hooks():
         pytest.param(None, ["--nofollow-import-to=tkinter"], id="no-target"),
     ),
 )
-def test_nuitka_params(on_target, tmp_path, target, expected):
+def test_nuitka_params(on_target, target, expected):
     on_target(target)
-    plugin = f"--user-plugin={tmp_path / ENTRY_POINT_GUARD}"
-    assert nuitka_params(_metadata()) == [plugin, *expected]
+    assert nuitka_params(_metadata()) == expected
 
 
-def test_nuitka_params_follow_the_nofollow_setting(on_target, tmp_path):
+def test_nuitka_params_follow_the_nofollow_setting(on_target):
     on_target(LINUX_ARM)
     metadata = _metadata(nuitka_nofollow_imports=["kiwi", "papaya"])
     assert nuitka_params(metadata) == [
-        f"--user-plugin={tmp_path / ENTRY_POINT_GUARD}",
         "--nofollow-import-to=kiwi",
         "--nofollow-import-to=papaya",
     ]
-
-
-def test_write_entry_point_guard(tmp_path):
-    """The plugin lands where `--user-plugin` reads it, with no stray temporary file."""
-    path = write_entry_point_guard()
-
-    assert path == tmp_path / ENTRY_POINT_GUARD
-    assert path.read_text(encoding="UTF-8") == ENTRY_POINT_GUARD_PLUGIN
-    assert not list(tmp_path.glob(f".{ENTRY_POINT_GUARD}.*"))
-
-
-@pytest.mark.parametrize("module_name", ["__main__", "__parents_main__"])
-def test_entry_point_guard_guards_the_launcher(entry_point_guard, module_name):
-    """Both copies Nuitka compiles of the launcher get the guard."""
-    source = entry_point_guard.onModuleSourceCode(module_name, "papaya.py", LAUNCHER)
-    assert source == GUARDED_LAUNCHER
-
-
-@pytest.mark.parametrize(
-    "source",
-    [
-        pytest.param('print("Sunny, 25 degrees.")\n', id="other-program"),
-        pytest.param(GUARDED_LAUNCHER, id="already-guarded"),
-    ],
-)
-def test_entry_point_guard_leaves_other_sources_alone(entry_point_guard, source):
-    assert entry_point_guard.onModuleSourceCode("__main__", "papaya.py", source) == (
-        source
-    )
-
-
-@pytest.mark.parametrize(
-    ("module_name", "calls"),
-    [
-        pytest.param("__main__", ["__main__"], id="main-program"),
-        # The copy each multiprocessing worker runs before its task.
-        pytest.param("__parents_main__", [], id="worker"),
-    ],
-)
-def test_guarded_launcher_calls_the_entry_point_in_the_main_program(
-    monkeypatch, module_name, calls
-):
-    """Only the main program calls the function: a worker skips the call."""
-    called: list[str] = []
-    entry = SimpleNamespace(main=lambda: called.append(module_name))
-    monkeypatch.setitem(sys.modules, "papaya.__main__", cast("ModuleType", entry))
-    monkeypatch.setitem(
-        sys.modules, "papaya", cast("ModuleType", SimpleNamespace(__main__=entry))
-    )
-    # The launcher ends the process once the function returns.
-    monkeypatch.setattr(sys, "exit", lambda code=None: None)
-
-    exec(GUARDED_LAUNCHER, {"__name__": module_name})
-
-    assert called == calls
 
 
 def test_install_extras_runs_one_inexact_sync():
@@ -274,11 +178,3 @@ def test_prepare_nuitka_build_leaves_a_local_cache_alone(monkeypatch, on_target)
         prepare_nuitka_build(_metadata(nuitka_extras=["sbom"]))
     prepare.assert_not_called()
     install.assert_called_once_with(["sbom"])
-
-
-def test_prepare_nuitka_build_writes_the_entry_point_guard(tmp_path, on_target):
-    """The plugin `nuitka_params` loads exists by the time the build starts."""
-    on_target(LINUX_ARM)
-    with patch.object(nuitka, "install_extras"):
-        prepare_nuitka_build(_metadata())
-    assert (tmp_path / ENTRY_POINT_GUARD).is_file()

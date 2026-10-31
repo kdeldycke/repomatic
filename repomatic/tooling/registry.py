@@ -2249,7 +2249,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "nuitka": ToolSpec(
         name="nuitka",
         display_name="Nuitka",
-        version="4.3.1",
+        version="4.3.3",
         package="nuitka[onefile]",
         source_url="https://github.com/Nuitka/Nuitka",
         config_docs_url="https://nuitka.net/doc/user-manual.html",

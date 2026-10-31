@@ -247,7 +247,7 @@ exclude-newer = "1 week"
 # otherwise holds each release back a week from the one repository that
 # consumes it first. The span admits one release: `sync-uv-lock` freezes it
 # to a date, then prunes it.
-exclude-newer-package = { repomatic = "0 day" }
+exclude-newer-package = { nuitka = "2026-10-30T00:00:00Z", repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 build-backend.source-exclude = [

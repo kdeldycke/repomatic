@@ -107,6 +107,7 @@ Issues found while building repomatic and resolved upstream. Where repomatic car
 - [`Nuitka#3998`](https://github.com/Nuitka/Nuitka/issues/3998) - `enableCcache` replaced a user-set `CCACHE_SLOPPINESS` with its own value. Since `4.3` Nuitka adds its value to the user's.
 - [`Nuitka#4025`](https://github.com/Nuitka/Nuitka/issues/4025) - `--project` refused to build over a `py.typed` and over a dependency's package data, until `4.3`.
 - [`Nuitka#4087`](https://github.com/Nuitka/Nuitka/issues/4087) - In `4.3`, a commit that added or removed one kind of local variable made every C file miss `ccache`. repomatic had no workaround, and `4.3.1` fixed it.
+- [`Nuitka#4136`](https://github.com/Nuitka/Nuitka/issues/4136) - The launcher Nuitka wrote for `--main-entry-point` had no `__name__ == "__main__"` guard, so each multiprocessing worker ran the CLI again. The tool runner loaded a Nuitka user plugin that added the guard, until `4.3.3` fixed the launcher.
 - [`tomlrt#171`](https://github.com/dimbleby/tomlrt/issues/171) - `Table.section()` dropped standalone comments and inline-array padding from the source document. repomatic rebuilt each section with a helper to keep them, and removed the helper once `tomlrt` `2.2.4` fixed the clone path.
 - [`uv#12906`](https://github.com/astral-sh/uv/issues/12906) - uv installed an x86_64 Python on arm64 Windows. `tests.yaml` forced a native ARM64 interpreter on that runner until uv `0.13.0` preferred the native one ([`uv#22100`](https://github.com/astral-sh/uv/pull/22100)).
 - [`zizmor#1664`](https://github.com/zizmorcore/zizmor/issues/1664) - The `template-injection` audit failed on a multiline YAML block. repomatic turned the audit off until `zizmor` `1.23.0` fixed it, then turned it back on.
@@ -207,8 +208,6 @@ repomatic post-processes the output of `mdformat` to undo two `mdformat-myst` re
   ```
 
 - [`Nuitka#3997` - Tool downloads are fetched and executed without integrity verification](https://github.com/Nuitka/Nuitka/issues/3997): the macOS builds turn ccache off, which keeps its unverified download out of the build.
-
-- [`Nuitka#4136` - `--main-entry-point` launcher runs the entry point again in every multiprocessing worker](https://github.com/Nuitka/Nuitka/issues/4136): the tool runner loads a Nuitka user plugin that adds the `__name__ == "__main__"` guard to that launcher.
 
 ### Dependency cooldowns
 
