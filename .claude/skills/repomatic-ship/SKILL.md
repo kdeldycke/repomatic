@@ -7,6 +7,8 @@ allowed-tools: Bash Read Grep Glob Skill Agent
 
 ## Context
 
+When the harness leaves these `!` lines unexpanded, as pi does, run them first.
+
 !`grep -m1 'version' pyproject.toml 2>/dev/null`
 
 !`awk '/^## \[/{n++} n==2{exit} {print}' changelog.md 2>/dev/null`
