@@ -73,7 +73,7 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.13.4"
       - name: Open or update the squash-merge issue, then fail
@@ -92,7 +92,7 @@ jobs:
         with:
           # The commit range of the push is read back from the history.
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.13.4"
       # Every key this lane reads, and every key the caller and the engine lane read through the `metadata` output.
@@ -124,7 +124,7 @@ jobs:
           # The release commit, not the push head: the tree being published is the one that has to pass. A push
           # carrying two release commits checks only the newest, the same assumption the rest of the lane makes.
           ref: ${{ fromJSON(needs.metadata.outputs.metadata).release_commit }}
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.13.4"
       - name: Check dependency sources
@@ -156,7 +156,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ matrix.commit }}
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.13.4"
       # Bakes the tag SHA into the CLI module so a built artifact can report the

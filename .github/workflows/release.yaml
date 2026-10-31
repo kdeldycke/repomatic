@@ -184,7 +184,7 @@ jobs:
           # version after the one being released. `pack-plugin` stamps `__version__` into the manifest it archives, so
           # it has to run on the freeze commit or the published plugin advertises a `.devN` that was never released.
           ref: ${{ fromJSON(needs.build.outputs.metadata).release_commit }}
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         if: fromJSON(needs.build.outputs.metadata).is_release_push
         with:
           version: "0.13.4"

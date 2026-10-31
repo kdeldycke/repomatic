@@ -81,7 +81,7 @@ jobs:
           # Use github.sha, not workflow_run.head_sha (stale after release cycle).
           # See https://repomatic.net/workflows#workflow-run-checkout-pitfall.
           ref: ${{ github.sha }}
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.13.4"
       - name: Run repomatic show-metadata
@@ -112,7 +112,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-tags: true
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.13.4"
       - name: Fix changelog dates and admonitions
@@ -153,7 +153,7 @@ jobs:
           # decides whether the bump is allowed. Without tags it falls back to
           # "allow" and never closes an orphan PR.
           fetch-tags: true
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.13.4"
       - name: ${{ matrix.part }} version bump
@@ -198,7 +198,7 @@ jobs:
           # credentials, not the `GH_TOKEN` env set below. See
           # repomatic/github/token.py module docstring.
           token: ${{ secrets.REPOMATIC_PAT || github.token }}
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.13.4"
       # --- Freeze commit: freeze everything to the release version. ---
