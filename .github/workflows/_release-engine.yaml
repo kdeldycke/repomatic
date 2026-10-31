@@ -106,6 +106,9 @@ jobs:
       GIT_CONFIG_COUNT: "1"
       GIT_CONFIG_KEY_0: safe.directory
       GIT_CONFIG_VALUE_0: "*"
+      # Windows defaults piped output to cp1252, where the table `prune-caches` prints and the help text the self-test
+      # reads raise UnicodeEncodeError. Every Python process of the job, the compiled binary included, writes UTF-8.
+      PYTHONIOENCODING: utf8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -223,13 +226,12 @@ jobs:
       # On a non-release run, exercise the freshly-built binary in place: the
       # standalone test-binaries job only runs for release commits, so canary
       # and weekly-schedule builds still prove the binary works without paying
-      # a second runner-queue slot. Env mirrors the test-binaries job; see its
-      # comments for the UTF-8 rationale. The job env carries safe.directory.
+      # a second runner-queue slot. The job env carries safe.directory and
+      # PYTHONIOENCODING.
       - name: Self-test binary
         if: ${{ !fromJSON(inputs.metadata).release_commits_matrix }}
         env:
           BIN_NAME: ${{ matrix.bin_name }}
-          PYTHONIOENCODING: utf8
         shell: bash
         run: >
           uv --no-progress run --frozen --
