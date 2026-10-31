@@ -16,6 +16,8 @@ argument-hint: '[graph [--level N]|review [all|runtime|dev|policy]|explore [<pac
 
 !`[ -f repomatic/__init__.py ] && echo "CANONICAL_REPO" || echo "DOWNSTREAM"`
 
+!`grep -rhoE 'kdeldycke/repomatic/[^@ ]+@[0-9a-f]{40} # v[0-9.]+' .github/workflows 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$' | sort -u | sed 's/^/WORKFLOW_PIN=/'`
+
 ## Instructions
 
 You help users understand and maintain their project's dependencies. This skill has four modes: **graph** (visualize the resolved dependency tree), **review** (audit `pyproject.toml` declarations against version policy), **explore** (find unused dependency APIs that could simplify existing code), and **modernize** (refactor code to adopt features from recently-upgraded dependencies, applying the changes).
@@ -23,8 +25,7 @@ You help users understand and maintain their project's dependencies. This skill 
 ### Determine invocation method
 
 - If the context above shows `CANONICAL_REPO`, use `uv run repomatic`.
-- Otherwise, use `uvx -- repomatic`.
-- Gate the `uvx` form with the supply-chain cooldown: `uvx --exclude-newer '{window}' --exclude-newer-package repomatic=P0D -- repomatic`. Read `{window}`, here and in every command below, from the `UV_EXCLUDE_NEWER` value of any `.github/workflows/*.yaml`, which `repomatic init` renders from `[tool.repomatic] minimum-release-age`. `--exclude-newer-package` exempts repomatic itself, so a fresh release stays installable while its dependency tree stays gated.
+- Otherwise, use `uvx --exclude-newer '{window}' --exclude-newer-package repomatic=P0D --from 'repomatic==X.Y.Z' -- repomatic`, with `X.Y.Z` the `WORKFLOW_PIN` the context shows. Read `{window}`, here and in every command below, from the `UV_EXCLUDE_NEWER` value of any `.github/workflows/*.yaml`, which `repomatic init` renders from `[tool.repomatic] minimum-release-age`. `--exclude-newer-package` exempts repomatic itself, so a fresh release stays installable while its dependency tree stays gated. The pin runs `update-dep-graph` at the version the `update-dep-graph` job runs, so a local graph does not churn against the next CI refresh. Drop the `--from` clause only when the context shows no `WORKFLOW_PIN`.
 
 ### Mode selection
 
