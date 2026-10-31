@@ -13,6 +13,7 @@
 - The bundled `repomatic-upgrade` skill now compares the test matrix at both pins, since a shifted Python axis can turn a literal exclude against the new stable version.
 - The bundled `awesome-template` contributing guide and `awesome-triage` skill now reject a link to a temporary, development or preproduction address, like a `pages.dev` default domain.
 - The bundled `repomatic-changelog` and `repomatic-deps` skills now run `repomatic` at the version the workflows pin, like `repomatic-ship`.
+- The bundled `repomatic-ship` skill now waits out a CI cycle longer than 10 minutes with a background `ci-status --wait`, instead of spawning a babysitter.
 - Bump Nuitka from `4.3.1` to `4.3.3`, which guards the `--main-entry-point` launcher itself, and drop the plugin `repomatic run nuitka` loaded for it.
 - Fix `lint-repo` asking to remove a `lint-repo.declined` entry that names a list, where the entry needs the key of the missing member.
 - Fix `lint-repo` and `init` passing a workflow step that calls `show-metadata --format`, which `8.0.0` renamed to `--output-format`.
