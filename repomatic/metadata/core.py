@@ -113,6 +113,7 @@ METADATA_CONFIG_FIELDS: Final[tuple[str, ...]] = (
     "release_assets",
     "site_deploy",
     "sphinx_builder",
+    "sphinx_fail_on_warning",
 )
 """`Config` fields a workflow reads through the metadata output, sorted.
 

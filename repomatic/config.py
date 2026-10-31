@@ -1383,12 +1383,27 @@ class Config:
     serves at `/page/` and the published URLs carry no extension, which is the
     shape search engines and most static hosts expect.
 
-    The one Sphinx setting a project cannot make in its own `conf.py`, hence a
+    A Sphinx setting a project cannot make in its own `conf.py`, hence a
     config key: the builder is chosen on the command line, and `docs.yaml` is
     what runs it. Switching an already-published site republishes every URL it
     has: the old paths stop existing, so the repository's own absolute
     self-links (readme, packaging specs) move in the same commit, and whatever
     fronts the site redirects the old ones.
+    """
+
+    sphinx_fail_on_warning: bool = field(
+        default=False,
+        metadata={CONFIG_PATH_METADATA_KEY: "sphinx.fail-on-warning"},
+    )
+    """Fail the documentation build on any Sphinx warning.
+
+    `docs.yaml` then passes `--fail-on-warning` to `sphinx-build`, so a warning
+    stops the deploy. Off by default, so a site that builds with warnings keeps
+    deploying.
+
+    Like `sphinx.builder`, a command-line option that `conf.py` cannot set. To
+    fail on some warning types only, list them in the
+    `click_extra_fail_on_warnings` value of `conf.py` instead.
     """
 
     subagents_location: str = field(

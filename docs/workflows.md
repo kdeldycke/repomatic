@@ -411,6 +411,7 @@ docs = [
 
 - Builds Sphinx-based documentation and publishes it to GitHub Pages using [`sphinx`](https://github.com/sphinx-doc/sphinx), [`upload-pages-artifact`](https://github.com/actions/upload-pages-artifact) and [`deploy-pages`](https://github.com/actions/deploy-pages)
 - Builder is `sphinx.builder` in `[tool.repomatic]`, defaulting to `html`; set it to `dirhtml` to publish extension-less URLs (`/page/` instead of `/page.html`)
+- Set `sphinx.fail-on-warning` to `true` in `[tool.repomatic]` to fail the build on any Sphinx warning: the job then passes `--fail-on-warning` to `sphinx-build`, and a warning stops the deploy
 - Runs only when `site.deploy` is `github-pages`, its default. The other target has its own job below, and exactly one of the two ever runs
 - **Requires**:
   - Python package with a `pyproject.toml` file

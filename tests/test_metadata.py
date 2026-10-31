@@ -829,6 +829,8 @@ expected: dict[str, Any] = {
     "cloudflare_project": "repomatic",
     # This repository publishes `.html` pages, the `sphinx.builder` default.
     "sphinx_builder": "html",
+    # This repository sets `sphinx.fail-on-warning`, off by default.
+    "sphinx_fail_on_warning": True,
     "site_deploy": "cloudflare-pages",
 }
 

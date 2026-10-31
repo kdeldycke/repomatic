@@ -692,6 +692,9 @@ release-assets = [ "repomatic-claude-plugin.zip" ]
 # its own once the token lands. `site.cloudflare-project` stays unset on
 # purpose, exercising the default that names the project after the repository.
 site.deploy = "cloudflare-pages"
+# The documentation builds with no warning. A new one then fails the build
+# before it can publish.
+sphinx.fail-on-warning = true
 # One cell resolves every direct dependency to the lowest version its specifier
 # allows, on the floor Python of the fastest runner. The lockfile holds the
 # newest release of each, so no other cell runs a declared floor.

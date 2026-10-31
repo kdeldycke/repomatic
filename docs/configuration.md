@@ -26,6 +26,7 @@ labels.sync = false
 mailmap.sync = false
 setup-guide = false
 sphinx.builder = "dirhtml"
+sphinx.fail-on-warning = true
 site.deploy = "cloudflare-pages"
 site.cloudflare-project = "my-legacy-project-name"
 site.cloudflare-compatibility-date = "2026-06-16"

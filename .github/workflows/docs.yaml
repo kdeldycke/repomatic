@@ -95,8 +95,8 @@ jobs:
         run: >
           uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
-          builds_sphinx doc_files sphinx_builder site_deploy cloudflare_project
-          tool_versions
+          builds_sphinx doc_files sphinx_builder sphinx_fail_on_warning site_deploy
+          cloudflare_project tool_versions
 
   deploy-docs:
     name: 📖 Deploy Sphinx doc
@@ -151,6 +151,9 @@ jobs:
         # into the command: the value is whatever the repository's own
         # `pyproject.toml` holds, and `${{ }}` in a `run:` body is substituted
         # into the script before the shell sees it.
+        # `[tool.repomatic] sphinx.fail-on-warning` adds `--fail-on-warning`, so
+        # any warning fails the build. Off, its variable is empty and the flag
+        # drops out.
         # `-d` keeps Sphinx's pickled parse cache out of the published tree. It
         # otherwise defaults to `<outdir>/.doctrees`, which the upload below then
         # ships: on a project with autodoc-heavy pages that was 118 MB of a 182 MB
@@ -161,9 +164,11 @@ jobs:
         # has to be added for it.
         env:
           SPHINX_BUILDER: ${{ fromJSON(needs.metadata.outputs.metadata).sphinx_builder }}
+          SPHINX_FAIL_ON_WARNING: >-
+            ${{ fromJSON(needs.metadata.outputs.metadata).sphinx_fail_on_warning && 'true' || '' }}
         run: >
           uv --no-progress run --frozen --all-extras --group docs --
-          sphinx-build -b "$SPHINX_BUILDER"
+          sphinx-build -b "$SPHINX_BUILDER" ${SPHINX_FAIL_ON_WARNING:+--fail-on-warning}
           -d "${{ runner.temp }}/sphinx-doctrees"
           ./docs ./docs/_build
       - name: Upload artifact
