@@ -739,7 +739,9 @@ def watch_ci_status(
 
     With *until_change*, it ends after the first poll reporting a change, so a
     watcher re-armed on the same state file wakes once per event. With
-    *timeout*, it ends once that many seconds elapsed, whatever the state.
+    *timeout*, it ends once that many seconds elapsed, whatever the state: the
+    last sleep shrinks to the time left, so a caller with a hard time limit of
+    its own can set *timeout* one poll under it.
 
     Every poll pays the REST quota of {func}`read_ci_status`, a handful of
     calls, and *interval* is what keeps a long watch inside it.
@@ -759,7 +761,7 @@ def watch_ci_status(
     sleep = sleep or time.sleep
     clock = clock or time.monotonic
     names = list(workflows)
-    started = clock()
+    deadline = clock() + timeout if timeout else None
     while True:
         status = read_ci_status(names, branch)
         changed = state.record(status)
@@ -770,6 +772,10 @@ def watch_ci_status(
             return
         if until_change and changed:
             return
-        if timeout and clock() - started >= timeout:
+        if deadline is None:
+            sleep(interval)
+            continue
+        left = deadline - clock()
+        if left <= 0:
             return
-        sleep(interval)
+        sleep(min(interval, left))

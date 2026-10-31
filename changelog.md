@@ -19,6 +19,7 @@
 - The default cache directory follows an absolute `XDG_CACHE_HOME` on macOS too, and ignores a relative one on Linux.
 - Fix `lint-repo` asking to remove a `lint-repo.declined` entry that names a list, where the entry needs the key of the missing member.
 - Fix `lint-repo` and `init` passing a workflow step that calls `show-metadata --format`, which `8.0.0` renamed to `--output-format`.
+- Fix `ci-status --wait --timeout` sleeping up to one `--interval` past its deadline.
 - Document three tool traps: the `**/` prefix a `[tool.biome]` `files.includes` pattern needs, silencing half a hyphenated `typos` word, and the `.gitignore` entries a symlinked user skills directory needs.
 - Fix `repomatic run ruff` with the bundled config targeting ruff's default Python, whose safe `UP` fixes broke a project with an older `requires-python` floor.
 - Fix PyPI lookups that read a released package as missing when the CDN served a cut-off body: every request now asks for gzip.

@@ -1070,6 +1070,29 @@ def test_watch_gives_up_at_the_timeout():
     assert len(seen) == 2
 
 
+def test_watch_never_sleeps_past_the_timeout():
+    """The last sleep shrinks to the time left, so a watch ends at its deadline."""
+    polls = iter([_status(_tests_run(""))] * 3)
+    ticks = iter([0, 0, 60, 90])
+    slept: list[float] = []
+    with patch(
+        "repomatic.github.ci_status.read_ci_status", side_effect=lambda *a: next(polls)
+    ):
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=WatchState(),
+                interval=60,
+                timeout=90,
+                sleep=slept.append,
+                clock=lambda: next(ticks),
+            )
+        )
+    assert len(seen) == 3
+    assert slept == [60, 30]
+
+
 def test_ci_status_command_waits_and_prints_each_change(tmp_path):
     """Under --wait the command prints the changes, then the table of the last poll."""
     polls = iter([_status(_tests_run("")), _status(_tests_run("success"))])
