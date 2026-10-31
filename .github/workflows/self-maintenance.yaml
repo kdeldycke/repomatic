@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.13.4"
+          version: "0.13.5"
       # Persist repomatic's HTTP cache (PyPI/GitHub/npm release metadata) across runs. TTL-gating bounds staleness at a
       # day rather than preventing it, so a restored cache can miss a release published since it was written. Here that
       # only defers a version bump by a run; a job that writes availability claims must re-confirm live, as the
