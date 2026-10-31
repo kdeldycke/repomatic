@@ -65,7 +65,7 @@ jobs:
     # No checkout: the job never runs in this repository, and downstream the CLI
     # call below is frozen to a PyPI pin at release time.
     steps:
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           # The workdir is empty by design, so there are never dependency files
           # for the default cache-dependency-glob to key on: the cache would never
