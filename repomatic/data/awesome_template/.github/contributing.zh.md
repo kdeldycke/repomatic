@@ -71,6 +71,14 @@ $ npx awesome-lint
 
 - 如果可用，使用 HTTPS 协议。
 
+- 指向资源的永久地址。发布在临时、开发或预生产 URL 上的内容、代码、产品和服务不予收录：
+
+  - 托管平台的默认域名，如 `pages.dev`、`vercel.app` 或 `netlify.app`
+  - 带有 `staging` 或 `preview` 的主机名
+  - 隧道地址或在线 playground 链接
+
+  请使用您自己的域名或源代码仓库。GitHub Pages、GitLab Pages 和 Read the Docs 可用于文档和文章，但不可用于商业产品。
+
 - 必须可被 CI/CD 作业访问。如果域名因速率限制或内容保护而返回 `40x` 错误，请用稳定链接替换：
 
   - [`sci-hub.st`](https://sci-hub.st) 用于研究论文

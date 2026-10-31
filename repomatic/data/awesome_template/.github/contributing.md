@@ -71,6 +71,14 @@ If one of these rule conflict with the linter, the linter's rule should takes pr
 
 - Use HTTPs protocol, if available.
 
+- Point to the permanent address of a resource. Content, code, products and services on a temporary, development or preproduction URL are not accepted:
+
+  - the default domain of a hosting platform, like `pages.dev`, `vercel.app` or `netlify.app`
+  - a `staging` or `preview` hostname
+  - a tunnel address or a playground link
+
+  Use your own domain, or the source repository. GitHub Pages, GitLab Pages and Read the Docs are fine for documentation and articles, not for a commercial product.
+
 - Must be reachable by CI/CD jobs. If the domain return `40x` errors for rate-limiting or content protection, replace it with a stable link:
 
   - [`sci-hub.st`](https://sci-hub.st) for research papers
