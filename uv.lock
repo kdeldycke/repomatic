@@ -11,6 +11,7 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P1W"
 
 [options.exclude-newer-package]
+click-extra = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
 nuitka = "2026-10-30T00:00:00Z"
 repomatic = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
 
@@ -242,7 +243,7 @@ wheels = [
 
 [[package]]
 name = "click-extra"
-version = "9.5.0"
+version = "9.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boltons" },
@@ -254,9 +255,9 @@ dependencies = [
     { name = "wcmatch" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/94/49/8f08a9dcff02255ade9898d7972e07a0e227b4151e040baac7c6499c4d07/click_extra-9.5.0.tar.gz", hash = "sha256:d3187fddf72c3f2cffc0c38d345e3bdbec989a7b790a5fec473d85cd4d497943", size = 1819056, upload-time = "2026-10-22T07:15:55.525Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c8/b8/e43719f26249218419c40c71e0f70936c5f1f3b7df266845a21c03986854/click_extra-9.5.1.tar.gz", hash = "sha256:0398ce20bba177504faca37752fe5e0e0756cb1d543765b4d4b6d119d5e3bd48", size = 1830880, upload-time = "2026-10-27T11:52:23.78Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/84/16/e51f7cc5e6a33ed9016cc962d6c3394ae73950b2957e361153d5156d3fa1/click_extra-9.5.0-py3-none-any.whl", hash = "sha256:06acc4c972701441e85f1af411f18d613b8b9feaaffb410282d995948a624e1d", size = 692872, upload-time = "2026-10-22T07:15:53.34Z" },
+    { url = "https://files.pythonhosted.org/packages/be/74/50e7ee690b689ab5c91bb5c0972b9b9c0af76dafe22fa95102aa46378f32/click_extra-9.5.1-py3-none-any.whl", hash = "sha256:f3f009268bbc28b8ee7060321a156f85a56118791209e64570770a625a2b121c", size = 699337, upload-time = "2026-10-27T11:52:21.524Z" },
 ]
 
 [package.optional-dependencies]

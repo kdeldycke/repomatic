@@ -125,9 +125,11 @@ myst_heading_slug_func = "docutils.nodes.make_id"
 # each one against what the build produced: heading slugs, `(target)=` labels,
 # and the sections directives like `{click:config}` generate. It logs a
 # `myst.xref_missing` warning for a link it cannot place, and ships the link as
-# written anyway. Sphinx exits 0 on warnings, and this build carries too many
-# unrelated ones for `--fail-on-warning`.
-click_extra_fail_on_warnings = ["myst.xref_missing"]
+# written anyway. Also fail the build on a docstring `{todo}` that no page
+# renders: the todolist page cannot list it, and click-extra logs a
+# `click_extra.todo_unrendered` warning for it. Sphinx exits 0 on warnings, and
+# this build carries too many unrelated ones for `--fail-on-warning`.
+click_extra_fail_on_warnings = ["click_extra.todo_unrendered", "myst.xref_missing"]
 
 mermaid_d3_zoom = True
 
