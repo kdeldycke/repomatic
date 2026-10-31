@@ -166,7 +166,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PREFIX: nuitka-${{ matrix.target }}-
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' prune-caches --prefix "$PREFIX"
+        run: uv --no-progress run --frozen -- repomatic prune-caches --prefix "$PREFIX"
       # The click-extra of the project's own lock, the one the self-test below runs.
       - name: Pre-bake build metadata
         if: contains(matrix.current_version, '.dev')
@@ -190,7 +190,7 @@ jobs:
           BIN_NAME: ${{ matrix.bin_name }}
         shell: bash
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' run nuitka --
+          uv --no-progress run --frozen -- repomatic run nuitka --
           --project-name="${PROJECT_NAME}"
           --main-entry-point="${MAIN_ENTRY_POINT}"
           --output-filename="${BIN_NAME}"
@@ -221,7 +221,7 @@ jobs:
           BIN_NAME: ${{ matrix.bin_name }}
         shell: bash
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1'
+          uv --no-progress run --frozen -- repomatic
           verify-binary --target "${TARGET}" --binary "${BIN_NAME}"
       # On a non-release run, exercise the freshly-built binary in place: the
       # standalone test-binaries job only runs for release commits, so canary
@@ -265,7 +265,7 @@ jobs:
           BUNDLE_PATH: ${{ steps.attest-binary.outputs.bundle-path }}
         shell: bash
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1'
+          uv --no-progress run --frozen -- repomatic
           pack-attestation --bundle "${BUNDLE_PATH}" --verify
       - name: Upload attestation bundle
         # Globbed rather than named, so the filename stays the CLI's to decide.
@@ -380,7 +380,7 @@ jobs:
           CURRENT_VERSION: ${{ matrix.current_version }}
           COMMIT: ${{ matrix.commit }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' git-tag
+          uv --no-progress run --frozen -- repomatic git-tag
           --tag "v${CURRENT_VERSION}"
           --commit "${COMMIT}"
           --skip-existing
@@ -422,7 +422,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' sync-dev-release --live --delete
+        run: uv --no-progress run --frozen -- repomatic sync-dev-release --live --delete
       - name: Create GitHub release draft
         # Idempotent: skips if release already exists (e.g. workflow re-run). The notes are the changelog section of
         # the release commit, with the PyPI availability admonition baked in from the start: see build_draft_body in
@@ -432,7 +432,7 @@ jobs:
           CURRENT_VERSION: ${{ matrix.current_version }}
           COMMIT: ${{ matrix.commit }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' create-release
+          uv --no-progress run --frozen -- repomatic create-release
           --version "${CURRENT_VERSION}" --commit "${COMMIT}"
           --assets release_artifact --skip-existing
 
@@ -477,7 +477,7 @@ jobs:
           click-extra wrap --help-format man --output-dir man "${SCRIPT}"
       - name: Bundle as tarball
         # Named after the manpages_asset_name metadata key. See repomatic/release/manpages.py.
-        run: uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' pack-manpages
+        run: uv --no-progress run --frozen -- repomatic pack-manpages
       # Same provenance chain as the compiled binaries and the extra-assets job.
       - name: Generate tarball attestation
         id: attest-manpages
@@ -489,7 +489,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUNDLE_PATH: ${{ steps.attest-manpages.outputs.bundle-path }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1'
+          uv --no-progress run --frozen -- repomatic
           pack-attestation --bundle "${BUNDLE_PATH}" --verify
       - name: Attach to release draft
         # pack-attestation names the bundle after the tarball it attests, and attaches both, so neither filename is
@@ -499,7 +499,7 @@ jobs:
           BUNDLE_PATH: ${{ steps.attest-manpages.outputs.bundle-path }}
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1'
+          uv --no-progress run --frozen -- repomatic
           pack-attestation --bundle "${BUNDLE_PATH}" --upload-to "v${CURRENT_VERSION}"
 
   # Attach the consumer-built extra assets declared by `release-assets` in `[tool.repomatic]`. Each declared filename
@@ -554,7 +554,7 @@ jobs:
           BUNDLE_PATH: ${{ steps.attest-assets.outputs.bundle-path }}
           PACKAGE_NAME: ${{ fromJSON(inputs.metadata).package_name }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' pack-attestation
+          uv --no-progress run --frozen -- repomatic pack-attestation
           --bundle "${BUNDLE_PATH}" --dir release-assets --name "${PACKAGE_NAME}-extra-assets"
           --require-declared --verify
       - name: Attach assets to release draft
@@ -567,7 +567,7 @@ jobs:
           BUNDLE_PATH: ${{ steps.attest-assets.outputs.bundle-path }}
           PACKAGE_NAME: ${{ fromJSON(inputs.metadata).package_name }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' pack-attestation
+          uv --no-progress run --frozen -- repomatic pack-attestation
           --bundle "${BUNDLE_PATH}" --dir release-assets --name "${PACKAGE_NAME}-extra-assets"
           --upload-to "v${CURRENT_VERSION}"
 
@@ -636,7 +636,7 @@ jobs:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
           CURRENT_VERSION: ${{ matrix.current_version }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' pack-binaries
+          uv --no-progress run --frozen -- repomatic pack-binaries
           --version "${CURRENT_VERSION}" --dir ./compile-assets --upload-to "v${CURRENT_VERSION}"
       - name: Publish release
         # The registry's gh, pinned and checksummed, rather than the one the runner image happens to ship.
@@ -645,7 +645,7 @@ jobs:
           CURRENT_VERSION: ${{ matrix.current_version }}
           REPO: ${{ github.repository }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' run gh --
+          uv --no-progress run --frozen -- repomatic run gh --
           release edit "v${CURRENT_VERSION}" --draft=false --repo "${REPO}"
 
   scan-virustotal:
@@ -702,7 +702,7 @@ jobs:
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
           CURRENT_VERSION: ${{ matrix.current_version }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' scan-virustotal
+          uv --no-progress run --frozen -- repomatic scan-virustotal
           --tag "v${CURRENT_VERSION}"
           --download
           --repo "${{ github.repository }}"
@@ -720,7 +720,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' sync-binaries
+          uv --no-progress run --frozen -- repomatic sync-binaries
           --repo "${{ github.repository }}"
           --page docs/binaries.md
           --records docs/assets/virustotal-scans.csv
@@ -735,7 +735,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1'
+          uv --no-progress run --frozen -- repomatic
           pr-sync --template scan-virustotal
           --add-path docs/binaries.md
           --add-path docs/assets/binaries.csv
@@ -783,5 +783,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          uvx --no-progress --exclude-newer-package repomatic=P0D 'repomatic==8.0.1' sync-dev-release --live
+          uv --no-progress run --frozen -- repomatic sync-dev-release --live
           --upload-assets release_assets

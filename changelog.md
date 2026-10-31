@@ -1,5 +1,10 @@
 # Changelog
 
+## [`8.0.2.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v8.0.1...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`8.0.1` (2026-10-31)](https://github.com/kdeldycke/repomatic/compare/v8.0.0...v8.0.1)
 
 - **Breaking:** Retire the `repomatic-audit` skill, folded into `repomatic-upgrade` as its second pass. A `[tool.repomatic] exclude` naming `skills/repomatic-audit` fails until the entry is dropped.
