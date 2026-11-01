@@ -191,7 +191,7 @@ class RunStatus:
     """Commit the run was created for."""
 
     status: str
-    """The run's own status. Lags its jobs, so it never gates anything here."""
+    """The run's own status. Lags its jobs, so it gates nothing once one exists."""
 
     conclusion: str
     """The run's own conclusion, empty while it is still going."""
@@ -227,6 +227,15 @@ class RunStatus:
         fix the workflow itself.
         """
         return self.conclusion == "failure" and not any(job.failed for job in self.jobs)
+
+    @property
+    def waiting(self) -> bool:
+        """Whether GitHub has yet to create a job of the run.
+
+        A run waits with no job for a runner, or behind the run ahead of it in
+        its concurrency group. Its own status is then the only signal.
+        """
+        return not self.jobs and self.status not in TERMINAL_STATUSES
 
     @property
     def blocking(self) -> bool:
@@ -283,6 +292,8 @@ class RunStatus:
             return f"{len(self.failed_required)} required job(s) failed"
         if self.running_jobs:
             return f"{len(self.running_jobs)} job(s) still running"
+        if self.waiting:
+            return "not started"
         if self.cancelled_required:
             return f"cancelled ({len(self.cancelled_required)} required job(s))"
         if self.cancelled:
@@ -387,7 +398,7 @@ class CIStatus:
     @property
     def settled(self) -> bool:
         """Whether every run reached a terminal state."""
-        return all(not run.running_jobs for run in self.runs)
+        return all(not run.running_jobs and not run.waiting for run in self.runs)
 
 
 def _workflow_triggers(workflow_dir: Path) -> list[tuple[str, set[str]]]:

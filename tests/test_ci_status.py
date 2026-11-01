@@ -287,6 +287,21 @@ def test_a_run_still_going_is_not_inconclusive_yet():
     assert status.inconclusive is False
 
 
+@pytest.mark.parametrize("run_status", ("queued", "pending", "waiting", "in_progress"))
+def test_a_run_with_no_job_yet_is_neither_green_nor_settled(run_status):
+    """A run GitHub has yet to give a job says nothing about its commit yet.
+
+    It waits that way for a runner, or behind the run ahead of it in its
+    concurrency group. Read as green and settled, it ends a watch before the
+    matrix even started.
+    """
+    status = run(status=run_status, conclusion="")
+    assert status.verdict == "not started"
+    assert status.blocking is False
+    assert status.inconclusive is False
+    assert CIStatus(branch="main", tip_sha="abc1234def", runs=[status]).settled is False
+
+
 @pytest.mark.parametrize(
     ("status", "expected"),
     (
