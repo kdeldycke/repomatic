@@ -163,6 +163,26 @@ Check those two by hand: see [dependencies § Lowest-version check](dependencies
 
 A repository whose own `tests.yaml` predates this step copies the step that reads `matrix.resolution` from the workflow linked above. It then needs `--frozen` on every `uv run` after that step: the rewritten lockfile no longer matches the default resolution, so a plain `uv run` resolves it back to the newest releases.
 
+### Test the source distribution like a distribution
+
+A distribution does not build from the repository. It builds from the sdist, outside any git checkout. It installs the newest release of each dependency that its archive carries, not the versions of `uv.lock`. Two kinds of break show up only there:
+
+- A test that needs the checkout, like a guard that compares a committed file with a regeneration.
+- A dependency release that the lockfile has not reached yet.
+
+The `tests` job of [`tests.yaml`](https://github.com/kdeldycke/repomatic/blob/main/.github/workflows/tests.yaml) builds the sdist in any cell that carries `source = "sdist"`. It unpacks the sdist outside the checkout, installs it with `uv sync --upgrade`, and runs the suite there. The job name shows the value. So one `full-include` row is the whole setup. Pin it to the newest stable Python of the fastest runner, where a distribution that tracks upstream builds:
+
+```toml
+[tool.repomatic]
+test-matrix.full-include = [
+  { "os" = "ubuntu-26.04-arm", "python-version" = "3.15", "source" = "sdist" },
+]
+```
+
+The cooldown still applies: `--upgrade` picks the newest release past `minimum-release-age`. A test that needs the checkout must skip itself when the tree has no `.git` directory, since a distribution build has none. Those skips shrink the slice, so the cell runs outside the coverage floor. It also skips the self-tests of the CLI test suite, which drive the environment of the checkout.
+
+A repository whose own `tests.yaml` predates these steps copies the three steps that read `matrix.source` from the workflow linked above. It also copies the `if:` conditions that keep the checkout steps out of that cell.
+
 ### Select runners by measured speed, not architecture
 
 When you reduce to one runner per OS, pick the *fastest* one for your workload, measured from your own CI. Do not reflexively choose the ARM image because it is "the future": architecture speed is not uniform across operating systems (see the inventory below), and the faster choice differs per platform. When you do not need to test both architectures of an OS, drop the slower twin entirely rather than carrying it.

@@ -39,7 +39,11 @@ from repomatic.config import SITE_DEPLOY_TARGETS
 from repomatic.deps.pins import find_workflow_literals
 from repomatic.github.workflow_files import workflow_triggers
 from repomatic.github.workflow_sync import COOLDOWN_DOCS_URL, cooldown_env_block
-from repomatic.matrix.axes import KNOWN_RUNNERS, TEST_PYTHON_FULL
+from repomatic.matrix.axes import (
+    KNOWN_RUNNERS,
+    TEST_PYTHON_FULL,
+    UNSTABLE_PYTHON_VERSIONS,
+)
 from repomatic.metadata.core import Metadata
 from repomatic.metadata.output import format_github_value
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
@@ -1463,6 +1467,65 @@ def test_lowest_versions_cell_runs_on_the_floor_python() -> None:
     (cell,) = cells
     assert cell["resolution"] == "lowest-direct"
     assert cell["python-version"] == TEST_PYTHON_FULL[0]
+    assert cell["state"] == "stable"
+
+
+def test_sdist_cell_is_read_by_the_test_job() -> None:
+    """A matrix cell carrying `source = "sdist"` tests the unpacked sdist.
+
+    A distribution builds from the sdist, outside a git checkout, against the
+    newest release of each dependency. With no step reading the key, the cell
+    tests the checkout like its twin. With no trace of the key in the job name,
+    the two cells cannot be told apart.
+    """
+    job = load_workflow("tests.yaml")["jobs"]["tests"]
+    assert "format(' / {0}', matrix.source)" in job["name"], (
+        f"The test job name no longer shows the source. Got: {job['name']!r}"
+    )
+
+    steps = job["steps"]
+    readers = [step for step in steps if step.get("if") == "matrix.source == 'sdist'"]
+    names = [step["name"] for step in readers]
+    assert names == [
+        "Unpack the source distribution",
+        "Install the source distribution",
+        "Unittests from the source distribution",
+    ], names
+    unpack, install, unittests = readers
+    assert "uv --no-progress build --sdist" in unpack["run"]
+    assert "--strip-components 1" in unpack["run"]
+    # No git checkout and no lockfile: the newest releases, as a distribution
+    # resolves them.
+    for step in (install, unittests):
+        assert step["working-directory"] == "${{ runner.temp }}/sdist", step
+    assert "--upgrade" in install["run"]
+    assert "--frozen" not in install["run"], (
+        "A frozen sync installs the lockfile, which holds no newest release."
+    )
+    # The guards of a git checkout skip there, so the slice opts out of the
+    # coverage floor.
+    assert "--cov-fail-under=0" in unittests["run"]
+
+    # The checkout steps leave the cell to the steps above.
+    by_name = {step.get("name"): step for step in steps}
+    for name in ("Install project", "Unittests", "Check the coverage floor"):
+        assert "matrix.source != 'sdist'" in by_name[name]["if"], name
+
+
+def test_sdist_cell_runs_on_the_newest_stable_python() -> None:
+    """This repository runs one stable sdist cell, on its newest stable Python.
+
+    The newest dependency releases meet the newest stable interpreter there,
+    which is where a distribution that tracks upstream builds.
+    """
+    cells = [job for job in Metadata().test_matrix.solve() if job.get("source")]
+    assert len(cells) == 1, f"Expected one cell with a source, got {cells!r}."
+    (cell,) = cells
+    assert cell["source"] == "sdist"
+    stable = [v for v in TEST_PYTHON_FULL if v not in UNSTABLE_PYTHON_VERSIONS]
+    assert cell["python-version"] == max(
+        stable, key=lambda v: tuple(map(int, v.split(".")))
+    )
     assert cell["state"] == "stable"
 
 

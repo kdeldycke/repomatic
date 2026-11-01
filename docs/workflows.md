@@ -853,6 +853,7 @@ Opt-in: `repomatic init` only materializes this file for a repository that set `
 - Runs the test suite across a matrix of OS (Linux/macOS/Windows × `x86_64`/`aarch64`) and Python versions: `3.11`, `3.15`, and the `continue-on-error` development `3.16` on every runner, plus the free-threaded `3.15t` as a stable single-runner smoke test (see [test matrix](test-matrix.md))
 - Installs all optional extras (`--all-extras`) to catch incompatibilities between optional dependency groups
 - Resolves the project again in any cell that carries a `resolution` matrix key, so a `lowest-direct` cell runs every declared dependency floor (see [test matrix § Run every declared floor in one cell](test-matrix.md#run-every-declared-floor-in-one-cell))
+- Runs the suite from the unpacked sdist, outside the checkout and on the newest dependency releases, in any cell that carries a `source = "sdist"` matrix key (see [test matrix § Test the source distribution like a distribution](test-matrix.md#test-the-source-distribution-like-a-distribution))
 - Runs `pytest` under the `[tool.coverage] report.fail_under` coverage floor, excluding `once`-marked tests (covered by the dedicated `once-tests` job)
 - Runs `repomatic lint-coverage --no-fatal` on the coverage report, which warns when the floor sits more than two points under the coverage total
 - Runs self-tests against the CLI test suite, through both the console script and `python -m`

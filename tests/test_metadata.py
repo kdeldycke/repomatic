@@ -799,6 +799,12 @@ expected: dict[str, Any] = {
                 "python-version": "3.11",
                 "resolution": "lowest-direct",
             },
+            {
+                "state": "stable",
+                "os": "ubuntu-26.04-arm",
+                "python-version": "3.15",
+                "source": "sdist",
+            },
         ],
     },
     "test_matrix_pr": {
