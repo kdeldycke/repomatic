@@ -51,10 +51,31 @@ from pathlib import Path
 
 from click_extra import format_cli_prompt
 from click_extra.color import forced_color
-from click_extra.recording import quantize, record_command
-from click_extra.screenshot import render
-from click_extra.screenshot_presets import CaptureBackground
-from click_extra.screenshot_svg import AUTO_HOLD
+
+# click-extra 10.0.0 moved the capture modules into `click_extra.capture` and
+# renamed `CaptureBackground`: drop this fallback once its floor reaches 10.0.0.
+try:
+    from click_extra import AUTO_HOLD, TerminalBackground, record_command
+    from click_extra.capture.recording import (  # type: ignore[import-not-found, unused-ignore]
+        quantize,
+    )
+    from click_extra.capture.screenshot import (  # type: ignore[import-not-found, unused-ignore]
+        render,
+    )
+except ImportError:
+    from click_extra.recording import (  # type: ignore[import-not-found, no-redef, unused-ignore]
+        quantize,
+        record_command,
+    )
+    from click_extra.screenshot import (  # type: ignore[import-not-found, no-redef, unused-ignore]
+        render,
+    )
+    from click_extra.screenshot_presets import (  # type: ignore[import-not-found, no-redef, unused-ignore]
+        CaptureBackground as TerminalBackground,
+    )
+    from click_extra.screenshot_svg import (  # type: ignore[import-not-found, no-redef, unused-ignore]
+        AUTO_HOLD,
+    )
 from extra_platforms import is_unix
 
 ASSETS_DIR = Path(__file__).parent / "assets"
@@ -250,7 +271,7 @@ def capture_recording(target: Path) -> None:
                 RECORDING_ARGS,
                 columns=RECORDING_COLUMNS,
                 rows=RECORDING_ROWS,
-                background=CaptureBackground.DARK,
+                background=TerminalBackground.DARK,
             )
         )
         texts = tuple(f"{prompt_line}\n{frame.text}" for frame in frames)

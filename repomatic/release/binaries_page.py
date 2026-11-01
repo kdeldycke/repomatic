@@ -53,7 +53,16 @@ import json
 import logging
 from pathlib import Path
 
-from click_extra.blocks import region_markers, replace_region
+# click-extra 10.0.0 moved `click_extra.blocks` to `click_extra.markdown.blocks`
+# and exports both names from its root: drop this fallback once its floor
+# reaches 10.0.0.
+try:
+    from click_extra import region_markers, replace_region
+except ImportError:
+    from click_extra.blocks import (  # type: ignore[import-not-found, no-redef, unused-ignore]
+        region_markers,
+        replace_region,
+    )
 
 from ..bundle import get_data_content
 from ..file_ops import write_if_changed
