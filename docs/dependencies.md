@@ -45,7 +45,7 @@ This page documents the version specifier conventions and dependency audit proce
 ### General rules
 
 - **No upper bounds** (`<`, `<=`, `!=`, `~=` that implies an upper bound). The only exception is conditional markers like `python_version<'3.11'`.
-- **Extras syntax** is fine: `"coverage[toml]>=7.11"`.
+- **Extras syntax** is fine: `"pytest-xdist[psutil]>=3.7"`.
 - **One dependency per line** for readable diffs. Short groups that fit on one line are acceptable: the `format-json` workflow normalizes layout automatically.
 
 ### Rewrite a floor comment, don't extend it

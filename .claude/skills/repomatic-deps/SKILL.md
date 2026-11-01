@@ -129,7 +129,7 @@ These conventions are derived from the `pyproject.toml` files across all `kdeldy
 #### General rules
 
 11. **No upper bounds** (`<`, `<=`, `!=`, `~=` that implies an upper bound). The only exception is conditional markers like `python_version<'3.11'`.
-12. **Extras syntax** is fine: `"coverage[toml]>=7.11"`.
+12. **Extras syntax** is fine: `"pytest-xdist[psutil]>=3.7"`.
 13. **One dependency per line** for readable diffs. Short groups that fit on one line are acceptable — the `format-pyproject` job normalizes layout automatically.
 
 ### Audit procedure

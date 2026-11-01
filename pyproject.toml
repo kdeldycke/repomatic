@@ -128,7 +128,7 @@ test = [
   # coverage 7.16.2 fixes two branch misreports of the sys.monitoring core, the
   # default on Python 3.14 and later, which move the `report.fail_under`
   # ratchet on the 3.14 and 3.15 cells.
-  "coverage[toml]>=7.16.2",
+  "coverage>=7.16.2",
   # pytest 9.0.3 fixes CVE-2025-71176: the `tmp_path` base directory followed
   # symlinks. The native `[tool.pytest]` table below arrived in 9.0.0, and an
   # older pytest reads none of it.
