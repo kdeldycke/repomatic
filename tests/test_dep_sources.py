@@ -46,6 +46,7 @@ from repomatic.deps.shippable import (
     build_release_readiness,
     floors_inside_cooldown,
     scan_project,
+    unused_allow_warnings,
 )
 from repomatic.deps.sources import (
     ReleaseSwap,
@@ -648,6 +649,47 @@ def test_allowlist_downgrades_without_hiding(tmp_path: Path) -> None:
     assert reason in findings[0].verdict
 
 
+WORKSPACE_SOURCE = "[tool.uv.sources]\ncherry = { workspace = true }\n"
+"""A source the allowlist can exempt, appended to `SHIPPABLE_PYPROJECT`."""
+
+
+@pytest.mark.parametrize(
+    ("extra", "allow", "expected"),
+    (
+        pytest.param(WORKSPACE_SOURCE, {"cherry": "monorepo member"}, [], id="used"),
+        pytest.param(
+            "",
+            {"cherry": "monorepo member"},
+            [
+                (
+                    "cherry: `lint-deps.allow` exempts it, but no finding names it."
+                    " Remove the entry: it would also exempt a later finding of the"
+                    " package, a git source included."
+                )
+            ],
+            id="unused",
+        ),
+        pytest.param(
+            WORKSPACE_SOURCE,
+            {"Cherry": "monorepo member"},
+            [
+                (
+                    "Cherry: `lint-deps.allow` names it, but findings use normalized"
+                    " names, so the entry exempts nothing. Spell it `cherry`."
+                )
+            ],
+            id="unnormalized",
+        ),
+    ),
+)
+def test_unused_allow_entries_warn(
+    tmp_path: Path, extra: str, allow: dict[str, str], expected: list[str]
+) -> None:
+    """An entry warns when no finding names it as written."""
+    findings = _scan(tmp_path, extra, allow=allow)
+    assert unused_allow_warnings(findings, allow) == expected
+
+
 def test_resolution_overrides_warn_without_blocking(tmp_path: Path) -> None:
     """`override-dependencies` diverges the tested tree without breaking installs."""
     extra = '[tool.uv]\noverride-dependencies = [ "mango>=2.5" ]\n'
@@ -755,6 +797,24 @@ def test_lint_deps_reports_an_allowed_source_without_blocking(
     assert result.exit_code == 0, result.output
     assert "allowed (monorepo member)" in result.stdout
     assert "ℹ cherry: workspace source in tool.uv.sources" in result.stdout
+
+
+def test_lint_deps_warns_on_an_unused_allow_entry_without_blocking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An entry no finding names warns after the clean bill of health, and passes."""
+    doc = (
+        SHIPPABLE_PYPROJECT
+        + '[tool.repomatic]\nlint-deps.allow = { cherry = "monorepo member" }\n'
+    )
+    result = _lint_deps(tmp_path, monkeypatch, doc, "--fatal")
+    assert result.exit_code == 0, result.output
+    assert "✓ Every dependency resolves from the public package index." in (
+        result.stdout
+    )
+    assert "⚠ cherry: `lint-deps.allow` exempts it, but no finding names it." in (
+        result.stdout
+    )
 
 
 def test_lint_deps_warns_on_a_resolution_override_without_blocking(

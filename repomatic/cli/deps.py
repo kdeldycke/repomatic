@@ -69,6 +69,7 @@ from ..deps.shippable import (
     LINT_DEPS_HEADER_DEFS,
     format_blocker_section,
     scan_project,
+    unused_allow_warnings,
 )
 from ..deps.sync import (
     OPERATIONS_BY_NAME,
@@ -533,6 +534,7 @@ def lint_deps(
     Reads lint-deps.allow from [tool.repomatic] for packages exempted by
     name, each mapped to the reason it is safe, and
     lint-deps.comment-word-threshold for the length a floor comment may run to.
+    An allow entry that matches no finding draws a warning.
 
     \b
     Output symbols:
@@ -552,6 +554,7 @@ def lint_deps(
         config.minimum_release_age,
         allow=config.lint_deps.allow,
     )
+    allow_warnings = unused_allow_warnings(findings, config.lint_deps.allow)
 
     policy_findings = (
         scan_policy(pyproject_path, config.lint_deps.comment_word_threshold, lockfile)
@@ -560,11 +563,11 @@ def lint_deps(
     )
 
     # The clean bill of health covers shippability alone, so it prints whenever
-    # there is no source finding, style findings or not: a policy warning is
-    # not a claim about where a dependency resolves from.
+    # there is no source finding: neither a policy warning nor an unused
+    # allowlist entry is a claim about where a dependency resolves from.
     if not findings:
         echo("✓ Every dependency resolves from the public package index.")
-        if not policy_findings:
+        if not policy_findings and not allow_warnings:
             ctx.exit(0)
     else:
         ctx.print_table([finding.row for finding in findings], LINT_DEPS_HEADER_DEFS)
@@ -579,6 +582,12 @@ def lint_deps(
         else:
             emit_annotation(AnnotationLevel.WARNING, finding.message)
             echo(f"⚠ {finding.message}")
+
+    # An allowlist entry exempting nothing would still exempt the next finding
+    # of its package, so it warns, but never reaches the exit code.
+    for warning in allow_warnings:
+        emit_annotation(AnnotationLevel.WARNING, warning)
+        echo(f"⚠ {warning}")
 
     # Style findings render after the shippability ones and never reach the
     # exit code: a release is not held for an uncommented floor.

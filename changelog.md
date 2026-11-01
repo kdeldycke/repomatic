@@ -11,6 +11,7 @@
 - Add the `sphinx.fail-on-warning` setting, which makes the Sphinx build of `docs.yaml` fail on any warning.
 - Add the `source = "sdist"` matrix key: its cell runs the suite from the unpacked sdist, outside a git checkout, on the newest dependencies.
 - `lint-deps` now warns about a dependency extra that `uv.lock` resolves to no package, like `coverage[toml]` since coverage `7.17.0`.
+- `lint-deps` now warns about a `lint-deps.allow` entry that matches no finding, and gives the normalized spelling when that would match.
 - The bundled `repomatic-upgrade` skill now counts every finding of a gating job the release adds as a row, old findings included.
 - The bundled `repomatic-upgrade` skill ends with two lists, the applied rows and the remaining `decide`/`implement`/`commit`/`push`/`report` actions, instead of prose.
 - The bundled `repomatic-upgrade` skill now compares the test matrix at both pins, since a shifted Python axis can turn a literal exclude against the new stable version.

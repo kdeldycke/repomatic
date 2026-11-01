@@ -408,6 +408,10 @@ class LintDepsConfig:
     `exclude-newer-package`: an exemption narrow enough to name is one
     somebody weighed. Listing a package does not silence its transitive
     dependencies, which stay gated on their own.
+
+    An entry that matches no finding draws a `lint-deps` warning, since it would
+    still exempt the next finding of its package. Spell each name in its
+    normalized form, as findings do.
     """
 
     comment_word_threshold: int = 40

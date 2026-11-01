@@ -826,6 +826,45 @@ def scan_project(
     return sorted(findings, key=lambda f: (f.package, f.location))
 
 
+def unused_allow_warnings(
+    findings: list[DepFinding], allow: Mapping[str, str]
+) -> list[str]:
+    """Warn about each `lint-deps.allow` entry that exempts nothing.
+
+    An entry outlives its reason once the finding it covered clears, like a
+    floor whose release aged out of the cooldown. It still exempts every later
+    finding of its package, a git source included, which is the slip this gate
+    exists to catch. The warning turns its removal into a check, instead of a
+    note left beside the entry.
+
+    Findings name each package in its normalized form, and an entry is matched
+    as written. An entry spelled any other way exempts nothing either, so its
+    warning gives the spelling that would match.
+
+    :param findings: What {func}`scan_project` reported.
+    :param allow: Package name to its `lint-deps.allow` reason.
+    :return: One warning per entry that no finding names, sorted by name.
+    """
+    covered = {finding.package for finding in findings}
+    warnings = []
+    for name in sorted(allow):
+        if name in covered:
+            continue
+        normalized = canonicalize_name(name)
+        if normalized in covered:
+            warnings.append(
+                f"{name}: `lint-deps.allow` names it, but findings use normalized"
+                f" names, so the entry exempts nothing. Spell it `{normalized}`."
+            )
+        else:
+            warnings.append(
+                f"{name}: `lint-deps.allow` exempts it, but no finding names it."
+                " Remove the entry: it would also exempt a later finding of the"
+                " package, a git source included."
+            )
+    return warnings
+
+
 BLOCKER_SECTION_NOTE = (
     "A dependency is shippable when whoever installs the published artifact"
     " gets the code this release was tested against. These do not clear that"

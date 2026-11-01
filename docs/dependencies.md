@@ -178,6 +178,8 @@ lint-deps.allow = { papaya = "monorepo workspace member, published separately" }
 
 A mapping rather than a list, because the reason is the point: an exemption without one is indistinguishable from a forgotten development shortcut six months later. The reason renders in the report and in the release PR banner, so an accepted exception stays visible rather than disappearing. Listing a package does not exempt its transitive dependencies, which stay gated on their own.
 
+An exception outlives its reason once its finding clears, like a floor whose release aged out of the cooldown. It still exempts every later finding of that package, a git source included, so `lint-deps` warns about an entry that matches no finding. Findings name each package in its normalized form: spell each entry that way, or it exempts nothing.
+
 ## Floor verification
 
 Comments and changelogs can lie; the codebase is the source of truth. For each dependency with a weak or suspicious comment, verify the floor against actual usage:
