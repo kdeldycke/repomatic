@@ -1364,27 +1364,27 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "08536c586089e603dae610f73adc3ab95c0a0fdb00c029662c09456c42ea3ac8",
+        ): "72eb52bfcbac58338fa507e394684c3ef74bbb49bcd5f78910e5f900e4610e25",
         (
             LINUX,
             X86_64,
-        ): "43c08f3454d375d38c6441939acc8a557702bc8459272dd513f4f7474a4ed352",
+        ): "1e5134625f00231035bfb14c12141cdc8fcab69b8275f354287808bb5d86d3ae",
         (
             MACOS,
             AARCH64,
-        ): "be66b76dcb930b1e365bd36c4f5d8557c2dda70b31567f8bd15509e487753a69",
+        ): "c158900ec63bd10332d34cc1fe6a6a571da5c65a4396087f87a2368111bd7ff7",
         (
             MACOS,
             X86_64,
-        ): "9bba9be8c50bf2a58bc6de8023b599e57613588800bd843273e9ccaa4deba52c",
+        ): "c06a7b72d313e803f2e77b6eda16e5e57f3cb4f864fc2e2f079da3fc218a34ef",
         (
             WINDOWS,
             AARCH64,
-        ): "dfb4e5f75fd048b76dcbd3f244256b203380aaf8bf593c918bc334af3640ef83",
+        ): "a9ce8a46fa1d51004fa45f7fc72b6e2cf47b2d29327339e96b6ec26bcc39c01b",
         (
             WINDOWS,
             X86_64,
-        ): "283639d771d82502b7498e87cee2e703f84aa040144b04ea1bcfc0ab942a9184",
+        ): "74fd5c345f051205a4d4db56c78463540769fa7ed976f5736f4371a7f4d7fd0a",
     },
     "gh": {
         (
@@ -1585,7 +1585,7 @@ the registry, and so `VERSIONS` can anchor the offline staleness test.
 
 VERSIONS: dict[str, str] = {
     "actionlint": "1.7.12",
-    "biome": "2.6.2",
+    "biome": "2.6.3",
     "gh": "2.103.2",
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.5",
@@ -1759,7 +1759,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         ),
         default_paths="json_files",
         display_name="Biome",
-        version="2.6.2",
+        version="2.6.3",
         source_url="https://github.com/biomejs/biome",
         tag_pattern=r"^@biomejs/biome@(?P<version>.+)$",
         config_docs_url="https://biomejs.dev/reference/configuration/",
@@ -1832,7 +1832,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "bump-my-version": ToolSpec(
         name="bump-my-version",
-        version="1.6.3",
+        version="1.6.5",
         reads_pyproject=True,
         pyproject_table="bumpversion",
         source_url="https://github.com/callowayproject/bump-my-version",
