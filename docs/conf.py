@@ -248,6 +248,10 @@ nitpicky = True
 nitpick_ignore = [
     # py-walk publishes no inventory to link this annotation to.
     ("py:class", "py_walk.models.parser.Parser"),
+    # click-extra publishes its docs from `main`, where 10.0.0 moved these out of
+    # `click_extra.blocks`. repomatic stays on the released 9.x, which keeps them.
+    ("py:func", "click_extra.blocks.region_markers"),
+    ("py:func", "click_extra.blocks.replace_region"),
 ]
 
 # Concatenate class and __init__ docstrings.
