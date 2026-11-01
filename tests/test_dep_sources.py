@@ -784,6 +784,46 @@ def test_lint_deps_policy_warnings_never_block(
     assert ("⚠ cherry: project.dependencies" in result.stdout) is warned
 
 
+LOCK_WITH_AN_EMPTY_EXTRA = """\
+version = 1
+requires-python = ">=3.11"
+
+[[package]]
+name = "basket"
+version = "1.0.0"
+source = { editable = "." }
+dependencies = [
+    { name = "cherry" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "cherry", extras = ["juice"], specifier = ">=1.2" }]
+
+[[package]]
+name = "cherry"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+"""
+"""A lock resolving the `juice` extra of cherry to no package."""
+
+
+def test_lint_deps_judges_extras_against_the_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The policy pass reads `uv.lock` to warn about an extra installing nothing."""
+    (tmp_path / "uv.lock").write_text(LOCK_WITH_AN_EMPTY_EXTRA, encoding="UTF-8")
+    doc = SHIPPABLE_PYPROJECT.replace('"cherry>=1.2"', '"cherry[juice]>=1.2"')
+    result = _lint_deps(tmp_path, monkeypatch, doc)
+    assert result.exit_code == 0, result.output
+    assert "✓ Every dependency resolves from the public package index." in (
+        result.stdout
+    )
+    assert (
+        "⚠ cherry: project.dependencies (`cherry[juice]>=1.2`). `uv.lock` resolves"
+        " its `juice` extra to no package"
+    ) in result.stdout
+
+
 def test_lint_deps_writes_its_blockers_to_a_report(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

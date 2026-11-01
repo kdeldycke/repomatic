@@ -85,10 +85,11 @@ dependencies = [
 
 ### What is checked automatically
 
-`repomatic lint-deps` reports the rules above that are decidable from `pyproject.toml` alone, and `lint.yaml` runs it on every push:
+`repomatic lint-deps` reports the rules above that are decidable from `pyproject.toml` and `uv.lock`, and `lint.yaml` runs it on every push:
 
 - An upper bound on a runtime dependency, `~=` and `==` included.
 - A dependency carrying no version specifier. A second mention selecting an extra of a package already floored elsewhere (`click-extra[sphinx]` beside `click-extra>=8.8`) is not one: repeating the floor there would just be a second number to keep in step.
+- An extra that `uv.lock` resolves to no package, like `coverage[toml]` since coverage `7.17.0`. The package does not define the extra, or markers exclude all its requirements on the supported Python versions. Only the extras the lock was resolved with are judged, so a declaration added since the last `uv lock` gets no warning.
 - A list that is not in alphabetical order. Only the first entry out of place is named, since one misplaced entry makes every later one look wrong too.
 - A `types-*` stub outside the `typing` group.
 - A floor with no comment above it. A comment above the array's opening line documents the whole array, which is how a run of related entries is usually justified.

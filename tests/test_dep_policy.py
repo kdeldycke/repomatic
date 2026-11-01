@@ -21,6 +21,7 @@ from __future__ import annotations
 from textwrap import dedent
 
 import pytest
+import tomlrt
 
 from repomatic.config import LintDepsConfig
 from repomatic.deps.policy import count_comment_words, scan_policy
@@ -38,6 +39,32 @@ def write_pyproject(tmp_path, body: str):
 def remedies(findings) -> list[str]:
     """The remedy of each finding, for a terse assertion."""
     return [finding.remedy for finding in findings]
+
+
+def write_lock(tmp_path, requested: list[str], resolved: list[str] | None):
+    """Write a `uv.lock` in which orchard selects *requested* extras of papaya.
+
+    :param resolved: The extras the papaya entry resolves to a package, or
+        `None` to leave papaya out of the lock.
+    """
+    packages: list[dict] = [
+        {
+            "name": "orchard",
+            "metadata": {
+                "requires-dist": [
+                    {"name": "papaya", "extras": requested, "specifier": ">=3"}
+                ]
+            },
+        }
+    ]
+    if resolved is not None:
+        packages.append({
+            "name": "papaya",
+            "optional-dependencies": {extra: [{"name": "soil"}] for extra in resolved},
+        })
+    path = tmp_path / "uv.lock"
+    path.write_text(tomlrt.dumps({"package": packages}), encoding="UTF-8")
+    return path
 
 
 @pytest.mark.parametrize(
@@ -432,6 +459,51 @@ def test_type_stub_outside_the_typing_group(tmp_path):
     assert "typing" in finding.remedy
 
 
+SELECTS_PAPAYA_EXTRAS = """\
+[project]
+name = "orchard"
+dependencies = [
+  # papaya 3.0 ships the peel() the harvest report calls.
+  "papaya[juice,seeds]>=3",
+]
+"""
+"""A project selecting two extras of papaya, for the lock to judge."""
+
+
+@pytest.mark.parametrize(
+    ("requested", "resolved", "expected"),
+    (
+        pytest.param(
+            ["juice", "seeds"],
+            ["seeds"],
+            ["Remove the `juice` extra from the declaration."],
+            id="empty-extra",
+        ),
+        pytest.param(
+            ["juice", "seeds"], ["juice", "seeds"], [], id="every-extra-resolves"
+        ),
+        # A lock resolved before the declaration selected any extra says nothing
+        # about them, so a declaration added since the last `uv lock` is spared.
+        pytest.param([], ["seeds"], [], id="lock-predates-declaration"),
+        # Nothing was resolved to judge.
+        pytest.param(["juice", "seeds"], None, [], id="package-not-locked"),
+    ),
+)
+def test_extra_that_installs_nothing(tmp_path, requested, resolved, expected):
+    """An extra the lock resolves to no package draws the remedy to drop it."""
+    path = write_pyproject(tmp_path, SELECTS_PAPAYA_EXTRAS)
+    findings = scan_policy(path, lock_path=write_lock(tmp_path, requested, resolved))
+    assert remedies(findings) == expected
+    assert {finding.location for finding in findings} <= {"project.dependencies"}
+
+
+def test_extras_are_judged_only_against_a_given_lock(tmp_path):
+    """A caller passing no lock gets the `pyproject.toml` rules alone."""
+    path = write_pyproject(tmp_path, SELECTS_PAPAYA_EXTRAS)
+    write_lock(tmp_path, ["juice", "seeds"], [])
+    assert scan_policy(path) == []
+
+
 def test_missing_file_reports_nothing(tmp_path):
     """A non-Python repo has nothing to check, and must not raise."""
     assert scan_policy(tmp_path / "pyproject.toml") == []
@@ -544,5 +616,6 @@ def test_this_repository_follows_its_own_policy():
     findings = scan_policy(
         PROJECT_ROOT / "pyproject.toml",
         LintDepsConfig.comment_word_threshold,
+        PROJECT_ROOT / "uv.lock",
     )
     assert findings == [], "\n".join(finding.message for finding in findings)

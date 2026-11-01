@@ -9,6 +9,7 @@
 - **Breaking:** Generated workflows and the bundled agents and skills now name `AGENTS.md` as the instructions file in place of `claude.md`. Rename a downstream `claude.md` to match.
 - Add the `instructions-file-name` check to `lint-repo`: it warns about a root `claude.md`, or an `agents.md` in another case, in place of `AGENTS.md`.
 - Add the `sphinx.fail-on-warning` setting, which makes the Sphinx build of `docs.yaml` fail on any warning.
+- `lint-deps` now warns about a dependency extra that `uv.lock` resolves to no package, like `coverage[toml]` since coverage `7.17.0`.
 - The bundled `repomatic-upgrade` skill now counts every finding of a gating job the release adds as a row, old findings included.
 - The bundled `repomatic-upgrade` skill ends with two lists, the applied rows and the remaining `decide`/`implement`/`commit`/`push`/`report` actions, instead of prose.
 - The bundled `repomatic-upgrade` skill now compares the test matrix at both pins, since a shifted Python axis can turn a literal exclude against the new stable version.

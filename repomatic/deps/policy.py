@@ -26,8 +26,8 @@ The split is what keeps both halves honest. A style finding that could stop a
 release would eventually be silenced rather than fixed; a shippability finding
 that only warned would ship a broken wheel.
 
-Only rules decidable from `pyproject.toml` alone live here. Whether a floor is
-*justified* by the APIs the code actually calls is the judgment call
+Only rules decidable from `pyproject.toml` and its `uv.lock` live here. Whether
+a floor is *justified* by the APIs the code actually calls is the judgment call
 `/repomatic-deps review` exists for, and it stays there: no amount of parsing
 settles it, and a checker that guessed would train people to ignore it.
 
@@ -39,6 +39,9 @@ The rules, and what each one costs the reader when broken:
   Constraints?](https://iscinumpy.dev/post/bound-version-constraints/)
 - A **bare dependency** pins nothing, so the install that passed CI and the one
   a user gets can differ by a major version.
+- An **extra that installs nothing** reads as a feature the code relies on. It
+  stays behind when the package drops the extra, or when a raised Python floor
+  excludes the backport the extra added.
 - An **unsorted list** makes every addition a merge conflict candidate and
   hides duplicates.
 - A **type stub outside the `typing` group** installs at runtime for users who
@@ -60,6 +63,7 @@ from itertools import pairwise
 
 from packaging.utils import canonicalize_name
 
+from .lockfile import LockFile
 from .requirements import (
     BUILD_TABLE,
     iter_toml_lines,
@@ -254,6 +258,30 @@ def _check_specifier(
         )
 
 
+def _check_extras(
+    requirement: Requirement, raw: str, location: str, lock: LockFile
+) -> Iterator[PolicyFinding]:
+    """Flag each extra of *requirement* that `uv.lock` resolves to no package.
+
+    See {attr}`~repomatic.deps.lockfile.LockFile.empty_extras` for what reads
+    as resolving to no package.
+    """
+    selected = {canonicalize_name(extra) for extra in requirement.extras}
+    for extra in sorted(selected & lock.empty_extras_of(requirement.name)):
+        yield PolicyFinding(
+            package=canonicalize_name(requirement.name),
+            location=location,
+            detail=f"`{raw}`",
+            consequence=(
+                f"`uv.lock` resolves its `{extra}` extra to no package, so "
+                "selecting it installs nothing. The package does not define "
+                "that extra, or markers exclude all its requirements on the "
+                "supported Python versions."
+            ),
+            remedy=f"Remove the `{extra}` extra from the declaration.",
+        )
+
+
 def _over_long(
     package: str, location: str, detail: str, threshold: int
 ) -> PolicyFinding:
@@ -302,18 +330,23 @@ def _check_ordering(names: list[str], location: str) -> Iterator[PolicyFinding]:
 
 
 def scan_policy(
-    pyproject_path: Path, comment_word_threshold: int = 0
+    pyproject_path: Path,
+    comment_word_threshold: int = 0,
+    lock_path: Path | None = None,
 ) -> list[PolicyFinding]:
     """Every declaration in *pyproject_path* that departs from version policy.
 
-    Entirely offline, reading only `pyproject.toml`, so it costs nothing to
-    run on every push.
+    Entirely offline, reading `pyproject.toml` and, when given, `uv.lock`, so
+    it costs nothing to run on every push.
 
     :param pyproject_path: Path to the `pyproject.toml` file, whatever its
         name.
     :param comment_word_threshold: Word ceiling per floor comment. `0` (or
         less) disables the check, which is what a caller with no configuration
         to read gets.
+    :param lock_path: Path to the `uv.lock` file the project resolved, which
+        the empty-extra check reads. `None` skips that check, and so does a
+        missing file.
     :return: Findings sorted by location, then by package.
     """
     data = read_project(pyproject_path)
@@ -321,6 +354,7 @@ def scan_policy(
         return []
     text = pyproject_path.read_text(encoding="UTF-8")
     lines = text.splitlines()
+    lock = LockFile.load(lock_path) if lock_path else LockFile()
     findings: list[PolicyFinding] = []
 
     # The build front end alone reads `[build-system] requires`, so none of
@@ -353,6 +387,7 @@ def scan_policy(
             findings.extend(
                 _check_specifier(requirement, raw, location, array.published, floored)
             )
+            findings.extend(_check_extras(requirement, raw, location, lock))
 
         findings.extend(_check_ordering([req.name for _raw, req in parsed], location))
 

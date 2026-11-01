@@ -1142,6 +1142,49 @@ def test_lock_specifiers_skip_what_names_no_package() -> None:
     assert specs.by_main == {"basket": {"fig": ""}}
 
 
+def test_lock_empty_extras_hold_what_installs_nothing() -> None:
+    """An extra the project selects, and the lock resolves to no package.
+
+    uv leaves such an extra out of `optional-dependencies`. A package locked at
+    two versions keeps an extra that either one resolves, and a package the
+    lock does not hold is not judged.
+    """
+    lock_data = {
+        "package": [
+            {
+                "name": "orchard",
+                "metadata": {
+                    "requires-dist": [
+                        {"name": "kiwi", "extras": ["fuzz"]},
+                        {"name": "mango", "extras": ["juice", "peel"]},
+                        {"name": "papaya", "extras": ["seeds"]},
+                    ],
+                    "requires-dev": {
+                        "test": [{"name": "plum", "extras": ["Dried_Fruit"]}],
+                    },
+                },
+            },
+            {
+                "name": "mango",
+                "optional-dependencies": {"juice": [{"name": "water"}]},
+            },
+            {
+                "name": "papaya",
+                "version": "1.0",
+                "optional-dependencies": {"seeds": [{"name": "soil"}]},
+            },
+            {"name": "papaya", "version": "2.0"},
+            {"name": "plum"},
+        ],
+    }
+
+    lock = LockFile(lock_data)
+
+    assert lock.empty_extras == {"mango": {"peel"}, "plum": {"dried-fruit"}}
+    assert lock.empty_extras_of("Mango") == {"peel"}
+    assert lock.empty_extras_of("kiwi") == frozenset()
+
+
 def test_lock_reads_an_absolute_exclude_newer_as_written() -> None:
     """A cutoff the lock records as an instant needs no span to resolve."""
     lock = LockFile({"options": {"exclude-newer": "2026-10-18T00:00:00Z"}})

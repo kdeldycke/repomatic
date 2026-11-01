@@ -63,7 +63,7 @@ With `[tool.repomatic] dependency-graph.update = false`, the `update-dep-graph` 
 
 ### Mechanical layer
 
-`<cmd> lint-deps` decides everything readable from `pyproject.toml` alone: upper bounds, missing specifiers, unsorted lists, type stubs outside the `typing` group, floors with no comment above them, and floor comments running past `[tool.repomatic] lint-deps.comment-word-threshold` words (40 by default). Run it first and let it own those rows. CI runs it from the release lane's `lint-deps` job (`_release-build.yaml`, reached through `release.yaml`), which fires on every push but annotates with `--no-fatal` until a release commit makes the *shippability* findings fatal. These policy rows never block either way, so no CI gate will catch them for you.
+`<cmd> lint-deps` decides everything readable from `pyproject.toml` and `uv.lock`: upper bounds, missing specifiers, extras that install nothing, unsorted lists, type stubs outside the `typing` group, floors with no comment above them, and floor comments running past `[tool.repomatic] lint-deps.comment-word-threshold` words (40 by default). Run it first and let it own those rows. CI runs it from the release lane's `lint-deps` job (`_release-build.yaml`, reached through `release.yaml`), which fires on every push but annotates with `--no-fatal` until a release commit makes the *shippability* findings fatal. These policy rows never block either way, so no CI gate will catch them for you.
 
 What is left is the part no parser settles, and it is the reason this mode exists: whether a floor is **justified** by the APIs the code actually calls, whether a comment is **stale or weak**, and whether a rationale **contradicts** its conditional marker. Spend the review there.
 
@@ -134,7 +134,7 @@ These conventions are derived from the `pyproject.toml` files across all `kdeldy
 
 ### Audit procedure
 
-Read the full `pyproject.toml`. `lint-deps` already reports the specifier style, missing comments, ordering, bare dependencies and misplaced type stubs, so read its output rather than re-deriving them. For each dependency entry, check what it cannot:
+Read the full `pyproject.toml`. `lint-deps` already reports the specifier style, missing comments, ordering, bare dependencies, empty extras and misplaced type stubs, so read its output rather than re-deriving them. For each dependency entry, check what it cannot:
 
 | Check                     | What to flag                                                                                                                                                    |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |

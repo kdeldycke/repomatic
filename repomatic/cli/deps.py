@@ -501,9 +501,9 @@ def audit(
     default=True,
     help=(
         "Also report declarations departing from the project's version"
-        " policy: upper bounds, missing floors, unsorted lists, misplaced"
-        " type stubs, uncommented and over-long floor comments. Never blocks"
-        " a release."
+        " policy: upper bounds, missing floors, extras that install nothing,"
+        " unsorted lists, misplaced type stubs, uncommented and over-long floor"
+        " comments. Never blocks a release."
     ),
 )
 @report_options("Write a markdown report of the blocking findings to this file.")
@@ -554,7 +554,7 @@ def lint_deps(
     )
 
     policy_findings = (
-        scan_policy(pyproject_path, config.lint_deps.comment_word_threshold)
+        scan_policy(pyproject_path, config.lint_deps.comment_word_threshold, lockfile)
         if policy
         else []
     )

@@ -18,7 +18,8 @@
 
 A lock runs to hundreds of kilobytes, and one command asks it many questions:
 the locked versions, their upload times, the cooldown it was resolved under,
-the specifiers each package declares. {class}`LockFile` is the one entry point.
+the specifiers each package declares, the extras that install nothing.
+{class}`LockFile` is the one entry point.
 It parses the file through the shared TOML cache, and builds each view the
 first time a caller asks for it.
 """
@@ -261,6 +262,53 @@ class LockFile:
             by_package=by_package, by_subgraph=by_subgraph, by_main=by_main
         )
 
+    @cached_property
+    def empty_extras(self) -> dict[str, frozenset[str]]:
+        """Package name to the extras requested of it that install nothing.
+
+        A project's own entry records the extras its declarations select, in
+        the `extras` field of `[package.metadata]`. The selected package lists
+        what each extra pulls in under `[package.optional-dependencies]`, and
+        uv leaves an extra out of that table when it adds no package: the
+        package does not define the extra, or markers exclude all its
+        requirements on the Python versions the project supports. A package
+        locked at several versions keeps an extra that any one of them
+        resolves.
+
+        Only the extras the lock was resolved with are judged, so a declaration
+        added since the last `uv lock` never reads as an empty extra. A package
+        the lock does not hold is absent.
+        """
+        requested: dict[str, set[str]] = {}
+        resolved: dict[str, set[str]] = {}
+        for package in self.data.get("package", []):
+            name = package.get("name", "")
+            if not name:
+                continue
+            resolved.setdefault(canonicalize_name(name), set()).update(
+                canonicalize_name(extra)
+                for extra in package.get("optional-dependencies", {})
+            )
+            metadata = package.get("metadata", {})
+            declarations = [
+                *metadata.get("requires-dist", []),
+                *(
+                    dep
+                    for group in metadata.get("requires-dev", {}).values()
+                    for dep in group
+                ),
+            ]
+            for dep in declarations:
+                if isinstance(dep, dict) and dep.get("name") and dep.get("extras"):
+                    requested.setdefault(canonicalize_name(dep["name"]), set()).update(
+                        canonicalize_name(extra) for extra in dep["extras"]
+                    )
+        return {
+            name: frozenset(extras - resolved[name])
+            for name, extras in requested.items()
+            if name in resolved and extras - resolved[name]
+        }
+
     def version_of(self, name: str) -> str:
         """Locked version of *name*, in any PEP 503 spelling.
 
@@ -285,6 +333,14 @@ class LockFile:
     def uploaded_at(self, name: str) -> datetime | None:
         """Parsed {meth}`upload_time_of`, or `None` when there is none to parse."""
         return parse_iso_datetime(self.upload_time_of(name))
+
+    def empty_extras_of(self, name: str) -> frozenset[str]:
+        """The {attr}`empty_extras` of *name*, in any PEP 503 spelling.
+
+        :param name: A package name, in any spelling.
+        :return: The canonical names of its extras that install nothing.
+        """
+        return self.empty_extras.get(canonicalize_name(name), frozenset())
 
 
 def diff_lock_versions(
