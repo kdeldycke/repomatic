@@ -1064,6 +1064,52 @@ def test_watch_until_change_stops_at_the_first_new_verdict():
     assert len(seen) == 1
 
 
+def _run_with_jobs(*conclusions: str) -> RunStatus:
+    """A Tests run of the tip, one required job per conclusion, `""` running."""
+    return RunStatus(
+        workflow="🔬 Tests",
+        run_id=1,
+        head_sha=TIP_SHA,
+        status="in_progress",
+        conclusion="",
+        jobs=tuple(
+            job(f"✅ {name}", outcome, "completed" if outcome else "in_progress")
+            for name, outcome in zip("abc", conclusions)
+        ),
+    )
+
+
+def test_watch_until_change_waits_through_a_failure_it_already_reported():
+    """A re-armed watcher does not wake again on a red job the state file holds.
+
+    The first wake reported the failure. Ending every later tick on it at once
+    turns a watch re-armed on each wake into a busy loop.
+    """
+    state = WatchState()
+    state.record(_status(_run_with_jobs("failure", "")))
+    polls = iter([
+        _status(_run_with_jobs("failure", "")),
+        _status(_run_with_jobs("failure", "failure")),
+    ])
+    slept: list[float] = []
+    with patch(
+        "repomatic.github.ci_status.read_ci_status", side_effect=lambda *a: next(polls)
+    ):
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=state,
+                interval=10,
+                until_change=True,
+                sleep=slept.append,
+            )
+        )
+    assert len(seen) == 2
+    assert slept == [10]
+    assert [run.verdict for run in seen[1][1]] == ["2 required job(s) failed"]
+
+
 def test_watch_gives_up_at_the_timeout():
     """A watch with a timeout ends once the clock passes it, whatever the state."""
     polls = iter([_status(_tests_run("")), _status(_tests_run(""))])

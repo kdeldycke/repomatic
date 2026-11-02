@@ -749,7 +749,9 @@ def watch_ci_status(
     green for a commit nothing has tested yet.
 
     With *until_change*, it ends after the first poll reporting a change, so a
-    watcher re-armed on the same state file wakes once per event. With
+    watcher re-armed on the same state file wakes once per event: a run that
+    blocks a merge ends it when its verdict is new, and a block the state file
+    already holds keeps it polling. With
     *timeout*, it ends once that many seconds elapsed, whatever the state: the
     last sleep shrinks to the time left, so a caller with a hard time limit of
     its own can set *timeout* one poll under it.
@@ -777,11 +779,11 @@ def watch_ci_status(
         status = read_ci_status(names, branch)
         changed = state.record(status)
         yield status, changed
-        if status.blocking:
+        if until_change and changed:
+            return
+        if status.blocking and not until_change:
             return
         if status.settled and (status.runs_on_tip or not status.tip_sha):
-            return
-        if until_change and changed:
             return
         if deadline is None:
             sleep(interval)
