@@ -21,7 +21,7 @@
 - The bundled `babysit-ci` skill now passes `ci-status --wait` one `--workflow` per workflow a push started, when an older red run would end the wait at once.
 - The bundled `babysit-ci` skill now leaves for the next release a `📦 Package install` red that only a release can heal, and watches the other jobs past it.
 - Bump Nuitka from `4.3.1` to `4.3.3`, which guards the `--main-entry-point` launcher itself, and drop the plugin `repomatic run nuitka` loaded for it.
-- Bump the `repomatic run` pins of Biome to `2.6.3`, bump-my-version to `1.6.5`, gh to `2.103.2`, labelmaker to `0.6.5`, Ruff to `0.17.2` and Wrangler to `4.152.0`.
+- Bump the `repomatic run` pins of Biome to `2.6.3`, bump-my-version to `1.6.7`, gh to `2.103.2`, labelmaker to `0.6.5`, Ruff to `0.17.2` and Wrangler to `4.152.0`.
 - The default cache directory follows an absolute `XDG_CACHE_HOME` on macOS too, and ignores a relative one on Linux.
 - Fix 18 commands, like `changelog`, `lint-changelog` and `prepare-release`, failing with `ModuleNotFoundError` under click-extra `10.0.0`, which moved `click_extra.blocks`, and the bundled `sphinx-docs` agent naming that module.
 - Fix `lint-repo` asking to remove a `lint-repo.declined` entry that names a list, where the entry needs the key of the missing member.
