@@ -19,6 +19,8 @@
 - The bundled `repomatic-changelog` and `repomatic-deps` skills now run `repomatic` at the version the workflows pin, like `repomatic-ship`.
 - The bundled `repomatic-ship` skill now waits out a CI cycle longer than 10 minutes with a background `ci-status --wait`, instead of spawning a babysitter.
 - The bundled `babysit-ci` skill now names the workflows a push started with `--workflow` when an older red run ends `ci-status --wait` at once.
+- The bundled `babysit-ci` skill now leaves for the next release a `📦 Package install` red that only a release can heal, and watches the other jobs past it.
+- The bundled `repomatic-ship` skill now reads the newest `schedule` or `workflow_dispatch` build of `release.yaml`, the only one covering every platform.
 - Bump Nuitka from `4.3.1` to `4.3.3`, which guards the `--main-entry-point` launcher itself, and drop the plugin `repomatic run nuitka` loaded for it.
 - The default cache directory follows an absolute `XDG_CACHE_HOME` on macOS too, and ignores a relative one on Linux.
 - Fix `lint-repo` asking to remove a `lint-repo.declined` entry that names a list, where the entry needs the key of the missing member.
