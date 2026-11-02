@@ -109,10 +109,12 @@ The install into the virtualenv did not warm the Windows builds. The weekly run 
 | [`windows-x64`](https://github.com/kdeldycke/repomatic/actions/runs/39203782017/job/117902398454)   | `windows-2025-vs2026`     | `20260925.250.1`           | `20261007.264.1`         |
 | [`windows-arm64`](https://github.com/kdeldycke/repomatic/actions/runs/39203782017/job/117902398462) | `windows-11-vs2026-arm64` | `20261004.176.1`           | `20261013.183.4`         |
 
-This is the likely cause. Nuitka's clcache hashes the modification time and the size of the compiler binary into every key ([`getCompilerHash`](https://github.com/Nuitka/Nuitka/blob/8ba9ccdf78268aba8bb21b79ed72fc9a4d44887d/nuitka/build/inline_copy/clcache/clcache/caching.py#L1105-L1116)), so a compiler that a new image installs again misses every file, even at the same version. The Linux builds compile in the `manylinux_2_28` container, whose compiler does not change with the runner image, and ccache hashes the content of that compiler.
+Nuitka's clcache hashes the modification time and the size of the compiler binary into every key ([`getCompilerHash`](https://github.com/Nuitka/Nuitka/blob/8ba9ccdf78268aba8bb21b79ed72fc9a4d44887d/nuitka/build/inline_copy/clcache/clcache/caching.py#L1105-L1116)), so a compiler that a new image installs again misses every file, even at the same version. That explains a miss after an image change. The Linux builds compile in the `manylinux_2_28` container, whose compiler does not change with the runner image, and ccache hashes the content of that compiler.
+
+It does not explain every Windows miss. A later weekly build restored, on each target, the snapshot that a [build of `308a11722`](https://github.com/kdeldycke/repomatic/actions/runs/41191898462) saved on the same image. With Nuitka `4.3.3`, it still hit none of 370 files: [`windows-x64`](https://github.com/kdeldycke/repomatic/actions/runs/41402147989/job/125136302942) on `20261021.278.1`, and [`windows-arm64`](https://github.com/kdeldycke/repomatic/actions/runs/41402147989/job/125136302979) on `20261025.196.1`.
 
 ```{todo}
-Read the Windows builds of the weekly run of 2026-10-26: the image version and the clcache hits of each target. A target that restores a snapshot saved on the same image, and hits, confirms the cause above: then state it as a finding. A changed image that misses again is consistent but proves nothing, and a target that restores nothing gives no answer, because GitHub evicts an entry that no run used for 7 days.
+Compare the clcache keys of two builds on one image, then state what changes them.
 ```
 
 To inspect a cache, the compile job logs Nuitka's own hit/miss summary (`Cached C files (using ccache) with result …`) plus a per-subdirectory size report. To reset one, delete its entries: `gh cache list --key nuitka-` then `gh cache delete {key}`; the next build re-seeds it.

@@ -598,7 +598,7 @@ def ci_status(
             " run above belongs to an earlier commit."
         )
     if not status.settled:
-        echo("… some jobs have not settled yet.")
+        echo("… some runs have not settled yet.")
 
     if failed_logs is not None:
         for path in write_failed_logs(status, failed_logs):

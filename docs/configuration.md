@@ -111,6 +111,9 @@ gitignore.extra-content = '''
 .claude/settings.local.json
 **/.claude/.cc-writes/
 
+# Cloudflare wrangler local state.
+.wrangler/
+
 # Sphinx linkcheck output.
 docs/_linkcheck/
 
@@ -254,9 +257,9 @@ mypy.warn_unreachable = "The harvest module branches on the season."
 mypy.overrides.'{ module = ["sphinx.*"], ignore_missing_imports = true, follow_imports = "skip" }' = "No orchard module imports Sphinx."
 ```
 
-`lint-repo` then reports the entry with its reason in place of the warning, so the decision stays visible. An entry names one key or one list member, never a whole section. An entry that declines nothing gets a warning of its own: the section took back what it names, or the template dropped it.
+`lint-repo` then reports the entry with its reason in place of the warning, so the decision stays visible. An entry names one key or one list member, never a whole section. An entry that declines nothing gets a warning of its own: the section took back what it names, the template dropped it, or the entry names a list that the section has since gained, so that the gap is one of its members. In that last case the warning gives the key to write.
 
-An ongoing sync has the mirror-image gap on the arrays it grafts. The graft appends every item the template does not carry and retires nothing, so an entry the template *replaced* rather than added comes back beside its own replacement on the next sync. `lint-repo` reports the pair it can recognise: a bare `[tool.lychee] exclude` pattern the bundle has since anchored. lychee matches those entries as substrings, so the stale bare form goes on excluding every domain ending in the same suffix, which is what the anchoring was written to stop.
+An ongoing sync has the mirror-image gap on the arrays it grafts. The graft appends every item the template does not carry and retires nothing, so an entry the template *replaced* rather than added comes back beside its own replacement on the next sync. `lint-repo` reports the pair it can recognise: a bare `[tool.lychee] exclude` pattern the bundle has since anchored. lychee matches those entries as substrings, so the stale bare form goes on excluding every domain ending in the same suffix, which is what the anchoring was written to stop. It also reports an entry the bundle dropped outright, once the release that dropped it is on record: the sync never retires such an entry either.
 
 ## `[tool.X]` bridge and tool runner
 

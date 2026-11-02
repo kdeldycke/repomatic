@@ -411,9 +411,9 @@ docs = [
 def _cooldown_group_project(tmp_path: Path, project: str) -> tuple[Path, Path]:
     """Write `COOLDOWN_GROUP_PYPROJECT`, with `cherry` 1.2.0 locked a day ago.
 
-    :param tmp_path: directory to write the two files into.
-    :param project: the `cherry` requirement of `[project] dependencies`.
-    :return: the paths of `pyproject.toml` and `uv.lock`.
+    :param tmp_path: Directory to write the two files into.
+    :param project: The `cherry` requirement of `[project] dependencies`.
+    :return: The paths of `pyproject.toml` and `uv.lock`.
     """
     upload = datetime.now(UTC) - timedelta(days=1)
     pyproject = tmp_path / "pyproject.toml"

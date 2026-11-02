@@ -87,7 +87,7 @@ For config file sync, `copier` and `cruft` sync files only as part of a full tem
 | Auto-lock inactive issues          |      ✓      |                    |                        |              |             |               |                 |                |                     |                 |
 | Notification management            |      ✓      |                    |                        |              |             |               |                 |                |                     |                 |
 
-`repomatic` manages the full CI/CD lifecycle: 11 reusable workflows (autofix, lint, test, release, docs, labels, changelog, etc.) deployed via thin-caller patterns, with drift detection against the upstream canonical reference. `tf-github` manages Actions infrastructure (secrets, variables, permissions, runner groups) but not workflow file content.
+`repomatic` manages the full CI/CD lifecycle: 12 reusable workflows (autofix, lint, test, release, docs, labels, changelog, etc.) deployed via thin-caller patterns, with drift detection against the upstream canonical reference. `tf-github` manages Actions infrastructure (secrets, variables, permissions, runner groups) but not workflow file content.
 
 ## Multi-repo operations
 

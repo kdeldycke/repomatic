@@ -28,7 +28,7 @@ If `$ARGUMENTS` are provided, each argument is a local directory path or a GitHu
 
 When no `$ARGUMENTS` are given, the default reference depends on which repo you are in (the `## Context` block reports `CANONICAL_REPO` or `DOWNSTREAM`):
 
-- **`DOWNSTREAM`**: compare this project's `docs/` against the canonical `kdeldycke/repomatic` reference, cloned into a tmpdir with `gh repo clone kdeldycke/repomatic`. This is the "align me with the source of truth" default, mirroring how `/repomatic-audit` treats workflows and configs.
+- **`DOWNSTREAM`**: compare this project's `docs/` against the canonical `kdeldycke/repomatic` reference, cloned into a tmpdir with `gh repo clone kdeldycke/repomatic`. This is the "align me with the source of truth" default, mirroring how `/repomatic-upgrade` audits workflows and configs.
 - **`CANONICAL_REPO`** (you are inside `kdeldycke/repomatic`): comparing against `kdeldycke/repomatic` would diff the repo against itself, so scan the parent directory of the cwd for sibling projects with a `docs/conf.py` and push conventions outward to them instead.
 
 When scanning siblings, filter out forks: check `git remote get-url origin` and skip projects whose upstream repo name doesn't match the directory name (a local `click/` pointing to a fork of `pallets/click`). Focus on the user's own projects.
@@ -94,6 +94,6 @@ These are about *how* you run the audit, not what counts as a violation:
 
 Suggest the user run:
 
-- `/repomatic-audit` for broader workflow and config alignment across the same projects.
+- `/repomatic-upgrade` in each downstream project, for broader workflow and config alignment.
 - `/repomatic-deps` to analyze dependency graphs for projects with stale or divergent docs deps.
 - Opting into the `sphinx-docs` agent (`repomatic init subagents/sphinx-docs`) on any project that drifted significantly — Claude will then auto-load the conventions when working in that repo.

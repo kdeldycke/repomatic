@@ -58,7 +58,7 @@ click_extra is both a runtime dependency and the framework whose release pipelin
 
 Workflows on `main` run the CLI from the lockfile rather than resolving it fresh: {func}`repomatic.release.self_pin.local_cli_invocation` says why. See [`docs/dependencies.md` § `exclude-newer-package` cooldown overrides](https://repomatic.net/dependencies#exclude-newer-package-cooldown-overrides) for what an index resolution leaves reachable.
 
-Running from the lockfile creates its own hazard: **a floor inside the window is now invisible here and breaks only the people installing the release** (downstream repos running a frozen workflow's `uvx 'repomatic==X.Y.Z'`, and `uvx repomatic` users). `tests/test_dep_sources.py` is what catches it, so treat that test failing as "this release is not shippable yet", not as a local annoyance to wait out.
+Running from the lockfile creates its own hazard: **a runtime or extra floor inside the window is now invisible here and breaks only the people installing the release** (downstream repos running a frozen workflow's `uvx 'repomatic==X.Y.Z'`, and `uvx repomatic` users). `tests/test_dep_sources.py` is what catches it, so treat that test failing as "this release is not shippable yet", not as a local annoyance to wait out.
 
 When adding a tool that repomatic shells out to, register it and reach it through {func}`repomatic.tooling.binaries.ensure_binary` rather than `$PATH`: a registry binary carries the cooldown, the pin and the checksum at once, and `$PATH` carries none of the three.
 

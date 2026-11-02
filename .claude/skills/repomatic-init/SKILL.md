@@ -39,4 +39,4 @@ You help users bootstrap a repository to use the reusable GitHub Actions workflo
 
 Suggest the user run:
 
-- `/repomatic-audit` to check the generated files against upstream conventions.
+- `/repomatic-upgrade` to check the generated files against upstream conventions.

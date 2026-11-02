@@ -6,17 +6,25 @@ The `repomatic` CLI is invoked in CI from [reusable GitHub Actions workflows](ht
 
 The fastest way to adopt these workflows is with `repomatic init` (see [Quick start](install.md#quick-start)). It generates all the thin-caller workflow files for you.
 
-If you prefer to set up a single workflow manually, create a `.github/workflows/lint.yaml` file [using the `uses` syntax](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows#calling-a-reusable-workflow):
+If you prefer to set up a single workflow manually, create a `.github/workflows/lint.yaml` file [using the `uses` syntax](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows#calling-a-reusable-workflow). The caller needs every trigger and every secret of the workflow it calls, and `lint-repo` warns when one is missing:
 
-```yaml
+```{code-block} yaml
 name: Lint
 on:
+  workflow_dispatch:
   push:
   pull_request:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v7.18.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v8.0.0
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+      CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+      REPOMATIC_NOTIFICATIONS_PAT: ${{ secrets.REPOMATIC_NOTIFICATIONS_PAT }}
+      REPOMATIC_PAT: ${{ secrets.REPOMATIC_PAT }}
+      VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
 ```
 
 ## GitHub Actions limitations
@@ -197,7 +205,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 ### 🔄 Sync repomatic (`sync-repomatic`)
 
 - Runs [`repomatic init --upgrade --delete-unmodified --delete-excluded`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/init/run.py) to sync all repomatic-managed files: thin-caller workflows, configuration files, and skill definitions
-- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v7.18.0`
+- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v8.0.0`
 - The upgrade pull request lists the `**Breaking:**` and `**Deprecated:**` entries of every release it crosses, the warnings the new release printed (like a `[tool.repomatic]` key it no longer knows), the release notes, and the newer releases the cooldown still holds back
 - Never moves the upstream pin back: a release pinned by hand inside the cooldown stays, and the job only regenerates its files. Set `upstream-pin.sync = false` in `[tool.repomatic]` to keep syncing at the pinned release
 - Removes unmodified config files identical to bundled defaults and cleans up excluded or stale files (disabled opt-in workflows, auto-excluded skills)
@@ -626,6 +634,8 @@ The release **fast lane**: it runs the squash-merge guard and the dependency shi
 
 - Runs `repomatic lint-deps` against the tree being released, refusing to publish a project whose dependencies do not all resolve from the index its users install from
 - Also reports version-policy warnings (upper bounds, missing floors, extras that install nothing, unsorted lists, misplaced type stubs, uncommented floors, over-long floor comments) alongside the shippability findings; these never affect the gate, see [§ What is checked automatically](dependencies.md#what-is-checked-automatically)
+- Warns about a `lint-deps.allow` entry that matches no finding, since it would also exempt the next finding of its package: see [§ Allowing an exception](dependencies.md#allowing-an-exception)
+- Reports a floor inside the cooldown as a warning, not a blocker, when only an array outside the published metadata declares it, like a dependency group: see [§ What blocks](dependencies.md#what-blocks)
 - Fatal only on a release commit; every other push reports and annotates without failing, so test-driving a git branch mid-cycle stays frictionless
 - `build-package` depends on it, which is what makes it a gate: a failure skips the wheel build, leaving `package_built` false so `publish-pypi` never fires, and fails the lane so the engine's tag, release and publish jobs are skipped with it
 - Checks out the release commit rather than the push head: a rebase-merged release PR delivers the freeze and the post-release bump together, so `main` HEAD already carries the next `.devN`
@@ -980,7 +990,7 @@ Safe to re-run: tag creation skips if already exists, version bumps have eligibi
 
 ### Graceful degradation
 
-Fallback tokens (`secrets.REPOMATIC_PAT || secrets.GITHUB_TOKEN`) and `continue-on-error` for unstable targets. Job names use emoji prefixes for at-a-glance status: **✅** for stable jobs that must pass, **⁉️** for unstable jobs (e.g., experimental Python versions, unreleased platforms) that are expected to fail and won't block the workflow. [`repomatic ci-status`](cli.md) reads the same glyphs back, reporting each workflow's latest run and which of its failing jobs actually gate a merge. It reports a run that was cancelled, or that ran no job, as such and never as green: that commit has no result from the workflow.
+Fallback tokens (`secrets.REPOMATIC_PAT || secrets.GITHUB_TOKEN`) and `continue-on-error` for unstable targets. Job names use emoji prefixes for at-a-glance status: **✅** for stable jobs that must pass, **⁉️** for unstable jobs (e.g., experimental Python versions, unreleased platforms) that are expected to fail and won't block the workflow. [`repomatic ci-status`](cli.md) reads the same glyphs back, reporting each workflow's latest run and which of its failing jobs actually gate a merge. It reports a run that was cancelled, or that ran no job, as such and never as green: that commit has no result from the workflow. A run that has no job yet reads `not started`, and `--wait` keeps waiting for it.
 
 ### Dogfooding
 
@@ -1052,7 +1062,7 @@ Workflows in this repository are **self-referential**. The [`prepare-release`](h
 
 ### Release engineering
 
-A maintainer cuts a release with the [`/repomatic-ship`](agent-skills.md) skill, which reconciles the tree, commits and pushes, and runs `/babysit-ci` until `main` is green. The maintainer then merges the release PR with "Rebase and merge". Everything below is what that merge triggers.
+A maintainer cuts a release with the [`/repomatic-ship`](agent-skills.md) skill, which reconciles the tree, commits and pushes, waits on CI, and runs `/babysit-ci` for each failure until `main` is green. The maintainer then merges the release PR with "Rebase and merge". Everything below is what that merge triggers.
 
 A complete release consists of all of the following:
 
@@ -1079,7 +1089,7 @@ On `main`, workflows run the CLI with `uv --no-progress run --frozen -- repomati
 
 The asymmetry is deliberate. A lockfile entry is pinned *and* hash-verified, so it is a stronger guarantee than the publication-age cooldown, and unlike an index resolution it cannot be made unsatisfiable by one. An isolated `uvx --from .` re-resolved `[project.dependencies]` on every call while reading neither `uv.lock` nor any project configuration that could have carried an `exclude-newer-package` exemption, so raising a dependency floor onto a release younger than [`minimum-release-age`](configuration.md) took every workflow down at once, with nowhere to record the exemption.
 
-Insulating this repository does not remove the hazard, it relocates it: a floor inside the window now resolves fine here and breaks only whoever installs the release from an index. A conformance test rejects such a floor before it can be merged.
+Insulating this repository does not remove the hazard, it relocates it: a runtime or extra floor inside the window now resolves fine here and breaks only whoever installs the release from an index. A conformance test rejects such a floor before it can be merged.
 
 The version string moves through the two commits and back to a fresh development cycle:
 

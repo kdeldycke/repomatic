@@ -135,9 +135,9 @@ def cache_dir() -> Path:
 
     ```{todo}
     Take the platform default from `get_cache_dir("repomatic")` of
-    `click_extra.carapace`, and delete `_platform_cache_dir()`, once repomatic
-    locks click-extra `10.0.0`: it ships that function, added in
-    [kdeldycke/click-extra@b05771d](https://github.com/kdeldycke/click-extra/commit/b05771dc1d8f6c5228a3fa7211ff2ccfc49c89fa).
+    `click_extra.carapace`, and delete `_platform_cache_dir()`, once the
+    `click-extra` floor reaches `10.0.0`: that release ships the function, added
+    in [kdeldycke/click-extra@b05771d](https://github.com/kdeldycke/click-extra/commit/b05771dc1d8f6c5228a3fa7211ff2ccfc49c89fa).
     ```
 
     :return: Absolute path to the cache root (may not exist yet).

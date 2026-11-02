@@ -29,7 +29,7 @@ from repomatic.cli.main import repomatic
 invoke(repomatic, args=['show-test-matrix', 'full'])
 ```
 
-This is the built-in default plus one row. The default holds the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.16` prerelease flagged `unstable`, and the free-threaded `3.15t` build pinned to a single runner as a stable smoke test. The row with a `resolution` value is this repository's own: see [§ Run every declared floor in one cell](#run-every-declared-floor-in-one-cell).
+This is the built-in default plus two rows. The default holds the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.16` prerelease flagged `unstable`, and the free-threaded `3.15t` build pinned to a single runner as a stable smoke test. The rows with a `resolution` or a `source` value are this repository's own: see [§ Run every declared floor in one cell](#run-every-declared-floor-in-one-cell) and [§ Test the source distribution like a distribution](#test-the-source-distribution-like-a-distribution).
 
 The reduced pull-request matrix keeps one runner per OS and two Python versions, for faster feedback:
 
@@ -49,7 +49,7 @@ Rows sort on `--row-axis` first and `--col-axis` next, and those two axes lead t
 invoke(repomatic, args=['show-test-matrix', 'pr', '--grid'])
 ```
 
-Because a grid has two axes and a matrix may vary on more, a repository testing several dependency versions per job (a `click-version` axis, say) lands all of them on the same Python-by-runner intersection. Such a cell states how many jobs it stands for, `✅ stable ×5`, so it never reads as a single job. This repository's own grid has one such cell: `✅ stable ×2` on the floor Python, where the `resolution` row shares the intersection of its twin. To break them apart, pivot onto the axis that separates them. A job with no value on a grid axis has no cell there, so pivoting the columns onto `resolution` shows the `lowest-direct` job alone:
+Because a grid has two axes and a matrix may vary on more, a repository testing several dependency versions per job (a `click-version` axis, say) lands all of them on the same Python-by-runner intersection. Such a cell states how many jobs it stands for, `✅ stable ×5`, so it never reads as a single job. This repository's own grid has two such cells: `✅ stable ×2` on `ubuntu-26.04-arm`, at the floor Python and at the newest stable one, where the `resolution` row and the `source` row each share the intersection of their twin. To break them apart, pivot onto the axis that separates them. A job with no value on a grid axis has no cell there, so pivoting the columns onto `resolution` shows the `lowest-direct` job alone:
 
 ```{click:run}
 invoke(repomatic, args=['show-test-matrix', '--grid', '--col-axis', 'resolution'])

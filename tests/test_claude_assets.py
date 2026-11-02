@@ -20,9 +20,9 @@ Skills and agents ship verbatim to every downstream repo through
 `repomatic init`, and nothing else audits their bodies: `test_skills.py`
 checks frontmatter against the Agent Skills spec, the release sweep reads
 them by hand once a cycle. So a cooldown window, a config key, a module
-path or a `AGENTS.md` section quoted in one of them is a second copy of
-something the project already defines, free to drift the moment the
-original moves.
+path, a skill command or an `AGENTS.md` section quoted in one of them is a
+second copy of something the project already defines, free to drift the
+moment the original moves.
 
 A second family of checks holds the same assets to the prose rule in
 `AGENTS.md` § Directives are written in Simplified Technical English: the
@@ -34,8 +34,10 @@ controlled ASD specification rather than something to vendor as a data file,
 and the words it would rule on here (`run`, `sync`, `pin`, `release`) are the
 ones that must keep matching the code identifiers they name.
 
-One check reaches past the assets: {func}`test_repository_citations_resolve`
-holds every text of the repository to the citation rule the assets follow.
+Two checks reach past the assets: {func}`test_repository_citations_resolve`
+and {func}`test_repository_skill_commands_name_a_bundled_skill` hold every
+text of the repository to the citation and skill command rules the assets
+follow.
 
 Each drift check below pins one copy to its source, the way
 `test_workflows.py::test_workflow_declares_cooldown_env` pins the
@@ -1004,3 +1006,70 @@ def test_citation_check_tells_a_live_section_from_a_dead_one() -> None:
     dead = "see AGENTS.md" + " § A heading nothing declares"
     assert unresolved_citations(live) == []
     assert unresolved_citations(dead)
+
+
+SKILL_COMMAND_RE = re.compile(r"(?<![\w.:/-])/(?P<name>repomatic-[a-z0-9-]+)")
+"""A slash command naming a skill of the `repomatic-` family, like `/repomatic-ship`.
+
+Read for that family alone. A bare `/name` token is as often a path (`/opt`) as
+a command, while the family holds the skills that get folded into a sibling:
+`repomatic-deps-review` into `repomatic-deps`, `repomatic-audit` into
+`repomatic-upgrade`. A retired skill of another name goes unnoticed.
+"""
+
+
+def stranded_skill_commands(text: str) -> list[str]:
+    """Each {data}`SKILL_COMMAND_RE` command of *text* no bundled skill answers to.
+
+    :param text: Content of one file, or of one bundled asset.
+    :return: One entry per stranded command, in the order the text names them.
+    """
+    skills = {entry.file_id for entry in COMPONENTS_BY_NAME["skills"].files}
+    return [
+        f"/{match.group('name')}"
+        for match in SKILL_COMMAND_RE.finditer(text)
+        if match.group("name") not in skills
+    ]
+
+
+@bundled_asset
+def test_skill_commands_name_a_bundled_skill(asset_id: str, body: str) -> None:
+    """Every `/repomatic-*` command an asset names is a skill that ships.
+
+    A skill folded into a sibling leaves each command naming it behind, in
+    assets that still ship verbatim, and the reader asks for a skill no
+    repository receives.
+    """
+    stranded = stranded_skill_commands(body)
+    assert not stranded, (
+        f"{asset_id} names {stranded[0]}, which no bundled skill answers to."
+        " Point it at the skill that took over, or drop the pointer."
+    )
+
+
+def test_repository_skill_commands_name_a_bundled_skill() -> None:
+    """Every `/repomatic-*` command, in any text here, is a skill that ships.
+
+    The readme, the documentation, the pull request templates and the
+    docstrings send a reader to a skill the same way the bundled assets do.
+    """
+    violations = [
+        f"{path}: {command}"
+        for path, text in repository_texts()
+        for command in stranded_skill_commands(text)
+    ]
+    assert not violations, (
+        f"{len(violations)} commands name no bundled skill. Point each one at the"
+        " skill that took over, or drop it:\n" + "\n".join(violations)
+    )
+
+
+def test_skill_command_check_tells_a_bundled_skill_from_a_retired_one() -> None:
+    """The check passes a bundled skill and fails a retired one.
+
+    The control for the two tests above: a check that matched nothing would pass
+    them both. The retired command is split, so that no text here holds one.
+    """
+    assert stranded_skill_commands("run `/repomatic-upgrade v8.0.0 v8.1.0`") == []
+    retired = "/" + "repomatic-audit"
+    assert stranded_skill_commands(f"run `{retired}` first") == [retired]

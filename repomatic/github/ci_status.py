@@ -751,10 +751,10 @@ def watch_ci_status(
     With *until_change*, it ends after the first poll reporting a change, so a
     watcher re-armed on the same state file wakes once per event: a run that
     blocks a merge ends it when its verdict is new, and a block the state file
-    already holds keeps it polling. With
-    *timeout*, it ends once that many seconds elapsed, whatever the state: the
-    last sleep shrinks to the time left, so a caller with a hard time limit of
-    its own can set *timeout* one poll under it.
+    already holds keeps it polling. With *timeout*, it ends once that many
+    seconds elapsed, whatever the state: the last sleep shrinks to the time
+    left, so a caller with a hard time limit of its own can set *timeout* one
+    poll under it.
 
     Every poll pays the REST quota of {func}`read_ci_status`, a handful of
     calls, and *interval* is what keeps a long watch inside it.

@@ -22,10 +22,15 @@ import re
 from pathlib import Path
 
 import pytest
+import tomlrt
 
+from repomatic.components import COMPONENTS_BY_NAME
+from repomatic.config import GitignoreConfig
 from repomatic.tooling.registry import TOOL_REGISTRY, NativeFormat
 
 REPO_ROOT = Path(__file__).parent.parent
+BENCHMARK_MD = REPO_ROOT / "docs" / "benchmark.md"
+CLAUDE_CODE_PLUGIN_MD = REPO_ROOT / "docs" / "claude-code-plugin.md"
 CLI_MD = REPO_ROOT / "docs" / "cli.md"
 CONFIGURATION_MD = REPO_ROOT / "docs" / "configuration.md"
 README_MD = REPO_ROOT / "readme.md"
@@ -256,3 +261,71 @@ def test_every_module_has_a_docs_automodule(module: str) -> None:
         f"docs/{module}.md carries no automodule for {module}. "
         f"Delete it and run `repomatic update-docs` to regenerate it."
     )
+
+
+@pytest.mark.parametrize(
+    ("page", "count_re", "component"),
+    (
+        pytest.param(
+            CLAUDE_CODE_PLUGIN_MD, r"\b(\d+) skills\b", "skills", id="plugin-skills"
+        ),
+        pytest.param(
+            CLAUDE_CODE_PLUGIN_MD,
+            r"\b(\d+) subagents\b",
+            "subagents",
+            id="plugin-subagents",
+        ),
+        pytest.param(
+            BENCHMARK_MD,
+            r"\b(\d+) reusable workflows\b",
+            "workflows",
+            id="benchmark-workflows",
+        ),
+    ),
+)
+def test_docs_asset_counts_match_the_registry(
+    page: Path, count_re: str, component: str
+) -> None:
+    """A count of bundled assets a page states in prose equals the registry's.
+
+    Retiring a skill or adding a workflow changes the registry, and nothing
+    rewrites a number typed into a sentence.
+
+    :param page: The page stating the count.
+    :param count_re: Matches each count of *component* the page states.
+    :param component: The registry component the count is of.
+    """
+    text = page.read_text(encoding="UTF-8")
+    counts = {int(count) for count in re.findall(count_re, text)}
+    assert counts, f"{page.name} states no count matching {count_re!r}."
+    shipped = len(COMPONENTS_BY_NAME[component].files)
+    assert counts == {shipped}, (
+        f"{page.name} counts {sorted(counts)} {component}, and the registry"
+        f" ships {shipped}."
+    )
+
+
+def test_docs_gitignore_sample_quotes_the_shipped_default() -> None:
+    """The `gitignore.extra-content` sample quotes the default, then adds one entry.
+
+    The key replaces its default, so the page tells a reader to repeat the
+    shipped entries, and calls everything above the last entry of its sample
+    that default, quoted verbatim. A shipped entry missing there is one that a
+    reader copying the sample loses.
+    """
+    blocks = re.findall(
+        r"^```toml\n(.*?)^```$",
+        CONFIGURATION_MD.read_text(encoding="UTF-8"),
+        re.DOTALL | re.MULTILINE,
+    )
+    # The sample sets the key at the top level of its block: the page also
+    # shows it nested in a whole `[tool.repomatic]` table, with other content.
+    samples = [
+        str(sample)
+        for block in blocks
+        if "gitignore.extra-content" in block
+        and (sample := tomlrt.loads(block).get("gitignore", {}).get("extra-content"))
+    ]
+    assert len(samples) == 1, samples
+    *quoted, _own = samples[0].strip().split("\n\n")
+    assert "\n\n".join(quoted) == GitignoreConfig().extra_content

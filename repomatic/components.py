@@ -999,6 +999,36 @@ REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
         ),
         successor="rules now live in repomatic.github.labels.DEFAULT_FILE_RULES",
     ),
+    RemovedAsset(
+        "skills",
+        _skill_target("repomatic-audit"),
+        "8.1.0",
+        (
+            "ce94a912b86823711034d64401239c50e1876363da29077e78b1048e03986811",
+            "d086cf0405fa3cc98a0a3bb04bbb3e9961b8f594f5a0d5b676aabca40c653ea1",
+            "ca0953cbc2a0e8d01e6ed317727af78b043a7f1ae2bc1b9787e1f6c61d3e27f5",
+            "e95b6c8b8ae7d7997c0abc6728caad2e73288af36bf95b9e8055af341201dbd4",
+            "60bf43f9dfb7f064e851c066e99cff8ec7bf5cd31b229840d1da53e3fac86c62",
+            "243b2e71c5499c845d24bae85f991948026ac7f561ef15507559ff5688990b37",
+            "9f42d010c7930c7bcdf022463e3c252aa8f3c7b8d5e046a504d090c431710426",
+            "9ad2ecdedbcbc790b635775b2bf5ae35a4ce32851b54cdadd93f5290b44dc0d7",
+            "68a35406468ab70b80556798d93d25d4273cdac612bac17aa58dc1d0a1b6c358",
+            "63b527db547b0a36d73df14230d8ff59b874e3be952168abe41f8852dc9a7d7d",
+            "88927704e2aa8983d3f8b27c5eff6b759899cf5d67decc5f5fd52b8934ee4d67",
+            "b48c10aa62115c3ae22d1ff324631315aa1630427810f3cbf0d4d8215be47d95",
+            "e0b980a40dd7a13dc59703164757266842884b96e852c9ed4d074436a7097a1f",
+            "451feda5cd3ee24c107ab9ada143210d209b0c9f3c5cc6f89bdaeaa4e3ed367b",
+            "62f6e3cf75ef5a47a3b14838bf536a23c93f18687fa7a827b1ae3509eae3e0da",
+            "fda329756f0dbe1b862e3dde02c2a91a7e2f8a92a9bcaf1a1ec18ab7c00c0a1b",
+            "4884ea05cae9b294a29ad6dcaa23493682d68492127c38f6c4fbea33504e9bb3",
+            "77c4eaeab72f6bfb6874f792e286fffca8b16a05c9b328e5f01c66efbf326f3c",
+            "48afd1ff84dfea0a89cd532d5862fbdf05eb80befeda4c4af0ccc57876aae03c",
+            "494ae11fab6858286104cf2e8c2582946c59981a1807f55717876a651d6b773b",
+            "f6db0218084f26dadf182614185798a709d41991a3d54a598b4597465e9f4dac",
+        ),
+        owned_dir=_skill_dir("repomatic-audit"),
+        successor="folded into repomatic-upgrade",
+    ),
     _removed_workflow(
         "renovate.yaml",
         "7.0.0",
@@ -1017,26 +1047,39 @@ When you drop a bundled asset from {data}`COMPONENTS`, add an entry here so
 the removal propagates downstream on the next `init` instead of leaving an
 orphan. List one digest per distinct content the asset shipped across its
 released lifetime, collected from the release tags where its data file
-existed:
+existed. A data file that is a git symlink reads as the text of its link, so
+the recipe reads the file the link points at instead:
 
 ```python
+import posixpath
 import subprocess
 
 from repomatic.components import RemovedAsset
 
-src = "repomatic/data/skills/papaya-report/SKILL.md"  # The dropped data file.
-tags = subprocess.run(
-    ["git", "tag", "--list", "v*"],
-    capture_output=True, text=True, encoding="UTF-8", check=True,
-).stdout.split()
+
+def git(*args: str) -> str:
+    return subprocess.run(
+        ["git", *args], capture_output=True, text=True, encoding="UTF-8"
+    ).stdout
+
+
+# Each path the dropped data file shipped from, in any order.
+sources = (
+    "repomatic/data/skills/papaya-report/SKILL.md",
+    "repomatic/data/skill-papaya-report.md",
+)
 digests = {}
-for tag in tags:
-    blob = subprocess.run(
-        ["git", "show", f"{tag}:{src}"],
-        capture_output=True, text=True, encoding="UTF-8",
-    )
-    if blob.returncode == 0:
-        digests.setdefault(RemovedAsset.digest(blob.stdout), tag)
+for tag in git("tag", "--list", "v*", "--sort=v:refname").split():
+    for src in sources:
+        entry = git("ls-tree", tag, "--", src)
+        if not entry:
+            continue
+        path = src
+        if entry.startswith("120000"):  # A symlink: follow it.
+            link = git("show", f"{tag}:{src}")
+            path = posixpath.normpath(posixpath.join(posixpath.dirname(src), link))
+        digests.setdefault(RemovedAsset.digest(git("show", f"{tag}:{path}")), tag)
+        break
 print(tuple(digests))  # Distinct contents, in first-shipped order.
 ```
 

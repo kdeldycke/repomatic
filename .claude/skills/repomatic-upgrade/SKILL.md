@@ -85,11 +85,12 @@ The adopted release checks most of the integration on its own. Run it before any
    ```shell-session
    $ git worktree add --detach {scratch}/audit HEAD
    $ uvx --no-progress --exclude-newer '{window}' --exclude-newer-package repomatic=P0D --directory {scratch}/audit 'repomatic==X.Y.Z' init
+   $ git -C {scratch}/audit status --short
    $ git -C {scratch}/audit diff
    $ git worktree remove --force {scratch}/audit
    ```
 
-   An empty diff means every thin caller, each header-only workflow header and each `[tool.X]` section already present under ongoing sync equals what that release generates. Any hunk is `DRIFT` that the `sync-repomatic` job would rewrite. Keep `--directory`: `--output-dir` alone writes into the copy but reads `[tool.repomatic]` from the directory the command started in. A managed file that looks wrong but leaves no hunk is what the generator writes: fix it upstream (§ Apply, step 4), never by hand.
+   An empty diff with no untracked file means every thin caller, each header-only workflow header and each `[tool.X]` section already present under ongoing sync equals what that release generates. Any hunk is `DRIFT` that the `sync-repomatic` job would rewrite. An untracked file is a managed file the repository lacks, which `git diff` never lists: `MISSING`, unless § Distinguishing real drift from intended absence explains it. Keep `--directory`: `--output-dir` alone writes into the copy but reads `[tool.repomatic]` from the directory the command started in. A managed file that looks wrong but leaves no hunk is what the generator writes: fix it upstream (§ Apply, step 4), never by hand.
 
 2. **Run `<cmd> lint-repo --repo {owner}/{repo}`.** Without `--repo`, a local run has no `$GITHUB_REPOSITORY`, so every API-backed check drops out. Its checks already cover thin-caller triggers and pins, the `setup-uv` version pin, inline upstream pins and their cooldown exemption, seeded tool-config entries, the funding file and runner images. Compare one of those by hand only when `lint-repo` reports it skipped.
 
@@ -112,7 +113,7 @@ For each bullet outside the skip bin, find what it touches here. Grep the source
 - **A dropped or renamed surface.** Grep `tests.yaml`, any other header-only workflow, and local scripts for the old name.
 - **An upstream fix.** Search comments and workflow steps for the workaround it retires: `work around`, `XXX`, `TODO`, version-guarded branches, and inline pins of the tool it fixed.
 - **A generator change**, like a thin caller gaining a trigger or a header gaining `paths:`. Read `git diff HEAD -- .github/workflows` against the changelog, so a diff the release explains is never reported as drift. When the upgrade is already committed, that diff is empty: the generator run (§ Run the machinery first) then proves the commit regenerated every managed file instead of moving the pins by hand.
-- **A shifted test matrix axis.** Run `show-metadata --output-format json test_matrix test_matrix_pr` at both pins and compare the cells. A `[tool.repomatic] test-matrix.exclude` entry names a literal version, so a release that moves the Python axis can make it drop the new stable version and keep the old floor.
+- **A shifted test matrix axis.** Run `show-metadata --output-format json test_matrix test_matrix_pr` at both pins and compare the cells. A pin before `8.0.0` spells that option `--format`. A `[tool.repomatic] test-matrix.exclude` entry names a literal version, so a release that moves the Python axis can make it drop the new stable version and keep the old floor.
 - **A changed job.** Before you report it as adopted, call the released code on this repository's real inputs. An open pull request from that job shows only what its last run did, and that run can predate the adopted pin. A job that reads a file from another project also stops working when that file moves. A change to the binary build shows only in the self-test of the binaries `Build & release` compiles, which the Tests workflow never runs. A push to `main` compiles one target only, so run `gh workflow run release.yaml --ref main`, which builds every target, and read the self-test of each.
 - **A synced skill or subagent.** `repomatic init` rewrites every bundled copy verbatim, so the upgrade also reverts each local commit made to one since the last sync. Take every copy under `skills.location` and `subagents.location` as it stood before the upgrade. That is `HEAD` while the upgrade is uncommitted, and the upgrade commit's parent once it landed. Compare it with upstream's `.claude/skills/{name}/SKILL.md` or `.claude/agents/{name}.md` at `vOLD`. Read those paths, not `repomatic/data/skills/`: its entries are symlinks, and `git show` returns their target path. A copy that matches neither `vOLD` nor any upstream commit between the two tags carries local edits. Upstream holds them already when they were ported before the release. To know, write the three states to files and run `git merge-file -p {vNEW copy} {vOLD copy} {local copy}`. An output equal to the `vNEW` copy means the upgrade drops nothing. Any other output holds edits that the upgrade drops, so report them as a `breaking` row.
 - **A new `lint-repo` check.** Read its line in the `lint-repo` output: a check that passes here offers nothing.
@@ -127,7 +128,7 @@ Run the areas the scope names, and apply the rules in § Distinguishing real dri
 
 Compare the hand-owned job bodies of header-only workflows like `tests.yaml` against the reference. The `sync-action-pins` and `sync-workflow-pins` jobs already bump the action and tool pins there. Look for:
 
-- **Missing workarounds**, like the "Force UTF-8 encoding on Windows" step that sets `PYTHONIOENCODING`.
+- **Missing workarounds**, like the `PYTHONIOENCODING: utf8` job variable that keeps Windows output in UTF-8.
 - **Outdated integration patterns**, like a third-party action where upstream now calls a `repomatic run` tool.
 - **YAML scalar style**, like `run: |` where `run: >` fits a multi-line single command.
 

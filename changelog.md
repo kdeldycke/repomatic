@@ -5,37 +5,40 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- **Breaking:** Retire the `repomatic-audit` skill, folded into `repomatic-upgrade` as its second pass. A `[tool.repomatic] exclude` naming `skills/repomatic-audit` fails until the entry is dropped.
+- **Breaking:** Retire the `repomatic-audit` skill, folded into `repomatic-upgrade` as its second pass. `repomatic init` deletes an unmodified copy, and fails on an `exclude` or `include` entry naming `skills/repomatic-audit` until the entry is dropped.
 - **Breaking:** Generated workflows and the bundled agents and skills now name `AGENTS.md` as the instructions file in place of `claude.md`. Rename a downstream `claude.md` to match.
 - Add the `instructions-file-name` check to `lint-repo`: it warns about a root `claude.md`, or an `agents.md` in another case, in place of `AGENTS.md`.
 - Add the `sphinx.fail-on-warning` setting, which makes the Sphinx build of `docs.yaml` fail on any warning.
-- Add the `source = "sdist"` matrix key: its cell runs the suite from the unpacked sdist, outside a git checkout, on the newest dependencies.
+- Add the `source = "sdist"` matrix key: its cell runs the suite from the unpacked sdist, outside a git checkout, on the newest dependencies. A downstream `tests.yaml` needs the steps that read `matrix.source`.
 - `lint-deps` now warns about a dependency extra that `uv.lock` resolves to no package, like `coverage[toml]` since coverage `7.17.0`.
 - `lint-deps` now warns about a `lint-deps.allow` entry that matches no finding, and gives the normalized spelling when that would match.
-- The bundled `repomatic-upgrade` skill now counts every finding of a gating job the release adds as a row, old findings included.
-- The bundled `repomatic-upgrade` skill ends with two lists, the applied rows and the remaining `decide`/`implement`/`commit`/`push`/`report` actions, instead of prose.
-- The bundled `repomatic-upgrade` skill now compares the test matrix at both pins, since a shifted Python axis can turn a literal exclude against the new stable version.
+- The bundled `repomatic-upgrade` skill now compares the test matrix at both pins, dispatches `release.yaml` to self-test every binary, and counts each old finding of a new gating job.
+- The bundled `repomatic-upgrade` skill now ends with two numbered lists: the applied rows, and the remaining actions, each labelled `Decide:`, `Implement:`, `Commit:`, `Push:` or `Report:`.
 - The bundled `awesome-template` contributing guide and `awesome-triage` skill now reject a link to a temporary, development or preproduction address, like a `pages.dev` default domain.
-- The bundled `repomatic-changelog` and `repomatic-deps` skills now run `repomatic` at the version the workflows pin, like `repomatic-ship`.
-- The bundled `repomatic-ship` skill now waits out a CI cycle longer than 10 minutes with a background `ci-status --wait`, instead of spawning a babysitter.
-- The bundled `babysit-ci` skill now names the workflows a push started with `--workflow` when an older red run ends `ci-status --wait` at once.
+- The bundled `babysit-ci`, `repomatic-changelog` and `repomatic-deps` skills now run `repomatic` at the version the workflows pin, like `repomatic-ship`.
+- The bundled `repomatic-ship` skill now waits out a long CI cycle with a background `ci-status --wait`, and reads the newest `schedule` or `workflow_dispatch` build of `release.yaml`.
+- In a repository `repomatic` depends on, like click-extra, the bundled `repomatic-ship` skill now checks that the pinned `repomatic` imports against the release tree.
+- The bundled `babysit-ci` skill now passes `ci-status --wait` one `--workflow` per workflow a push started, when an older red run would end the wait at once.
 - The bundled `babysit-ci` skill now leaves for the next release a `📦 Package install` red that only a release can heal, and watches the other jobs past it.
-- The bundled `repomatic-ship` skill now reads the newest `schedule` or `workflow_dispatch` build of `release.yaml`, the only one covering every platform.
 - Bump Nuitka from `4.3.1` to `4.3.3`, which guards the `--main-entry-point` launcher itself, and drop the plugin `repomatic run nuitka` loaded for it.
+- Bump the `repomatic run` pins of Biome to `2.6.3`, bump-my-version to `1.6.5`, gh to `2.103.2`, labelmaker to `0.6.5`, Ruff to `0.17.2` and Wrangler to `4.152.0`.
 - The default cache directory follows an absolute `XDG_CACHE_HOME` on macOS too, and ignores a relative one on Linux.
+- Fix 18 commands, like `changelog`, `lint-changelog` and `prepare-release`, failing with `ModuleNotFoundError` under click-extra `10.0.0`, which moved `click_extra.blocks`, and the bundled `sphinx-docs` agent naming that module.
 - Fix `lint-repo` asking to remove a `lint-repo.declined` entry that names a list, where the entry needs the key of the missing member.
 - Fix `lint-repo` and `init` passing a workflow step that calls `show-metadata --format`, which `8.0.0` renamed to `--output-format`.
+- Fix `lint-repo` passing a `[tool.lychee] exclude` entry that the bundled template dropped, like the star-history.com pattern `8.0.0` removed.
+- Fix `lint-deps` blocking a release on a dependency group floor inside the cooldown, which never ships, and naming every such floor a project dependency.
 - Fix `ci-status --wait --timeout` sleeping up to one `--interval` past its deadline.
 - Fix `ci-status` reading a run GitHub has yet to give a job as `green`: it now reads `not started`, and `--wait` waits for it.
 - Fix `ci-status --wait --until-change` returning at once, on every re-armed watch, on a failed required job it already reported.
-- Fix `lint-deps` blocking a release on a dependency group floor inside the cooldown, which never ships, and naming every such floor a project dependency.
 - Fix `pr-sync` failing its job when a concurrent run pushed the same branch first: it keeps a push built on its base or a newer one, and pushes again over an older one.
-- Document three tool traps: the `**/` prefix a `[tool.biome]` `files.includes` pattern needs, silencing half a hyphenated `typos` word, and the `.gitignore` entries a symlinked user skills directory needs.
-- Document that cloud sessions skip the plugin `repomatic init plugin` declares, but load the skills and agents committed to the repository.
 - Fix `repomatic run ruff` with the bundled config targeting ruff's default Python, whose safe `UP` fixes broke a project with an older `requires-python` floor.
 - Fix PyPI lookups that read a released package as missing when the CDN served a cut-off body: every request now asks for gzip.
-- Fix `lint-repo` passing a `[tool.lychee] exclude` entry that the bundled template dropped, like the star-history.com pattern `8.0.0` removed.
 - Fix the Windows binary builds failing on `UnicodeEncodeError` when `prune-caches` prints its table to the cp1252 console.
+- Fix the bundled `babysit-ci` skill running ruff over folders only this repository has, and starting the local tests with a `&` that ignores `SIGINT`.
+- Document three tool traps: the `**/` prefix a `[tool.biome]` `files.includes` pattern needs, silencing half a hyphenated `typos` word, and the `.gitignore` entries a symlinked user skills directory needs.
+- Document that cloud sessions skip the plugin `repomatic init plugin` declares, but load the skills and agents committed to the repository.
+- Fix two docs samples: the `lint.yaml` thin caller now has its `workflow_dispatch` trigger and secrets, and `gitignore.extra-content` its `.wrangler/` entry.
 
 ## [`8.0.0` (2026-10-29)](https://github.com/kdeldycke/repomatic/compare/v7.18.0...v8.0.0)
 

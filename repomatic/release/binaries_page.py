@@ -50,6 +50,7 @@ artifacts behind the link always are the current builds.
 Once the `click-extra` floor reaches `10.0.0`: import `region_markers` and
 `replace_region` from the package root alone, point the docstring references
 at those root names, and drop their `nitpick_ignore` entries in `docs/conf.py`.
+Drop the 9.x import fallback of `docs/docs_update.py` in the same change.
 ```
 """
 

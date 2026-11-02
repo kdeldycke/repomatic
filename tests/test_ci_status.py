@@ -1222,14 +1222,20 @@ def test_ci_status_command_writes_the_failed_logs(tmp_path):
                     f"… no run on the tip of 'main' ({TIP_SHA[:8]}) yet: every run"
                     " above belongs to an earlier commit."
                 ),
-                "… some jobs have not settled yet.",
+                "… some runs have not settled yet.",
             ],
             id="tip-not-run-yet",
+        ),
+        # A run GitHub has yet to give a job holds no job to call unsettled.
+        pytest.param(
+            _status(_run_with_jobs()),
+            ["not started", "… some runs have not settled yet."],
+            id="tip-not-started",
         ),
     ),
 )
 def test_ci_status_command_says_what_it_has_no_result_for(status, expected):
-    """A branch with no run, or a tip not run yet, is reported and exits clean."""
+    """Each state with no result yet is reported, and the command exits clean."""
     with (
         patch("repomatic.cli.ci.monitored_workflows", return_value=["tests.yaml"]),
         patch("repomatic.cli.ci.read_ci_status", return_value=status),

@@ -153,10 +153,11 @@ test = [
   "pytest-xdist[psutil]>=3.7",
 ]
 docs = [
-  # click-extra 9.4 added click_extra_fail_on_warnings, which docs/conf.py sets to
-  # fail the build on a dead fragment link. An older release ignores the line and
-  # the build passes. The [sphinx] extra pulls docutils, pygments and sphinx.
-  "click-extra[sphinx]>=9.4",
+  # click-extra 9.5.1 logs the click_extra.todo_unrendered warning that
+  # docs/conf.py fails the build on. An older release never logs it, so a {todo}
+  # no page renders builds clean. The [sphinx] extra pulls docutils, pygments and
+  # sphinx.
+  "click-extra[sphinx]>=9.5.1",
   # furo 2025.12.19 is the first release that accepts Sphinx 9 (`sphinx<10`);
   # 2025.09.25 caps it below 9, which the lock cannot satisfy.
   "furo>=2025.12.19",

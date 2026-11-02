@@ -163,7 +163,7 @@ class Response(NamedTuple):
     """Response headers, keyed by lowercase name."""
 
     body: bytes
-    """The raw response body."""
+    """The response body, its gzip `Content-Encoding` undone."""
 
 
 def error_excerpt(error: HTTPError) -> str:
@@ -239,8 +239,8 @@ def request(
     :param method: The HTTP method.
     :param data: The request body, already encoded. A JSON body also needs a
         `Content-Type` header in *headers*.
-    :param headers: Request headers, merged over the `User-Agent` default
-        (caller wins on conflict).
+    :param headers: Request headers, merged over the `User-Agent` and
+        `Accept-Encoding` defaults (caller wins on conflict).
     :param timeout: Socket timeout in seconds. *data* goes out in one
         `sendall` call, which spends the timeout on the whole body: a large
         upload needs a longer one.

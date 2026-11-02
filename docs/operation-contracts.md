@@ -149,7 +149,7 @@ The mechanism is the one [§ Sampling accumulates in one pull request](#sampling
 Two details the release lane adds. The publishing step names its paths with `--add-path`, because the job downloads the release binaries into its own checkout and that directory must not ride along. And `max-parallel: 1` on the matrix is what serializes the carry-append-publish cycle across a multi-release run: raising it would drop whichever cell published first.
 
 ```{note}
-Merging the pull request while a release is running makes that cell fail, since `pr-sync` publishes with `--force-with-lease` and the branch moved underneath it. The window is narrow and the recovery is a re-run, which carries the merged state and republishes cleanly.
+Merging the pull request while a release is running does not fail the cell. If the merge deletes the branch after `pr-sync` read its tip, the `--force-with-lease` push loses its lease, and `pr-sync` pushes the branch again instead of failing. The new pull request sits on the base read before the merge, so it can conflict with the default branch until the next run rebuilds it.
 ```
 
 ## Sample job contract

@@ -125,19 +125,21 @@ builds a valid wheel, uploads cleanly, and declares a requirement PyPI cannot sa
 
 ### What blocks
 
-| Source                      | Example                                                                                       |
-| :-------------------------- | :-------------------------------------------------------------------------------------------- |
-| A git repository            | `{ git = "…", branch = "main" }`, and the `tag` and `rev` forms                               |
-| A local path                | `{ path = "../mango" }`, with or without `editable`                                           |
-| A direct artifact URL       | `{ url = "https://…/mango-2.1-py3-none-any.whl" }`                                            |
-| A workspace member          | `{ workspace = true }`                                                                        |
-| An index other than PyPI    | `{ index = "internal" }`, or a `default = true` index pointing elsewhere                      |
-| A PEP 508 direct reference  | `mango @ git+https://…`, in any requirement array                                             |
-| A floor inside the cooldown | see [§ `exclude-newer-package` cooldown overrides](#exclude-newer-package-cooldown-overrides) |
+| Source                                       | Example                                                                                       |
+| :------------------------------------------- | :-------------------------------------------------------------------------------------------- |
+| A git repository                             | `{ git = "…", branch = "main" }`, and the `tag` and `rev` forms                               |
+| A local path                                 | `{ path = "../mango" }`, with or without `editable`                                           |
+| A direct artifact URL                        | `{ url = "https://…/mango-2.1-py3-none-any.whl" }`                                            |
+| A workspace member                           | `{ workspace = true }`                                                                        |
+| An index other than PyPI                     | `{ index = "internal" }`, or a `default = true` index pointing elsewhere                      |
+| A PEP 508 direct reference                   | `mango @ git+https://…`, in any requirement array                                             |
+| A runtime or extra floor inside the cooldown | see [§ `exclude-newer-package` cooldown overrides](#exclude-newer-package-cooldown-overrides) |
 
 Everything blocks, including a source on a package declared only in `[dependency-groups]`, which never reaches an installer. `uv.lock` pins a tracked branch to a revision, and once that branch is force-pushed or the fork disappears, the released tag no longer builds for contributors.
 
 `override-dependencies` and `constraint-dependencies` are reported as warnings instead. They name a published version rather than an unreleased artifact, so the result still installs; what they change is the tree the release was tested against.
+
+A floor inside the cooldown warns too when only an array outside the published metadata declares it, like a dependency group. The release still installs, and only a resolution of that array that skips `[tool.uv] exclude-newer-package` finds nothing. The same floor in `[project].dependencies` or an extra blocks, because those reach the published metadata. A package with a floor in both kinds of array is reported through the one that ships. The finding names the array that declares the floor.
 
 The report says which of these applies to each finding, because the remedies differ. A git source paired with a `.dev` floor is the managed `sync-dep-sources` idiom described at the end of [§ `exclude-newer-package` cooldown overrides](#exclude-newer-package-cooldown-overrides): the swap PR opens on its own once the awaited release ships, so the fix is to wait rather than to edit anything.
 
@@ -157,7 +159,7 @@ Four layers, ordered by how cheap the failure is:
    | 🚧 *needs release*       | Upstream. The git track sits inside the managed idiom, so `sync-dep-sources` opens the swap PR once the release ships. | `sync-dep-sources` |
    | ✋ *needs an edit*       | A maintainer. Nothing watches this one; the `lint-deps` report names the edit.                                         | nothing            |
 
-   A dated countdown and the `sync-uv-lock` pull request's `❄️ Cooldown bypasses` table forecast the same day from the same two numbers: the locked release's `upload-time`, and the `exclude-newer` span. The two populations differ, though. That table lists every active `exclude-newer-package` freeze, including one whose floor was never raised, which does not block a release. The banner lists every floor demanding a version inside the window.
+   A dated countdown and the `sync-uv-lock` pull request's `❄️ Cooldown bypasses` table forecast the same day from the same two numbers: the locked release's `upload-time`, and the `exclude-newer` span. The two populations differ, though. That table lists every active `exclude-newer-package` freeze, including one whose floor was never raised, which does not block a release. The banner lists every blocking floor demanding a version inside the window.
 
    The link is a search over the job's open pull requests on that branch, rather than a pull request number. `sync-uv-lock` opened eight pull requests in the 24 days to 2026-09-04 and closed seven, so a number would go stale within days, and resolving one at render time would cost an API call in a check that is otherwise offline. A merged pull request is filtered out on purpose: it carries the forecast it computed on its last push, and that date can have moved since.
 

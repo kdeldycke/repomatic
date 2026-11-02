@@ -63,7 +63,7 @@ With `[tool.repomatic] dependency-graph.update = false`, the `update-dep-graph` 
 
 ### Mechanical layer
 
-`<cmd> lint-deps` decides everything readable from `pyproject.toml` and `uv.lock`: upper bounds, missing specifiers, extras that install nothing, unsorted lists, type stubs outside the `typing` group, floors with no comment above them, and floor comments running past `[tool.repomatic] lint-deps.comment-word-threshold` words (40 by default). Run it first and let it own those rows. CI runs it from the release lane's `lint-deps` job (`_release-build.yaml`, reached through `release.yaml`), which fires on every push but annotates with `--no-fatal` until a release commit makes the *shippability* findings fatal. These policy rows never block either way, so no CI gate will catch them for you.
+`<cmd> lint-deps` decides everything readable from `pyproject.toml` and `uv.lock`: upper bounds, missing specifiers, extras that install nothing, unsorted lists, type stubs outside the `typing` group, floors with no comment above them, and floor comments running past `[tool.repomatic] lint-deps.comment-word-threshold` words (40 by default). Run it first and let it own those rows. CI runs it from the release lane's `lint-deps` job (`_release-build.yaml`, reached through `release.yaml`), which fires on every push but annotates with `--no-fatal` until a release commit makes the blocking *shippability* findings fatal. A floor inside the cooldown blocks only in `[project]` dependencies and extras, which reach the published metadata. In a dependency group, it stays a warning. These policy rows never block either way, so no CI gate will catch them for you.
 
 What is left is the part no parser settles, and it is the reason this mode exists: whether a floor is **justified** by the APIs the code actually calls, whether a comment is **stale or weak**, and whether a rationale **contradicts** its conditional marker. Spend the review there.
 
@@ -354,4 +354,4 @@ Suggest the user run:
 
 - `/repomatic-deps review all` to audit version floors and specifier policy.
 - `/repomatic-deps modernize` after a `sync-uv-lock` PR lands, to fold the freshly-upgraded dependencies' new features into the code.
-- `/repomatic-audit` for a comprehensive alignment check beyond dependencies.
+- `/repomatic-upgrade` for an alignment check beyond dependencies, in a downstream repository.

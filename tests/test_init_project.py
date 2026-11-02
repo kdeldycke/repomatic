@@ -4660,7 +4660,10 @@ def test_removed_asset_metadata_valid(asset: RemovedAsset) -> None:
         for digest in asset.hashes:
             assert re.fullmatch(r"[0-9a-f]{64}", digest), digest
     assert not asset.removed_in.startswith("v"), asset.removed_in
-    assert Version(asset.removed_in) <= Version(__version__), asset.removed_in
+    # A tombstone added this cycle names the release the cycle prepares, which
+    # the `.devN` version of the tree sorts before.
+    released = Version(Version(__version__).base_version)
+    assert Version(asset.removed_in) <= released, asset.removed_in
     # The component name drives the `RemovedAsset.locate` override, so a
     # typo would silently skip it. A dropped *whole* component (`codecov`) has
     # no live entry to name, and needs none: its target is a `.github/` path
@@ -5100,11 +5103,13 @@ def test_removed_reusable_workflows_are_tombstoned() -> None:
 def test_removed_data_assets_are_tombstoned() -> None:
     """A skill/agent data file dropped since the last release must be tombstoned.
 
-    Compares the bundled skill/agent data files at the most recent release tag
-    against the current tree. A file present then but gone now is a removed
-    asset that must have a matching ``RemovedAsset`` entry, or ``init`` would
-    leave orphans in downstream repos. Skips when git history or release tags
-    are unavailable (shallow clone, no tags).
+    Compares the downstream targets of the bundled skill/agent data files at the
+    most recent release tag against what the registry ships now. A target
+    written then but not now is a removed asset that must have a matching
+    ``RemovedAsset`` entry, or ``init`` would leave orphans in downstream repos.
+    A skill reads in both layouts it shipped in: a flat `skill-{id}.md`, and a
+    `skills/{id}/SKILL.md` folder. Skips when git history or release tags are
+    unavailable (shallow clone, no tags).
     """
     repo_root = Path(__file__).resolve().parents[1]
 
@@ -5136,19 +5141,23 @@ def test_removed_data_assets_are_tombstoned() -> None:
     if old_tree.returncode != 0:
         pytest.skip(f"cannot read tree at {prev}")
 
-    asset_re = re.compile(r"repomatic/data/((?:skill|agent)-.+\.md)$")
-    old_sources = {
-        m.group(1)
-        for line in old_tree.stdout.splitlines()
-        if (m := asset_re.match(line))
-    }
-    data_dir = repo_root / "repomatic" / "data"
-    current_sources = {p.name for p in data_dir.glob("skill-*.md")} | {
-        p.name for p in data_dir.glob("agent-*.md")
-    }
+    asset_re = re.compile(
+        r"repomatic/data/(?:skill-(?P<flat>.+)\.md|skills/(?P<skill>[^/]+)/"
+        rf"{re.escape(SKILL_FILENAME)}|agent-(?P<agent>.+)\.md)$"
+    )
+    old_targets = {}
+    for line in old_tree.stdout.splitlines():
+        if not (m := asset_re.match(line)):
+            continue
+        if m["agent"]:
+            old_targets[_subagent_target(m["agent"])] = line
+        else:
+            old_targets[_skill_target(m["flat"] or m["skill"])] = line
 
     # What init currently writes downstream, which is what decides whether a
-    # dropped bundled source actually orphans anything.
+    # dropped bundled source actually orphans anything. Relocating a source
+    # (a skill moving to its folder layout) keeps its target, so it orphans
+    # nothing.
     shipped_targets = {
         f"{entry.target}/{SKILL_FILENAME}" if entry.tree else entry.target
         for name in ("skills", "subagents")
@@ -5156,18 +5165,11 @@ def test_removed_data_assets_are_tombstoned() -> None:
     }
 
     tombstoned = {a.target for a in REMOVED_ASSETS}
-    for source in sorted(old_sources - current_sources):
-        if source.startswith("skill-"):
-            target = _skill_target(source[len("skill-") : -len(".md")])
-        else:
-            target = _subagent_target(source[len("agent-") : -len(".md")])
-        # Relocating a bundled source (a skill moving to its folder layout)
-        # leaves no orphan as long as the downstream path is unchanged.
-        if target in shipped_targets:
-            continue
+    for target in sorted(old_targets.keys() - shipped_targets):
         assert target in tombstoned, (
-            f"{source!r} shipped in {prev} but was removed without a RemovedAsset "
-            f"tombstone (expected target {target!r}); add one to REMOVED_ASSETS"
+            f"{old_targets[target]!r} shipped in {prev} but was removed without a"
+            f" RemovedAsset tombstone (expected target {target!r}); add one to"
+            f" REMOVED_ASSETS"
         )
 
 
