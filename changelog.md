@@ -28,6 +28,7 @@
 - Fix `ci-status --wait --timeout` sleeping up to one `--interval` past its deadline.
 - Fix `ci-status` reading a run GitHub has yet to give a job as `green`: it now reads `not started`, and `--wait` waits for it.
 - Fix `ci-status --wait --until-change` returning at once, on every re-armed watch, on a failed required job it already reported.
+- Fix `lint-deps` blocking a release on a dependency group floor inside the cooldown, which never ships, and naming every such floor a project dependency.
 - Document three tool traps: the `**/` prefix a `[tool.biome]` `files.includes` pattern needs, silencing half a hyphenated `typos` word, and the `.gitignore` entries a symlinked user skills directory needs.
 - Document that cloud sessions skip the plugin `repomatic init plugin` declares, but load the skills and agents committed to the repository.
 - Fix `repomatic run ruff` with the bundled config targeting ruff's default Python, whose safe `UP` fixes broke a project with an older `requires-python` floor.

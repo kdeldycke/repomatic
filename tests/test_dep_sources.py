@@ -56,6 +56,7 @@ from repomatic.deps.sources import (
     strip_dev_bounds,
     tracked_git_overrides,
 )
+from repomatic.github.outputs import AnnotationLevel
 from repomatic.pypi import PyPIRelease
 from repomatic.templating import get_template_names, render_template
 
@@ -391,6 +392,75 @@ def test_floors_inside_cooldown(
         assert stale.clears.startswith(expected.isoformat())
 
 
+COOLDOWN_GROUP_PYPROJECT = """\
+[project]
+name = "basket"
+version = "1.0.0"
+dependencies = [
+  "{project}",
+]
+
+[dependency-groups]
+docs = [
+  "cherry>=1.2",
+]
+"""
+"""A project whose `docs` group demands the locked `cherry` release."""
+
+
+def _cooldown_group_project(tmp_path: Path, project: str) -> tuple[Path, Path]:
+    """Write `COOLDOWN_GROUP_PYPROJECT`, with `cherry` 1.2.0 locked a day ago.
+
+    :param tmp_path: directory to write the two files into.
+    :param project: the `cherry` requirement of `[project] dependencies`.
+    :return: the paths of `pyproject.toml` and `uv.lock`.
+    """
+    upload = datetime.now(UTC) - timedelta(days=1)
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        COOLDOWN_GROUP_PYPROJECT.format(project=project), encoding="UTF-8"
+    )
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        COOLDOWN_LOCK.format(
+            locked="1.2.0", upload=upload.isoformat().replace("+00:00", "Z")
+        ),
+        encoding="UTF-8",
+    )
+    return pyproject, lock
+
+
+@pytest.mark.parametrize(
+    ("project", "location", "published", "level"),
+    (
+        # Only the group floor demands the release inside the window: it ships
+        # nowhere, so it warns instead of blocking a release.
+        ("cherry>=1.0", "dependency-groups.docs", False, AnnotationLevel.WARNING),
+        # Both floors demand it: the one reaching published metadata is reported.
+        ("cherry>=1.2", "project.dependencies", True, AnnotationLevel.ERROR),
+    ),
+)
+def test_floor_inside_cooldown_names_its_array(
+    tmp_path: Path,
+    project: str,
+    location: str,
+    published: bool,
+    level: AnnotationLevel,
+) -> None:
+    """A floor inside the cooldown names its array, and blocks only if it ships."""
+    pyproject, lock = _cooldown_group_project(tmp_path, project)
+
+    stale = floors_inside_cooldown(
+        read_project(pyproject), LockFile.load(lock), "8 days"
+    )["cherry"]
+    assert (stale.location, stale.published) == (location, published)
+
+    findings = scan_project(pyproject, lock, "8 days")
+    assert [(f.package, f.location, f.level) for f in findings] == [
+        ("cherry", location, level)
+    ]
+
+
 def test_dependency_floors_clear_the_cooldown() -> None:
     """No dependency floor requires a release still inside the cooldown.
 
@@ -406,11 +476,16 @@ def test_dependency_floors_clear_the_cooldown() -> None:
     makes this a release gate rather than a CI symptom. Wait for a release to
     clear the window before raising a floor onto it.
     """
-    offenders = floors_inside_cooldown(
-        read_project(REPO_ROOT / "pyproject.toml"),
-        LockFile.load(REPO_ROOT / "uv.lock"),
-        Config.minimum_release_age,
-    )
+    offenders = {
+        name: stale
+        for name, stale in floors_inside_cooldown(
+            read_project(REPO_ROOT / "pyproject.toml"),
+            LockFile.load(REPO_ROOT / "uv.lock"),
+            Config.minimum_release_age,
+        ).items()
+        # A dependency group floor never reaches published metadata.
+        if stale.published
+    }
     listed = ", ".join(
         f"{name}>={stale.floor} (clears {stale.clears or 'never'})"
         for name, stale in sorted(offenders.items())

@@ -690,6 +690,14 @@ class StaleFloor:
     (`2026-09-10 (in 3 days)`), or empty when the window is an absolute cutoff
     nothing ages past on its own."""
 
+    location: str
+    """The TOML path of the array declaring the floor, like
+    `project.dependencies` or `dependency-groups.docs`."""
+
+    published: bool
+    """Whether that array reaches the published `Requires-Dist`: see
+    {attr}`~repomatic.deps.requirements.RequirementArray.published`."""
+
 
 def floors_inside_cooldown(
     doc: Mapping[str, Any],
@@ -700,7 +708,8 @@ def floors_inside_cooldown(
     """Dependency floors that no cooldown-gated resolution can satisfy.
 
     A floor naming a version published inside the cooldown window makes the
-    *published package* uninstallable. Anyone resolving it from an index
+    *published package* uninstallable, when the array declaring it reaches the
+    published metadata. Anyone resolving it from an index
     (a downstream repo running a frozen workflow's `uvx 'repomatic==X.Y.Z'`, or
     an end user running `uvx repomatic`) gets a tool environment, which reads
     neither `uv.lock` nor `[tool.uv] exclude-newer-package`. Since uv exposes no
@@ -718,6 +727,11 @@ def floors_inside_cooldown(
 
     Wait for a release to age out of the window before raising a floor onto it.
 
+    A floor in an array that never ships, like a dependency group, only fails a
+    resolution of that array that skips `[tool.uv] exclude-newer-package`. It is
+    reported too, flagged as unpublished, and when one package has both kinds of
+    floor inside the window, the published one is the one reported.
+
     The comparison runs against the locked version's upload time, which
     `uv.lock` records, so the check needs no network. A floor is reported when
     the locked version sits inside the window *and* the floor demands at least
@@ -730,8 +744,9 @@ def floors_inside_cooldown(
         accepts.
     :param now: The instant the window counts back from. Read from the clock
         when `None`.
-    :return: Mapping of canonical package name to the offending floor and the
-        day it clears, empty when every floor resolves without an exemption.
+    :return: Mapping of canonical package name to the offending floor, the day
+        it clears and the array declaring it, empty when every floor resolves
+        without an exemption.
     """
     if now is None:
         now = datetime.now(UTC)
@@ -760,8 +775,15 @@ def floors_inside_cooldown(
                 if spec.operator not in LOWER_BOUND_OPERATORS | PIN_OPERATOR:
                     continue
                 floor = safe_version(spec.version)
-                if floor is not None and floor >= locked:
-                    offenders[name] = StaleFloor(str(floor), clears)
+                if floor is None or floor < locked:
+                    continue
+                # One finding per package: a floor reaching the published
+                # metadata outranks one only a resolution of the array meets.
+                reported = offenders.get(name)
+                if reported is None or (array.published and not reported.published):
+                    offenders[name] = StaleFloor(
+                        str(floor), clears, array.location, array.published
+                    )
     return offenders
 
 
@@ -808,16 +830,31 @@ def scan_project(
             DepFinding(
                 package=name,
                 kind=SourceKind.REGISTRY,
-                location="project dependency floor",
+                location=stale.location,
                 detail=f"`{name}>={stale.floor}`",
                 consequence=(
-                    f"The release satisfying this floor is younger than the"
-                    f" {window} cooldown, so anyone installing from an index"
-                    f" resolves nothing: they read neither `uv.lock` nor"
-                    f" `[tool.uv] exclude-newer-package`, and uv has no"
-                    f" environment variable for a per-package exemption."
+                    (
+                        f"The release satisfying this floor is younger than the"
+                        f" {window} cooldown, so anyone installing from an index"
+                        f" resolves nothing: they read neither `uv.lock` nor"
+                        f" `[tool.uv] exclude-newer-package`, and uv has no"
+                        f" environment variable for a per-package exemption."
+                    )
+                    if stale.published
+                    else (
+                        f"The release satisfying this floor is younger than the"
+                        f" {window} cooldown. The array never reaches published"
+                        f" metadata, so the release installs, but a resolution"
+                        f" of the array that skips `[tool.uv]"
+                        f" exclude-newer-package` finds nothing."
+                    )
                 ),
                 remedy="Wait for that release to age out of the window.",
+                level=(
+                    AnnotationLevel.ERROR
+                    if stale.published
+                    else AnnotationLevel.WARNING
+                ),
                 allowed=allow.get(name, ""),
                 clears=stale.clears,
             )
