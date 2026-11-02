@@ -67,6 +67,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from .. import git_ops
+from ..git_ops import LeaseRejected
 from ..release.protocol import RELEASE_PR_BRANCH, VERSION_BUMP_BRANCHES, bump_branch
 from ..templating import PrTemplate, get_template_names
 from .event import get_default_branch
@@ -450,6 +451,49 @@ def carry_pr_branch_paths(
     return restored
 
 
+def _push_candidate(
+    temp_branch: str,
+    branch: str,
+    remote_sha: str | None,
+    base_sha: str,
+    remote: str,
+) -> bool:
+    """Push the candidate, and settle a race lost to a concurrent run.
+
+    Two runs of one job can build the same branch at once, and the second push
+    then loses its lease. When the run that won built on this base or a newer
+    one, its candidate is at least as fresh, and this run keeps it. Otherwise this
+    run's candidate is the fresher one, and it pushes once more over the new tip.
+    When git cannot relate the two, as in a shallow clone, the published branch
+    is kept, since overwriting it might put an older base back.
+
+    :param temp_branch: Local branch holding the candidate.
+    :param branch: Head branch the candidate is pushed to.
+    :param remote_sha: The tip of *branch* this run read, `None` when absent.
+    :param base_sha: The tip of the base branch the candidate is built on.
+    :param remote: Remote to publish to.
+    :return: Whether this run's candidate was pushed.
+    """
+    try:
+        git_ops.force_push_branch(
+            temp_branch, branch, expected_sha=remote_sha, remote=remote
+        )
+    except LeaseRejected:
+        tip = git_ops.fetch_remote_branch(branch, remote=remote)
+        if tip is not None and git_ops.is_ancestor(base_sha, tip) is not False:
+            logging.info(
+                f"A concurrent run published {remote}/{branch} on this base or a"
+                " newer one: keeping its push."
+            )
+            return False
+        logging.info(
+            f"A concurrent run published {remote}/{branch} on an older base:"
+            " pushing again over its tip."
+        )
+        git_ops.force_push_branch(temp_branch, branch, expected_sha=tip, remote=remote)
+    return True
+
+
 class _Candidate(NamedTuple):
     """The commits {func}`_build_candidate` stacked for a pull request."""
 
@@ -504,10 +548,9 @@ def _build_candidate(
             if remote_sha is None or _needs_push(
                 candidate_sha, remote_sha, base_sha, carried
             ):
-                git_ops.force_push_branch(
-                    temp_branch, branch, expected_sha=remote_sha, remote=remote
+                pushed = _push_candidate(
+                    temp_branch, branch, remote_sha, base_sha, remote
                 )
-                pushed = True
     finally:
         git_ops.checkout(restore_ref)
         git_ops.delete_branch(temp_branch)

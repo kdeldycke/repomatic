@@ -111,6 +111,14 @@ may contain newlines but never `NUL` bytes, so splitting on `NUL` recovers the
 fields unambiguously even for multi-line messages.
 """
 
+LEASE_REJECTION_MARKERS = ("stale info", "but expected")
+"""What git prints when a `--force-with-lease` push loses its lease.
+
+The client reports `(stale info)` when it sees the branch moved, and the server
+reports `cannot lock ref '…': is at X but expected Y` when the branch moves
+during the push itself.
+"""
+
 
 class GitError(subprocess.CalledProcessError, RuntimeError):
     """A `git` command that exited with a non-zero status.
@@ -131,6 +139,15 @@ class GitError(subprocess.CalledProcessError, RuntimeError):
         message = f"{command} exited with status {self.returncode}"
         detail = (self.stderr or "").strip()
         return f"{message}:\n{detail}" if detail else f"{message}."
+
+
+class LeaseRejected(GitError):
+    """A `--force-with-lease` push refused because the branch moved.
+
+    Another writer published to the branch after the caller read its tip.
+    {func}`force_push_branch` raises it so a caller can tell this lost race from a
+    permission or a network failure, and handle the race on its own.
+    """
 
 
 class Commit(NamedTuple):
@@ -590,13 +607,23 @@ def force_push_branch(
     `None` to create a branch that does not exist yet, where a plain push
     already fails if someone wins the race.
 
-    :raises GitError: When the push is rejected.
+    :raises LeaseRejected: When the branch moved since *expected_sha* was read.
+    :raises GitError: When the push is rejected for any other reason.
     """
     args = ["push"]
     if expected_sha:
         args.append(f"--force-with-lease={branch}:{expected_sha}")
     args.extend([remote, f"{local_ref}:refs/heads/{branch}"])
-    _git(*args)
+    try:
+        _git(*args)
+    except GitError as error:
+        if expected_sha and any(
+            marker in (error.stderr or "") for marker in LEASE_REJECTION_MARKERS
+        ):
+            raise LeaseRejected(
+                error.returncode, error.cmd, output=error.output, stderr=error.stderr
+            ) from error
+        raise
     logging.info(f"Pushed {local_ref} to {remote}/{branch}.")
 
 

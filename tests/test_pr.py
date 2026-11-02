@@ -25,6 +25,7 @@ import pytest
 from click.testing import CliRunner
 
 from repomatic.cli.main import repomatic
+from repomatic.git_ops import LeaseRejected
 from repomatic.github.pr import (
     OPEN_PR_LIMIT,
     PrOperation,
@@ -55,6 +56,9 @@ CANDIDATE_SHA = "b" * 40
 
 REMOTE_SHA = "c" * 40
 """Stand-in SHA for the tip of an already-published head branch."""
+
+OTHER_SHA = "d" * 40
+"""Stand-in SHA for a tip a concurrent run published after this one read it."""
 
 
 def test_list_open_prs_by_branch_filters_arguments():
@@ -354,6 +358,46 @@ def test_upsert_pr_skips_the_push_when_the_branch_already_matches(git, gh):
     gh.assert_not_called()
     # Even on the no-op path the checkout is restored.
     git.checkout.assert_called_once_with("main")
+
+
+def _race_lost_to_a_concurrent_run(git) -> None:
+    """Make the first push lose its lease to a run publishing `OTHER_SHA`."""
+    tips = {BRANCH: REMOTE_SHA}
+    git.fetch_remote_branch.side_effect = lambda name, remote="origin": (
+        BASE_SHA if name == "main" else tips[BRANCH]
+    )
+    git.tree_sha.side_effect = lambda sha: f"tree-of-{sha}"
+
+    def push(local_ref, branch, expected_sha, remote="origin"):
+        if git.force_push_branch.call_count == 1:
+            tips[BRANCH] = OTHER_SHA
+            raise LeaseRejected(1, ["git", "push"], stderr="(stale info)")
+
+    git.force_push_branch.side_effect = push
+
+
+def test_upsert_pr_keeps_a_concurrent_push_on_its_base(git, gh):
+    """A run losing its lease to one built on the same base keeps that push."""
+    _race_lost_to_a_concurrent_run(git)
+    result = upsert_pr(BRANCH, "Title", "Body", "Message")
+
+    assert result.operation == PrOperation.NONE
+    git.force_push_branch.assert_called_once()
+    git.is_ancestor.assert_called_with(BASE_SHA, OTHER_SHA)
+    gh.assert_not_called()
+
+
+def test_upsert_pr_pushes_again_over_a_concurrent_push_on_an_older_base(git, gh):
+    """A run losing its lease to one built on an older base pushes once more."""
+    _race_lost_to_a_concurrent_run(git)
+    git.is_ancestor.side_effect = lambda ancestor, ref: ref != OTHER_SHA
+    gh.side_effect = [json.dumps([{"number": 88, "isDraft": False}]), "", ""]
+    result = upsert_pr(BRANCH, "Title", "Body", "Message")
+
+    assert result.operation == PrOperation.UPDATED
+    assert [
+        call.kwargs["expected_sha"] for call in git.force_push_branch.call_args_list
+    ] == [REMOTE_SHA, OTHER_SHA]
 
 
 def test_upsert_pr_restores_the_checkout_when_the_push_fails(git, gh):

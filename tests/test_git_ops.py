@@ -30,6 +30,7 @@ from repomatic.git_ops import (
     COMMIT_IDENTITY_EMAIL,
     COMMIT_IDENTITY_NAME,
     GitError,
+    LeaseRejected,
     changed_paths,
     checkout,
     commit_exists,
@@ -578,8 +579,17 @@ def test_force_push_refuses_an_outdated_lease(git_workdir):
     stage_all()
     create_branch("tmp-late")
     commit_staged("Sync fruits")
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(LeaseRejected):
         force_push_branch("tmp-late", "sync-fruits", expected_sha=observed)
+
+
+def test_force_push_tells_a_lost_lease_from_other_failures(git_workdir):
+    """A push failing for another reason than a moved branch is no lost lease."""
+    with pytest.raises(GitError) as excinfo:
+        force_push_branch(
+            "main", "sync-fruits", expected_sha=head_sha(), remote="nowhere"
+        )
+    assert not isinstance(excinfo.value, LeaseRejected)
 
 
 def test_force_push_rejection_carries_stderr(git_workdir, caplog):
