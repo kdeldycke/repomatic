@@ -9,7 +9,7 @@ Both distribution paths are supported and neither replaces the other:
 | **Files**  | `repomatic init skills subagents`     | A copy of every skill and agent, committed to your repo |
 | **Plugin** | `/plugin install repomatic@kdeldycke` | Nothing: Claude Code caches the plugin outside the repo |
 
-The plugin also reaches further than the files do. Claude Code discovers skills in `~/.claude/skills/` and a repository's `.claude/skills/`, but [Cowork and cloud sessions do not read either](https://code.claude.com/docs/en/skills#skills-in-cowork-and-cloud-sessions): they load what is enabled for your account. A plugin is the only form those surfaces accept, so `init skills` cannot reach them by design. See [§ Install in Claude Desktop](#install-in-claude-desktop).
+The plugin also reaches further than the files do. Claude Code discovers skills in `~/.claude/skills/` and a repository's `.claude/skills/`, but [Cowork and a project's cloud threads read neither](https://code.claude.com/docs/en/skills#skills-in-cowork-and-cloud-sessions): they load what is enabled for your account. A plugin is the only form those surfaces accept, so `init skills` cannot reach them by design. Other cloud sessions read the `.claude/skills/` committed to the repository, but [skip the plugin it declares](#wire-it-into-a-repository). See [§ Install in Claude Desktop](#install-in-claude-desktop).
 
 ```{note}
 That reach now runs both ways. A plugin enabled for your claude.ai account is cached into `~/.claude/plugins/synced/` and loaded by the CLI on its own, with no local install: `claude plugin list` groups those entries under `Synced from claude.ai`, and names this catalog's own plugin `repomatic@synced`. Verified against Claude Code 2.1.274 on 2026-09-29.
@@ -128,7 +128,7 @@ It merges rather than overwrites: your own `permissions`, hooks, and any other m
 Like `skills` and `subagents`, this component is **opt-in**: a bare `repomatic init` never touches your settings. Name it explicitly, or list it under `[tool.repomatic] include`.
 
 ```{note}
-Claude Code only *prompts* each collaborator to install a plugin a project declares; it never installs one on their behalf. So declaring the plugin does not guarantee every collaborator has it, which is why `repomatic init skills` and `init subagents` remain available and unchanged.
+Claude Code only *prompts* each collaborator to install a plugin a project declares; it never installs one on their behalf. A cloud session [installs no plugin a project declares](https://code.claude.com/docs/en/cloud-environments#what-carries-over-from-your-setup), but loads the skills and agents committed to the repository. So declaring the plugin does not guarantee every collaborator has it, which is why `repomatic init skills` and `init subagents` remain available and unchanged.
 ```
 
 ## Install in Claude Desktop
@@ -165,4 +165,4 @@ The same refusal reaches the log as `Automatic sync on push requires the Claude 
 
 Weigh that grant before taking it. The app is the Claude Code GitHub teammate, and marketplace auto-sync reuses its installation rather than asking for anything narrower, so it arrives holding **read and write** access to actions, checks, code, discussions, issues, pull requests, repository hooks and workflows. Without it the plugin still installs and still updates when you ask it to; all you lose is the app noticing a push on its own.
 
-Both routes supersede the per-skill archives this repository used to build for the **Customize > Skills** panel: one plugin carries every skill *and* every agent, which separate skill archives never could. That packaging script is gone as of `7.15.0`. See [#2540](https://github.com/kdeldycke/repomatic/issues/2540).
+Both routes supersede the per-skill archives this repository used to build for the **Customize > Skills** panel: one plugin carries every skill *and* every agent, which separate skill archives never could. That packaging script is gone as of `7.15.0`.
