@@ -27,6 +27,7 @@ tests run.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -36,6 +37,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 from click_extra.testing import CliRunner
+from extra_platforms.pytest import skip_windows
 
 from repomatic.cli.main import repomatic
 from repomatic.github.gh import GhCommandError
@@ -184,6 +186,76 @@ def test_squashed_release_step(project, monkeypatch, message, reported):
         "::error::Squash merge detected. Release was skipped. "
         f"See https://github.com/{REPOSITORY}/issues/7"
     ) in result.output
+
+
+FAKE_UVX = """\
+#!/usr/bin/env bash
+# Signs the first file and fails, until the attempt count passes FAILURES.
+count=$(( $(cat "${COUNTER}") + 1 ))
+echo "${count}" > "${COUNTER}"
+shift 3
+for dist in "$@"; do
+  if [ -e "${dist}.publish.attestation" ]; then exit 2; fi
+done
+if [ "${count}" -le "${FAILURES}" ]; then
+  touch "${1}.publish.attestation"
+  exit 1
+fi
+for dist in "$@"; do touch "${dist}.publish.attestation"; done
+"""
+"""Stands in for `uvx`: like `sign`, it refuses a file that already has a sidecar."""
+
+
+@skip_windows(reason="The step runs under bash, with fake tools on the PATH.")
+@pytest.mark.parametrize(
+    ("failures", "returncode", "attempts", "sidecars"),
+    (
+        pytest.param(0, 0, 1, 2, id="first-attempt"),
+        pytest.param(2, 0, 3, 2, id="third-attempt"),
+        pytest.param(3, 1, 3, 0, id="every-attempt-fails"),
+    ),
+)
+def test_sign_step_retries_a_failed_attempt(
+    tmp_path, failures, returncode, attempts, sidecars
+):
+    """A failed attempt drops its sidecars, and a third failure fails the step."""
+    step = find_step(
+        load_workflow("_release-build.yaml"),
+        "build-package",
+        "Sign distributions with PEP 740 attestations",
+    )
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "papaya-1.2.3-py3-none-any.whl").touch()
+    (dist / "papaya-1.2.3.tar.gz").touch()
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    # `sleep` returns at once, so the retry delay costs the suite nothing.
+    for name, script in (("uvx", FAKE_UVX), ("sleep", "#!/bin/sh\n")):
+        tool = tools / name
+        tool.write_text(script, encoding="UTF-8")
+        tool.chmod(0o755)
+    counter = tmp_path / "attempts"
+    counter.write_text("0", encoding="UTF-8")
+
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "COUNTER": str(counter),
+            "FAILURES": str(failures),
+            "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}",
+        },
+        capture_output=True,
+        text=True,
+        encoding="UTF-8",
+        check=False,
+    )
+
+    assert result.returncode == returncode, result.stdout + result.stderr
+    assert counter.read_text(encoding="UTF-8").strip() == str(attempts)
+    assert len(list(dist.glob("*.publish.attestation"))) == sidecars
 
 
 # ---------------------------------------------------------------------------

@@ -183,9 +183,21 @@ jobs:
       # Signs each dist file with the job's OIDC token via Sigstore and writes
       # `<dist>.publish.attestation` sidecars (PEP 740 format) directly into
       # ./dist/ so the artifact uploaded below carries its own attestations.
+      # Sigstore's transparency log answers a 5xx now and then, which `sign` does not retry, so three attempts a minute
+      # apart ride out a short outage. `sign` refuses a file that already has a sidecar: a failed attempt drops the
+      # ones it wrote. tests/test_release_workflow_steps.py runs this script.
       - name: Sign distributions with PEP 740 attestations
         shell: bash
-        run: uvx --no-progress 'pypi-attestations==0.0.30' sign ./dist/*.whl ./dist/*.tar.gz
+        run: |
+          for attempt in 1 2 3; do
+            uvx --no-progress 'pypi-attestations==0.0.30' sign ./dist/*.whl ./dist/*.tar.gz && exit 0
+            rm -f ./dist/*.publish.attestation
+            if [ "${attempt}" -lt 3 ]; then
+              echo "::warning::Signing attempt ${attempt} failed: retrying in 60 seconds."
+              sleep 60
+            fi
+          done
+          exit 1
       - name: Upload artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

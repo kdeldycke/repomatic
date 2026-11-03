@@ -655,6 +655,7 @@ The release **fast lane**: it runs the squash-merge guard and the dependency shi
 ### 📦 Build package (`build-package`)
 
 - Builds Python wheel and sdist packages using [`uv build`](https://github.com/astral-sh/uv), then signs each distribution with a PEP 740 attestation
+- Tries the signing three times, a minute apart, since Sigstore's transparency log answers a server error now and then
 - The signed artifact is shared run-scoped with both `publish-pypi` (PyPI upload) and the engine's `create-release` (GitHub release), so a single build feeds both
 - **Requires**:
   - Python package with a `pyproject.toml` file
