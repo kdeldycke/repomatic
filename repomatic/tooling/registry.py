@@ -2626,9 +2626,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             ]
             ```
 
-            A word cut by a hyphen is checked as two tokens, so `look-alikes`
-            reports `alikes` and `mis-parses` reports `mis`. Accept the fragment by
-            name to silence it: either an `extend-words` mapping it to itself
+            A word cut by a hyphen or a bracket is checked in pieces, so
+            `look-alikes` reports `alikes`, `mis-parses` reports `mis`, and the
+            glob `[Ss]cripts` reports `cripts`. Accept the fragment by name to
+            silence it: either an `extend-words` mapping it to itself
             (`alikes = "alikes"`), or an `extend-ignore-identifiers-re` entry
             anchored on it (`"^alikes$"`).
             """),

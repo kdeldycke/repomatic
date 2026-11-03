@@ -19,6 +19,7 @@
 - Regrade the benchmark with ✅, 🪫 and ❌ marks, each linked to its evidence, in place of plain `✓` and `~`.
 - Move `cruft`, which has had no commit since December 2024, from the benchmark tables to its excluded projects.
 - Document the `.staging/` folder of the claude.ai skill sync, which a symlinked user skills directory also needs in `.gitignore`.
+- Document the `typos` trap of a bracket glob like `[Ss]cripts`, which reports `cripts` as a typo.
 
 ## [`8.1.0` (2026-11-03)](https://github.com/kdeldycke/repomatic/compare/v8.0.0...v8.1.0)
 
