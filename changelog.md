@@ -9,6 +9,7 @@
 - `repomatic run shellcheck` with no arguments now lints the shell scripts of the repository.
 - Add the `shfmt_changed` metadata key, which says whether the commit range touches a file of `shfmt_files`.
 - Regrade the benchmark with ✅, 🪫 and ❌ marks, each linked to its evidence, in place of plain `✓` and `~`.
+- Move `cruft`, which has had no commit since December 2024, from the benchmark tables to its excluded projects.
 
 ## [`8.1.0` (2026-11-03)](https://github.com/kdeldycke/repomatic/compare/v8.0.0...v8.1.0)
 
