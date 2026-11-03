@@ -146,6 +146,7 @@ Header-only sync inherits the canonical `paths:` filter verbatim (after `repomat
 A file can match its reference and still fail. Read the latest runs on the default branch, the open autofix pull requests and the open bot issues:
 
 - A job that fails on every push is a finding, whatever its files look like.
+- A job cancelled with no newer push behind it can name a retiring runner image: read its annotations with `gh api repos/{owner}/{repo}/check-runs/{job_id}/annotations`, where GitHub states a brownout.
 - An autofix pull request that stays open across many pushes means a tool and the files it rewrites disagree.
 
 #### 2. Config file audit
