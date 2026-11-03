@@ -543,6 +543,7 @@ Page-shape rules that apply across the roster:
   | `add-new-manager.md`       | `diff-added`           |
   | `add-packaging-channel.md` | `git-merge`            |
   | `agent-skills.md`          | `mortar-board`         |
+  | `agents.md`                | `dependabot`           |
   | `architectures.md`         | `cpu`                  |
   | `augmentations.md`         | `plus-circle`          |
   | `bar-plugin.md`            | `plug`                 |
@@ -747,6 +748,7 @@ Theme assets and OpenGraph:
 - `html_favicon = "assets/favicon.svg"` is the canonical path, an SVG since browsers handle SVG favicons natively. The `/brand-assets` skill is the canonical producer of every one of these files: it manages the SVG sources (favicon, square logo, banner, social banner), exports light/dark PNG variants, and wires the new files into `docs/conf.py`. When they are missing or out of date, run `/brand-assets` instead of editing the assets by hand.
 - `ogp_image` names the social card, and the card is served by the site itself: add `assets/banner-social-<variant>.png` to `html_static_path` and set `ogp_image = "_static/banner-social-<variant>.png"`. `sphinxext.opengraph` joins that onto `ogp_site_url`, so every page emits the same absolute URL whatever its depth, one origin answers for it, and a redeploy refreshes it. Pair it with `ogp_image_alt = project`. What the path must never be is a bare `assets/...`: `docs/assets/` is not copied into the built site, so that resolves to a URL which 404s for the social crawlers that only ever see the raw HTML — the `html_static_path` entry is the whole reason the `_static/` spelling works. An absolute `raw.githubusercontent.com` URL also resolves and was the earlier rule here, but it hands a second origin a page asset and pins it to whatever sits on `main`. Set one or the other whenever the project has a banner; without `ogp_image`, `sphinxext.opengraph` falls back to the favicon, which scales poorly. Define `ogp_site_url` from the same constant `html_baseurl` reads, so the `og:url` a crawler gets can never name a different host than the canonical link beside it. The PNG is exported from `assets/banner-social.svg` by the `/brand-assets` skill (which also produces the dark variant for dark-mode social cards on platforms that support them).
 - The Furo `announcement` banner template across this lineage references the same `github_user` constant defined at the top of `conf.py`. Rebuilding the announcement string locally inside `html_theme_options` avoids a per-theme override layer.
+- When `index.md` includes a `readme.md` that opens on a centered banner, hide that banner on the site, where the sidebar already shows the logo: `article p[align="center"]:has(img[alt="{project}"]) { display: none; }` in `custom.css`.
 
 Pruning checklist before merging any `conf.py` change:
 
