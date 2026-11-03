@@ -39,6 +39,7 @@ claude-code-plugin
 :hidden:
 contributing
 commit-messages
+packaging
 code-of-conduct
 ```
 
@@ -67,7 +68,6 @@ modindex
 :hidden:
 binaries
 cloudflare
-packaging
 ```
 
 ```{toctree}
