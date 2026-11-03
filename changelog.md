@@ -10,6 +10,7 @@
 - Add the `shfmt_changed` metadata key, which says whether the commit range touches a file of `shfmt_files`.
 - The default `gitignore.extra-content` now keeps the `scripts/` folder of an agent skill, which the virtualenv template's `[Ss]cripts` rule ignored.
 - The bundled `benchmark-update` skill now drops an excluded project from the metrics subjects and store, and follows a transferred one in both.
+- Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
 - Regrade the benchmark with ✅, 🪫 and ❌ marks, each linked to its evidence, in place of plain `✓` and `~`.
 - Move `cruft`, which has had no commit since December 2024, from the benchmark tables to its excluded projects.
 

@@ -52,7 +52,8 @@ ISSUE_LIST_LIMIT = 100
 
 `gh issue list` stops at 30 unless told otherwise. A title search matches a
 handful of issues, since a recurring condition reopens its one issue instead of
-filing a new one, so this bound is never reached in practice.
+filing a new one, so this bound is never reached in practice. It also bounds the
+open issues listed beside the search, newest first.
 """
 
 
@@ -83,6 +84,14 @@ def list_issues(
     breaking deduplication.
     ```
 
+    ```{note}
+
+    A title search reads GitHub's search index, which can leave an issue out
+    for good. That issue never reaches {func}`triage_issues`, so it stays open
+    beside the one the job updates. The open issues are also listed without a
+    search, and the two listings merge.
+    ```
+
     :param title: If provided, only return issues whose title matches exactly.
     :param repository: Repository in `owner/name` form, or `None` to let `gh`
         resolve it.
@@ -93,20 +102,24 @@ def list_issues(
         "issue",
         "list",
         *repo_args(repository),
-        "--state",
-        "all",
         "--limit",
         str(ISSUE_LIST_LIMIT),
         "--json",
         "number,title,createdAt,state",
     ]
-    if title:
-        args.extend(["--search", f"{title} in:title"])
-    issues: list[dict[str, Any]] = gh_json(args) or []
-    # `--search` is full-text, not exact match. Filter to exact title.
-    if title:
-        issues = [i for i in issues if i["title"] == title]
-    return issues
+    if not title:
+        issues: list[dict[str, Any]] = gh_json([*args, "--state", "all"]) or []
+        return issues
+    matches: dict[int, dict[str, Any]] = {}
+    for listing in (
+        [*args, "--state", "all", "--search", f"{title} in:title"],
+        [*args, "--state", "open"],
+    ):
+        for issue in gh_json(listing) or []:
+            # `--search` is full-text, not exact match. Filter to exact title.
+            if issue["title"] == title:
+                matches[issue["number"]] = issue
+    return list(matches.values())
 
 
 def close_issue(number: int, comment: str, *, repository: str | None = None) -> None:

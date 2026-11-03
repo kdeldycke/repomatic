@@ -151,10 +151,33 @@ def test_list_issues_keeps_exact_title_matches():
     with patch_every_gh(return_value=json.dumps(listing)) as mock_gh:
         issues = list_issues(TITLE, repository="kevin/fruits")
     assert [issue["number"] for issue in issues] == [42]
-    args = mock_gh.call_args.args[0]
-    assert args[args.index("--limit") + 1] == str(ISSUE_LIST_LIMIT)
-    assert args[args.index("--repo") + 1] == "kevin/fruits"
-    assert args[args.index("--search") + 1] == f"{TITLE} in:title"
+    search, open_listing = (call.args[0] for call in mock_gh.call_args_list)
+    for args in (search, open_listing):
+        assert args[args.index("--limit") + 1] == str(ISSUE_LIST_LIMIT)
+        assert args[args.index("--repo") + 1] == "kevin/fruits"
+    assert search[search.index("--state") + 1] == "all"
+    assert search[search.index("--search") + 1] == f"{TITLE} in:title"
+    assert open_listing[open_listing.index("--state") + 1] == "open"
+    assert "--search" not in open_listing
+
+
+def test_list_issues_finds_an_open_issue_the_search_misses():
+    """An open issue missing from GitHub's search index still reaches triage.
+
+    The index can leave an issue out for good. Seen by the search alone, the
+    older duplicate is kept and updated, while the newer one stays open.
+    """
+    indexed = _issue(10, "2025-01-01")
+    unindexed = _issue(42, "2025-06-01")
+
+    def fake_gh(args):
+        if "--search" in args:
+            return json.dumps([indexed])
+        return json.dumps([unindexed, indexed])
+
+    with patch_every_gh(side_effect=fake_gh):
+        issues = list_issues(TITLE)
+    assert triage_issues(issues, needed=True) == Triage(42, "OPEN", {10})
 
 
 def test_lifecycle_trims_oversized_body_before_writing():
@@ -187,8 +210,10 @@ def test_lifecycle_trims_oversized_body_before_writing():
 @pytest.mark.parametrize(
     ("listing", "expected_number", "expected_verbs"),
     (
-        pytest.param([], 7, ["list", "create"], id="created"),
-        pytest.param([_issue(42, "2025-01-01")], 42, ["list", "edit"], id="updated"),
+        pytest.param([], 7, ["list", "list", "create"], id="created"),
+        pytest.param(
+            [_issue(42, "2025-01-01")], 42, ["list", "list", "edit"], id="updated"
+        ),
     ),
 )
 def test_lifecycle_returns_the_issue_it_keeps(listing, expected_number, expected_verbs):
@@ -313,6 +338,7 @@ def test_locked_closed_issue_is_reopened_and_updated():
         )
 
     assert [command[1] for command in calls] == [
+        "list",
         "list",
         "reopen",
         "unlock",
