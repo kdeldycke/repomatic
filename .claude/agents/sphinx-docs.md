@@ -568,6 +568,7 @@ Page-shape rules that apply across the roster:
   | `cooldown.md`              | `history`              |
   | `decorators.md`            | `mention`              |
   | `dependencies.md`          | `package-dependencies` |
+  | `design.md`                | `light-bulb`           |
   | `desktop-menus.md`         | `device-desktop`       |
   | `detection.md`             | `pulse`                |
   | `dump.md`                  | `file-moved`           |
@@ -593,6 +594,7 @@ Page-shape rules that apply across the roster:
   | `overrides.md`             | `pin`                  |
   | `packaging.md`             | `package-dependents`   |
   | `parameters.md`            | `tasklist`             |
+  | `performance.md`           | `zap`                  |
   | `platforms.md`             | `codespaces`           |
   | `pygments.md`              | `file-code`            |
   | `pytest.md`                | `meter`                |
@@ -717,7 +719,7 @@ Linkcheck and intersphinx:
 Strictness flags:
 
 - `nitpicky = True` is the default in this lineage. Each missing reference then logs a warning, which fails a build run with `-W`. Don't disable it; fix the missing target.
-- `click_extra_fail_on_warnings = ["myst.xref_missing"]` fails the build on a `[text](#anchor)` or `[text](page.md#anchor)` link that lands nowhere. myst-parser only logs that warning, and ships the link as written. Set it on a build that logs too many warnings to run with `-W`. The setting needs click-extra `9.4.0`: an older release ignores it, and the build passes. A `page.md#anchor` link to an ID that autodoc generates reports the same warning, though the ID exists: write it as a `{role}` cross-reference.
+- `click_extra_fail_on_warnings = ["myst.xref_missing"]` fails the build on a `[text](#anchor)` or `[text](page.md#anchor)` link that lands nowhere. myst-parser only logs that warning, and ships the link as written. Set it on a build that logs too many warnings to run with `-W`. The setting needs click-extra `9.4.0`: an older release ignores it, and the build passes. A `page.md#anchor` link to an ID that autodoc generates reports the same warning, though the ID exists: write it as a `{role}` cross-reference. List `click_extra.todo_unrendered` beside it to also fail on a `{todo}` that no page renders, which needs click-extra `9.5.1`.
 - `autosectionlabel_prefix_document = True` avoids duplicate-label warnings when two pages have the same heading. Pair with `"sphinx.ext.autosectionlabel"` in `extensions`.
 
 `suppress_warnings` governance:

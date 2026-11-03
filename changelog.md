@@ -15,6 +15,7 @@
 - The bundled `file-bug-report` skill now covers a reply on an existing issue, and paces its `gh search` calls under the search API rate limit.
 - The bundled `repomatic-upgrade` skill now passes `lint-repo` the `--has-*` flag of each secret the repository holds, which a local run cannot read.
 - The bundled `repomatic-upgrade` skill no longer ports the local edits of a synced copy that upstream `main` already holds.
+- The bundled `sphinx-docs` agent now lists `click_extra.todo_unrendered` among its strictness flags, and registers icons for `design.md` and `performance.md` pages.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
 - Fix `lint-repo` warning about a young `nuitka` pin in a repository that compiles no binary, where nothing installs it.
 - Fix `sync-runner-images` never retiring an image that only a repository's own matrix names: it moves a `[tool.repomatic.test-matrix]` entry and reports a workflow one.
