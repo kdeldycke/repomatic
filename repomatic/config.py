@@ -250,6 +250,9 @@ class GitignoreConfig:
             .claude/settings.local.json
             **/.claude/.cc-writes/
 
+            # Agent skill scripts, which the virtualenv `[Ss]cripts` rule ignores.
+            !**/skills/*/scripts/
+
             # Cloudflare wrangler local state.
             .wrangler/
 
@@ -270,25 +273,25 @@ class GitignoreConfig:
     {attr}`~repomatic.config.GitignoreConfig.extra_categories` instead when adding
     whole gitignore.io templates: that one is additive.
 
-    The `.cc-writes` entry is the one carrying a `**/` prefix, because it is the
-    one Claude Code does not place at the repository root: the directory is
+    Among the Claude Code entries, `.cc-writes` alone carries a `**/` prefix,
+    because it is the one Claude Code does not place at the repository root: it is
     staged beside whichever working directory the session tracks, so a single
     `cd` into a subtree leaves one there instead. Anchoring it would miss every
     copy but the root's.
+
+    The skill-scripts negation follows the base `virtualenv` category, which
+    ignores every `[Ss]cripts` directory and so hides the helper scripts a skill
+    keeps. Its `**/` prefix reaches every skills directory, wherever it sits.
 
     A repository that symlinks the user skills directory into its tree also needs
     the names of Claude Code's own claude.ai skill sync ignored: the downloaded
     copies land in `synced/`, and a skill the sync stops shipping is moved to
     `.trash/` (Claude Code `2.1.284`). Both are children of the skills directory
-    itself, so the rules travel with wherever that directory sits.
-
-    The base `virtualenv` category ignores every `[Ss]cripts` directory, which
-    hides the helper scripts a skill keeps, so a negation has to follow it:
+    itself, so the rules travel with wherever that directory sits:
 
     ```
     **/.agents/skills/synced/
     **/.agents/skills/.trash/
-    !**/.agents/skills/*/scripts/
     ```
     """
 

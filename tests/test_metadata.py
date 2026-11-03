@@ -1965,6 +1965,8 @@ def test_repomatic_config_defaults(tmp_path, monkeypatch):
         "# Claude Code local files.\n"
         ".claude/scheduled_tasks.lock\n.claude/settings.local.json\n"
         "**/.claude/.cc-writes/\n\n"
+        "# Agent skill scripts, which the virtualenv `[Ss]cripts` rule ignores.\n"
+        "!**/skills/*/scripts/\n\n"
         "# Cloudflare wrangler local state.\n.wrangler/\n\n"
         "# Sphinx linkcheck output.\ndocs/_linkcheck/"
     )

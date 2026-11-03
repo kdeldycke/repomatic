@@ -111,6 +111,9 @@ gitignore.extra-content = '''
 .claude/settings.local.json
 **/.claude/.cc-writes/
 
+# Agent skill scripts, which the virtualenv `[Ss]cripts` rule ignores.
+!**/skills/*/scripts/
+
 # Cloudflare wrangler local state.
 .wrangler/
 
