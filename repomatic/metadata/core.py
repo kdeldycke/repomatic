@@ -128,6 +128,9 @@ _METADATA_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
     "is_bot": "Workflow was triggered by a bot or automated process.",
     "is_awesome": "Repository is an awesome list: its name starts with `awesome-`.",
     "yaml_changed": "Current event's commit range touches at least one YAML file.",
+    "shfmt_changed": (
+        "Current event's commit range touches at least one file of `shfmt_files`."
+    ),
     "zsh_changed": "Current event's commit range touches at least one Zsh file.",
     "workflows_changed": (
         "Current event's commit range touches at least one GitHub workflow file."

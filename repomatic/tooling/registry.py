@@ -2437,6 +2437,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "shellcheck": ToolSpec(
         name="shellcheck",
         display_name="ShellCheck",
+        default_paths="shfmt_files",
         version="0.11.0",
         source_url="https://github.com/koalaman/shellcheck",
         config_docs_url="https://github.com/koalaman/shellcheck/wiki/Directive",
@@ -2477,13 +2478,15 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             **Try it:**
 
             ```shell-session
-            $ repomatic run shellcheck -- script.sh
+            $ repomatic run shellcheck
             ```
 
-            ShellCheck lints shell scripts. repomatic puts it on `PATH` for `repomatic
-            run actionlint`, which lints the `run:` scripts of the workflows with it. It
-            reads its own `.shellcheckrc` and the `# shellcheck` directives of each
-            script, so there is no `[tool.shellcheck]` section.
+            ShellCheck lints shell scripts. With no arguments, it lints the files
+            `shfmt` formats. That set leaves out Zsh files, which ShellCheck does not
+            support. repomatic also puts it on `PATH` for `repomatic run actionlint`,
+            which lints the `run:` scripts of the workflows with it. It reads its own
+            `.shellcheckrc` and the `# shellcheck` directives of each script, so there
+            is no `[tool.shellcheck]` section.
             """),
     ),
     "shfmt": ToolSpec(

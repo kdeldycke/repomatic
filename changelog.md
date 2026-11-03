@@ -5,6 +5,10 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Add the `lint-shell` job to `lint.yaml`, which runs ShellCheck on the shell scripts that `format-shell` formats.
+- `repomatic run shellcheck` with no arguments now lints the shell scripts of the repository.
+- Add the `shfmt_changed` metadata key, which says whether the commit range touches a file of `shfmt_files`.
+
 ## [`8.1.0` (2026-11-03)](https://github.com/kdeldycke/repomatic/compare/v8.0.0...v8.1.0)
 
 - **Breaking:** Retire the `repomatic-audit` skill, folded into `repomatic-upgrade` as its second pass. `repomatic init` deletes an unmodified copy, and fails on an `exclude` or `include` entry naming `skills/repomatic-audit` until the entry is dropped.

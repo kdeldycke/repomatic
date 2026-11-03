@@ -407,6 +407,8 @@ class FileInventory:
         Files are excluded by extension (`.zsh`, `.zshrc`, etc.) and by
         shebang (any `.sh` file whose first line references `zsh`).
 
+        ShellCheck lints the same list: it does not support Zsh either.
+
         ```{todo}
         Stop excluding Zsh once `shfmt` formats those constructs:
         [mvdan/sh#1203](https://github.com/mvdan/sh/issues/1203).

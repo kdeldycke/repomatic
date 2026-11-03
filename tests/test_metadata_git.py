@@ -183,21 +183,26 @@ def test_changed_files_surfaces_git_stderr(monkeypatch, caplog):
 
 
 @pytest.mark.parametrize(
-    ("changed", "zsh_changed", "workflows_changed"),
+    ("changed", "shfmt_changed", "zsh_changed", "workflows_changed"),
     (
-        pytest.param((".github/workflows/lint.yaml",), False, True, id="workflow"),
-        pytest.param(("scripts/setup.zsh",), True, False, id="zsh"),
-        pytest.param(("readme.md",), False, False, id="neither"),
+        pytest.param(
+            (".github/workflows/lint.yaml",), False, False, True, id="workflow"
+        ),
+        pytest.param(("scripts/setup.sh",), True, False, False, id="shell"),
+        pytest.param(("scripts/setup.zsh",), False, True, False, id="zsh"),
+        pytest.param(("readme.md",), False, False, False, id="neither"),
     ),
 )
-def test_changed_file_kinds(changed, zsh_changed, workflows_changed):
+def test_changed_file_kinds(changed, shfmt_changed, zsh_changed, workflows_changed):
     """`git diff` names, as strings, match the inventory's `Path` objects."""
     metadata = Metadata()
     metadata.__dict__["changed_files"] = changed
     metadata.__dict__["files"] = SimpleNamespace(
+        shfmt_files=[Path("scripts/setup.sh")],
         zsh_files=[Path("scripts/setup.zsh")],
         workflow_files=[Path(".github/workflows/lint.yaml")],
     )
+    assert metadata.shfmt_changed is shfmt_changed
     assert metadata.zsh_changed is zsh_changed
     assert metadata.workflows_changed is workflows_changed
 

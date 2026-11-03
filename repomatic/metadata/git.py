@@ -277,6 +277,18 @@ class GitMetadata:
         return any(f.endswith((".yaml", ".yml")) for f in self.changed_files)
 
     @cached_property
+    def shfmt_changed(self) -> bool:
+        """Whether the current event's commit range touches a `shfmt_files` file.
+
+        Gates the ShellCheck lint job, which reads the files `shfmt` formats.
+        Falls back to "repo contains any such file" when the commit range is
+        unavailable.
+        """
+        if self.changed_files is None:
+            return bool(self.files.shfmt_files)
+        return _touches(self.changed_files, self.files.shfmt_files)
+
+    @cached_property
     def zsh_changed(self) -> bool:
         """Whether the current event's commit range touches a Zsh file.
 

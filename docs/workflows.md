@@ -529,6 +529,16 @@ None of these jobs read a label config committed to the repository. `labels.toml
   - `prepare-release` branch
   - Bot-created PRs
 
+### 🐚 Lint Shell (`lint-shell`)
+
+- Lints shell scripts using [`shellcheck`](https://github.com/koalaman/shellcheck), on the files [`format-shell`](#format-shell-format-shell) formats. Zsh files go to [`lint-zsh`](#lint-zsh-lint-zsh) instead, since ShellCheck does not support Zsh
+- **Requires**:
+  - Shell files (`**/*.{bash,bats,ksh,mksh,sh}`) or bash dotfiles (`.bashrc`, `.bash_profile`, `.profile`, etc.) in the repository, other than a file whose shebang names zsh
+  - A shell file changed by the push or pull request (a manual run has no change to read, so any shell file in the repository qualifies)
+- **Skipped for**:
+  - `prepare-release` branch
+  - Bot-created PRs
+
 ### 🐚 Lint Zsh (`lint-zsh`)
 
 - Syntax-checks Zsh scripts using `zsh --no-exec`

@@ -471,6 +471,7 @@ expected: dict[str, Any] = {
     "is_awesome": False,
     # *_changed booleans depend on the current event's commit range.
     "yaml_changed": AnyBool(),
+    "shfmt_changed": AnyBool(),
     "zsh_changed": AnyBool(),
     "workflows_changed": AnyBool(),
     "mailmap_exists": True,

@@ -97,7 +97,7 @@ jobs:
           uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
           is_bot is_awesome is_python_project python_files
-          yaml_changed zsh_changed zsh_files workflows_changed tool_versions
+          yaml_changed shfmt_changed zsh_changed zsh_files workflows_changed tool_versions
 
   lint-repo:
     name: 🏠 Lint repo
@@ -193,6 +193,35 @@ jobs:
           version: "0.13.5"
       - name: Run yamllint
         run: uv --no-progress run --frozen -- repomatic run yamllint
+
+  lint-shell:
+    name: 🐚 Lint Shell
+    needs:
+      - metadata
+    # Skip when this event didn't touch any shell file, and on bot PRs.
+    if: >
+      (! fromJSON(needs.metadata.outputs.metadata).is_bot)
+      && fromJSON(needs.metadata.outputs.metadata).shfmt_changed
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.5"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/repomatic/bin
+          key: >-
+            repomatic-${{ runner.os }}-${{ runner.arch }}-shellcheck-${{
+            fromJSON(needs.metadata.outputs.metadata).tool_versions.shellcheck }}
+          restore-keys: |
+            repomatic-${{ runner.os }}-${{ runner.arch }}-shellcheck-
+      - name: Run ShellCheck
+        # No file list: the tool runner lints the files format-shell formats, and
+        # skips the tool when there are none. See `ToolSpec.default_paths` in
+        # repomatic/tooling/registry.py.
+        run: uv --no-progress run --frozen -- repomatic run shellcheck
 
   lint-zsh:
     name: 🐚 Lint Zsh

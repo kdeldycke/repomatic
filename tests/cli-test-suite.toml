@@ -73,6 +73,7 @@ stdout_contains = [
 stdout_regex_matches = [
   "is_bot=(true|false)",
   "yaml_changed=(true|false)",
+  "shfmt_changed=(true|false)",
   "zsh_changed=(true|false)",
   "workflows_changed=(true|false)",
   'python_files="[\S ]+"',
