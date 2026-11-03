@@ -63,6 +63,7 @@ from repomatic.lint_repo.context import (
     documentation_url,
 )
 from repomatic.lint_repo.pins import (
+    BINARY_BUILD_TOOLS,
     check_inline_pins_match_upstream,
     check_manpages_toolchain,
     check_registry_pin_cooldown,
@@ -137,6 +138,7 @@ from repomatic.metadata.core import METADATA_VALUE_OPTIONS
 from repomatic.pypi import TrustedPublisher
 from repomatic.release.self_pin import cooldown_exemption
 from repomatic.tooling.registry import (
+    TOOL_REGISTRY,
     ArchiveFormat,
     BinarySpec,
     NpmSpec,
@@ -4082,11 +4084,13 @@ def _pin_cooldown(
     candidates: Callable[[ToolSpec], list[Candidate]],
     entries: Mapping[str, object] | None = None,
     minimum_release_age: str = "1 week",
+    nuitka_active: bool = False,
 ) -> list[CheckResult]:
     """Run the cooldown check over *tool* alone, its releases from *candidates*."""
     ctx = LintContext(
         config=Config(minimum_release_age=minimum_release_age),
         tool_table={"uv": {"exclude-newer-package": dict(entries or {})}},
+        nuitka_active=nuitka_active,
     )
     with patch("repomatic.lint_repo.pins.tool_candidates", side_effect=candidates):
         return check_registry_pin_cooldown(
@@ -4214,6 +4218,29 @@ def test_registry_pin_cooldown_leaves_binary_tools_alone():
     lookup = Mock(side_effect=_dated(YOUNG_RELEASE))
     assert _pin_cooldown(BINARY_TOOL, lookup) == []
     lookup.assert_not_called()
+
+
+@pytest.mark.parametrize("name", sorted(BINARY_BUILD_TOOLS))
+@pytest.mark.parametrize(
+    ("nuitka_active", "checked"),
+    (
+        pytest.param(False, False, id="no-binary-build"),
+        pytest.param(True, True, id="binary-build"),
+    ),
+)
+def test_registry_pin_cooldown_checks_binary_build_tools_where_they_run(
+    name, nuitka_active, checked
+):
+    """A binary build tool's pin holds back only a project that compiles binaries.
+
+    Elsewhere nothing installs the tool, and the entry the warning names would
+    admit a package no job resolves.
+    """
+    assert name in TOOL_REGISTRY, f"{name} is not a registry tool"
+    lookup = Mock(side_effect=_dated(YOUNG_RELEASE))
+    results = _pin_cooldown(TOOL_REGISTRY[name], lookup, nuitka_active=nuitka_active)
+    assert [result.passed for result in results] == ([False] if checked else [])
+    assert lookup.called is checked
 
 
 def test_registry_pin_cooldown_skips_without_a_cooldown():

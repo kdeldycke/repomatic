@@ -14,6 +14,7 @@
 - The bundled `file-bug-report` skill now covers a reply on an existing issue, and paces its `gh search` calls under the search API rate limit.
 - The bundled `repomatic-upgrade` skill now passes `lint-repo` the `--has-*` flag of each secret the repository holds, which a local run cannot read.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
+- Fix `lint-repo` warning about a young `nuitka` pin in a repository that compiles no binary, where nothing installs it.
 - Regrade the benchmark with ✅, 🪫 and ❌ marks, each linked to its evidence, in place of plain `✓` and `~`.
 - Move `cruft`, which has had no commit since December 2024, from the benchmark tables to its excluded projects.
 - Document the `.staging/` folder of the claude.ai skill sync, which a symlinked user skills directory also needs in `.gitignore`.

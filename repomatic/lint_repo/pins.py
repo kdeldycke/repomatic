@@ -61,6 +61,13 @@ if TYPE_CHECKING:
     from .context import LintContext
 
 
+BINARY_BUILD_TOOLS = frozenset({"nuitka"})
+"""Registry tools that only the binary build installs.
+
+A project that compiles no binary never runs them, so
+{func}`check_registry_pin_cooldown` leaves their pins alone there.
+"""
+
 LOCK_FILE = Path("uv.lock")
 """The lockfile the `manpages` release job installs from."""
 
@@ -396,6 +403,10 @@ def check_registry_pin_cooldown(
       can admit it or hold it back. Listing its releases would also cost GitHub
       API calls on every run.
 
+    A tool of {data}`BINARY_BUILD_TOOLS` is not checked in a project that
+    compiles no binary: nothing there installs it, so its pin holds nothing back,
+    and the entry the warning names would admit a package no job resolves.
+
     Advisory: the pins come with repomatic, and a downstream repository can act
     on the first case only. A tool whose datasource gives no date for its
     pinned version is reported as skipped, never as a failure.
@@ -442,6 +453,8 @@ def check_registry_pin_cooldown(
     for name, spec in sorted(registry.items()):
         backend = spec.backend
         if not backend.enforces_cooldown:
+            continue
+        if name in BINARY_BUILD_TOOLS and not ctx.nuitka_active:
             continue
         released = pinned_release_date(tool_candidates(spec), spec.version)
         if released is None:

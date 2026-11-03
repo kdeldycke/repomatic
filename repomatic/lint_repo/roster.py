@@ -821,8 +821,9 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             " the same entry. A `uvx` or npm tool reads no such entry, so the"
             " warning gives the date its install starts to work. Binary tools are"
             " not checked: their download applies no cooldown, so nothing holds a"
-            " young pin back. A pin whose release date cannot be read is reported"
-            " as skipped"
+            " young pin back. Nor is `nuitka` in a project that compiles no binary,"
+            " where nothing installs it. A pin whose release date cannot be read is"
+            " reported as skipped"
         ),
     ),
     # Fatal for the same reason again: a retired key fails the `metadata` job,
