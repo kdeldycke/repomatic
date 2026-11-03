@@ -99,7 +99,7 @@ $ pacaur -S python-repomatic
 
 ## Python compatibility
 
-The table below shows which Python versions each `repomatic` release range supports, derived from the declarations in each git tag's `pyproject.toml`. It is refreshed by [click-extra's `{matrix}` directive machinery](https://kdeldycke.github.io/click-extra/sphinx.html#the-matrix-directive) through the `update-docs` job. A `✅` marks a version the release declares through its classifiers. A `❌` marks one its `requires-python` rules out. A `–` marks one the release neither declared nor excluded, which is what an open-ended `requires-python` leaves for a Python published after that tag. Releases prior to `4.0.0` did not declare Python version support in any form and are not represented.
+The table below shows which Python versions each `repomatic` release range supports, derived from the declarations in each git tag's `pyproject.toml`. It is refreshed by [click-extra's `{matrix}` directive machinery](https://kdeldycke.github.io/click-extra/python-directives.html#matrix-directives) through the `update-docs` job. A `✅` marks a version the release declares through its classifiers. A `❌` marks one its `requires-python` rules out. A `–` marks one the release neither declared nor excluded, which is what an open-ended `requires-python` leaves for a Python published after that tag. Releases prior to `4.0.0` did not declare Python version support in any form and are not represented.
 
 <!-- matrix python -->
 

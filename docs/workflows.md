@@ -306,7 +306,7 @@ A fifth updater, [`sync-tool-versions`](#github-workflows-sync-tool-versions-yam
 - Lists every generated page in the `toctree` of its parent index page (`Subpackages` for a package, `Submodules` for a module), so a module added later never sits orphaned. An index page lacking the section a new page needs is left alone and named in the job log
 - Runs `docs/docs_update.py` if present to generate dynamic content (tables, diagrams, Sphinx directives)
 - Re-formats with [`pyproject-fmt`](https://github.com/tox-dev/pyproject-fmt) each `pyproject.toml` that `docs/docs_update.py` rewrote, so this job's pull request cannot ping-pong with the `format-pyproject` job. A `pyproject.toml` the run left alone keeps its drift, which belongs to `format-pyproject`
-- Refreshes self-updating directive blocks (like [`{matrix}` compatibility tables](https://kdeldycke.github.io/click-extra/sphinx.html#matrix-directives)) in `docs/` and `readme.md` with `click-extra refresh-directives`
+- Refreshes self-updating directive blocks (like [`{matrix}` compatibility tables](https://kdeldycke.github.io/click-extra/python-directives.html#matrix-directives)) in `docs/` and `readme.md` with `click-extra refresh-directives`
 - **Requires**:
   - Python package with a `pyproject.toml` file
   - `docs` dependency group
