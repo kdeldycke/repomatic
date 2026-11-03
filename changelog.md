@@ -16,7 +16,7 @@
 - The bundled `repomatic-upgrade` skill now compares the test matrix at both pins, dispatches `release.yaml` to self-test every binary, and counts each old finding of a new gating job.
 - The bundled `repomatic-upgrade` skill now ends with two numbered lists: the applied rows, and the remaining actions, each labelled `Decide:`, `Implement:`, `Commit:`, `Push:` or `Report:`.
 - The bundled `awesome-template` contributing guide and `awesome-triage` skill now reject a link to a temporary, development or preproduction address, like a `pages.dev` default domain.
-- The bundled `babysit-ci`, `repomatic-changelog` and `repomatic-deps` skills now run `repomatic` at the version the workflows pin, like `repomatic-ship`.
+- The bundled `grunt-qa` agent and the `babysit-ci`, `repomatic-changelog` and `repomatic-deps` skills now run `repomatic` at the version the workflows pin, like `repomatic-ship`.
 - The bundled `repomatic-ship` skill now waits out a long CI cycle with a background `ci-status --wait`, and reads the newest `schedule` or `workflow_dispatch` build of `release.yaml`.
 - In a repository `repomatic` depends on, like click-extra, the bundled `repomatic-ship` skill now checks that the pinned `repomatic` imports against the release tree.
 - The bundled `babysit-ci` skill now passes `ci-status --wait` one `--workflow` per workflow a push started, when an older red run would end the wait at once.
