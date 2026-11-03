@@ -36,6 +36,14 @@ When base SVGs already exist (at least a square logo or banner), skip any intera
 
 Only ask the user a question when the gap analysis is genuinely ambiguous (multiple competing icon sources, unclear which element is the project icon).
 
+## Raster-only marks
+
+A mark that exists only as a raster illustration has no SVG to theme, and an illustration rarely traces cleanly. Keep its PNGs and wire them instead:
+
+- Read the alpha channel before you call a background opaque: the Read tool draws transparent pixels as white.
+- A transparent logo that reads on both themes can serve as both `light_logo` and `dark_logo`.
+- Point `html_favicon` at the PNG icon, and compose the social card from the banner on an opaque background.
+
 ## Redesigning an existing mark
 
 Revising the *treatment* of a mark that already has SVG sources — outlined vs flat, how many shading planes, how a cutout gets painted — is a different exercise from Design exploration below, which assumes no SVG exists yet. It still deserves the same breadth before committing to a direction, and it must be judged on both themes at once: a treatment that reads fine on white can fail outright on near-black (see "Isometric / faceted marks" below for why an outlined mark is especially prone to this).

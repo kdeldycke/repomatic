@@ -16,6 +16,7 @@
 - The bundled `repomatic-upgrade` skill now passes `lint-repo` the `--has-*` flag of each secret the repository holds, which a local run cannot read.
 - The bundled `repomatic-upgrade` skill no longer ports the local edits of a synced copy that upstream `main` already holds.
 - The bundled `repomatic-upgrade` skill now reads the annotations of a cancelled CI job, where GitHub names a runner image it is retiring.
+- The bundled `brand-assets` skill now covers a mark that exists only as a raster illustration, and reads its alpha channel before calling a background opaque.
 - The bundled `sphinx-docs` agent now lists `click_extra.todo_unrendered` among its strictness flags, and registers icons for `design.md` and `performance.md` pages.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
 - Fix `lint-repo` warning about a young `nuitka` pin in a repository that compiles no binary, where nothing installs it.
