@@ -252,9 +252,10 @@ def literal_runners(
     """Every runner image this repository names outright, and where.
 
     Only literals: a value built from an expression (`${{ matrix.os }}`) names
-    no image here, and the axis it draws from is checked at its definition. A
-    thin caller declares no `steps:` and runs on whatever the reusable workflow
-    chose, which is that workflow's business rather than this repository's.
+    no image here, and the axis it draws from is checked at its definition, like
+    the literal list {func}`matrix_runners` reads. A thin caller declares no
+    `steps:` and runs on whatever the reusable workflow chose, which is that
+    workflow's business rather than this repository's.
 
     Separate from {data}`~repomatic.matrix.axes.KNOWN_RUNNERS`, and
     deliberately so. That set is what this project has *chosen*; this function
@@ -278,4 +279,50 @@ def literal_runners(
         if not isinstance(runner, str) or "${{" in runner:
             continue
         seen.setdefault(runner, []).append(f"{path.name}:{job_id}")
+    return seen
+
+
+def matrix_runners(
+    workflow_dir: Path = WORKFLOW_DIR,
+    workflows: Mapping[Path, Mapping[str, Any]] | None = None,
+) -> dict[str, list[str]]:
+    """Every runner image a job's own matrix lists outright, and where.
+
+    A job whose `runs-on:` reads `matrix.os` runs on each image of its matrix:
+    the `os` axis, and the `os` of each `include` row. When that matrix is
+    written out in the workflow rather than computed, its labels are as literal
+    as a `runs-on:` value, and {func}`literal_runners` cannot see them. A
+    matrix built from an expression, like the test matrix `show-metadata`
+    computes, names no image here.
+
+    :param workflow_dir: Directory holding the workflow files. Ignored when
+        *workflows* is supplied.
+    :param workflows: Pre-parsed workflows, read from disk when `None`.
+    :return: A mapping of runner label to the `file.yaml:job-id` locations
+        listing it, empty when no job's matrix lists one literally.
+    """
+    if workflows is None:
+        workflows = load_workflows(workflow_dir)
+    seen: dict[str, list[str]] = {}
+    for path, job_id, job in iter_jobs(workflows):
+        runner = job.get("runs-on")
+        if "steps" not in job or not isinstance(runner, str):
+            continue
+        if "matrix.os" not in runner:
+            continue
+        matrix = (job.get("strategy") or {}).get("matrix")
+        if not isinstance(matrix, dict):
+            continue
+        axis = matrix.get("os")
+        labels = list(axis) if isinstance(axis, list) else []
+        for row in matrix.get("include") or ():
+            if isinstance(row, dict):
+                labels.append(row.get("os"))
+        location = f"{path.name}:{job_id}"
+        for label in labels:
+            if not isinstance(label, str) or "${{" in label:
+                continue
+            locations = seen.setdefault(label, [])
+            if location not in locations:
+                locations.append(location)
     return seen

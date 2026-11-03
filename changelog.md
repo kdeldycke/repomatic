@@ -17,6 +17,7 @@
 - The bundled `repomatic-upgrade` skill no longer ports the local edits of a synced copy that upstream `main` already holds.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
 - Fix `lint-repo` warning about a young `nuitka` pin in a repository that compiles no binary, where nothing installs it.
+- Fix `sync-runner-images` never retiring an image that only a repository's own matrix names: it moves a `[tool.repomatic.test-matrix]` entry and reports a workflow one.
 - Regrade the benchmark with ✅, 🪫 and ❌ marks, each linked to its evidence, in place of plain `✓` and `~`.
 - Move `cruft`, which has had no commit since December 2024, from the benchmark tables to its excluded projects.
 - Document the `.staging/` folder of the claude.ai skill sync, which a symlinked user skills directory also needs in `.gitignore`.

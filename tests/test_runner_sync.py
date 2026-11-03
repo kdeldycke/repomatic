@@ -30,11 +30,13 @@ import pytest
 from click_extra.testing import CliRunner
 
 from repomatic.cli.main import repomatic
-from repomatic.matrix.axes import KNOWN_RUNNERS, LINUX_X64_RUNNER
+from repomatic.config import TestMatrixConfig as MatrixConfig  # Hidden from pytest.
+from repomatic.matrix.axes import KNOWN_RUNNERS, LINUX_X64_RUNNER, MACOS_ARM64_RUNNER
 from repomatic.matrix.runner_sync import (
     AXES_SOURCE_PATH,
     ChangeKind,
     RunnerChange,
+    configured_runners,
     plan_runner_changes,
     render_change_table,
 )
@@ -388,6 +390,137 @@ def test_apply_adds_the_probe_only_for_an_upgrade(tmp_path) -> None:
     assert "ubuntu-24.04" in axes.read_text(encoding="UTF-8")
 
 
+def test_a_retirement_names_the_matrices_listing_it() -> None:
+    """A job's own matrix is reported for a move by hand, in the table too."""
+    (change,) = plan_runner_changes(
+        {}, {"ubuntu-22.04"}, CATALOG, matrix={"ubuntu-22.04": ["tests.yaml:install"]}
+    )
+
+    assert change.matrix_locations == ("tests.yaml:install",)
+    assert (
+        "move `ubuntu-22.04` by hand in the matrix of `tests.yaml:install`"
+        in render_change_table([change])
+    )
+
+
+def test_an_upgrade_names_no_matrix() -> None:
+    """Only a retirement carries a deadline worth a move by hand."""
+    (change,) = plan_runner_changes(
+        {}, {"ubuntu-24.04"}, CATALOG, matrix={"ubuntu-24.04": ["tests.yaml:install"]}
+    )
+
+    assert change.kind is ChangeKind.UPGRADE
+    assert not change.matrix_locations
+
+
+def test_configured_runners_reads_every_row() -> None:
+    """Each way a repository adds a runner to its own matrix is read."""
+    config = MatrixConfig(
+        full_include=[{"os": "ubuntu-22.04", "python-version": "3.15"}],
+        include=[{"os": "windows-2022"}, {"python-version": "3.16"}],
+        replace={"os": {"ubuntu-26.04": "ubuntu-24.04"}},
+        variations={"os": ["macos-15"], "click-version": ["8.3.1"]},
+    )
+
+    assert configured_runners(config) == {
+        "macos-15",
+        "ubuntu-22.04",
+        "ubuntu-24.04",
+        "windows-2022",
+    }
+
+
+def test_retirement_moves_the_configured_matrix(tmp_path) -> None:
+    """Rows keep their other keys, comments survive, and a re-run is a no-op.
+
+    The fixture is the dotted-key shape `format-pyproject` leaves behind.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "papaya"\n\n'
+        "[tool.repomatic]\n"
+        "# The sdist cell.\n"
+        'test-matrix.full-include = [ { os = "ubuntu-22.04", source = "sdist" } ]\n'
+        'test-matrix.variations.os = [ "ubuntu-22.04", "macos-15" ]\n',
+        encoding="UTF-8",
+    )
+    (change,) = plan_runner_changes({}, {"ubuntu-22.04"}, CATALOG)
+
+    assert change.apply(tmp_path, pyproject) == [pyproject]
+    written = pyproject.read_text(encoding="UTF-8")
+    assert "ubuntu-22.04" not in written
+    assert "# The sdist cell.\n" in written
+    assert '[ { os = "ubuntu-24.04", source = "sdist" } ]' in written
+    assert 'test-matrix.variations.os = [ "ubuntu-24.04", "macos-15" ]' in written
+    assert not change.rewrite_matrix_config(pyproject), "second run should be a no-op"
+
+
+def test_retirement_moves_a_replace_target(tmp_path) -> None:
+    """A base image replaced by the retiring one is replaced by its successor."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        "[tool.repomatic]\n"
+        'test-matrix.replace.os = { "ubuntu-26.04" = "ubuntu-22.04" }\n',
+        encoding="UTF-8",
+    )
+    (change,) = plan_runner_changes({}, {"ubuntu-22.04"}, CATALOG)
+
+    assert change.rewrite_matrix_config(pyproject)
+    assert pyproject.read_text(encoding="UTF-8") == (
+        "[tool.repomatic]\n"
+        'test-matrix.replace.os = { "ubuntu-26.04" = "ubuntu-24.04" }\n'
+    )
+
+
+@pytest.mark.parametrize(
+    ("label", "successor", "variations", "expected"),
+    [
+        pytest.param(
+            "macos-14",
+            MACOS_ARM64_RUNNER,
+            '[ "macos-14", "macos-15" ]',
+            '[tool.repomatic]\ntest-matrix.variations.os = [ "macos-15" ]\n',
+            id="successor-in-the-curated-axes",
+        ),
+        pytest.param(
+            "ubuntu-22.04",
+            "ubuntu-24.04",
+            '[ "ubuntu-22.04", "ubuntu-24.04" ]',
+            '[tool.repomatic]\ntest-matrix.variations.os = [ "ubuntu-24.04" ]\n',
+            id="successor-already-listed",
+        ),
+        # The matrix builder rejects an axis with no value.
+        pytest.param(
+            "macos-14",
+            MACOS_ARM64_RUNNER,
+            '[ "macos-14" ]',
+            "[tool.repomatic]\n",
+            id="emptied-axis",
+        ),
+    ],
+)
+def test_retirement_drops_a_variation_the_matrix_already_runs(
+    tmp_path, label: str, successor: str, variations: str, expected: str
+) -> None:
+    """A second copy of the successor in `variations` would add nothing."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        f"[tool.repomatic]\ntest-matrix.variations.os = {variations}\n",
+        encoding="UTF-8",
+    )
+    change = RunnerChange(
+        kind=ChangeKind.RETIREMENT,
+        label=label,
+        successor=successor,
+        locations=(),
+        reason=f"{label} is deprecated",
+        alternative="",
+    )
+
+    assert change.rewrite_matrix_config(pyproject)
+    assert pyproject.read_text(encoding="UTF-8") == expected
+
+
 @pytest.mark.parametrize(
     ("kind", "label"),
     [
@@ -433,6 +566,73 @@ def test_sync_runner_images_command(tmp_path, monkeypatch, dry_run) -> None:
     written = workflow.read_text(encoding="UTF-8")
     assert ("runs-on: ubuntu-22.04" in written) is dry_run
     assert ("runs-on: ubuntu-24.04" in written) is not dry_run
+
+
+def test_sync_runner_images_reads_the_configured_matrix(tmp_path, monkeypatch) -> None:
+    """A retiring image that only `[tool.repomatic.test-matrix]` names is moved.
+
+    No job names it outright and the curated axes never listed it, so the
+    repository's own matrix configuration is the one place it can be found.
+    """
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "tests.yaml").write_text(
+        "jobs:\n  build:\n    runs-on: ${{ matrix.os }}\n    steps: []\n",
+        encoding="UTF-8",
+    )
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "papaya"\n\n'
+        "[tool.repomatic]\n"
+        'test-matrix.variations.os = [ "ubuntu-22.04" ]\n',
+        encoding="UTF-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("repomatic.cli.ci.fetch_catalog", lambda: CATALOG)
+
+    result = CliRunner().invoke(repomatic, ["sync-runner-images"])
+
+    assert result.exit_code == 0, result.output
+    assert "retirement: `ubuntu-22.04` → `ubuntu-24.04`" in result.output
+    written = pyproject.read_text(encoding="UTF-8")
+    assert 'test-matrix.variations.os = [ "ubuntu-24.04" ]' in written
+
+
+def test_sync_runner_images_reports_a_job_matrix(tmp_path, monkeypatch) -> None:
+    """A retiring image in a job's own matrix is annotated, never rewritten."""
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    workflow = workflows / "tests.yaml"
+    content = (
+        "jobs:\n"
+        "  install:\n"
+        "    strategy:\n"
+        "      matrix:\n"
+        "        os:\n"
+        "          - ubuntu-22.04\n"
+        "    runs-on: ${{ matrix.os }}\n"
+        "    steps: []\n"
+    )
+    workflow.write_text(content, encoding="UTF-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "papaya"\n', encoding="UTF-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("repomatic.cli.ci.fetch_catalog", lambda: CATALOG)
+
+    result = CliRunner().invoke(
+        repomatic, ["sync-runner-images", "--output", "proposal.md"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "::warning::tests.yaml:install: move `ubuntu-22.04` off this job's matrix"
+        in result.output
+    )
+    assert "by hand in the matrix of `tests.yaml:install`" in (
+        tmp_path / "proposal.md"
+    ).read_text(encoding="UTF-8")
+    assert workflow.read_text(encoding="UTF-8") == content
 
 
 def test_sync_runner_images_switched_off(tmp_path, monkeypatch) -> None:

@@ -63,12 +63,14 @@ import tomlrt
 from ..pyproject import load_pyproject_doc
 from ..tabular import render_markdown_table
 from . import axes
+from .model import OS_AXIS
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
     from typing import Any, Final
 
+    from ..config import TestMatrixConfig
     from .runners import RunnerCatalog
 
 AXES_SOURCE_PATH: Final = Path(*axes.__name__.split(".")).with_suffix(".py")
@@ -159,6 +161,15 @@ class RunnerChange:
     the current image from gating the build.
     """
 
+    matrix_locations: tuple[str, ...] = ()
+    """`file.yaml:job-id` entries whose own matrix lists {attr}`label`.
+
+    Set on a retirement only, and reported rather than rewritten: a YAML list
+    edited as text can match the wrong line, and a list that already runs the
+    successor needs the label dropped rather than moved. The pull request body
+    and a workflow annotation name each one, to move by hand.
+    """
+
     @property
     def summary(self) -> str:
         """One line naming the change, for a commit subject or a table row."""
@@ -172,11 +183,13 @@ class RunnerChange:
         """Make this change in the working tree.
 
         Both kinds move the jobs naming the image outright. A retirement also
-        moves the curated axes, when *axes_path* names them. An upgrade also adds
-        its matrix probe.
+        moves the curated axes, when *axes_path* names them, and the test matrix
+        the repository configures itself. An upgrade also adds its matrix probe.
 
         :param workflow_dir: Directory holding the workflow files.
-        :param pyproject_path: The project file an upgrade probe lands in.
+        :param pyproject_path: The project file holding the test-matrix
+            configuration: a retirement moves its labels, an upgrade adds its
+            probe there.
         :param axes_path: The curated axes module, set only inside a checkout of
             repomatic itself (see {data}`AXES_SOURCE_PATH`).
         :return: The files actually rewritten.
@@ -185,6 +198,8 @@ class RunnerChange:
         if self.kind is ChangeKind.RETIREMENT:
             if axes_path is not None and self.rewrite_axes(axes_path):
                 touched.append(axes_path)
+            if self.rewrite_matrix_config(pyproject_path):
+                touched.append(pyproject_path)
         elif self.add_probe(pyproject_path):
             touched.append(pyproject_path)
         return touched
@@ -266,6 +281,70 @@ class RunnerChange:
         axes_path.write_text(after, encoding="UTF-8")
         return True
 
+    def rewrite_matrix_config(self, pyproject_path: Path) -> bool:
+        """Move a retiring label off the test matrix the repository configures.
+
+        A label that `[tool.repomatic.test-matrix]` lists has no owner upstream:
+        the curated axes move with the pin, but a label the repository added
+        itself stays until the repository moves it. The `include` and
+        `full-include` rows naming it, and the `replace` targets, move onto the
+        successor and keep their other keys. In `variations`, the label moves in
+        place, unless the full matrix already runs the successor: the label is
+        then dropped, since the axis needs no second copy.
+
+        Edited through tomlrt, like {meth}`add_probe`, so comments and the
+        dotted-key layout of `format-pyproject` survive. Idempotent: a
+        configuration that no longer names the label is left untouched.
+
+        :param pyproject_path: The project file holding the configuration.
+        :return: Whether the file was modified.
+        """
+        if not pyproject_path.is_file():
+            return False
+        doc = load_pyproject_doc(pyproject_path)
+        config = doc.get("tool", {}).get("repomatic", {})
+        matrix = config.get("test-matrix")
+        if not matrix:
+            return False
+
+        changed = False
+        for key in ("include", "full-include"):
+            for row in matrix.get(key, ()):
+                if row.get(OS_AXIS) == self.label:
+                    row[OS_AXIS] = self.successor
+                    changed = True
+
+        replaced = matrix.get("replace", {}).get(OS_AXIS, {})
+        for old, new in list(replaced.items()):
+            if new == self.label:
+                replaced[old] = self.successor
+                changed = True
+
+        variations = matrix.get("variations", {})
+        axis = variations.get(OS_AXIS)
+        if axis is not None and self.label in list(axis):
+            removed = matrix.get("remove", {}).get(OS_AXIS, ())
+            base = {replaced.get(label, label) for label in axes.TEST_RUNNERS_FULL}
+            fleet = (base - set(removed)) | set(axis)
+            position = list(axis).index(self.label)
+            if self.successor in fleet:
+                del axis[position]
+            else:
+                axis[position] = self.successor
+            # The matrix builder rejects an axis left with no value, so an
+            # emptied axis goes, and so do the tables it leaves empty.
+            if not list(axis):
+                del variations[OS_AXIS]
+                if not variations:
+                    del matrix["variations"]
+                if not matrix:
+                    del config["test-matrix"]
+            changed = True
+
+        if changed:
+            pyproject_path.write_text(tomlrt.dumps(doc), encoding="UTF-8")
+        return changed
+
     def add_probe(self, pyproject_path: Path) -> bool:
         """Add the successor to the full test matrix as a failing-allowed probe.
 
@@ -328,11 +407,31 @@ class RunnerChange:
         return changed
 
 
+def configured_runners(test_matrix: TestMatrixConfig) -> frozenset[str]:
+    """Runner labels the repository adds to its own test matrix.
+
+    The curated axes ({data}`~repomatic.matrix.axes.KNOWN_RUNNERS`) arrive with
+    the pin. A label listed in `[tool.repomatic.test-matrix]` does not: through
+    `variations`, an `include` or `full-include` row, or a `replace` target, the
+    repository chose it, and no other lookup would see it retire.
+
+    :param test_matrix: The repository's test-matrix configuration.
+    :return: Every runner label that configuration names.
+    """
+    labels = set(test_matrix.variations.get(OS_AXIS, ()))
+    labels.update(test_matrix.replace.get(OS_AXIS, {}).values())
+    for row in (*test_matrix.include, *test_matrix.full_include):
+        if OS_AXIS in row:
+            labels.add(row[OS_AXIS])
+    return frozenset(labels)
+
+
 def plan_runner_changes(
     literal: Mapping[str, Sequence[str]],
     tracked: Iterable[str],
     catalog: RunnerCatalog,
     ignore: Iterable[str] = (),
+    matrix: Mapping[str, Sequence[str]] | None = None,
 ) -> list[RunnerChange]:
     """Work out which runner-image edits the table justifies.
 
@@ -354,7 +453,10 @@ def plan_runner_changes(
 
     Only literal `runs-on:` values are rewritten, for either kind: one built
     from an expression draws on a matrix axis, which is the axis owner's to
-    move.
+    move. A retirement also moves the labels of the repository's own
+    `[tool.repomatic.test-matrix]`, the one axis the repository owns: see
+    {meth}`RunnerChange.rewrite_matrix_config`. A label a job's own matrix
+    lists is reported, never rewritten: see {attr}`RunnerChange.matrix_locations`.
 
     Strictly newer by **version** is what separates an upgrade from a flavour.
     `Windows 11 Arm64 with Visual Studio 2026` sits at the same version as
@@ -369,6 +471,9 @@ def plan_runner_changes(
     :param ignore: Labels the repository has declined. A `sync-*` job
         regenerates on every run, so without this a closed pull request comes
         back and the proposal becomes a nuisance rather than a service.
+    :param matrix: Labels listed outright in a job's own matrix, mapped to their
+        locations, as {func}`~repomatic.github.workflow_files.matrix_runners`
+        reports them. A retirement names them, to move by hand.
     :return: The changes to propose, retirements first.
     """
     if not catalog:
@@ -407,6 +512,7 @@ def plan_runner_changes(
                     locations=tuple(literal.get(label, ())),
                     reason=f"{current.display_name} is deprecated",
                     alternative=preview_alt.preferred_label if preview_alt else "",
+                    matrix_locations=tuple((matrix or {}).get(label, ())),
                 )
             )
             continue
@@ -463,9 +569,14 @@ def render_change_table(changes: Sequence[RunnerChange]) -> str:
                 f"`{change.successor}` joins the matrix as `continue-on-error`, "
                 f"beside `{change.label}`"
             )
-        # A retirement with neither half is still worth a row: the image is
-        # going away, and the label lives in a matrix axis this repository
-        # inherits rather than in any `runs-on:` it could rewrite.
+        if change.matrix_locations:
+            halves.append(
+                f"move `{change.label}` by hand in the matrix of "
+                + ", ".join(f"`{loc}`" for loc in change.matrix_locations)
+            )
+        # A retirement with no half is still worth a row: the image is going
+        # away, and the label lives in a matrix axis rather than in any
+        # `runs-on:` the change could rewrite.
         where = ", and ".join(halves) or f"`{change.label}` → `{change.successor}`"
         alternative = f"`{change.alternative}` (preview)" if change.alternative else "—"
         rows.append((change.kind.label, where, change.reason, alternative))

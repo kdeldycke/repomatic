@@ -34,6 +34,7 @@ from repomatic.github.workflow_files import (
     literal_runners,
     load_workflow,
     load_workflows,
+    matrix_runners,
     parse_workflow_texts,
     read_workflow_texts,
     steps_of,
@@ -266,3 +267,39 @@ def test_literal_runners_reads_the_working_directory_by_default(tmp_path, monkey
         "    steps:\n      - run: echo apricot\n",
     )
     assert literal_runners() == {"macos-26": ["ci.yaml:build"]}
+
+
+def test_matrix_runners(tmp_path):
+    """A job's literal `os` axis and `include` rows are read, nothing else."""
+    _write(
+        tmp_path / "ci.yaml",
+        "on: push\n"
+        "jobs:\n"
+        "  install:\n"
+        "    strategy:\n"
+        "      matrix:\n"
+        "        os: [ubuntu-24.04, macos-15]\n"
+        "        include:\n"
+        "          - os: windows-2022\n"
+        "          - python-version: '3.15'\n"
+        "    runs-on: ${{ matrix.os }}\n"
+        "    steps:\n      - run: echo apricot\n"
+        "  computed:\n"
+        "    strategy:\n"
+        "      matrix: ${{ fromJSON(needs.metadata.outputs.matrix) }}\n"
+        "    runs-on: ${{ matrix.os }}\n"
+        "    steps:\n      - run: echo apricot\n"
+        "  flavors:\n"
+        "    strategy:\n"
+        "      matrix:\n"
+        "        os: [debian, alpine]\n"
+        "    runs-on: ubuntu-26.04\n"
+        "    steps:\n      - run: echo apricot\n"
+        "  delegated:\n"
+        "    uses: ./.github/workflows/_build.yaml\n",
+    )
+    assert matrix_runners(tmp_path) == {
+        "macos-15": ["ci.yaml:install"],
+        "ubuntu-24.04": ["ci.yaml:install"],
+        "windows-2022": ["ci.yaml:install"],
+    }

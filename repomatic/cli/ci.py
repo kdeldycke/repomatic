@@ -64,7 +64,7 @@ from ..github.job_timings import (
 from ..github.outputs import AnnotationLevel, report_finding
 from ..github.pr import list_automation_prs, release_pr as release_pr_status
 from ..github.runs import cancel_superseded_runs
-from ..github.workflow_files import WORKFLOW_DIR, literal_runners
+from ..github.workflow_files import WORKFLOW_DIR, literal_runners, matrix_runners
 from ..matrix.axes import (
     KNOWN_RUNNERS,
     MatrixName,
@@ -77,6 +77,7 @@ from ..matrix.model import (
 )
 from ..matrix.runner_sync import (
     AXES_SOURCE_PATH,
+    configured_runners,
     plan_runner_changes,
     render_change_table,
 )
@@ -914,8 +915,9 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
 
     Every label this repository runs is looked up in GitHub's available-images
     table. A **retirement** rewrites each literal `runs-on:` naming a deprecated
-    image onto its successor, because those jobs carry an end date. An
-    **upgrade** adds a strictly newer *version* to the full test matrix as a
+    image onto its successor, because those jobs carry an end date, and moves
+    the image out of `[tool.repomatic.test-matrix]`. An **upgrade** adds a
+    strictly newer *version* to the full test matrix as a
     `continue-on-error` probe rather than migrating onto it: nothing is bet on
     it, but the suite starts exercising it at once, which surfaces a dependency
     breaking there while there is runway to report it upstream.
@@ -938,11 +940,14 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
 
     config = get_tool_config(ctx)
     literal = literal_runners()
+    matrix = matrix_runners()
+    tracked = set(KNOWN_RUNNERS) | set(literal) | set(matrix)
     changes = plan_runner_changes(
         literal,
-        set(KNOWN_RUNNERS) | set(literal),
+        tracked | configured_runners(config.test_matrix),
         fetch_catalog(),
         config.sync_runner_images.ignore,
+        matrix,
     )
     if not changes:
         echo("No runner image change to propose.")
@@ -957,6 +962,13 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
         echo(f"  because {change.reason}")
         if change.alternative:
             echo(f"  passed over: {change.alternative} (preview)")
+        # Reported, never rewritten: see RunnerChange.matrix_locations.
+        for location in change.matrix_locations:
+            report_finding(
+                AnnotationLevel.WARNING,
+                f"{location}: move `{change.label}` off this job's matrix by hand,"
+                f" because {change.reason}. Its successor is `{change.successor}`.",
+            )
         if dry_run:
             continue
         for path in change.apply(WORKFLOW_DIR, Path("pyproject.toml"), axes_path):

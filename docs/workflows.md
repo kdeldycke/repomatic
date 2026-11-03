@@ -106,6 +106,8 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 - Strictly newer by **version** is what separates an upgrade from a flavour. `Windows 11 Arm64 with Visual Studio 2026` sits at the same version as `Windows 11 Arm64`: a different toolchain, not a newer image, and it is never proposed as one
 - Nothing bumps a `runs-on:` value automatically (`sync-action-pins` rewrites `uses:` references, `sync-workflow-pins` rewrites version literals), so a retirement otherwise arrives as a failing build with no warning
 - Only literal `runs-on:` values are rewritten. A value built from an expression draws on a matrix axis, which the axis owner moves
+- A retirement also moves an image the repository lists itself in `[tool.repomatic.test-matrix]`, the one axis it owns. Its `include`, `full-include` and `replace` entries move onto the successor. A `variations.os` entry moves too, or goes when the full matrix already runs the successor
+- A retiring image that a job's own matrix lists outright, like a literal `os:` list, is reported but never rewritten: the pull request body and a workflow annotation name the job, to move by hand
 - The announcement feed is deliberately not read. It reports what changed for anyone; the table reports what is true here, and only the second decides anything. The cost is that GitHub badges an image `deprecated` when deprecation *begins* rather than when it is announced, so a retirement surfaces months later than the feed would have shown it, still well before the image stops working
 - **Runs on**: the weekly schedule and manual `workflow_dispatch` only
 - **Requires**:
