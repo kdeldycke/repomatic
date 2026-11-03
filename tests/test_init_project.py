@@ -36,6 +36,7 @@ from packaging.version import InvalidVersion, Version
 from repomatic import __version__
 from repomatic.bundle import get_data_content
 from repomatic.changelog import CHANGELOG_HEADER, HEADING_PARTS_PATTERN, Changelog
+from repomatic.checks import CheckResult
 from repomatic.cli.main import repomatic
 from repomatic.cli.repo import _emit_upgrade_report, init as init_command
 from repomatic.components import (
@@ -65,7 +66,7 @@ from repomatic.components import (
 from repomatic.config import Config, WorkflowConfig, load_repomatic_config
 from repomatic.deps.pins import Candidate, UpstreamRefPin
 from repomatic.http import FetchError
-from repomatic.init import tool_config, upgrade as init_upgrade
+from repomatic.init import run as init_run, tool_config, upgrade as init_upgrade
 from repomatic.init.local_edits import shipped_digests
 from repomatic.init.removed_assets import detect_removed_assets
 from repomatic.init.run import (
@@ -1340,6 +1341,106 @@ def test_init_cli_prints_no_launcher_without_a_pin_move(tmp_path, pin_build):
     )
     assert cli_result.exit_code == 0, cli_result.output
     assert "/repomatic-upgrade" not in cli_result.output
+
+
+def test_init_cli_names_the_tool_pins_still_inside_the_cooldown(
+    tmp_path, monkeypatch, pin_build
+):
+    """A moved pin first lists the failures of the registry pin cooldown check.
+
+    The new release can pin a tool before that tool clears the window, and each
+    job installing it then fails. The entry that admits it belongs in the commit
+    that moves the pin, so the step comes before that commit. The check reads
+    the `[tool.uv]` section of the target repository, where an entry already
+    admits its pin.
+    """
+    pin_build(version="7.4.1", sha="c" * 40)
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.uv]\nexclude-newer-package = { cherry = "2026-10-31T00:00:00Z" }\n',
+        encoding="UTF-8",
+    )
+    tool_tables = []
+
+    def check(ctx):
+        tool_tables.append(ctx.tool_table)
+        return [
+            CheckResult(False, "`repomatic run papaya` cannot install 1.2.3 yet."),
+            CheckResult(True, "cherry 4.5.6 is admitted by its entry."),
+            CheckResult(None, "Registry pin cooldown: skipped for kiwi."),
+        ]
+
+    monkeypatch.setattr(init_run, "check_registry_pin_cooldown", check)
+
+    pin_build(version="7.4.2", sha="a" * 40)
+    cli_result = CliRunner().invoke(
+        repomatic,
+        ["init", "workflows", "--no-cooldown", "--output-dir", str(tmp_path)],
+    )
+
+    assert cli_result.exit_code == 0, cli_result.output
+    assert tool_tables == [
+        {"uv": {"exclude-newer-package": {"cherry": "2026-10-31T00:00:00Z"}}}
+    ]
+    steps = cli_result.output.split("Next steps:", 1)[1]
+    assert "1. Each job that installs one of these tool pins fails" in steps
+    assert "     `repomatic run papaya` cannot install 1.2.3 yet." in steps
+    assert steps.index("papaya") < steps.index("Commit the generated files and push.")
+    assert "admitted by its entry" not in cli_result.output
+    assert "skipped for kiwi" not in cli_result.output
+
+
+@pytest.mark.parametrize(
+    ("pyproject", "config", "nuitka_active"),
+    (
+        pytest.param(
+            '[project.scripts]\npapaya = "papaya.cli:main"\n',
+            Config(),
+            True,
+            id="console-script",
+        ),
+        pytest.param('[project]\nname = "papaya"\n', Config(), False, id="no-script"),
+        pytest.param(
+            '[project.scripts]\npapaya = "papaya.cli:main"\n',
+            Config(nuitka_enabled=False),
+            False,
+            id="nuitka-disabled",
+        ),
+    ),
+)
+def test_tool_pins_in_cooldown_reads_the_binary_build_of_the_target(
+    tmp_path, monkeypatch, pyproject, config, nuitka_active
+):
+    """The check reads whether the target repository compiles binaries.
+
+    That answer comes from the console scripts of the target repository, not
+    from those of the current directory, which `--output-dir` can tell apart.
+    """
+    (tmp_path / "pyproject.toml").write_text(pyproject, encoding="UTF-8")
+    seen = []
+
+    def check(ctx):
+        seen.append(ctx.nuitka_active)
+        return []
+
+    monkeypatch.setattr(init_run, "check_registry_pin_cooldown", check)
+    assert init_run._tool_pins_in_cooldown(tmp_path, config) == []
+    assert seen == [nuitka_active]
+
+
+def test_run_init_checks_no_tool_pin_without_a_pin_move(
+    tmp_path, monkeypatch, pin_build
+):
+    """A first adoption and a regeneration bring no new tool pin to check."""
+    monkeypatch.setattr(
+        init_run,
+        "check_registry_pin_cooldown",
+        lambda _ctx: pytest.fail("only a moved pin brings new tool pins"),
+    )
+    pin_build(version="7.4.2", sha="a" * 40)
+    first = run_init_here(tmp_path, components=("workflows",), cooldown=False)
+    rerun = run_init_here(tmp_path, components=("workflows",), cooldown=False)
+    assert first.tool_pins_in_cooldown == rerun.tool_pins_in_cooldown == []
 
 
 def test_next_steps_skip_a_run_that_staged_only_ephemeral_files():

@@ -63,6 +63,8 @@ from ..github.workflow_sync import (
     render_thin_caller_for_target,
 )
 from ..http import get_bytes
+from ..lint_repo.context import LintContext
+from ..lint_repo.pins import check_registry_pin_cooldown
 from ..metadata.core import (
     METADATA_SUBCOMMAND,
     REMOVED_METADATA_ALIAS,
@@ -246,6 +248,10 @@ class InitResult:
     """Bare version the run wrote its thin callers at, or `None` when the
     workflow sync was skipped."""
 
+    tool_pins_in_cooldown: list[str] = field(default_factory=list)
+    """The `lint-repo` line of each registry tool pin that the cooldown still
+    holds back, filled only when the run moved the upstream pin forward."""
+
     def record(self, path: str, *, existed: bool, verb: str = "") -> None:
         """File a written *path* as created or updated, and log it.
 
@@ -323,7 +329,19 @@ class InitResult:
         touched = {*self.created, *self.updated}
         if not touched - EPHEMERAL_TARGETS:
             return []
-        steps = ["Commit the generated files and push."]
+        steps = []
+        if self.tool_pins_in_cooldown:
+            # The entry that admits a pin belongs in the commit that moves it,
+            # so this step comes before that commit.
+            lines = [
+                (
+                    "Each job that installs one of these tool pins fails until the"
+                    " pin clears the cooldown:"
+                ),
+                *(f"  {line}" for line in self.tool_pins_in_cooldown),
+            ]
+            steps.append("\n".join(lines))
+        steps.append("Commit the generated files and push.")
         workflow_prefix = f"{WORKFLOW_DIR.as_posix()}/"
         if any(path.startswith(workflow_prefix) for path in touched):
             steps.append(
@@ -839,7 +857,45 @@ def run_init(
         result.unmodified_configs.append(rel_path)
         logging.warning(f"Unmodified config (matches bundled default): {rel_path}")
 
+    # A moved pin brings the tool registry of the new release, read after every
+    # write so a `[tool.uv]` entry this run merged counts.
+    if result.upgraded_pin():
+        result.tool_pins_in_cooldown = _tool_pins_in_cooldown(output_dir, config)
+
     return result
+
+
+def _tool_pins_in_cooldown(output_dir: Path, config: Config) -> list[str]:
+    """The `lint-repo` line of each registry tool pin no install resolves yet.
+
+    A release can pin a tool before that tool clears the cooldown. A hand bump
+    to that release then fails each job that installs the tool, until the
+    window passes. This runs the registry pin check of `lint-repo`
+    ({func}`~repomatic.lint_repo.pins.check_registry_pin_cooldown`) against the
+    target repository and keeps its failures, which `lint-repo` reports in CI
+    only after the push.
+
+    :param output_dir: Root of the target repository, whose `[tool.uv]`
+        `exclude-newer-package` entries admit a pin, and whose console scripts
+        say whether it compiles binaries.
+    :param config: The resolved configuration, which sets the cooldown.
+    :return: One line per pin. A pin with no release date to read, like one
+        looked up offline, gives no line.
+    """
+    pyproject = read_pyproject_toml(output_dir)
+    context = LintContext(
+        config=config,
+        tool_table=pyproject.get("tool", {}),
+        # Derived as `LintContext.from_project` does, from the target
+        # repository rather than from the current directory.
+        nuitka_active=config.nuitka_enabled
+        and bool(pyproject.get("project", {}).get("scripts")),
+    )
+    return [
+        check.message
+        for check in check_registry_pin_cooldown(context)
+        if check.passed is False
+    ]
 
 
 def _write_workflows(
