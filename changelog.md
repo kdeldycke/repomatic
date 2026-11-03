@@ -9,6 +9,7 @@
 - **Breaking:** Generated workflows and the bundled agents and skills now name `AGENTS.md` as the instructions file in place of `claude.md`. Rename a downstream `claude.md` to match.
 - Add the `instructions-file-name` check to `lint-repo`: it warns about a root `claude.md`, or an `agents.md` in another case, in place of `AGENTS.md`.
 - Add the `sphinx.fail-on-warning` setting, which makes the Sphinx build of `docs.yaml` fail on any warning.
+- The Sphinx build of `docs.yaml` now reads in parallel with `--jobs auto`. Under `sphinx.fail-on-warning`, an extension that does not declare itself safe for a parallel read fails the build.
 - Add the `source = "sdist"` matrix key: its cell runs the suite from the unpacked sdist, outside a git checkout, on the newest dependencies. A downstream `tests.yaml` needs the steps that read `matrix.source`.
 - `lint-deps` now warns about a dependency extra that `uv.lock` resolves to no package, like `coverage[toml]` since coverage `7.17.0`.
 - `lint-deps` now warns about a `lint-deps.allow` entry that matches no finding, and gives the normalized spelling when that would match.
@@ -32,10 +33,11 @@
 - Fix `ci-status` reading a run GitHub has yet to give a job as `green`: it now reads `not started`, and `--wait` waits for it.
 - Fix `ci-status --wait --until-change` returning at once, on every re-armed watch, on a failed required job it already reported.
 - Fix `pr-sync` failing its job when a concurrent run pushed the same branch first: it keeps a push built on its base or a newer one, and pushes again over an older one.
+- Fix `update-dep-graph` labelling the edge of a main dependency with the floor that a dependency group or an extra declares for the same package.
 - Fix `repomatic run ruff` with the bundled config targeting ruff's default Python, whose safe `UP` fixes broke a project with an older `requires-python` floor.
 - Fix PyPI lookups that read a released package as missing when the CDN served a cut-off body: every request now asks for gzip.
 - Fix the Windows binary builds failing on `UnicodeEncodeError` when `prune-caches` prints its table to the cp1252 console.
-- Fix the bundled `babysit-ci` skill running ruff over folders only this repository has, and starting the local tests with a `&` that ignores `SIGINT`.
+- Fix the bundled `babysit-ci` skill running ruff over folders only this repository has, sending a downstream checksum mismatch to `update-checksums`, and starting the local tests with a `&` that ignores `SIGINT`.
 - Document three tool traps: the `**/` prefix a `[tool.biome]` `files.includes` pattern needs, silencing half a hyphenated `typos` word, and the `.gitignore` entries a symlinked user skills directory needs.
 - Document that cloud sessions skip the plugin `repomatic init plugin` declares, but load the skills and agents committed to the repository.
 - Fix two docs samples: the `lint.yaml` thin caller now has its `workflow_dispatch` trigger and secrets, and `gitignore.extra-content` its `.wrangler/` entry.

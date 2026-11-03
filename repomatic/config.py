@@ -1404,7 +1404,8 @@ class Config:
 
     `docs.yaml` then passes `--fail-on-warning` to `sphinx-build`, so a warning
     stops the deploy. Off by default, so a site that builds with warnings keeps
-    deploying.
+    deploying. The build reads in parallel, so an extension that does not
+    declare itself safe for a parallel read fails it too.
 
     Like `sphinx.builder`, a command-line option that `conf.py` cannot set. To
     fail on some warning types only, list them in the

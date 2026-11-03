@@ -75,7 +75,10 @@ class LockSpecifiers:
     `by_package`
         `{package_name: {dep_name: specifier}}`. Every dependency declared by
         a package (main and dev) keyed by the declaring package name. Used for
-        edge labels in dependency graphs.
+        edge labels in dependency graphs. A package that is also declared
+        unconditionally carries that declaration's specifier, which labels the
+        edge a plain install draws, even when an extra or a dev group sets
+        another floor for it.
 
     `by_subgraph`
         `{subgraph_name: {dep_name: specifier}}`. Primary dependencies keyed
@@ -248,6 +251,14 @@ class LockFile:
                             pkg_deps[dep_name] = specifier
                 if group_specs:
                     by_subgraph[group_name] = group_specs
+
+            # The unconditional declaration wins, an empty specifier included:
+            # the edge it labels is the one a plain install of the package draws.
+            for dep_name, specifier in main_deps.items():
+                if specifier:
+                    pkg_deps[dep_name] = specifier
+                else:
+                    pkg_deps.pop(dep_name, None)
 
             if pkg_deps:
                 by_package[pkg_name] = pkg_deps

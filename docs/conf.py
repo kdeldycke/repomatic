@@ -511,6 +511,25 @@ def rehome_moved_nodes(app: object, doctree: document) -> None:
             node.document = doctree
 
 
+def drop_unused_viewcode_modules(app: object, env: object) -> None:
+    """Forget each module `sphinx.ext.viewcode` read but no document links.
+
+    `viewcode` reads the source of every module a documented object may come
+    from, and keeps an entry for that module even when none of its objects gets
+    a `[source]` link. A serial read drops such an entry when it purges the next
+    document. A parallel read merges the entries of its workers after every
+    purge has run, so each unused module becomes a published page that nothing
+    links to (sphinx-doc/sphinx#14675). Dropping the entries with no recorded
+    use gives both reads the same output.
+    """
+    modules = getattr(env, "_viewcode_modules", {})
+    for modname, entry in list(modules.items()):
+        # A module viewcode could not read is `False`. A read one is a tuple of
+        # its code, its tags, the objects documented from it, and its refname.
+        if entry and not entry[2]:
+            del modules[modname]
+
+
 RELEASE_HEADING = re.compile(r"(?P<version>\d+\.\d+\.\d+)(?:\.\w+)? \([^)]+\)")
 """Rendered title of a changelog release: `1.4.2 (2026-03-15)`.
 
@@ -573,10 +592,12 @@ def setup(app):
     Swaps sphinxcontrib-mermaid's ``autoclasstree`` directive for
     :class:`NoZoomClassDiagram`: conf.py is loaded as the last extension,
     so this registration wins. Anchors each changelog release on its version
-    with :class:`ReleaseAnchors`, and keeps each pickled page free of the build
-    environment with :func:`rehome_moved_nodes`.
+    with :class:`ReleaseAnchors`, keeps each pickled page free of the build
+    environment with :func:`rehome_moved_nodes`, and gives a parallel read the
+    viewcode pages of a serial one with :func:`drop_unused_viewcode_modules`.
     """
     app.add_directive("autoclasstree", NoZoomClassDiagram, override=True)
     app.add_transform(ReleaseAnchors)
     app.connect("doctree-read", rehome_moved_nodes)
+    app.connect("env-updated", drop_unused_viewcode_modules)
     app.connect("build-finished", prune_build_artifacts)

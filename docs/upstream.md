@@ -239,6 +239,12 @@ A dependency can stand in for a feature that a preferred library lacks:
   Once MyST-Parser renders an `{eval-rst}` block into the page's own document, delete `rehome_moved_nodes` from `docs/conf.py`, then this entry. Keep `test_pickled_pages_carry_no_build_environment` in `tests/test_sphinx_crossrefs.py`: it shows whether the upstream change holds.
   ```
 
+- [`sphinx#14675` - sphinx.ext.viewcode generates a module page with no source links](https://github.com/sphinx-doc/sphinx/issues/14675): a parallel read makes `sphinx.ext.viewcode` publish a source page for each module it read but no document links, like `pathlib` or `re`. `docs/conf.py` drops those modules before the pages are written. `docs.yaml` reads in parallel, so a downstream project that uses `viewcode` publishes such pages unless its own `conf.py` drops them too.
+
+  ```{todo}
+  Once Sphinx publishes no `viewcode` page for an unused module under a parallel read, delete `drop_unused_viewcode_modules` from `docs/conf.py`, then this entry.
+  ```
+
 ## Declined by upstream
 
 Pull requests and features that upstream maintainers rejected.

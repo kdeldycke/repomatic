@@ -1112,6 +1112,51 @@ def test_lock_specifiers_isolate_unconditional_declarations() -> None:
     assert "sphinx" not in specs.by_main
 
 
+def test_lock_specifiers_label_an_edge_with_the_unconditional_floor() -> None:
+    """A package declared unconditionally keeps that floor in `by_package`.
+
+    An extra or a dev group can declare the same package with a higher floor.
+    Each box keeps its own floor, and the edge a plain install draws keeps the
+    unconditional one. A package declared with no specifier carries no label,
+    whatever floor an extra or a group gives it.
+    """
+    lock_data = {
+        "package": [
+            {
+                "name": "orchard",
+                "metadata": {
+                    "requires-dist": [
+                        {"name": "kiwi"},
+                        {
+                            "name": "kiwi",
+                            "specifier": ">=3",
+                            "marker": "extra == 'juice'",
+                        },
+                        {"name": "papaya", "specifier": ">=1.0"},
+                        {
+                            "name": "papaya",
+                            "specifier": ">=1.4",
+                            "marker": "extra == 'juice'",
+                        },
+                    ],
+                    "requires-dev": {
+                        "docs": [{"name": "papaya", "specifier": ">=1.2"}],
+                    },
+                },
+            },
+        ],
+    }
+
+    specs = LockFile(lock_data).specifiers
+
+    assert specs.by_package == {"orchard": {"papaya": ">=1.0"}}
+    assert specs.by_subgraph == {
+        "docs": {"papaya": ">=1.2"},
+        "juice": {"kiwi": ">=3", "papaya": ">=1.4"},
+    }
+    assert specs.by_main == {"orchard": {"kiwi": "", "papaya": ">=1.0"}}
+
+
 def test_lock_specifiers_skip_what_names_no_package() -> None:
     """An entry that names no package, or is not a table, lands in no view.
 

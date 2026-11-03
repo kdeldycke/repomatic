@@ -76,7 +76,8 @@ def built_docs(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Build the HTML documentation once and return its output directory.
 
     Builds into a throwaway directory (rather than ``docs/_build``) so the run
-    is hermetic and never clobbers a developer's local build.
+    is hermetic and never clobbers a developer's local build. Reads in parallel,
+    like the `docs.yaml` build these tests stand in for.
     """
     out_dir = tmp_path_factory.mktemp("sphinx-html")
     subprocess.run(
@@ -88,6 +89,8 @@ def built_docs(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "sphinx-build",
             "--builder",
             "html",
+            "--jobs",
+            "auto",
             str(PROJECT_ROOT / "docs"),
             str(out_dir),
         ],
