@@ -30,4 +30,6 @@ The package splits the run by concern:
   `init --upgrade`.
 - {mod}`~repomatic.init.removed_assets` finds the orphans of assets repomatic
   no longer ships.
+- {mod}`~repomatic.init.local_edits` spots the local edits `init` overwrites in
+  a skill or agent copy.
 """

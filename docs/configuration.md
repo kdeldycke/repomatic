@@ -100,6 +100,8 @@ Every file repomatic manages is a generated output, not a starting template. `sy
 
 `sync-gitignore` is the exception, because there the loss is silent and total rather than a visible diff line: it refuses to write when a rule on disk is absent from what it generated, listing the rules at stake and exiting non-zero. Move them into `gitignore.extra-content` to keep them, or pass `--drop-orphans` to confirm they should go. Comments and ordering are not compared, so a reformatted file is not mistaken for a rewritten one.
 
+`init` warns about each skill or agent copy whose local edits it overwrites. It reads the PyPI wheel of the release the repository pinned before the run: a copy that matches no file of that wheel holds local edits. Restore the edits from git, then port them upstream so that the next sync keeps them.
+
 There are two ways to keep a divergence, and picking the wrong one is why the edit keeps coming back.
 
 When the file already exposes a knob for what you want to change, set the knob. `.gitignore` is the common case: everything past the gitignore.io block is `gitignore.extra-content`, so a pattern appended by hand to the generated file is dropped on the next sync, while the same pattern in `pyproject.toml` is emitted every time. Mind that the option **replaces** its default rather than extending it, so the entries repomatic ships have to be repeated alongside the new ones or they disappear too:

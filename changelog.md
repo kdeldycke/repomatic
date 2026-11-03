@@ -8,6 +8,7 @@
 - Add the `lint-shell` job to `lint.yaml`, which runs ShellCheck on the shell scripts that `format-shell` formats.
 - `repomatic run shellcheck` with no arguments now lints the shell scripts of the repository.
 - Add the `shfmt_changed` metadata key, which says whether the commit range touches a file of `shfmt_files`.
+- `repomatic init` now warns when it overwrites local edits in a skill or agent copy.
 - The default `gitignore.extra-content` now keeps the `scripts/` folder of an agent skill, which the virtualenv template's `[Ss]cripts` rule ignored.
 - The bundled `benchmark-update` skill now drops an excluded project from the metrics subjects and store, and follows a transferred one in both.
 - The bundled `repomatic-upgrade` skill now passes `lint-repo` the `--has-*` flag of each secret the repository holds, which a local run cannot read.

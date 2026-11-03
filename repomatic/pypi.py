@@ -17,8 +17,9 @@
 
 Domain-specific query functions, over the shared client of {mod}`repomatic.http`,
 used by {mod}`repomatic.lint_changelog` (release dates, yanked status),
-{mod}`repomatic.deps.pins` (release candidates) and
-{mod}`repomatic.deps.report` (source repository discovery for release notes).
+{mod}`repomatic.deps.pins` (release candidates),
+{mod}`repomatic.deps.report` (source repository discovery for release notes)
+and {mod}`repomatic.init.local_edits` (the wheel of a release).
 Also the home of what counts as the public index at all
 ({data}`PYPI_INDEX_HOSTS`), which the shippability gate reads.
 """
@@ -559,6 +560,35 @@ def release_provenance(package: str, version: str) -> ReleaseProvenance:
         attested=True,
         publisher=publishers[0].repository if publishers else "",
     )
+
+
+def release_wheel(package: str, version: str) -> tuple[str, str] | None:
+    """Locate the wheel of one release of *package* on PyPI.
+
+    :param package: The PyPI package name.
+    :param version: The release version.
+    :return: The download URL of the first wheel the release lists, and the
+        SHA-256 hex digest PyPI records for it. `None` when PyPI could not be
+        read, or lists no wheel with both.
+    """
+    data = get_json_soft(
+        PYPI_VERSION_API_URL.format(package=package, version=version),
+        f"PyPI release lookup failed for {package} {version}",
+    )
+    files = data.get("urls") if isinstance(data, dict) else None
+    for file in files if isinstance(files, list) else []:
+        if not isinstance(file, dict):
+            continue
+        url = file.get("url")
+        digests = file.get("digests")
+        sha256 = digests.get("sha256") if isinstance(digests, dict) else None
+        if (
+            str(file.get("filename", "")).endswith(".whl")
+            and isinstance(url, str)
+            and isinstance(sha256, str)
+        ):
+            return url, sha256
+    return None
 
 
 def get_changelog_url(package: str) -> str | None:

@@ -13,6 +13,7 @@
 .. toctree::
    :maxdepth: 4
 
+   repomatic.init.local_edits
    repomatic.init.removed_assets
    repomatic.init.run
    repomatic.init.tool_config

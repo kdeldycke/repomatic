@@ -23,7 +23,9 @@ import re
 import subprocess
 from datetime import date, timedelta
 from importlib.resources import as_file, files
+from io import BytesIO
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
 import tomlrt
@@ -62,7 +64,9 @@ from repomatic.components import (
 )
 from repomatic.config import Config, WorkflowConfig, load_repomatic_config
 from repomatic.deps.pins import Candidate, UpstreamRefPin
+from repomatic.http import FetchError
 from repomatic.init import tool_config, upgrade as init_upgrade
+from repomatic.init.local_edits import shipped_digests
 from repomatic.init.removed_assets import detect_removed_assets
 from repomatic.init.run import (
     AWESOME_TEMPLATE_URL_RE,
@@ -5247,6 +5251,231 @@ def test_shrinking_component_file_lists_are_tombstoned() -> None:
             f"without a RemovedAsset tombstone. Downstream repos that committed "
             f"it keep it forever: add one to REMOVED_ASSETS."
         )
+
+
+# --- Local-edit check tests ---
+
+
+_SKILL_TARGET = ".claude/skills/repomatic-topics/SKILL.md"
+_AGENT_TARGET = ".claude/agents/grunt-qa.md"
+
+
+def _wheel(members: dict[str, bytes]) -> bytes:
+    """Zip *members*, keyed by path, into the bytes of a wheel."""
+    buffer = BytesIO()
+    with ZipFile(buffer, "w") as archive:
+        for name, data in members.items():
+            archive.writestr(name, data)
+    return buffer.getvalue()
+
+
+_PAPAYA_WHEEL = _wheel({"repomatic/data/skills/papaya/SKILL.md": b"Papaya skill."})
+
+
+def _seed_copy(tmp_path: Path, target: str, text: str) -> None:
+    """Write *text* as the repository's copy of a bundled file."""
+    path = tmp_path / target
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="UTF-8")
+
+
+def _pin_adopted(tmp_path: Path, version: str) -> None:
+    """Pin the upstream release the repository adopted, in one thin caller."""
+    _write_caller(tmp_path / ".github" / "workflows" / "lint.yaml", version, "b" * 40)
+
+
+def _ship(monkeypatch: pytest.MonkeyPatch, digests: frozenset[str] | None) -> None:
+    """Answer the read of the adopted release's wheel with *digests*."""
+    monkeypatch.setattr(
+        "repomatic.init.local_edits.shipped_digests", lambda _pkg, _ver: digests
+    )
+
+
+def _refuse_wheel(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail the test if the run reads the wheel of any release."""
+
+    def refuse(_package: str, _version: str) -> frozenset[str] | None:
+        raise AssertionError("The run read a wheel it did not need.")
+
+    monkeypatch.setattr("repomatic.init.local_edits.shipped_digests", refuse)
+
+
+def _edit_warnings(warnings: list[str]) -> list[str]:
+    """The warnings naming an overwritten local edit."""
+    return [warning for warning in warnings if "Overwrote local edits" in warning]
+
+
+def test_shipped_digests_hash_the_data_files_of_the_wheel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every text file under `data/` is hashed, in the form `init` writes."""
+    wheel = _wheel({
+        "repomatic/data/skills/papaya/SKILL.md": b"Papaya skill.",
+        "repomatic/data/agent-mango.md": b"Mango agent.   ",
+        "repomatic/data/assets/kiwi.png": bytes([0xFF, 0xFE, 0x00]),
+        "repomatic/__init__.py": b"Melon module.",
+    })
+    sha256 = hashlib.sha256(wheel).hexdigest()
+    monkeypatch.setattr(
+        "repomatic.init.local_edits.release_wheel",
+        lambda _package, _version: ("https://files.example/papaya.whl", sha256),
+    )
+    monkeypatch.setattr("repomatic.init.local_edits.get_bytes", lambda _url: wheel)
+
+    assert shipped_digests("repomatic", "7.4.1") == {
+        RemovedAsset.digest("Papaya skill."),
+        RemovedAsset.digest("Mango agent."),
+    }
+
+
+@pytest.mark.parametrize(
+    ("located", "body", "sha256"),
+    (
+        pytest.param(False, _PAPAYA_WHEEL, "", id="no-wheel"),
+        pytest.param(True, None, "", id="download-fails"),
+        pytest.param(True, _PAPAYA_WHEEL, "0" * 64, id="checksum-mismatch"),
+        pytest.param(True, b"Not a zip archive.", "", id="not-a-zip"),
+    ),
+)
+def test_shipped_digests_none(
+    monkeypatch: pytest.MonkeyPatch,
+    located: bool,
+    body: bytes | None,
+    sha256: str,
+) -> None:
+    """A wheel that cannot be read leaves the shipped files unknown."""
+    digest = sha256 or hashlib.sha256(body or b"").hexdigest()
+    monkeypatch.setattr(
+        "repomatic.init.local_edits.release_wheel",
+        lambda _package, _version: (
+            ("https://files.example/papaya.whl", digest) if located else None
+        ),
+    )
+
+    def download(_url: str) -> bytes:
+        if body is None:
+            raise FetchError("The network is down.")
+        return body
+
+    monkeypatch.setattr("repomatic.init.local_edits.get_bytes", download)
+
+    assert shipped_digests("repomatic", "7.4.1") is None
+
+
+@pytest.mark.parametrize(
+    ("component", "target"),
+    (
+        ("skills/repomatic-topics", _SKILL_TARGET),
+        ("subagents/grunt-qa", _AGENT_TARGET),
+    ),
+)
+@pytest.mark.parametrize(
+    ("copy", "edited"),
+    (
+        pytest.param("Shipped papaya.", False, id="shipped-copy"),
+        pytest.param("Edited papaya.", True, id="local-edit"),
+    ),
+)
+def test_init_warns_on_an_overwritten_local_edit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pin_build,
+    component: str,
+    target: str,
+    copy: str,
+    edited: bool,
+) -> None:
+    """A copy matching no file of the adopted release is named once overwritten."""
+    pin_build("7.4.2")
+    _pin_adopted(tmp_path, "7.4.1")
+    _ship(monkeypatch, frozenset({RemovedAsset.digest("Shipped papaya.")}))
+    _seed_copy(tmp_path, target, copy)
+
+    result = run_init(output_dir=tmp_path, components=(component,), config=Config())
+
+    assert target in result.updated
+    warnings = _edit_warnings(result.warnings)
+    assert len(warnings) == int(edited)
+    for warning in warnings:
+        assert target in warning
+        assert "`7.4.1`" in warning
+
+
+def test_init_ignores_a_trailing_whitespace_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pin_build
+) -> None:
+    """A copy differing in trailing whitespace alone holds no local edit."""
+    pin_build("7.4.2")
+    _pin_adopted(tmp_path, "7.4.1")
+    # Nothing shipped matches: only the normalization keeps the copy clean.
+    _ship(monkeypatch, frozenset())
+    entry = COMPONENTS_BY_NAME["skills"].entry("repomatic-topics")
+    assert entry is not None
+    bundled = files("repomatic.data").joinpath(entry.source, SKILL_FILENAME)
+    _seed_copy(tmp_path, _SKILL_TARGET, bundled.read_text(encoding="UTF-8") + "   ")
+
+    result = run_init(
+        output_dir=tmp_path, components=("skills/repomatic-topics",), config=Config()
+    )
+
+    assert _SKILL_TARGET in result.updated
+    assert not _edit_warnings(result.warnings)
+
+
+def test_init_checks_no_copy_without_a_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no upstream pin, nothing names the release a copy came from."""
+    _refuse_wheel(monkeypatch)
+    _seed_copy(tmp_path, _SKILL_TARGET, "Edited papaya.")
+
+    result = run_init(
+        output_dir=tmp_path, components=("skills/repomatic-topics",), config=Config()
+    )
+
+    assert _SKILL_TARGET in result.updated
+    assert not _edit_warnings(result.warnings)
+
+
+def test_init_at_the_running_release_reads_no_wheel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pin_build
+) -> None:
+    """The adopted release wrote the new copy itself: any other text is an edit."""
+    pin_build("7.4.2")
+    _pin_adopted(tmp_path, "7.4.2")
+    _refuse_wheel(monkeypatch)
+    _seed_copy(tmp_path, _SKILL_TARGET, "Edited papaya.")
+
+    result = run_init(
+        output_dir=tmp_path, components=("skills/repomatic-topics",), config=Config()
+    )
+
+    warnings = _edit_warnings(result.warnings)
+    assert len(warnings) == 1
+    assert _SKILL_TARGET in warnings[0]
+
+
+def test_init_reports_an_unreadable_wheel_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pin_build
+) -> None:
+    """A wheel PyPI cannot serve leaves every copy unchecked, said once."""
+    pin_build("7.4.2")
+    _pin_adopted(tmp_path, "7.4.1")
+    _ship(monkeypatch, None)
+    _seed_copy(tmp_path, _SKILL_TARGET, "Edited papaya.")
+    _seed_copy(tmp_path, _AGENT_TARGET, "Edited mango.")
+
+    result = run_init(
+        output_dir=tmp_path,
+        components=("skills/repomatic-topics", "subagents/grunt-qa"),
+        config=Config(),
+    )
+
+    assert {_SKILL_TARGET, _AGENT_TARGET} <= set(result.updated)
+    assert not _edit_warnings(result.warnings)
+    unread = [warning for warning in result.warnings if "Could not read" in warning]
+    assert len(unread) == 1
+    assert "`7.4.1`" in unread[0]
 
 
 def test_init_explicit_components_bypass_exclude(

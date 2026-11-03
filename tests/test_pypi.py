@@ -36,6 +36,7 @@ from repomatic.pypi import (
     get_trusted_publishers,
     pypi_release_dates,
     pypi_trusted_publisher_settings_url,
+    release_wheel,
     sdist_name_version,
     wait_for_release,
 )
@@ -537,3 +538,39 @@ def test_wait_pypi_cli(tmp_path, answers, exit_code, message):
         )
     assert result.exit_code == exit_code, result.output
     assert message in result.output
+
+
+_SDIST_FILE = {
+    "filename": "papaya-1.0.0.tar.gz",
+    "url": "https://files.example/papaya-1.0.0.tar.gz",
+    "digests": {"sha256": "1" * 64},
+}
+_WHEEL_FILE = {
+    "filename": "papaya-1.0.0-py3-none-any.whl",
+    "url": "https://files.example/papaya-1.0.0-py3-none-any.whl",
+    "digests": {"sha256": "2" * 64},
+}
+
+
+def test_release_wheel_skips_the_sdist():
+    """The wheel is picked whatever its rank, with the digest PyPI records."""
+    payload = {"urls": [_SDIST_FILE, _WHEEL_FILE]}
+    with patch("repomatic.pypi.get_json_soft", return_value=payload) as lookup:
+        assert release_wheel("papaya", "1.0.0") == (_WHEEL_FILE["url"], "2" * 64)
+    assert lookup.call_args.args[0] == "https://pypi.org/pypi/papaya/1.0.0/json"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        pytest.param(None, id="lookup-failed"),
+        pytest.param({"urls": [_SDIST_FILE]}, id="no-wheel"),
+        pytest.param({"urls": [{**_WHEEL_FILE, "digests": {}}]}, id="no-digest"),
+        pytest.param({"urls": ["papaya-1.0.0-py3-none-any.whl"]}, id="no-object"),
+        pytest.param({"urls": None}, id="no-file-list"),
+    ),
+)
+def test_release_wheel_none(payload):
+    """No wheel with both a URL and a digest leaves nothing to download."""
+    with patch("repomatic.pypi.get_json_soft", return_value=payload):
+        assert release_wheel("papaya", "1.0.0") is None

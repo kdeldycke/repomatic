@@ -82,6 +82,7 @@ from ..templating import render_template
 from ..tooling.runner import find_unmodified_configs
 from ..upstream import DEFAULT_REPO, is_awesome_repo, is_source_repo
 from ..versions import is_newer
+from .local_edits import CHECKED_COMPONENTS, LocalEditGuard
 from .removed_assets import detect_removed_assets
 from .tool_config import adopted_ongoing_configs, merge_tool_config
 from .upgrade import (
@@ -453,6 +454,49 @@ class _InitRun:
             self.result.record(self.label(path), existed=False)
         for path in updated:
             self.result.record(self.label(path), existed=True)
+
+    @cached_property
+    def edit_guard(self) -> LocalEditGuard | None:
+        """The check of the local edits an overwrite of a skill or agent loses.
+
+        Built by the first such overwrite. `None` when the repository pins no
+        upstream release, like on a first adoption: nothing then names the
+        release its copies came from.
+
+        A run that generates workflows read the previous pin before it rewrote
+        any of them. Any other run rewrites no workflow, so the pin on disk is
+        still the one the repository adopted.
+        """
+        previous = self.result.previous_pin
+        if self.pin is None:
+            floor = highest_upstream_pin(
+                github_yaml_texts(self.output_dir).values(), self.repo
+            )
+            previous = floor.version if floor else None
+        if previous is None:
+            return None
+        return LocalEditGuard(repo_name(self.repo), previous)
+
+    def check_local_edits(self, target: Path, previous: bytes, content: bytes) -> None:
+        """Warn when *content*, about to replace *previous*, loses a local edit.
+
+        See {mod}`~repomatic.init.local_edits`.
+
+        :param target: The skill or agent copy about to be overwritten.
+        :param previous: The bytes of *target* on disk.
+        :param content: The bundled bytes about to replace them.
+        """
+        try:
+            current, new = previous.decode("UTF-8"), content.decode("UTF-8")
+        except UnicodeDecodeError:
+            # A binary asset of a skill: no prose to compare.
+            return
+        guard = self.edit_guard
+        if guard is None:
+            return
+        message = guard.check(self.label(target), current, new)
+        if message:
+            self.result.warn(message)
 
     def workflow_texts(self) -> dict[Path, str]:
         """The workflow texts of {attr}`yaml_texts`, composite actions left out."""
@@ -1036,7 +1080,12 @@ def _write_bundled_files(
 
     A tree entry is a whole folder (a skill and its optional `scripts/`,
     `references/` and `assets/`), copied verbatim rather than rendered.
+
+    A copy of a component that
+    {data}`~repomatic.init.local_edits.CHECKED_COMPONENTS` names is checked
+    for local edits before it is overwritten.
     """
+    on_overwrite = run.check_local_edits if comp.name in CHECKED_COMPONENTS else None
     for entry in comp.files:
         if (include is not None and entry.file_id not in include) or (
             entry.file_id in exclude
@@ -1046,11 +1095,18 @@ def _write_bundled_files(
         if entry.tree:
             run.record_tree(
                 *_copy_template_tree(
-                    files("repomatic.data").joinpath(entry.source), target
+                    files("repomatic.data").joinpath(entry.source),
+                    target,
+                    on_overwrite=on_overwrite,
                 )
             )
             continue
-        run.write(target, get_data_content(entry.source))
+        content = get_data_content(entry.source)
+        if on_overwrite is not None and target.exists():
+            previous, new = target.read_bytes(), content.encode("UTF-8")
+            if previous != new:
+                on_overwrite(target, previous, new)
+        run.write(target, content)
 
 
 def _write_labels(
@@ -1091,6 +1147,7 @@ def _copy_template_tree(
     dest: Path,
     *,
     transform: Callable[[PurePosixPath, bytes], bytes] | None = None,
+    on_overwrite: Callable[[Path, bytes, bytes], None] | None = None,
 ) -> tuple[list[Path], list[Path]]:
     """Recursively copy files from a traversable resource tree to disk.
 
@@ -1106,6 +1163,8 @@ def _copy_template_tree(
     :param transform: Rewrites the bytes of a file before the comparison, given
         its path relative to *root*. A file the rewrite already matches on disk
         is left alone, like any other.
+    :param on_overwrite: Called before an existing file is overwritten, with
+        its path, its bytes on disk and the bytes about to replace them.
     :return: `(created, updated)` lists of the paths actually written.
     """
     created: list[Path] = []
@@ -1116,8 +1175,12 @@ def _copy_template_tree(
         if transform is not None:
             data = transform(relative, data)
         existed = target.exists()
-        if existed and target.read_bytes() == data:
-            continue
+        if existed:
+            previous = target.read_bytes()
+            if previous == data:
+                continue
+            if on_overwrite is not None:
+                on_overwrite(target, previous, data)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
         (updated if existed else created).append(target)
