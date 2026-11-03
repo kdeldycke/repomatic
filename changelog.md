@@ -16,6 +16,7 @@
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
 - Regrade the benchmark with ✅, 🪫 and ❌ marks, each linked to its evidence, in place of plain `✓` and `~`.
 - Move `cruft`, which has had no commit since December 2024, from the benchmark tables to its excluded projects.
+- Document the `.staging/` folder of the claude.ai skill sync, which a symlinked user skills directory also needs in `.gitignore`.
 
 ## [`8.1.0` (2026-11-03)](https://github.com/kdeldycke/repomatic/compare/v8.0.0...v8.1.0)
 

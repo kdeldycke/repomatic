@@ -285,13 +285,15 @@ class GitignoreConfig:
 
     A repository that symlinks the user skills directory into its tree also needs
     the names of Claude Code's own claude.ai skill sync ignored: the downloaded
-    copies land in `synced/`, and a skill the sync stops shipping is moved to
-    `.trash/` (Claude Code `2.1.284`). Both are children of the skills directory
-    itself, so the rules travel with wherever that directory sits:
+    copies land in `synced/`, a skill the sync stops shipping is moved to
+    `.trash/`, and the sync also reserves `.staging/` (Claude Code `2.1.284`).
+    All three are children of the skills directory itself, so the rules travel
+    with wherever that directory sits:
 
     ```
     **/.agents/skills/synced/
     **/.agents/skills/.trash/
+    **/.agents/skills/.staging/
     ```
     """
 
