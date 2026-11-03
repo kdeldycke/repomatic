@@ -1,9 +1,6 @@
 # Changelog
 
-## [`8.1.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v8.0.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`8.1.0` (2026-11-03)](https://github.com/kdeldycke/repomatic/compare/v8.0.0...v8.1.0)
 
 - **Breaking:** Retire the `repomatic-audit` skill, folded into `repomatic-upgrade` as its second pass. `repomatic init` deletes an unmodified copy, and fails on an `exclude` or `include` entry naming `skills/repomatic-audit` until the entry is dropped.
 - **Breaking:** Generated workflows and the bundled agents and skills now name `AGENTS.md` as the instructions file in place of `claude.md`. Rename a downstream `claude.md` to match.
