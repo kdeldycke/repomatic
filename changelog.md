@@ -11,6 +11,7 @@
 - `repomatic init` now warns when it overwrites local edits in a skill or agent copy.
 - The default `gitignore.extra-content` now keeps the `scripts/` folder of an agent skill, which the virtualenv template's `[Ss]cripts` rule ignored.
 - The bundled `benchmark-update` skill now drops an excluded project from the metrics subjects and store, and follows a transferred one in both.
+- The bundled `file-bug-report` skill now covers a reply on an existing issue, and paces its `gh search` calls under the search API rate limit.
 - The bundled `repomatic-upgrade` skill now passes `lint-repo` the `--has-*` flag of each secret the repository holds, which a local run cannot read.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
 - Regrade the benchmark with ✅, 🪫 and ❌ marks, each linked to its evidence, in place of plain `✓` and `~`.
