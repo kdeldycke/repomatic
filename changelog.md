@@ -8,6 +8,7 @@
 - Add the `lint-shell` job to `lint.yaml`, which runs ShellCheck on the shell scripts that `format-shell` formats.
 - `repomatic run shellcheck` with no arguments now lints the shell scripts of the repository.
 - Add the `shfmt_changed` metadata key, which says whether the commit range touches a file of `shfmt_files`.
+- The bundled `benchmark-update` skill now drops an excluded project from the metrics subjects and store, and follows a transferred one in both.
 - Regrade the benchmark with ✅, 🪫 and ❌ marks, each linked to its evidence, in place of plain `✓` and `~`.
 - Move `cruft`, which has had no commit since December 2024, from the benchmark tables to its excluded projects.
 
