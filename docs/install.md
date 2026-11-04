@@ -164,7 +164,7 @@ The full command tree is also pre-rendered as static `.1` files:
 Downstream packagers can regenerate them from source as part of their build phase:
 
 ```{code-block} shell-session
-$ click-extra wrap --help-format man --output-dir /usr/share/man/man1/ repomatic.cli.main:repomatic
+$ click-extra wrap --help-format man --output-dir /usr/share/man/man1/ -- repomatic.cli.main:repomatic
 ```
 
 The generator honors `SOURCE_DATE_EPOCH` for reproducible builds. See the [`click-extra` man-page reference](https://kdeldycke.github.io/click-extra/man-page.html#generating-man-pages) for other invocation forms (uvx for build sandboxes, `.py` file paths, and the programmatic API).

@@ -1,4 +1,4 @@
-# {octicon}`log` History
+# {octicon}`milestone` History
 
 ![Star history of repomatic](assets/star-history.svg)
 

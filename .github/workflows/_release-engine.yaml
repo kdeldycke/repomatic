@@ -474,7 +474,7 @@ jobs:
           SCRIPT: ${{ fromJSON(inputs.metadata).manpages_script }}
         run: >
           uv --no-progress run --frozen --
-          click-extra wrap --help-format man --output-dir man "${SCRIPT}"
+          click-extra wrap --help-format man --output-dir man -- "${SCRIPT}"
       - name: Bundle as tarball
         # Named after the manpages_asset_name metadata key. See repomatic/release/manpages.py.
         run: uv --no-progress run --frozen -- repomatic pack-manpages

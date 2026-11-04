@@ -12,6 +12,7 @@
 - `repomatic init` now warns when it overwrites local edits in a skill or agent copy.
 - A `repomatic init` that moves the upstream pin now names each tool pin of the new release still inside the cooldown, like `lint-repo` does.
 - The default `gitignore.extra-content` now keeps the `scripts/` folder of an agent skill, which the virtualenv template's `[Ss]cripts` rule ignored.
+- The `manpages` release job and the packager command of the install page now pass the `wrap` target after a `--` separator.
 - The bundled `benchmark-update` skill now drops an excluded project from the metrics subjects and store, and follows a transferred one in both.
 - The bundled `file-bug-report` skill now covers a reply on an existing issue, and paces its `gh search` calls under the search API rate limit.
 - The bundled `repomatic-upgrade` skill now passes `lint-repo` the `--has-*` flag of each secret the repository holds, which a local run cannot read.
@@ -23,11 +24,19 @@
 - The bundled `sphinx-docs` agent now covers hiding the readme banner on the docs front page, and registers an icon for `agents.md` pages.
 - The bundled `sphinx-docs` agent now covers the doctree pickle and `viewcode` hooks, `copybutton_exclude`, `sitemap_excludes` per builder, and sidebar icon selectors under `dirhtml`.
 - The bundled `sphinx-docs` agent now keeps the `linkcheck_ignore` entry of a host that timed out until several runs pass.
+- The bundled `sphinx-docs` agent now registers icons for nine more click-extra pages, and gives the `history`, `sphinx` and `types` pages unique icons.
+- The bundled `sphinx-docs` agent now lists click-extra's marker regions and text-only docs tests, and links the upstream `dependencies`, `nuitka` and `commit-messages` pages.
+- The bundled `sphinx-docs` agent now enables a MyST extension only once the docs use its syntax, and no longer recommends `ogp_image_alt` or a `myst.domains` suppression.
 - The bundled `sphinx-docs-sync` skill now tests the removal of a setting with `sphinx-build -D`, without an edit to a shared `conf.py`.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
 - Fix `lint-repo` warning about a young `nuitka` pin in a repository that compiles no binary, where nothing installs it.
 - Fix `sync-runner-images` never retiring an image that only a repository's own matrix names: it moves a `[tool.repomatic.test-matrix]` entry and reports a workflow one.
 - Fix a Sigstore server error failing the `build-package` job: it now tries the PEP 740 signing three times, a minute apart.
+- Fix the `docs/binaries.md` page `sync-binaries` creates claiming every push compiles all binaries, where a push builds the `nuitka.dev-targets` canary alone. An existing page keeps its prose: edit it by hand.
+- Fix the bundled `sphinx-docs` agent advising against asserting `result.exit_code` in `{click:run}` blocks, and claiming downstream install pages carry versioned download URLs.
+- Fix the `build-finished` hook of the docs and of the bundled `sphinx-docs` agent deleting `.buildinfo` locally, which hid html-only setting changes from incremental builds.
+- Fix the bundled `brand-assets` skill naming the social banner after its style, where its own `docs/conf.py` wiring reads `banner-social`.
+- Fix the bundled `repomatic-ship` skill having a downstream repo re-point install page download URLs after a short ship, which only repomatic's freeze pins.
 - Regrade the benchmark with ✅, 🪫 and ❌ marks, each linked to its evidence, in place of plain `✓` and `~`.
 - Move `cruft`, which has had no commit since December 2024, from the benchmark tables to its excluded projects.
 - Document the `.staging/` folder of the claude.ai skill sync, which a symlinked user skills directory also needs in `.gitignore`.

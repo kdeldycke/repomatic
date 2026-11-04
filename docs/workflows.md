@@ -746,7 +746,7 @@ flowchart TD
 
 ### 📖 Man pages (`manpages`)
 
-- Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra wrap --help-format man --output-dir man "${SCRIPT}"` against the consumer's already-synced venv
+- Renders one roff `.1` file per (sub)command in the Click tree declared by `[tool.repomatic.manpages]` by shelling out to `click-extra wrap --help-format man --output-dir man -- "${SCRIPT}"` against the consumer's already-synced venv
 - Bundles the pages as a single, byte-deterministic `<asset-name>.tar.gz` with `repomatic pack-manpages`, and uploads it to the GitHub release **draft** with `repomatic pack-attestation --upload-to`, before `publish-release` publishes and locks the release
 - The tarball is attested with the same provenance chain as the compiled binaries: its sigstore bundle rides along as an `<asset-name>.tar.gz.attestation.json` asset, named by [`repomatic pack-attestation`](cli.md) after the file it covers, and provenance verifies with `gh attestation verify <asset-name>.tar.gz --repo <consumer> --signer-repo kdeldycke/repomatic`, which `pack-attestation --verify` runs before the upload
 - **Requires**:

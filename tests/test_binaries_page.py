@@ -416,6 +416,7 @@ def test_update_binaries_page_creates_from_template(tmp_path):
     assert f"https://github.com/{REPO}/actions/workflows/release.yaml" in text
     # Extensionless: Cloudflare Pages serves the docs and strips `.html`.
     assert "binaries#minimum-os-requirements" in text
+    assert "nuitka#build-cadence" in text
     assert "GitHub account is required" in text
     assert "```{csv-table}\n:file: assets/binaries.csv" in text
     assert ":class: sphinx-datatable" in text

@@ -25,6 +25,7 @@ from pathlib import Path
 from docutils.nodes import container, section
 from docutils.transforms import Transform
 from docutils.transforms.references import PropagateTargets
+from extra_platforms import is_github_ci
 from sphinxcontrib.mermaid import MermaidClassDiagram
 
 TYPE_CHECKING = False
@@ -97,14 +98,8 @@ myst_enable_extensions = [
     # admonitions. Native to myst-parser since 5.1.0; click-extra's own
     # converter defers to it from that version on (see click_extra.sphinx).
     "alert",
-    "attrs_block",
-    "attrs_inline",
-    "colon_fence",
-    "deflist",
     "replacements",
     "smartquotes",
-    "strikethrough",
-    "tasklist",
 ]
 # Allow ```mermaid``` without curly braces (```{mermaid}```).
 # See: https://github.com/mgaitan/sphinxcontrib-mermaid/issues/99#issuecomment-2339587001
@@ -258,7 +253,6 @@ nitpick_ignore = [
 autoclass_content = "both"
 # Keep the same ordering as in original source code.
 autodoc_member_order = "bysource"
-always_use_bars_union = True
 
 autodoc_default_options = {
     "members": True,
@@ -342,16 +336,9 @@ html_theme_options = {
 }
 
 # Linkcheck configuration.
-# GitHub renders issue comments, README tab anchors and
-# blob line anchors with JavaScript, so the linkcheck
-# builder cannot find them in the static HTML.
-linkcheck_anchors_ignore = [
-    r"issuecomment-\d+",
-    r"readme",
-    r"L\d+",
-]
-
-# GitHub README anchors are JS-rendered and invisible to linkcheck.
+# GitHub renders issue comments, README tab anchors and blob line anchors with
+# JavaScript, so the linkcheck builder cannot find them in the static HTML:
+# skip anchor checks for the whole host instead of stacking per-anchor patterns.
 linkcheck_anchors_ignore_for_url = [
     r"https://github\.com/",
 ]
@@ -416,7 +403,6 @@ ogp_site_url = docs_site_url
 # GitHub raw hotlink, which keeps one origin and refreshes it on every deploy.
 # Its html_static_path entry below is what puts the file there.
 ogp_image = "_static/banner-social-light.png"
-ogp_image_alt = project
 
 # Footer content.
 html_last_updated_fmt = "%Y-%m-%d"
@@ -474,22 +460,28 @@ def prune_build_artifacts(app, exception):
     against, and `.buildinfo.bak` is the copy Sphinx keeps when that comparison
     fails. Neither is content, and no setting suppresses them: the HTML builder
     writes `.buildinfo` from a finish task unconditionally, so the only way to
-    keep them out of a published tree is to remove them once it has.
+    keep them out of a published tree is to remove them once it has. The
+    Cloudflare deploy of this site would carry them: `wrangler pages deploy`
+    uploads dot files, and skips only `.DS_Store`, `.git` and `.wrangler`.
 
     `_sources/` is created unconditionally too, before `html_copy_source` is
     ever consulted, so switching that off empties the directory without
     removing it. It is deleted here only while empty, which keeps this from
     quietly discarding the sources of a build that does want to publish them.
 
-    The cost of dropping the markers is local and small: a subsequent
-    incremental build finds none and re-reads every document. CI builds are
-    always fresh, so they lose nothing at all.
+    The markers go in a GitHub Actions build alone. That build starts from an
+    empty output directory, and its tree is the one that gets published. A
+    local incremental build needs `.buildinfo`: when the file is missing,
+    Sphinx `9.2.0` skips the configuration comparison and compares file times
+    only, so a changed html-only setting like `html_title` leaves every page as
+    it was.
     """
     if exception:
         return
     outdir = Path(app.outdir)
-    for marker in (".buildinfo", ".buildinfo.bak"):
-        (outdir / marker).unlink(missing_ok=True)
+    if is_github_ci():
+        for marker in (".buildinfo", ".buildinfo.bak"):
+            (outdir / marker).unlink(missing_ok=True)
     sources = outdir / "_sources"
     if sources.is_dir() and not any(sources.iterdir()):
         sources.rmdir()

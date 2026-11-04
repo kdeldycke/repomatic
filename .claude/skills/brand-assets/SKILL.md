@@ -21,7 +21,7 @@ Every project produces four SVG variants, each with light and dark PNG exports:
 
 3. **Banner** (`logo-banner.svg`): Horizontal layout with the icon on the left, project name and tagline to the right. Transparent background. Used in the GitHub readme.
 
-4. **Social banner** (`banner-{style}.svg`): Same layout as the banner but with a decorative opaque background (e.g., marble veins, gradients, wave patterns). Used for OpenGraph/social previews. Opaque background.
+4. **Social banner** (`banner-social.svg`): Same layout as the banner but with a decorative opaque background (e.g., marble veins, gradients, wave patterns). Used for OpenGraph/social previews. Opaque background. The name says what the file is for, not its style, so a redesign leaves the `ogp_image` and `html_static_path` entries of `docs/conf.py` as they are.
 
 Each SVG produces two PNGs: `{name}-light.png` and `{name}-dark.png`. The favicon is SVG-only (no PNG exports needed).
 
