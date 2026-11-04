@@ -22,6 +22,7 @@
 - The bundled `sphinx-docs` agent now lists `click_extra.todo_unrendered` among its strictness flags, and registers icons for `design.md` and `performance.md` pages.
 - The bundled `sphinx-docs` agent now covers hiding the readme banner on the docs front page, and registers an icon for `agents.md` pages.
 - The bundled `sphinx-docs` agent now covers the doctree pickle and `viewcode` hooks, `copybutton_exclude`, `sitemap_excludes` per builder, and sidebar icon selectors under `dirhtml`.
+- The bundled `sphinx-docs` agent now keeps the `linkcheck_ignore` entry of a host that timed out until several runs pass.
 - The bundled `sphinx-docs-sync` skill now tests the removal of a setting with `sphinx-build -D`, without an edit to a shared `conf.py`.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
 - Fix `lint-repo` warning about a young `nuitka` pin in a repository that compiles no binary, where nothing installs it.

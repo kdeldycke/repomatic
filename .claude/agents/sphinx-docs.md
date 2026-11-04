@@ -733,7 +733,7 @@ Linkcheck and intersphinx:
 
 - `linkcheck_retries = 3` absorbs hosts that intermittently time out for the linkcheck bot. Prefer it over adding a flaky-but-valid host to `linkcheck_ignore`: retries keep the link checked, an ignore blinds the build to it.
 
-- `linkcheck_ignore` is for hosts that 403 bots or have flaky availability. Each entry needs a one-line comment naming the host and reason. Re-test on every release; remove patterns that have started working again. Categorize entries so the comment style matches the cause:
+- `linkcheck_ignore` is for hosts that 403 bots or have flaky availability. Each entry needs a one-line comment naming the host and reason. Re-test on every release; remove patterns that have started working again. A host listed for timeouts or connection errors needs several passing runs before its entry goes: one passing run proves nothing for a flaky host. Categorize entries so the comment style matches the cause:
 
   | Category              | Examples                                                                                    | Comment style                                                                                         |
   | :-------------------- | :------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------- |
