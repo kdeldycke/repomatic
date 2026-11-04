@@ -2892,6 +2892,74 @@ def test_run_tool_no_check_warning_in_write_mode(
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
+def test_run_tool_warns_when_the_cwd_config_misses_a_target(
+    mock_ci,
+    mock_install_binary,
+    mock_run,
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    """mdformat names each target that its written config cannot reach.
+
+    mdformat looks for its config from each file's directory up, so the
+    `.mdformat.toml` written into the working directory misses a file outside it.
+    """
+    orchard = tmp_path / "orchard"
+    grove = tmp_path / "grove"
+    orchard.mkdir()
+    grove.mkdir()
+    (orchard / "banana.md").write_text("# Banana\n", encoding="UTF-8")
+    outside = grove / "apple.md"
+    outside.write_text("# Apple\n", encoding="UTF-8")
+    monkeypatch.chdir(orchard)
+    bin_path = tmp_path / "shfmt"
+    bin_path.touch()
+    mock_install_binary.return_value = bin_path
+    mock_run.return_value = MagicMock(returncode=0)
+
+    with caplog.at_level(logging.WARNING):
+        run_tool("mdformat", extra_args=("banana.md", str(outside)))
+
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if "does not reach" in record.getMessage()
+    ]
+    assert len(messages) == 1
+    assert str(outside) in messages[0]
+    assert "banana.md" not in messages[0]
+
+
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.binaries.install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
+def test_run_tool_no_cwd_config_warning_for_targets_inside(
+    mock_ci,
+    mock_install_binary,
+    mock_run,
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    """A file or directory below the working directory, and a flag, warn nothing."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pear").mkdir()
+    (tmp_path / "pear" / "cherry.md").write_text("# Cherry\n", encoding="UTF-8")
+    bin_path = tmp_path / "shfmt"
+    bin_path.touch()
+    mock_install_binary.return_value = bin_path
+    mock_run.return_value = MagicMock(returncode=0)
+
+    with caplog.at_level(logging.WARNING):
+        run_tool("mdformat", extra_args=("--wrap=keep", "pear", "pear/cherry.md"))
+
+    assert "does not reach" not in caplog.text
+
+
+@patch("repomatic.tooling.runner.subprocess.run")
+@patch("repomatic.tooling.binaries.install_binary")
+@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_post_processes_files_below_a_directory(
     mock_ci,
     mock_install_binary,

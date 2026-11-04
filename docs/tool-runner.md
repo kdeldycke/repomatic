@@ -135,6 +135,10 @@ If the repo has no config at all, repomatic falls back to its own bundled defaul
 
 Tools with bundled defaults: actionlint, mdformat, ruff, yamllint, zizmor.
 
+```{note}
+A tool with no flag to name its config file, like mdformat or shfmt, gets its translated or bundled config written into the working directory for the length of the run. Both tools look for their config from each file's own directory up, so that config reaches only the files below the working directory. Run them from the repository that holds the files: `repomatic run` warns about each target outside it. `--verify` is not affected, because it formats copies made inside the working directory.
+```
+
 ### Level 4: bare invocation
 
 If none of the above applies (no config file, no `[tool.X]`, no bundled default), the tool runs with its own built-in defaults. Tools like autopep8 work this way: all behavior is controlled through CLI flags.

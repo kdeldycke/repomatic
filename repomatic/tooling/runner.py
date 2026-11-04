@@ -286,6 +286,35 @@ def _write_cwd_config(spec: ToolSpec, content: str, level: ConfigLevel) -> Path:
     return target
 
 
+def _unreached_by_cwd_config(args: Sequence[str]) -> list[str]:
+    """Return the path arguments that a working-directory config cannot reach.
+
+    mdformat and shfmt look for their config from each file's own directory up,
+    so the file {func}`_write_cwd_config` writes reaches only the files below the
+    working directory. A file elsewhere is formatted with the tool's own defaults,
+    and nothing in its output says so. `--verify` is not affected: it formats
+    copies made inside the working directory.
+
+    A directory argument stands for the files below it. A file argument is
+    looked up from its parent, resolved so that a symlinked parent, like macOS's
+    `/tmp`, still counts as inside. Arguments naming no existing path, like
+    flags, are skipped.
+
+    :param args: The arguments of one invocation.
+    :return: The path arguments outside the working directory, in order.
+    """
+    working_dir = Path.cwd().resolve()
+    outside = []
+    for arg in args:
+        path = Path(arg)
+        if not path.exists():
+            continue
+        base = path if path.is_dir() else path.absolute().parent
+        if not base.resolve().is_relative_to(working_dir):
+            outside.append(arg)
+    return outside
+
+
 def _deliver_config(
     spec: ToolSpec,
     content: str,
@@ -1040,6 +1069,19 @@ def run_tool(
             config_lock.close()
         else:
             stack.callback(_remove_config_file, config_file)
+            # See _unreached_by_cwd_config for why such a target misses it.
+            if spec.writes_config_in_cwd:
+                outside = dict.fromkeys(
+                    arg for batch in batches for arg in _unreached_by_cwd_config(batch)
+                )
+                if outside:
+                    logging.warning(
+                        f"{spec.name} looks for its config from each file's "
+                        f"directory up, so the config written to "
+                        f"{config_file.resolve()} does not reach "
+                        f"{', '.join(outside)}. Run from the repository that "
+                        "holds them."
+                    )
 
         # Ready the machine before the install: a sync it runs into the project
         # virtualenv must not remove the tool installed there afterwards.

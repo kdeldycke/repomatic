@@ -7,6 +7,7 @@
 
 - Add the `lint-shell` job to `lint.yaml`, which runs ShellCheck on the shell scripts that `format-shell` formats.
 - `repomatic run shellcheck` with no arguments now lints the shell scripts of the repository.
+- `repomatic run` now warns when mdformat or shfmt targets a file outside the working directory, which the config it writes there does not reach.
 - Add the `shfmt_changed` metadata key, which says whether the commit range touches a file of `shfmt_files`.
 - `repomatic init` now warns when it overwrites local edits in a skill or agent copy.
 - A `repomatic init` that moves the upstream pin now names each tool pin of the new release still inside the cooldown, like `lint-repo` does.
