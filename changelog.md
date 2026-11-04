@@ -28,7 +28,7 @@
 - The bundled `sphinx-docs` agent now registers icons for nine more click-extra pages, and gives the `history`, `sphinx` and `types` pages unique icons.
 - The bundled `sphinx-docs` agent now lists click-extra's marker regions and text-only docs tests, and links the upstream `dependencies`, `nuitka` and `commit-messages` pages.
 - The bundled `sphinx-docs` agent now enables a MyST extension only once the docs use its syntax, and no longer recommends `ogp_image_alt` or a `myst.domains` suppression.
-- The bundled `sphinx-docs` agent now writes each icon of its registry as an `{octicon}` role, beside the icon name.
+- The bundled `sphinx-docs` agent now keys its icon registry by octicon, with one row per icon listing the pages that take it.
 - The bundled `sphinx-docs-sync` skill now tests the removal of a setting with `sphinx-build -D`, without an edit to a shared `conf.py`.
 - The Docs workflow now also runs on a push that only changes a `.claude/agents/*.md` file, which the documentation includes.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
