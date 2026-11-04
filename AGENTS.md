@@ -135,7 +135,7 @@ The generic rule lands a finding that belongs to `repomatic` as uncommitted edit
 
 ### Bundled agents and skills
 
-This repository uses three Claude Code agents in `.claude/agents/`, and `qa-engineer` is the gatekeeper for changes to their definitions. Definitions stay lean, and each states its rules inline.
+This repository uses three Claude Code agents in `.claude/agents/`, and [`qa-engineer`](https://repomatic.net/subagent-qa-engineer#agent-definition-gatekeeper) is the gatekeeper for changes to their definitions. Definitions stay lean, and each states its rules inline.
 
 **Agents must be self-contained for downstream portability.** Agents deploy downstream via `repomatic init subagents` as standalone files; Claude auto-invokes them from their `description:` frontmatter. All knowledge must be inline: a downstream repository receives no copy of this `AGENTS.md`, of the upstream `docs/` or of any upstream-only path, so a pointer to one of them dangles there. When mining session history, default to local `AGENTS.md` updates; file an upstream proposal only when the pattern is generic across repos.
 

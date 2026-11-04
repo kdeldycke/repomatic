@@ -28,7 +28,7 @@ $ claude plugin install repomatic@kdeldycke
 
 The same two steps work as `/plugin marketplace add` and `/plugin install` from inside a session, where `/plugin` also offers an interactive browser.
 
-Skills and agents arrive namespaced by the plugin, so `/repomatic-changelog` becomes `/repomatic:repomatic-changelog` and the QA agent is `repomatic:qa-engineer`.
+Skills and agents arrive namespaced by the plugin, so `/repomatic-changelog` becomes `/repomatic:repomatic-changelog` and the [QA agent](subagent-qa-engineer.md) is `repomatic:qa-engineer`.
 
 ```{important}
 The marketplace reads the plugin directory straight from this repository through a `git-subdir` source, so git must be on your `PATH` (2.25 or later, for sparse-checkout cone mode). A Claude Code too old to know the type reports `This plugin uses a source type your Claude Code version does not support`, and versions before 2.1.120 fail to load the marketplace at all. Check yours with `claude --version`; 2.1.236 handles it.

@@ -7,6 +7,8 @@ article p[align="center"]:has(img[alt="repomatic"]) {
  * SVG paths from sphinx-design's octicons.json (mark-github is also the same
  * icon Furo uses in its own page.html footer).
  * See: https://github.com/pradyunsg/furo/discussions/921
+ * The four icons this file reserves, and the rules of their href selectors:
+ * https://repomatic.net/subagent-sphinx-docs#title-octicons
  *
  * Caveat: Furo rewrites the current page's sidebar href to "#", so CSS
  * [href="..."] selectors cannot match the active entry. The icon will be
