@@ -544,107 +544,107 @@ Page-shape rules that apply across the roster:
 
 - **Title octicons.** Every top-level page heading uses an `{octicon}` icon for visual scanning: `` # {octicon}`download` Installation ``, `` # {octicon}`command-palette` CLI ``, etc. Not just decoration — the Furo theme's sidebar uses them as visual anchors. Canonical icon registry, alphabetized:
 
-  | Page                       | Octicon                |
-  | :------------------------- | :--------------------- |
-  | `add-new-manager.md`       | `diff-added`           |
-  | `add-packaging-channel.md` | `git-merge`            |
-  | `agent-skills.md`          | `mortar-board`         |
-  | `agents.md`                | `dependabot`           |
-  | `architectures.md`         | `cpu`                  |
-  | `augmentations.md`         | `plus-circle`          |
-  | `bar-plugin.md`            | `plug`                 |
-  | `benchmark.md`             | `trophy`               |
-  | `binaries.md`              | `desktop-download`     |
-  | `carapace.md`              | `chevron-right`        |
-  | `changelog-archive.md`     | `history`              |
-  | `changelog.md`             | `diff`                 |
-  | `ci.md`                    | `container`            |
-  | `claude-code-plugin.md`    | `plug`                 |
-  | `cli-parameters.md`        | `command-palette`      |
-  | `cli.md`                   | `command-palette`      |
-  | `cloudflare.md`            | `cloud`                |
-  | `code-of-conduct.md`       | `code-of-conduct`      |
-  | `colorize.md`              | `paintbrush`           |
-  | `commands.md`              | `apps`                 |
-  | `commit-messages.md`       | `git-commit`           |
-  | `concurrency.md`           | `cpu`                  |
-  | `config-discovery.md`      | `search`               |
-  | `config-formats.md`        | `stack`                |
-  | `config-schema.md`         | `project-template`     |
-  | `config-validation.md`     | `verified`             |
-  | `config.md`                | `sliders`              |
-  | `configuration.md`         | `sliders`              |
-  | `context.md`               | `database`             |
-  | `contributing.md`          | `git-pull-request`     |
-  | `cooldown.md`              | `history`              |
-  | `decorators.md`            | `mention`              |
-  | `dependencies.md`          | `package-dependencies` |
-  | `design.md`                | `light-bulb`           |
-  | `desktop-menus.md`         | `device-desktop`       |
-  | `detection.md`             | `pulse`                |
-  | `dump.md`                  | `file-moved`           |
-  | `duplicates.md`            | `stack`                |
-  | `envvar.md`                | `pin`                  |
-  | `execution.md`             | `play`                 |
-  | `falsehoods.md`            | `copilot-warning`      |
-  | `gnome-shell.md`           | `plug`                 |
-  | `groups.md`                | `apps`                 |
-  | `history.md`               | `milestone`            |
-  | `infrastructure.md`        | `globe`                |
-  | `install.md`               | `download`             |
-  | `layout.md`                | `rows`                 |
-  | `license.md`               | `law`                  |
-  | `logging.md`               | `log`                  |
-  | `machine-readable.md`      | `code`                 |
-  | `man-page.md`              | `repo`                 |
-  | `man.md`                   | `book`                 |
-  | `managers.md`              | `file-submodule`       |
-  | `mkdocs.md`                | `markdown`             |
-  | `multicall.md`             | `file-symlink-file`    |
-  | `myst-docstrings.md`       | `pencil`               |
-  | `nuitka.md`                | `file-binary`          |
-  | `operation-contracts.md`   | `tasklist`             |
-  | `output-formats.md`        | `table`                |
-  | `overrides.md`             | `pin`                  |
-  | `packaging.md`             | `package-dependents`   |
-  | `parameters.md`            | `tasklist`             |
-  | `performance.md`           | `zap`                  |
-  | `platforms.md`             | `codespaces`           |
-  | `pygments.md`              | `file-code`            |
-  | `pytest.md`                | `meter`                |
-  | `python-directives.md`     | `code-square`          |
-  | `releasing.md`             | `rocket`               |
-  | `sbom.md`                  | `verified`             |
-  | `screenshots.md`           | `device-camera`        |
-  | `security.md`              | `shield-lock`          |
-  | `shells.md`                | `chevron-right`        |
-  | `snippets.md`              | `image`                |
-  | `sphinx.md`                | `browser`              |
-  | `spinner.md`               | `sync`                 |
-  | `styling.md`               | `typography`           |
-  | `subagents.md`             | `dependabot`           |
-  | `sudo.md`                  | `key`                  |
-  | `table.md`                 | `table`                |
-  | `telemetry.md`             | `broadcast`            |
-  | `terminals.md`             | `terminal`             |
-  | `test-matrix.md`           | `pivot-column`         |
-  | `test-suite.md`            | `beaker`               |
-  | `testing.md`               | `shield-check`         |
-  | `theme.md`                 | `sun`                  |
-  | `todolist.md`              | `checklist`            |
-  | `tool-runner.md`           | `tools`                |
-  | `trait.md`                 | `tag`                  |
-  | `tree.md`                  | `workflow`             |
-  | `tutorial.md`              | `mortar-board`         |
-  | `typer.md`                 | `git-compare`          |
-  | `types.md`                 | `multi-select`         |
-  | `unsupported.md`           | `circle-slash`         |
-  | `upstream-development.md`  | `gear`                 |
-  | `upstream.md`              | `cross-reference`      |
-  | `usecase.md`               | `light-bulb`           |
-  | `version.md`               | `iterations`           |
-  | `workflows.md`             | `workflow`             |
-  | `wrap.md`                  | `terminal`             |
+  | Page                       | Octicon                                                |
+  | :------------------------- | :----------------------------------------------------- |
+  | `add-new-manager.md`       | {octicon}`diff-added` `diff-added`                     |
+  | `add-packaging-channel.md` | {octicon}`git-merge` `git-merge`                       |
+  | `agent-skills.md`          | {octicon}`mortar-board` `mortar-board`                 |
+  | `agents.md`                | {octicon}`dependabot` `dependabot`                     |
+  | `architectures.md`         | {octicon}`cpu` `cpu`                                   |
+  | `augmentations.md`         | {octicon}`plus-circle` `plus-circle`                   |
+  | `bar-plugin.md`            | {octicon}`plug` `plug`                                 |
+  | `benchmark.md`             | {octicon}`trophy` `trophy`                             |
+  | `binaries.md`              | {octicon}`desktop-download` `desktop-download`         |
+  | `carapace.md`              | {octicon}`chevron-right` `chevron-right`               |
+  | `changelog-archive.md`     | {octicon}`history` `history`                           |
+  | `changelog.md`             | {octicon}`diff` `diff`                                 |
+  | `ci.md`                    | {octicon}`container` `container`                       |
+  | `claude-code-plugin.md`    | {octicon}`plug` `plug`                                 |
+  | `cli-parameters.md`        | {octicon}`command-palette` `command-palette`           |
+  | `cli.md`                   | {octicon}`command-palette` `command-palette`           |
+  | `cloudflare.md`            | {octicon}`cloud` `cloud`                               |
+  | `code-of-conduct.md`       | {octicon}`code-of-conduct` `code-of-conduct`           |
+  | `colorize.md`              | {octicon}`paintbrush` `paintbrush`                     |
+  | `commands.md`              | {octicon}`apps` `apps`                                 |
+  | `commit-messages.md`       | {octicon}`git-commit` `git-commit`                     |
+  | `concurrency.md`           | {octicon}`cpu` `cpu`                                   |
+  | `config-discovery.md`      | {octicon}`search` `search`                             |
+  | `config-formats.md`        | {octicon}`stack` `stack`                               |
+  | `config-schema.md`         | {octicon}`project-template` `project-template`         |
+  | `config-validation.md`     | {octicon}`verified` `verified`                         |
+  | `config.md`                | {octicon}`sliders` `sliders`                           |
+  | `configuration.md`         | {octicon}`sliders` `sliders`                           |
+  | `context.md`               | {octicon}`database` `database`                         |
+  | `contributing.md`          | {octicon}`git-pull-request` `git-pull-request`         |
+  | `cooldown.md`              | {octicon}`history` `history`                           |
+  | `decorators.md`            | {octicon}`mention` `mention`                           |
+  | `dependencies.md`          | {octicon}`package-dependencies` `package-dependencies` |
+  | `design.md`                | {octicon}`light-bulb` `light-bulb`                     |
+  | `desktop-menus.md`         | {octicon}`device-desktop` `device-desktop`             |
+  | `detection.md`             | {octicon}`pulse` `pulse`                               |
+  | `dump.md`                  | {octicon}`file-moved` `file-moved`                     |
+  | `duplicates.md`            | {octicon}`stack` `stack`                               |
+  | `envvar.md`                | {octicon}`pin` `pin`                                   |
+  | `execution.md`             | {octicon}`play` `play`                                 |
+  | `falsehoods.md`            | {octicon}`copilot-warning` `copilot-warning`           |
+  | `gnome-shell.md`           | {octicon}`plug` `plug`                                 |
+  | `groups.md`                | {octicon}`apps` `apps`                                 |
+  | `history.md`               | {octicon}`milestone` `milestone`                       |
+  | `infrastructure.md`        | {octicon}`globe` `globe`                               |
+  | `install.md`               | {octicon}`download` `download`                         |
+  | `layout.md`                | {octicon}`rows` `rows`                                 |
+  | `license.md`               | {octicon}`law` `law`                                   |
+  | `logging.md`               | {octicon}`log` `log`                                   |
+  | `machine-readable.md`      | {octicon}`code` `code`                                 |
+  | `man-page.md`              | {octicon}`repo` `repo`                                 |
+  | `man.md`                   | {octicon}`book` `book`                                 |
+  | `managers.md`              | {octicon}`file-submodule` `file-submodule`             |
+  | `mkdocs.md`                | {octicon}`markdown` `markdown`                         |
+  | `multicall.md`             | {octicon}`file-symlink-file` `file-symlink-file`       |
+  | `myst-docstrings.md`       | {octicon}`pencil` `pencil`                             |
+  | `nuitka.md`                | {octicon}`file-binary` `file-binary`                   |
+  | `operation-contracts.md`   | {octicon}`tasklist` `tasklist`                         |
+  | `output-formats.md`        | {octicon}`table` `table`                               |
+  | `overrides.md`             | {octicon}`pin` `pin`                                   |
+  | `packaging.md`             | {octicon}`package-dependents` `package-dependents`     |
+  | `parameters.md`            | {octicon}`tasklist` `tasklist`                         |
+  | `performance.md`           | {octicon}`zap` `zap`                                   |
+  | `platforms.md`             | {octicon}`codespaces` `codespaces`                     |
+  | `pygments.md`              | {octicon}`file-code` `file-code`                       |
+  | `pytest.md`                | {octicon}`meter` `meter`                               |
+  | `python-directives.md`     | {octicon}`code-square` `code-square`                   |
+  | `releasing.md`             | {octicon}`rocket` `rocket`                             |
+  | `sbom.md`                  | {octicon}`verified` `verified`                         |
+  | `screenshots.md`           | {octicon}`device-camera` `device-camera`               |
+  | `security.md`              | {octicon}`shield-lock` `shield-lock`                   |
+  | `shells.md`                | {octicon}`chevron-right` `chevron-right`               |
+  | `snippets.md`              | {octicon}`image` `image`                               |
+  | `sphinx.md`                | {octicon}`browser` `browser`                           |
+  | `spinner.md`               | {octicon}`sync` `sync`                                 |
+  | `styling.md`               | {octicon}`typography` `typography`                     |
+  | `subagents.md`             | {octicon}`dependabot` `dependabot`                     |
+  | `sudo.md`                  | {octicon}`key` `key`                                   |
+  | `table.md`                 | {octicon}`table` `table`                               |
+  | `telemetry.md`             | {octicon}`broadcast` `broadcast`                       |
+  | `terminals.md`             | {octicon}`terminal` `terminal`                         |
+  | `test-matrix.md`           | {octicon}`pivot-column` `pivot-column`                 |
+  | `test-suite.md`            | {octicon}`beaker` `beaker`                             |
+  | `testing.md`               | {octicon}`shield-check` `shield-check`                 |
+  | `theme.md`                 | {octicon}`sun` `sun`                                   |
+  | `todolist.md`              | {octicon}`checklist` `checklist`                       |
+  | `tool-runner.md`           | {octicon}`tools` `tools`                               |
+  | `trait.md`                 | {octicon}`tag` `tag`                                   |
+  | `tree.md`                  | {octicon}`workflow` `workflow`                         |
+  | `tutorial.md`              | {octicon}`mortar-board` `mortar-board`                 |
+  | `typer.md`                 | {octicon}`git-compare` `git-compare`                   |
+  | `types.md`                 | {octicon}`multi-select` `multi-select`                 |
+  | `unsupported.md`           | {octicon}`circle-slash` `circle-slash`                 |
+  | `upstream-development.md`  | {octicon}`gear` `gear`                                 |
+  | `upstream.md`              | {octicon}`cross-reference` `cross-reference`           |
+  | `usecase.md`               | {octicon}`light-bulb` `light-bulb`                     |
+  | `version.md`               | {octicon}`iterations` `iterations`                     |
+  | `workflows.md`             | {octicon}`workflow` `workflow`                         |
+  | `wrap.md`                  | {octicon}`terminal` `terminal`                         |
 
   When introducing a page that's not in the table, pick the closest [GitHub Octicon](https://primer.style/foundations/icons) and add the entry here so the next repo follows suit. Icons must be unique within a repo — two pages sharing an icon defeats the visual-anchor purpose. A generated, homogeneous page catalog is exempt: meta-package-manager's `docs/managers/<id>.md` stubs (one per supported manager) all share a single category icon (`package`) as a group marker and sit under their own `{toctree}`, not competing for sidebar anchoring, so the uniqueness rule governs the hand-authored roster, not such catalogs. A hand-authored *family* is exempt on the same grounds: meta-package-manager's `bar-plugin.md` and `gnome-shell.md` both take `plug` because they document the two desktop-menu frontends of one feature, which a reader scans as a pair rather than tells apart by icon. The rule bites when two *unrelated* pages collide. Across repos, reuse is acceptable when the concepts are related (`sliders` for anything configuration-shaped, `chevron-right` for anything shell-shaped); at fleet scale some reuse is inevitable. Auto-generated API pages (`<package>.md`, `tests.md`, and other autodoc module pages) keep plain octicon-free headings, with the package name in backticked form (like `` # `click_extra` package ``): their sidebar icons come from the `custom.css` toctree workaround instead. That workaround takes four icons, so no page title may use them: `code-review` for the package page, `codescan-checkmark` for `tests`, `list-unordered` for `genindex` and `package` for `modindex`. Match each of those entries on the end of its href. The href is relative to the current page, so it gains a `../` per level of nesting, and the `dirhtml` builder ends it with `/` instead of `.html`. A rule like `:is([href="tests/"], [href$="/tests/"])` holds on every page, where `[href="tests.html"]` matches only on the top-level pages of an `html` build.
 

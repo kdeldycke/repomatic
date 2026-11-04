@@ -28,7 +28,9 @@
 - The bundled `sphinx-docs` agent now registers icons for nine more click-extra pages, and gives the `history`, `sphinx` and `types` pages unique icons.
 - The bundled `sphinx-docs` agent now lists click-extra's marker regions and text-only docs tests, and links the upstream `dependencies`, `nuitka` and `commit-messages` pages.
 - The bundled `sphinx-docs` agent now enables a MyST extension only once the docs use its syntax, and no longer recommends `ogp_image_alt` or a `myst.domains` suppression.
+- The bundled `sphinx-docs` agent now writes each icon of its registry as an `{octicon}` role, beside the icon name.
 - The bundled `sphinx-docs-sync` skill now tests the removal of a setting with `sphinx-build -D`, without an edit to a shared `conf.py`.
+- The Docs workflow now also runs on a push that only changes a `.claude/agents/*.md` file, which the documentation includes.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
 - Fix `lint-repo` warning about a young `nuitka` pin in a repository that compiles no binary, where nothing installs it.
 - Fix `sync-runner-images` never retiring an image that only a repository's own matrix names: it moves a `[tool.repomatic.test-matrix]` entry and reports a workflow one.
@@ -42,6 +44,7 @@
 - Move `cruft`, which has had no commit since December 2024, from the benchmark tables to its excluded projects.
 - Document the `.staging/` folder of the claude.ai skill sync, which a symlinked user skills directory also needs in `.gitignore`.
 - Document the `typos` trap of a bracket glob like `[Ss]cripts`, which reports `cripts` as a typo.
+- Render each bundled subagent on a docs page of its own, where the `sphinx-docs` icon registry shows its icons.
 
 ## [`8.1.0` (2026-11-03)](https://github.com/kdeldycke/repomatic/compare/v8.0.0...v8.1.0)
 

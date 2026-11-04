@@ -34,11 +34,18 @@ Without [`subagents.location`](configuration.md), they land in `./.claude/agents
 
 ## Available subagents
 
-| Subagent                                                                                        | Role                                                                                                             |
-| :---------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------- |
-| [`grunt-qa`](https://github.com/kdeldycke/repomatic/blob/main/.claude/agents/grunt-qa.md)       | Hands-on worker that fixes typos, ordering, style, doc-sync issues, and other mechanical `AGENTS.md` violations. |
-| [`qa-engineer`](https://github.com/kdeldycke/repomatic/blob/main/.claude/agents/qa-engineer.md) | Senior engineer that handles deep code analysis, bug-class sweeps, and design decisions.                         |
-| [`sphinx-docs`](https://github.com/kdeldycke/repomatic/blob/main/.claude/agents/sphinx-docs.md) | Documentation steward that keeps `docs/` in sync with code and enforces MyST and click-extra conventions.        |
+| Subagent                                 | Role                                                                                                             |
+| :--------------------------------------- | :--------------------------------------------------------------------------------------------------------------- |
+| [`grunt-qa`](subagent-grunt-qa.md)       | Hands-on worker that fixes typos, ordering, style, doc-sync issues, and other mechanical `AGENTS.md` violations. |
+| [`qa-engineer`](subagent-qa-engineer.md) | Senior engineer that handles deep code analysis, bug-class sweeps, and design decisions.                         |
+| [`sphinx-docs`](subagent-sphinx-docs.md) | Documentation steward that keeps `docs/` in sync with code and enforces MyST and click-extra conventions.        |
+
+```{toctree}
+:hidden:
+subagent-grunt-qa
+subagent-qa-engineer
+subagent-sphinx-docs
+```
 
 ## Self-containment
 
