@@ -757,6 +757,8 @@ Linkcheck and intersphinx:
   | Client-side fragments | `github.com/.../runner-images#...`, `github.com/.../README#...`                             | `# Fragment anchors rendered client-side.` (prefer `linkcheck_anchors_ignore_for_url` when possible). |
   | CI flakiness          | `gnu.org`, `midnightbsd.org`                                                                | `# Intermittently unreachable from CI.`                                                               |
 
+- `[tool.lychee] exclude` and `linkcheck_ignore` cover different crawls. The `check-broken-links` job of `docs.yaml` runs lychee over the doc files of the repository, and the Sphinx linkcheck builder over the built pages, generated content included. Put an exclude in the list of the checker that meets the link: a URL that only a `{python:render}` block or a docstring emits never reaches lychee, so it needs no `[tool.lychee]` entry.
+
 - `intersphinx_mapping` should cover every external project the docs cross-reference. Use `{role}` cross-refs in prose instead of bare URLs so a project move shows up as a build error, not a silent 404 in the rendered HTML. Before adding a mapping, probe the inventory with `curl -sI {base-url}/objects.inv`: a 429/403 carrying `cf-mitigated: challenge` (Cloudflare's bot gate) means Sphinx's fetcher can never retrieve it and the mapping would break every CI build. Blanket the unreachable project's refs in `nitpick_ignore_regex` with a dated comment instead.
 
 Strictness flags:

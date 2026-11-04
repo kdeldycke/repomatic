@@ -24,6 +24,7 @@
 - The bundled `sphinx-docs` agent now covers hiding the readme banner on the docs front page, and registers an icon for `agents.md` pages.
 - The bundled `sphinx-docs` agent now covers the doctree pickle and `viewcode` hooks, `copybutton_exclude`, `sitemap_excludes` per builder, and sidebar icon selectors under `dirhtml`.
 - The bundled `sphinx-docs` agent now keeps the `linkcheck_ignore` entry of a host that timed out until several runs pass.
+- The bundled `sphinx-docs` agent now puts each link exclude in the list of the checker that meets the link: lychee reads the doc files, Sphinx linkcheck the built pages.
 - The bundled `sphinx-docs` agent now registers icons for nine more click-extra pages, and gives the `history`, `sphinx` and `types` pages unique icons.
 - The bundled `sphinx-docs` agent now lists click-extra's marker regions and text-only docs tests, and links the upstream `dependencies`, `nuitka` and `commit-messages` pages.
 - The bundled `sphinx-docs` agent now enables a MyST extension only once the docs use its syntax, and no longer recommends `ogp_image_alt` or a `myst.domains` suppression.
