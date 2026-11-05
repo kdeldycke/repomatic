@@ -2087,8 +2087,8 @@ def test_sphinx_docs_agent_carries_the_octicon_registry():
     """The registry table of the `sphinx-docs` agent renders from the data file.
 
     The agent ships to repositories that have no copy of the data file, so it
-    carries the table itself. After an edit to the data file, replace the table
-    with the output of `OcticonRegistry.load().markdown_table()`.
+    carries the table itself. `docs/docs_update.py`, which `repomatic
+    update-docs` runs, rewrites the table after an edit to the data file.
     """
     agent = (PROJECT_ROOT / ".claude" / "agents" / "sphinx-docs.md").read_text(
         encoding="UTF-8"

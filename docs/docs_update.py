@@ -13,11 +13,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-"""Regenerate the committed CLI captures in `docs/assets/`.
+"""Regenerate the committed CLI captures in `docs/assets/`, and the octicon table.
 
 Runs as phase 3 of `repomatic update-docs` (the `[tool.repomatic] docs.update-script`
 default names this file), so the autofix lane's `update-docs` job refreshes the
 captures on every push and ships them in its pull request.
+
+The octicon table is the registry the `sphinx-docs` agent carries, rendered from
+`repomatic/data/octicons.toml`: the agent ships to repositories that have no copy
+of the data file.
 
 The captures go through the `click-extra screenshot` and `click-extra snippet`
 CLIs (and the recording API) rather than `click:run` `:screenshot:` blocks,
@@ -78,6 +82,11 @@ except ImportError:
         AUTO_HOLD,
     )
 from extra_platforms import is_unix
+
+from repomatic.lint_repo.site import OcticonRegistry
+
+AGENT_PATH = Path(__file__).parent.parent / ".claude" / "agents" / "sphinx-docs.md"
+"""The `sphinx-docs` agent, which carries the octicon registry as a table."""
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 """Where the committed captures live, beside the other readme illustrations."""
@@ -294,13 +303,34 @@ def capture_recording(target: Path) -> None:
     sys.exit(f"No clean recording after {RECORDING_TAKES} takes.")
 
 
+def refresh_octicon_table(*, check: bool) -> bool:
+    """Rewrite the registry table of the `sphinx-docs` agent from the data file.
+
+    :param check: Report drift without writing.
+    :return: Whether the committed table differed from the rendering.
+    """
+    lines = AGENT_PATH.read_text(encoding="UTF-8").split("\n")
+    start = next(i for i, line in enumerate(lines) if line.startswith("| Octicon "))
+    end = start
+    while lines[end].startswith("| "):
+        end += 1
+    table = OcticonRegistry.load().markdown_table().split("\n")
+    if lines[start:end] == table:
+        return False
+    if not check:
+        lines[start:end] = table
+        AGENT_PATH.write_text("\n".join(lines), encoding="UTF-8", newline="\n")
+        print(f"Refreshed the octicon table of {AGENT_PATH}.")
+    return True
+
+
 def main() -> None:
-    """Refresh every capture, or report drift under `--check`."""
+    """Refresh every capture and the octicon table, or report drift under `--check`."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Do not write; exit non-zero if any committed capture is stale.",
+        help="Do not write; exit non-zero if any committed output is stale.",
     )
     args = parser.parse_args()
 
@@ -337,8 +367,11 @@ def main() -> None:
             capture_recording(recording)
             print(f"Recorded {recording}.")
 
+    if refresh_octicon_table(check=args.check) and args.check:
+        stale.append(AGENT_PATH.name)
+
     if stale:
-        sys.exit(f"Stale capture(s): {', '.join(stale)}. Run `repomatic update-docs`.")
+        sys.exit(f"Stale output(s): {', '.join(stale)}. Run `repomatic update-docs`.")
 
 
 if __name__ == "__main__":
