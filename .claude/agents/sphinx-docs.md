@@ -625,11 +625,11 @@ Every top-level page heading uses an `{octicon}` icon for visual scanning: `` # 
 | {octicon}`play` `play`                                 | `execution.md`                                             |
 | {octicon}`plug` `plug`                                 | `bar-plugin.md`, `claude-code-plugin.md`, `gnome-shell.md` |
 | {octicon}`plus-circle` `plus-circle`                   | `augmentations.md`                                         |
+| {octicon}`project-roadmap` `project-roadmap`           | `layout.md`                                                |
 | {octicon}`project-template` `project-template`         | `config-schema.md`                                         |
 | {octicon}`pulse` `pulse`                               | `detection.md`                                             |
 | {octicon}`repo` `repo`                                 | `man-page.md`                                              |
 | {octicon}`rocket` `rocket`                             | `releasing.md`                                             |
-| {octicon}`rows` `rows`                                 | `layout.md`                                                |
 | {octicon}`search` `search`                             | `config-discovery.md`                                      |
 | {octicon}`shield-check` `shield-check`                 | `testing.md`                                               |
 | {octicon}`shield-lock` `shield-lock`                   | `security.md`                                              |
