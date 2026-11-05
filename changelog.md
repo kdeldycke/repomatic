@@ -7,6 +7,7 @@
 
 - Add the `lint-shell` job to `lint.yaml`, which runs ShellCheck on the shell scripts that `format-shell` formats.
 - `repomatic run shellcheck` with no arguments now lints the shell scripts of the repository.
+- Add the `title-octicons` check to `lint-repo`, which warns when a docs page title strays from the octicon registry of the `sphinx-docs` agent.
 - `repomatic run` now warns when mdformat or shfmt targets a file outside the working directory, which the config it writes there does not reach.
 - Add the `shfmt_changed` metadata key, which says whether the commit range touches a file of `shfmt_files`.
 - `repomatic init` now warns when it overwrites local edits in a skill or agent copy.
@@ -30,6 +31,7 @@
 - The bundled `sphinx-docs` agent now enables a MyST extension only once the docs use its syntax, and no longer recommends `ogp_image_alt` or a `myst.domains` suppression.
 - The bundled `sphinx-docs` agent now keys its icon registry by octicon, with one row per icon listing the pages that take it.
 - The bundled `sphinx-docs` agent now takes each octicon name from the icon set of the locked sphinx-design version.
+- The bundled `sphinx-docs` agent now leaves its icon uniqueness rules to the `title-octicons` check of `lint-repo`.
 - The bundled `sphinx-docs-sync` skill now tests the removal of a setting with `sphinx-build -D`, without an edit to a shared `conf.py`.
 - The Docs workflow now also runs on a push that only changes a `.claude/agents/*.md` file, which the documentation includes.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.

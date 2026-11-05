@@ -73,6 +73,7 @@ from .site import (
     check_pages_redirects,
     check_sphinx_fragment_links,
     check_stale_gh_pages_branch,
+    check_title_octicons,
     check_wrangler_config,
 )
 from .tool_config import check_bootstrap_config_drift, check_superseded_local_excludes
@@ -363,6 +364,22 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             ' `click_extra_fail_on_warnings = ["myst.xref_missing"]` in `docs/conf.py`,'
             " with `click_extra.sphinx` in `extensions` and no `myst` entry in"
             " `suppress_warnings`"
+        ),
+        applies=lambda ctx: bool(ctx.is_sphinx and ctx.uses_myst),
+    ),
+    RepoCheck(
+        # Needs no repository: the pages are in the checkout.
+        "title-octicons",
+        check_title_octicons,
+        summary="Each docs page title takes the octicon of its registry row",
+        description=(
+            "Warns when the title of a `docs/*.md` page has no octicon, or another"
+            " octicon than its row of the"
+            " [`sphinx-docs` agent registry](subagent-sphinx-docs.md#title-octicons)"
+            " gives it. Also warns on a title that takes an octicon the sidebar"
+            " draws beside a generated entry, and on two pages of one site that"
+            " share an octicon outside a family the registry declares. A"
+            " generated module page keeps a plain title"
         ),
         applies=lambda ctx: bool(ctx.is_sphinx and ctx.uses_myst),
     ),

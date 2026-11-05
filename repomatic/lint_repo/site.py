@@ -18,16 +18,23 @@
 
 The GitHub Pages source and the redirect of its legacy URLs, the Cloudflare
 credentials, the `_redirects` files as the Pages engine reads them, the
-`wrangler.toml` file, the files over the Pages size limit, and whether the
-Sphinx build stops a dead fragment link before it publishes.
+`wrangler.toml` file, the files over the Pages size limit, whether the Sphinx
+build stops a dead fragment link before it publishes, and the title octicon of
+each docs page.
 """
 
 from __future__ import annotations
 
+import re
+import tomllib
+from collections import defaultdict
+from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from urllib.parse import urlsplit
 
 import tomlrt
 
+from ..bundle import get_data_content
 from ..checks import CheckResult
 from ..cloudflare.r2 import (
     ACCESS_KEY_ID_ENV,
@@ -53,12 +60,20 @@ from .settings import RepoSettingProbe
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
+    from pathlib import Path
     from typing import Final
 
     from ..cloudflare.redirects import ParseResult, Rule
     from .context import LintContext
 
+
+API_PAGE_TITLE_RE = re.compile(r"^# `?[\w.]+`? (?:module|package)$")
+"""The title `sphinx-apidoc` gives a generated module page.
+
+Such a page keeps a plain title: the sidebar marks the generated entries with
+{data}`SIDEBAR_OCTICONS` instead.
+"""
 
 FAIL_ON_WARNINGS_CONFIG = "click_extra_fail_on_warnings"
 """The `conf.py` value listing the warning types that fail a Sphinx build.
@@ -92,6 +107,9 @@ a tail that can run to hundreds of rules into one lint message. The remainder
 is counted rather than listed, and the fix is the same reorder either way.
 """
 
+OCTICON_REGISTRY_FILE = "octicons.toml"
+"""The bundled data file {class}`OcticonRegistry` reads."""
+
 PAGES_DEPLOYMENT_SOURCE: Final = RepoSettingProbe(
     label="Pages deployment source check",
     endpoint="pages",
@@ -110,6 +128,22 @@ PAGES_DEPLOYMENT_SOURCE: Final = RepoSettingProbe(
     unavailable="Pages not configured or API inaccessible",
 )
 """The GitHub Pages `build_type`, read by {func}`check_pages_deployment_source`."""
+
+SIDEBAR_OCTICONS = frozenset({
+    "code-review",
+    "codescan-checkmark",
+    "list-unordered",
+    "package",
+})
+"""The octicons the sidebar draws beside the entries that Sphinx generates.
+
+The `custom.css` toctree rule of the `sphinx-docs` agent marks the package page,
+the `tests` page, `genindex` and `modindex` with them. A page title that takes
+one reads as one of those entries.
+"""
+
+TITLE_OCTICON_RE = re.compile(r"^# \{octicon\}`(?P<icon>[^`;]+)")
+"""An octicon role that opens a page title, without its size and class options."""
 
 
 def check_pages_deployment_source(ctx: LintContext) -> CheckResult:
@@ -279,6 +313,145 @@ def check_sphinx_fragment_links(ctx: LintContext) -> CheckResult:
         " build: myst-parser only logs a `myst.xref_missing` warning for it. To"
         f" fail the build, {' and '.join(fixes)}.",
     )
+
+
+@dataclass(frozen=True)
+class OcticonRegistry:
+    """The title octicon of each hand-written docs page.
+
+    One registry covers every repository that follows the conventions of the
+    `sphinx-docs` agent, so an octicon keeps one meaning across their sites.
+    The agent carries the registry as a table, which {meth}`markdown_table`
+    renders.
+    """
+
+    icons: dict[str, tuple[str, ...]]
+    """The page patterns of each octicon, in the order of the file.
+
+    A pattern is a page file name or a glob of them, like `cli-*.md`.
+    """
+
+    families: dict[str, tuple[str, ...]]
+    """The page patterns that one repository may give the same octicon.
+
+    A family documents one feature, so a reader scans its pages as a group
+    rather than tells them apart by icon.
+    """
+
+    @classmethod
+    def load(cls) -> OcticonRegistry:
+        """Read the registry from the bundled {data}`OCTICON_REGISTRY_FILE`."""
+        data = tomllib.loads(get_data_content(OCTICON_REGISTRY_FILE))
+        return cls(
+            icons={icon: tuple(pages) for icon, pages in data["octicons"].items()},
+            families={icon: tuple(pages) for icon, pages in data["families"].items()},
+        )
+
+    def icon_of(self, page: str) -> str | None:
+        """The octicon of the first row that lists *page*, if a row does."""
+        for icon, patterns in self.icons.items():
+            if any(fnmatchcase(page, pattern) for pattern in patterns):
+                return icon
+        return None
+
+    def is_family(self, icon: str, pages: Iterable[str]) -> bool:
+        """Whether all of *pages* belong to the family of *icon*."""
+        patterns = self.families.get(icon, ())
+        return all(
+            any(fnmatchcase(page, pattern) for pattern in patterns) for page in pages
+        )
+
+    def markdown_table(self) -> str:
+        """The registry as the Markdown table of the `sphinx-docs` agent.
+
+        Each column pads to its widest cell, the way `mdformat` aligns a table,
+        so a formatter pass over the agent leaves the table as it is.
+        """
+        header = ("Octicon", "Pages")
+        rows = [
+            (f"{{octicon}}`{icon}` `{icon}`", ", ".join(f"`{p}`" for p in pages))
+            for icon, pages in self.icons.items()
+        ]
+        widths = [max(len(row[col]) for row in (header, *rows)) for col in (0, 1)]
+        rule = tuple(":" + "-" * (width - 1) for width in widths)
+        return "\n".join(
+            "| "
+            + " | ".join(
+                cell.ljust(width) for cell, width in zip(row, widths, strict=True)
+            )
+            + " |"
+            for row in (header, rule, *rows)
+        )
+
+
+def _page_title(path: Path) -> str | None:
+    """The first `#` heading of the page at *path*, if it has one."""
+    for line in path.read_text(encoding="UTF-8").splitlines():
+        if line.startswith("# "):
+            return line
+    return None
+
+
+def check_title_octicons(ctx: LintContext) -> Iterator[CheckResult]:
+    """Check the title octicon of each docs page against {class}`OcticonRegistry`.
+
+    Furo shows the title octicon of a page in the sidebar, where a reader finds
+    the page by it. The icon helps only while it names one kind of page across
+    the sites, and one page per site. A generated module page keeps a plain
+    title. A page with no `#` title, like an `index.md` that includes the
+    readme, has no title to check.
+    """
+    registry = OcticonRegistry.load()
+    paths_by_icon: dict[str, list[Path]] = defaultdict(list)
+    problems = 0
+    for path in ctx.files.glob_files("docs/*.md"):
+        title = _page_title(path)
+        if title is None or API_PAGE_TITLE_RE.match(title):
+            continue
+        expected = registry.icon_of(path.name)
+        hint = f": the octicon registry gives it `{expected}`" if expected else ""
+        match = TITLE_OCTICON_RE.match(title)
+        if match is None:
+            problems += 1
+            yield CheckResult(
+                False, f"{path.as_posix()} has no octicon in its title{hint}."
+            )
+            continue
+        icon = match["icon"]
+        paths_by_icon[icon].append(path)
+        if icon in SIDEBAR_OCTICONS:
+            problems += 1
+            yield CheckResult(
+                False,
+                f"{path.as_posix()} takes `{icon}`, an octicon that the sidebar draws"
+                f" beside a generated entry{hint}.",
+            )
+        elif expected is None:
+            problems += 1
+            yield CheckResult(
+                False,
+                f"{path.as_posix()} takes `{icon}`, but no row of the octicon registry"
+                f" lists the page. Add it to `repomatic/data/{OCTICON_REGISTRY_FILE}`"
+                " in repomatic.",
+            )
+        elif icon != expected:
+            problems += 1
+            yield CheckResult(
+                False,
+                f"{path.as_posix()} takes `{icon}`, where the octicon registry gives"
+                f" `{expected}`.",
+            )
+    for icon, paths in paths_by_icon.items():
+        if len(paths) > 1 and not registry.is_family(icon, (p.name for p in paths)):
+            problems += 1
+            yield CheckResult(
+                False,
+                f"{', '.join(p.as_posix() for p in paths)} take the same octicon,"
+                f" `{icon}`, which only pages the registry declares a family may"
+                " share.",
+            )
+    if not problems:
+        yield CheckResult(True, "Each docs page title takes its registry octicon.")
 
 
 def check_cloudflare_secrets(ctx: LintContext) -> CheckResult:

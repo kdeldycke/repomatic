@@ -316,12 +316,14 @@ def test_native_format_no_tool_prefix(config_type: str) -> None:
     assert "tool" not in parsed
 
 
-_RUNTIME_FRAGMENTS = ("release.yaml", "vt-trend-chart.js")
+_RUNTIME_FRAGMENTS = ("octicons.toml", "release.yaml", "vt-trend-chart.js")
 """Bundled files the package loads at runtime, and `init` never copies as-is.
 
-`release.yaml` is the canonical caller `repomatic.github.workflow_sync` reads to
-assemble each downstream `release.yaml`. `vt-trend-chart.js` is the detections
-chart script `repomatic.release.binaries_page.render_chart_section` splices into
+`octicons.toml` is the title octicon registry that the `title-octicons` check
+of `lint-repo` reads. `release.yaml` is the canonical caller
+`repomatic.github.workflow_sync` reads to assemble each downstream
+`release.yaml`. `vt-trend-chart.js` is the detections chart script
+`repomatic.release.binaries_page.render_chart_section` splices into
 `docs/binaries.md`. A new fragment is added here explicitly, so the data-file
 tests below stay authoritative.
 """

@@ -102,12 +102,15 @@ from repomatic.lint_repo.settings import (
 )
 from repomatic.lint_repo.site import (
     MAX_REPORTED_DEAD_URLS,
+    SIDEBAR_OCTICONS,
+    OcticonRegistry,
     check_cloudflare_r2_secrets,
     check_oversized_site_files,
     check_pages_redirect_preserved,
     check_pages_redirects,
     check_sphinx_fragment_links,
     check_stale_gh_pages_branch,
+    check_title_octicons,
     check_wrangler_config,
 )
 from repomatic.lint_repo.tool_config import (
@@ -1967,6 +1970,130 @@ def test_sphinx_fragment_links_only_applies_to_a_myst_project():
     assert check.applies(LintContext()) is False
     assert check.applies(LintContext(is_sphinx=True)) is False
     assert check.applies(LintContext(is_sphinx=True, uses_myst=True)) is True
+
+
+@pytest.mark.parametrize(
+    ("pages", "message"),
+    (
+        pytest.param(
+            {"install.md": "# {octicon}`download` Installation\n"},
+            None,
+            id="registry-octicon",
+        ),
+        pytest.param(
+            {"install.md": "(install)=\n\n# Installation\n"},
+            "docs/install.md has no octicon in its title: the octicon"
+            " registry gives it `download`.",
+            id="no-octicon",
+        ),
+        pytest.param(
+            {"install.md": "# {octicon}`rocket` Installation\n"},
+            "docs/install.md takes `rocket`, where the octicon registry gives"
+            " `download`.",
+            id="other-octicon",
+        ),
+        pytest.param(
+            {"papaya.md": "# {octicon}`zap` Papaya\n"},
+            "docs/papaya.md takes `zap`, but no row of the octicon registry"
+            " lists the page. Add it to `repomatic/data/octicons.toml` in"
+            " repomatic.",
+            id="unregistered-page",
+        ),
+        pytest.param(
+            {"install.md": "# {octicon}`package` Installation\n"},
+            "docs/install.md takes `package`, an octicon that the sidebar"
+            " draws beside a generated entry: the octicon registry gives it"
+            " `download`.",
+            id="sidebar-octicon",
+        ),
+        pytest.param(
+            {
+                "architectures.md": "# {octicon}`cpu` Architectures\n",
+                "concurrency.md": "# {octicon}`cpu` Concurrency\n",
+            },
+            "docs/architectures.md, docs/concurrency.md take the same octicon,"
+            " `cpu`, which only pages the registry declares a family may"
+            " share.",
+            id="shared-octicon",
+        ),
+        pytest.param(
+            {
+                "bar-plugin.md": "# {octicon}`plug` Bar plugin\n",
+                "gnome-shell.md": "# {octicon}`plug` GNOME Shell extension\n",
+            },
+            None,
+            id="family",
+        ),
+        pytest.param(
+            {
+                "papaya.md": "# `papaya` package\n",
+                "papaya.fruit.md": "# `papaya.fruit` module\n",
+            },
+            None,
+            id="generated-pages",
+        ),
+        pytest.param(
+            {"index.md": "```{include} ../readme.md\n```\n"},
+            None,
+            id="no-title",
+        ),
+    ),
+)
+def test_title_octicons(tmp_path, monkeypatch, pages, message):
+    """Each page title takes the octicon of its registry row, and only its row.
+
+    A page that the registry does not list, a sidebar octicon, and two pages
+    sharing an octicon outside a declared family each warn. A generated module
+    page and a page with no `#` title are not checked.
+    """
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for name, content in pages.items():
+        (docs / name).write_text(content, encoding="UTF-8")
+    results = list(check_title_octicons(_lint_context_in(tmp_path, monkeypatch)))
+    if message:
+        assert results == [CheckResult(False, message)]
+    else:
+        assert results == [
+            CheckResult(True, "Each docs page title takes its registry octicon.")
+        ]
+
+
+def test_title_octicons_only_applies_to_a_myst_project():
+    """The check reads the MyST pages of a Sphinx project."""
+    check = _roster_check("title-octicons")
+    assert check.applies(LintContext()) is False
+    assert check.applies(LintContext(is_sphinx=True)) is False
+    assert check.applies(LintContext(is_sphinx=True, uses_myst=True)) is True
+
+
+def test_octicon_registry_is_consistent():
+    """The rows sort by octicon, and each pattern resolves to its own row.
+
+    A page that two rows list resolves to the first, so the second row fails. No
+    row takes a sidebar octicon, and a family names pages of its own row.
+    """
+    registry = OcticonRegistry.load()
+    assert list(registry.icons) == sorted(registry.icons)
+    for icon, patterns in registry.icons.items():
+        for pattern in patterns:
+            assert registry.icon_of(pattern) == icon, pattern
+    assert not SIDEBAR_OCTICONS & set(registry.icons)
+    for icon, patterns in registry.families.items():
+        assert set(patterns) <= set(registry.icons[icon]), icon
+
+
+def test_sphinx_docs_agent_carries_the_octicon_registry():
+    """The registry table of the `sphinx-docs` agent renders from the data file.
+
+    The agent ships to repositories that have no copy of the data file, so it
+    carries the table itself. After an edit to the data file, replace the table
+    with the output of `OcticonRegistry.load().markdown_table()`.
+    """
+    agent = (PROJECT_ROOT / ".claude" / "agents" / "sphinx-docs.md").read_text(
+        encoding="UTF-8"
+    )
+    assert f"\n\n{OcticonRegistry.load().markdown_table()}\n\n" in agent
 
 
 def _sponsors(*, has_sponsors: bool = True) -> dict:
