@@ -568,10 +568,9 @@ Every top-level page heading uses an `{octicon}` icon for visual scanning: `` # 
 | :----------------------------------------------------- | :--------------------------------------------------------- |
 | {octicon}`apps` `apps`                                 | `commands.md`, `groups.md`                                 |
 | {octicon}`beaker` `beaker`                             | `test-suite.md`                                            |
-| {octicon}`book` `book`                                 | `man.md`                                                   |
+| {octicon}`book` `book`                                 | `man.md`, `sphinx.md`                                      |
 | {octicon}`broadcast` `broadcast`                       | `telemetry.md`                                             |
-| {octicon}`browser` `browser`                           | `sphinx.md`                                                |
-| {octicon}`checklist` `checklist`                       | `todolist.md`                                              |
+| {octicon}`checklist` `checklist`                       | `operation-contracts.md`                                   |
 | {octicon}`chevron-right` `chevron-right`               | `carapace.md`, `shells.md`                                 |
 | {octicon}`circle-slash` `circle-slash`                 | `unsupported.md`                                           |
 | {octicon}`cloud` `cloud`                               | `cloudflare.md`                                            |
@@ -639,7 +638,8 @@ Every top-level page heading uses an `{octicon}` icon for visual scanning: `` # 
 | {octicon}`sync` `sync`                                 | `spinner.md`                                               |
 | {octicon}`table` `table`                               | `output-formats.md`, `table.md`                            |
 | {octicon}`tag` `tag`                                   | `trait.md`                                                 |
-| {octicon}`tasklist` `tasklist`                         | `operation-contracts.md`, `parameters.md`                  |
+| {octicon}`tasklist` `tasklist`                         | `todolist.md`                                              |
+| {octicon}`telescope` `telescope`                       | `parameters.md`                                            |
 | {octicon}`terminal` `terminal`                         | `terminals.md`, `wrap.md`                                  |
 | {octicon}`tools` `tools`                               | `tool-runner.md`                                           |
 | {octicon}`trophy` `trophy`                             | `benchmark.md`                                             |
@@ -648,7 +648,7 @@ Every top-level page heading uses an `{octicon}` icon for visual scanning: `` # 
 | {octicon}`workflow` `workflow`                         | `tree.md`, `workflows.md`                                  |
 | {octicon}`zap` `zap`                                   | `performance.md`                                           |
 
-A row lists every page that takes its icon, across the repositories following this convention. A glob in a row, like `cli-*.md`, covers each page its pattern matches. Add a new page to the row of the icon it takes. When no row fits, pick the closest [GitHub Octicon](https://primer.style/octicons/) and add a row, so the next repo follows suit.
+A row lists every page that takes its icon, across the repositories following this convention. A glob in a row, like `cli-*.md`, covers each page its pattern matches. Add a new page to the row of the icon it takes. When no row fits, pick the closest [GitHub Octicon](https://primer.style/octicons/) and add a row, so the next repo follows suit. Primer publishes icons before sphinx-design bundles them, so take the name from the `sphinx_design/compiled/octicons.json` of the sphinx-design version the project locks. An unknown name leaves the raw role text on the page and logs `Invalid octicon content`.
 
 One repo uses at most one page of a row: two pages sharing an icon defeat the visual-anchor purpose. A generated, homogeneous page catalog is exempt: meta-package-manager's `docs/managers/<id>.md` stubs (one per supported manager) all share a single category icon (`package`) as a group marker and sit under their own `{toctree}`, not competing for sidebar anchoring, so the uniqueness rule governs the hand-authored roster, not such catalogs. A hand-authored *family* is exempt on the same grounds: meta-package-manager's `bar-plugin.md` and `gnome-shell.md` both take `plug` because they document the two desktop-menu frontends of one feature, which a reader scans as a pair rather than tells apart by icon. repomatic's `subagent-*.md` pages share `dependabot` with their `subagents.md` parent on the same grounds. The rule bites when two *unrelated* pages collide. Across repos, a row groups pages of related concepts (`sliders` for anything configuration-shaped, `chevron-right` for anything shell-shaped); at fleet scale some reuse is inevitable.
 

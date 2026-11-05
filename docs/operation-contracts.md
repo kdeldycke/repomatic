@@ -1,4 +1,4 @@
-# {octicon}`tasklist` Automated operation contracts
+# {octicon}`checklist` Automated operation contracts
 
 > This page holds the naming rules and the detailed checklists for each operation type.
 

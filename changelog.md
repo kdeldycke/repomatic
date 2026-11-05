@@ -25,10 +25,11 @@
 - The bundled `sphinx-docs` agent now covers the doctree pickle and `viewcode` hooks, `copybutton_exclude`, `sitemap_excludes` per builder, and sidebar icon selectors under `dirhtml`.
 - The bundled `sphinx-docs` agent now keeps the `linkcheck_ignore` entry of a host that timed out until several runs pass.
 - The bundled `sphinx-docs` agent now puts each link exclude in the list of the checker that meets the link: lychee reads the doc files, Sphinx linkcheck the built pages.
-- The bundled `sphinx-docs` agent now registers icons for nine more click-extra pages, and gives the `history`, `sphinx` and `types` pages unique icons.
+- The bundled `sphinx-docs` agent now registers icons for nine more click-extra pages, and gives the `history`, `operation-contracts`, `parameters`, `todolist` and `types` pages new icons.
 - The bundled `sphinx-docs` agent now lists click-extra's marker regions and text-only docs tests, and links the upstream `dependencies`, `nuitka` and `commit-messages` pages.
 - The bundled `sphinx-docs` agent now enables a MyST extension only once the docs use its syntax, and no longer recommends `ogp_image_alt` or a `myst.domains` suppression.
 - The bundled `sphinx-docs` agent now keys its icon registry by octicon, with one row per icon listing the pages that take it.
+- The bundled `sphinx-docs` agent now takes each octicon name from the icon set of the locked sphinx-design version.
 - The bundled `sphinx-docs-sync` skill now tests the removal of a setting with `sphinx-build -D`, without an edit to a shared `conf.py`.
 - The Docs workflow now also runs on a push that only changes a `.claude/agents/*.md` file, which the documentation includes.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
