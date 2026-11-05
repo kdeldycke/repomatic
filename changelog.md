@@ -52,6 +52,9 @@
 
 ## [`8.1.0` (2026-11-03)](https://github.com/kdeldycke/repomatic/compare/v8.0.0...v8.1.0)
 
+> [!NOTE]
+> `8.1.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/8.1.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v8.1.0).
+
 - **Breaking:** Retire the `repomatic-audit` skill, folded into `repomatic-upgrade` as its second pass. `repomatic init` deletes an unmodified copy, and fails on an `exclude` or `include` entry naming `skills/repomatic-audit` until the entry is dropped.
 - **Breaking:** Generated workflows and the bundled agents and skills now name `AGENTS.md` as the instructions file in place of `claude.md`. Rename a downstream `claude.md` to match.
 - Add the `instructions-file-name` check to `lint-repo`: it warns about a root `claude.md`, or an `agents.md` in another case, in place of `AGENTS.md`.
