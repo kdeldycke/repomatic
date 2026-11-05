@@ -51,6 +51,7 @@ if TYPE_CHECKING:
 DIRECTIVE_BLOCK_MARKERS: tuple[str, ...] = (
     "{matrix}",
     "<!-- matrix",
+    "<!-- envelope",
     ":mirror:",
     "<!-- mirror",
 )
@@ -58,8 +59,9 @@ DIRECTIVE_BLOCK_MARKERS: tuple[str, ...] = (
 
 Every form the refresh recognizes: the ``{matrix}`` MyST fence (live-rendered by
 Sphinx), the `<!-- matrix -->` comment region (whose embedded table renders on
-GitHub too), and the `python:render` `:mirror:` region (`<!-- mirror -->`, whose
-generator Python the refresh executes).
+GitHub too), the `<!-- envelope -->` region listing the obsolete bounds of the
+support envelope, and the `python:render` `:mirror:` region (`<!-- mirror -->`,
+whose generator Python the refresh executes).
 """
 
 TOCTREE_ENTRY_RE = re.compile(r"^[ \t]*(\w+(?:\.\w+)+)\s*$", re.MULTILINE)

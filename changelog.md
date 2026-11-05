@@ -12,6 +12,7 @@
 - Add the `shfmt_changed` metadata key, which says whether the commit range touches a file of `shfmt_files`.
 - `repomatic init` now warns when it overwrites local edits in a skill or agent copy.
 - A `repomatic init` that moves the upstream pin now names each tool pin of the new release still inside the cooldown, like `lint-repo` does.
+- `update-docs` now refreshes a page whose only self-updating block is a click-extra `<!-- envelope -->` region.
 - The default `gitignore.extra-content` now keeps the `scripts/` folder of an agent skill, which the virtualenv template's `[Ss]cripts` rule ignored.
 - The `manpages` release job and the packager command of the install page now pass the `wrap` target after a `--` separator.
 - The bundled `benchmark-update` skill now drops an excluded project from the metrics subjects and store, and follows a transferred one in both.

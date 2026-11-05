@@ -33,6 +33,7 @@ from repomatic.docs import (
     PhaseResult,
     PhaseStatus,
     _run_docs_tool,
+    has_directive_block,
     update_docs,
     validate_docs_script_path,
     wire_api_pages_into_toctrees,
@@ -200,6 +201,24 @@ def test_update_docs_skips_apidoc_without_active_autodoc(tmp_path, monkeypatch):
         update_docs(_docs_config())
 
     mock_tool.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("```{matrix} python\n```\n", True),
+        ("<!-- matrix click -->\n<!-- matrix-end -->\n", True),
+        ("<!-- envelope python click -->\n<!-- envelope-end -->\n", True),
+        ("```{python:render}\n:mirror:\n```\n", True),
+        ("<!-- mirror -->\n<!-- mirror-end -->\n", True),
+        ("A page about apples, with no block to refresh.\n", False),
+    ],
+)
+def test_has_directive_block(tmp_path, text, expected):
+    """Every form `click-extra refresh-directives` rewrites marks its page."""
+    page = tmp_path / "page.md"
+    page.write_text(text, encoding="UTF-8")
+    assert has_directive_block(page) is expected
 
 
 def test_update_docs_check_skips_writes_and_propagates(tmp_path, monkeypatch):
