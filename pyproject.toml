@@ -243,11 +243,6 @@ exclude-newer = "1 week"
 # `repomatic run` cannot resolve that pin, and every job that needs the tool
 # fails. `sync-uv-lock` prunes such an entry once the window has passed its
 # cutoff.
-# click-extra is published by this repository's own maintainer: the cooldown
-# guards against a compromised upstream, which does not apply here, and it
-# otherwise holds each release back a week from the one repository that
-# consumes it first. The span admits one release: `sync-uv-lock` freezes it
-# to a date, then prunes it.
 exclude-newer-package = { repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
