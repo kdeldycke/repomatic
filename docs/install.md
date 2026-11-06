@@ -97,6 +97,16 @@ $ pacaur -S python-repomatic
 
 `````
 
+## Support envelope
+
+The compatibility table below keeps the [support envelope](https://kdeldycke.github.io/click-extra/python-directives.html#the-support-envelope) of `repomatic`. Outside of it, these are obsolete:
+
+<!-- envelope python -->
+
+- Python versions before `3.8` (2019-10-14)
+
+<!-- envelope-end -->
+
 ## Python compatibility
 
 Each cell holds one of three states:
@@ -105,7 +115,7 @@ Each cell holds one of three states:
 - ❌: the `requires-python` of the release rules that Python out.
 - `–`: the release neither claimed nor forbade that Python, usually because that Python was not out yet when the release declared its requirements.
 
-See [three states, two sources](https://kdeldycke.github.io/click-extra/python-directives.html#three-states-two-sources).
+See [three states, two sources](https://kdeldycke.github.io/click-extra/python-directives.html#three-states-two-sources). The table keeps the [support envelope](https://kdeldycke.github.io/click-extra/python-directives.html#the-support-envelope) of `repomatic`, so the oldest releases drop off as the oldest supported Python moves up.
 
 <!-- matrix python -->
 
