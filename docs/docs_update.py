@@ -53,34 +53,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-from click_extra import format_cli_prompt
-from click_extra.color import forced_color
-
-# click-extra 10.0.0 moved the capture modules into `click_extra.capture` and
-# renamed `CaptureBackground`. The `{todo}` of `repomatic.release.binaries_page`
-# drops this fallback with the others once the floor reaches 10.0.0.
-try:
-    from click_extra import AUTO_HOLD, TerminalBackground, record_command
-    from click_extra.capture.recording import (  # type: ignore[import-not-found, unused-ignore]
-        quantize,
-    )
-    from click_extra.capture.screenshot import (  # type: ignore[import-not-found, unused-ignore]
-        render,
-    )
-except ImportError:
-    from click_extra.recording import (  # type: ignore[import-not-found, no-redef, unused-ignore]
-        quantize,
-        record_command,
-    )
-    from click_extra.screenshot import (  # type: ignore[import-not-found, no-redef, unused-ignore]
-        render,
-    )
-    from click_extra.screenshot_presets import (  # type: ignore[import-not-found, no-redef, unused-ignore]
-        CaptureBackground as TerminalBackground,
-    )
-    from click_extra.screenshot_svg import (  # type: ignore[import-not-found, no-redef, unused-ignore]
-        AUTO_HOLD,
-    )
+from click_extra import (
+    AUTO_HOLD,
+    TerminalBackground,
+    forced_color,
+    format_cli_prompt,
+    record_command,
+)
+from click_extra.capture.recording import quantize
+from click_extra.capture.screenshot import render
 from extra_platforms import is_unix
 
 from repomatic.lint_repo.site import OcticonRegistry
