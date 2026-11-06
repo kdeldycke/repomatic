@@ -692,31 +692,15 @@ Default-pruning rule:
 - `sphinx_sitemap` earns its place on any site big enough that a crawler would have to walk the whole link graph to find the API pages. It needs `html_baseurl`, and **that value must end in a slash**: sphinx-sitemap concatenates it with each page link (its own normalization line computes the slash-terminated form and discards the result), so a slash-less base emits `https://example.netinstall.html`. Derive it once from `project.urls.Documentation` with `.rstrip("/") + "/"`, feed both `html_baseurl` and `ogp_site_url` from it, and set `sitemap_url_scheme = "{link}"`: the default `{lang}{version}{link}` layout is for sites publishing translations or versions side by side, and yields 404s anywhere else. Pair it with a self-contained `404.html` in `html_extra_path`: when none is present, Cloudflare Pages answers an unmatched route with the home page and a `200`, which tells a crawler every misspelled URL is real. A site on its own host also gets a `robots.txt` there that names the sitemap. A GitHub Pages project site under `{user}.github.io/{project}/` gets none, because crawlers read `robots.txt` only at the host root. The links in its `404.html` start from `/{project}/`, because the page can answer at any depth. List the generated navigation pages in `sitemap_excludes`, spelled the way sphinx-sitemap records each link: `["genindex.html", "py-modindex.html", "search.html"]` under the `html` builder, and `["genindex/", "py-modindex/", "search/"]` under `dirhtml`. sphinx-sitemap matches them with `fnmatch`, so a pattern in the spelling of the other builder excludes nothing.
 - `copybutton_exclude = ".linenos, .gp, .go"` copies the commands of a `shell-session` block alone. `.gp` is the Pygments class of the prompt, and `.go` the class of the output lines. The default, `.linenos`, copies every `$ ` and every output line along with the command.
 
-Build hooks, for a site with an autodoc reference:
+Build hooks that `click_extra.sphinx` registers since `10.2.0`, so `conf.py` keeps no copy of them:
 
-- **Reset the document of the nodes an `{eval-rst}` block moves.** myst-parser parses the block into a throwaway document that shares the settings of the page, then moves the parsed nodes into the page, still attached to that document. Before it pickles a page, Sphinx removes the build environment from a copy of the page settings, not from the settings the throwaway document holds. So every page that holds an `{eval-rst}` block, which is every `sphinx-apidoc` stub, pickles the whole environment: 7 to 15 MB a page, and over a gigabyte of doctrees for a 200-page API reference (Sphinx `9.2.0`, myst-parser `5.1.0`). A `doctree-read` hook fixes it.
-- **Drop the viewcode modules that no document links.** `sphinx.ext.viewcode` keeps an entry for each module a documented object can come from, even when none of its objects gets a `[source]` link. A serial read drops such an entry when it purges the next document. A parallel read (`--jobs auto`, which `docs.yaml` passes) merges the entries of its workers after every purge, so each unused module becomes a published page that nothing links to, like `_modules/pathlib/` ([sphinx-doc/sphinx#14675](https://github.com/sphinx-doc/sphinx/issues/14675)). An `env-updated` hook gives both reads the same output.
+- **The nodes an `{eval-rst}` block moves point at their page.** myst-parser parses the block into a throwaway document and moves its nodes into the page, still attached to that document. Without the hook, every page holding such a block, which is every `sphinx-apidoc` stub, pickles the whole build environment: 7 to 15 MB a page (Sphinx `9.2.0`, myst-parser `5.1.0`).
+- **The viewcode modules that no document links are dropped.** A parallel read (`--jobs auto`, which `docs.yaml` passes) otherwise publishes a page for each, like `_modules/pathlib/` ([sphinx-doc/sphinx#14675](https://github.com/sphinx-doc/sphinx/issues/14675)).
+- **`autoclasstree` diagrams let the page scroll** when `sphinxcontrib.mermaid` runs with `mermaid_d3_zoom = True`.
+- **Link checks to github.com carry the `GITHUB_TOKEN`** that the linkcheck step exposes, release downloads excepted.
+- **Each changelog release gets an anchor made from its version**, like `#v1-4-2`, once `conf.py` sets `click_extra_release_anchors = True`.
 
-```python
-def rehome_moved_nodes(app, doctree):
-    for node in doctree.findall():
-        if node.document is not doctree:
-            node.document = doctree
-
-
-def drop_unused_viewcode_modules(app, env):
-    modules = getattr(env, "_viewcode_modules", {})
-    for modname, entry in list(modules.items()):
-        # A module viewcode could not read is `False`. A read one is a tuple of
-        # its code, its tags, the objects documented from it, and its refname.
-        if entry and not entry[2]:
-            del modules[modname]
-
-
-def setup(app):
-    app.connect("doctree-read", rehome_moved_nodes)
-    app.connect("env-updated", drop_unused_viewcode_modules)
-```
+An announcement banner counting the years since the first release reads them from `click_extra.sphinx.announcement.years_since(date(...))`.
 
 Extensions list:
 

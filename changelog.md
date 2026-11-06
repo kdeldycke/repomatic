@@ -35,6 +35,7 @@
 - The bundled `sphinx-docs` agent now takes each octicon name from the icon set of the locked sphinx-design version.
 - The bundled `sphinx-docs` agent now leaves its icon uniqueness rules to the `title-octicons` check of `lint-repo`.
 - The bundled `sphinx-docs` agent now warns against a `conf.py` helper named after a config value, like `today`.
+- The bundled `sphinx-docs` agent now relies on the build hooks of click-extra `10.2.0` instead of copying them into `conf.py`.
 - The bundled `sphinx-docs-sync` skill now tests the removal of a setting with `sphinx-build -D`, without an edit to a shared `conf.py`.
 - The Docs workflow now also runs on a push that only changes a `.claude/agents/*.md` file, which the documentation includes.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
