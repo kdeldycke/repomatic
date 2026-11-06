@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import re
 import tomllib
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from docutils.nodes import container, section
@@ -59,9 +59,13 @@ project = " ".join(word.title() for word in project_id.split("-"))
 github_user = "kdeldycke"
 
 # Whole years since `0.0.1` (2021-12-11), the oldest entry of the changelog, for
-# the announcement banner below. Floored, so the figure is never ahead of the
-# anniversary it claims.
-maintained_years = (datetime.now(tz=UTC).date() - date(2021, 12, 11)).days // 365
+# the announcement banner below. Counted on the calendar, so the figure moves on
+# the anniversary itself: a day count divided by 365 moves one day early per leap
+# year. Not named `today`, which is a Sphinx config value.
+build_date = datetime.now(tz=UTC).date()
+maintained_years = (
+    build_date.year - 2021 - ((build_date.month, build_date.day) < (12, 11))
+)
 
 # Addons.
 extensions = [
