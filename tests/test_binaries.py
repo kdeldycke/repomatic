@@ -135,7 +135,7 @@ def test_download_and_verify_retries_transient_failure(tmp_path):
                 _urlopen_response(content),
             ],
         ) as fake_urlopen,
-        patch("repomatic.http.time.sleep") as fake_sleep,
+        patch("repomatic.http.sleep") as fake_sleep,
     ):
         _download_and_verify("https://example.com/file", expected, dest)
 
@@ -152,7 +152,7 @@ def test_download_and_verify_gives_up_after_attempts(tmp_path):
         patch(
             "repomatic.http.urlopen", side_effect=URLError("connection reset")
         ) as fake_urlopen,
-        patch("repomatic.http.time.sleep"),
+        patch("repomatic.http.sleep"),
         pytest.raises(BinaryInstallError, match="connection reset"),
     ):
         _download_and_verify("https://example.com/file", "0" * 64, dest)
@@ -171,7 +171,7 @@ def test_download_and_verify_does_not_retry_a_client_error(tmp_path, status):
 
     with (
         patch("repomatic.http.urlopen", side_effect=error) as fake_urlopen,
-        patch("repomatic.http.time.sleep") as fake_sleep,
+        patch("repomatic.http.sleep") as fake_sleep,
         pytest.raises(BinaryInstallError, match=str(status)),
     ):
         _download_and_verify("https://example.com/file", "0" * 64, dest)
@@ -191,7 +191,7 @@ def test_download_and_verify_retries_a_server_error(tmp_path):
         patch(
             "repomatic.http.urlopen", side_effect=[error, _urlopen_response(content)]
         ) as fake_urlopen,
-        patch("repomatic.http.time.sleep"),
+        patch("repomatic.http.sleep"),
     ):
         _download_and_verify(
             "https://example.com/file",
@@ -222,7 +222,7 @@ def test_download_and_verify_truncated(tmp_path):
                 for _ in range(3)
             ],
         ),
-        patch("repomatic.http.time.sleep"),
+        patch("repomatic.http.sleep"),
         pytest.raises(
             BinaryInstallError, match=r"Truncated download .* got 18 of 25 bytes"
         ),

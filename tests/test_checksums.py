@@ -76,7 +76,7 @@ def test_download_sha256_retries_a_failed_first_attempt():
             "repomatic.http.urlopen",
             side_effect=[ConnectionResetError("Connection reset by peer"), response],
         ) as fake_urlopen,
-        patch("repomatic.http.time.sleep") as fake_sleep,
+        patch("repomatic.http.sleep") as fake_sleep,
     ):
         digest = _download_sha256("https://example.com/pear-tart.tar.gz")
 

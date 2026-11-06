@@ -28,8 +28,8 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from dataclasses import dataclass
+from time import sleep
 from typing import NamedTuple
 from urllib.parse import urlencode, urlsplit
 
@@ -666,5 +666,5 @@ def wait_for_release(
         if found is not None:
             return attempt
         if attempt < attempts:
-            time.sleep(delay)
+            sleep(delay)
     return None

@@ -238,7 +238,7 @@ def test_get_github_releases_retries_incomplete_read(monkeypatch):
                 FakeResponse(b"[]"),
             ],
         ),
-        patch("repomatic.http.time.sleep"),
+        patch("repomatic.http.sleep"),
     ):
         result = get_github_releases("https://github.com/user/repo")
     assert set(result) == {"1.0.0"}
@@ -252,7 +252,7 @@ def test_get_github_releases_raises_on_persistent_incomplete_read(monkeypatch):
             "repomatic.http.urlopen",
             side_effect=IncompleteRead(b""),
         ),
-        patch("repomatic.http.time.sleep"),
+        patch("repomatic.http.sleep"),
         pytest.raises(GitHubReleasesUnavailable) as exc_info,
     ):
         get_github_releases("https://github.com/user/repo")

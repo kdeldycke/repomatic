@@ -494,7 +494,7 @@ def test_wait_pypi_step(tmp_path):
     (tmp_path / f"papaya-{VERSION}.tar.gz").touch()
     with (
         patch("repomatic.pypi.get_json_soft", return_value={"info": {}}),
-        patch("repomatic.pypi.time.sleep"),
+        patch("repomatic.pypi.sleep"),
     ):
         result = invoke(step_argv(step, {"DOWNLOAD_PATH": str(tmp_path)}))
     assert result.exit_code == 0, result.output

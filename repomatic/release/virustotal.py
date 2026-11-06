@@ -44,9 +44,9 @@ within that budget.
 from __future__ import annotations
 
 import logging
-import time
 import uuid
 from dataclasses import dataclass
+from time import monotonic, sleep
 
 from packaging.version import Version
 
@@ -136,11 +136,11 @@ class RequestPacer:
         :param calls: The API calls the coming request makes, like
             {data}`UPLOAD_REQUESTS` for an upload.
         """
-        delay = self._ready_at - time.monotonic()
+        delay = self._ready_at - monotonic()
         if delay > 0:
             logging.info(f"Rate limiting: waiting {delay:.0f}s before the next call.")
-            time.sleep(delay)
-        self._ready_at = time.monotonic() + calls * self.interval
+            sleep(delay)
+        self._ready_at = monotonic() + calls * self.interval
 
 
 @dataclass(frozen=True)
@@ -286,7 +286,7 @@ def download_release_binaries(repository: str, tag: str, dest: Path) -> None:
         else:
             logging.warning(f"Attempt {attempt}: {tag} lists no asset yet.")
         if attempt < RELEASE_ASSET_POLL_ATTEMPTS:
-            time.sleep(RELEASE_ASSET_POLL_DELAY)
+            sleep(RELEASE_ASSET_POLL_DELAY)
 
     dest.mkdir(parents=True, exist_ok=True)
     version = tag.removeprefix("v")
@@ -423,15 +423,15 @@ def poll_detection_stats(
     if pacer is None:
         pacer = RequestPacer()
 
-    deadline = time.monotonic() + timeout
+    deadline = monotonic() + timeout
     # Map SHA-256 to result for lookup.
     by_sha = {r.sha256: r for r in results}
     stats: dict[str, DetectionStats] = {}
     pending = set(by_sha)
 
-    while pending and time.monotonic() < deadline:
+    while pending and monotonic() < deadline:
         for sha256 in list(pending):
-            if time.monotonic() >= deadline:
+            if monotonic() >= deadline:
                 break
             pacer.wait()
 

@@ -43,9 +43,9 @@ import json
 import logging
 import os
 import re
-import time
 from functools import cache
 from subprocess import run
+from time import sleep
 
 from ..tooling.binaries import ensure_binary
 from ..tooling.registry import BinaryInstallError
@@ -306,7 +306,7 @@ def run_gh_command(args: list[str]) -> str:
         logging.warning(
             f"gh command {failure}, retrying in {delay}s with the same token."
         )
-        time.sleep(delay)
+        sleep(delay)
         process = run(cmd, capture_output=True, encoding="UTF-8", check=False, env=env)
 
     if process.returncode:

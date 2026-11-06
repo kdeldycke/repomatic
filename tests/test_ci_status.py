@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 from pathlib import Path
 from textwrap import dedent
 from unittest.mock import patch
@@ -1157,13 +1158,17 @@ def test_watch_never_sleeps_past_the_timeout():
 def test_ci_status_command_waits_and_prints_each_change(tmp_path):
     """Under --wait the command prints the changes, then the table of the last poll."""
     polls = iter([_status(_tests_run("")), _status(_tests_run("success"))])
+    slept: list[float] = []
     with (
         patch("repomatic.cli.ci.monitored_workflows", return_value=["tests.yaml"]),
         patch(
             "repomatic.github.ci_status.read_ci_status",
             side_effect=lambda *a: next(polls),
         ),
-        patch("time.sleep") as sleep,
+        patch(
+            "repomatic.cli.ci.watch_ci_status",
+            partial(watch_ci_status, sleep=slept.append),
+        ),
     ):
         result = CliRunner().invoke(
             repomatic,
@@ -1179,7 +1184,7 @@ def test_ci_status_command_waits_and_prints_each_change(tmp_path):
     assert result.exit_code == 0, result.output
     assert f"⏱ 🔬 Tests ({TIP_SHA[:8]}): 1 job(s) still running" in result.output
     assert f"⏱ 🔬 Tests ({TIP_SHA[:8]}): green" in result.output
-    assert sleep.call_args.args == (5,)
+    assert slept == [5]
     assert (tmp_path / "s").is_file()
 
 

@@ -66,7 +66,7 @@ def test_get_json_retries_incomplete_read(truncations):
             "repomatic.http.urlopen",
             side_effect=[IncompleteRead(b"")] * truncations + [FakeResponse(RAW)],
         ),
-        patch("repomatic.http.time.sleep") as mock_sleep,
+        patch("repomatic.http.sleep") as mock_sleep,
     ):
         assert get_json("https://example.test/mango") == PAYLOAD
     assert mock_sleep.call_args_list == [call(1), call(3)][:truncations]
@@ -79,7 +79,7 @@ def test_get_json_persistent_incomplete_read():
             "repomatic.http.urlopen",
             side_effect=[IncompleteRead(b"")] * 3,
         ),
-        patch("repomatic.http.time.sleep") as mock_sleep,
+        patch("repomatic.http.sleep") as mock_sleep,
         pytest.raises(FetchError),
     ):
         get_json("https://example.test/mango")
@@ -108,7 +108,7 @@ def test_get_text_retries_incomplete_read():
             "repomatic.http.urlopen",
             side_effect=[IncompleteRead(b""), FakeResponse(b"pomelo")],
         ),
-        patch("repomatic.http.time.sleep"),
+        patch("repomatic.http.sleep"),
     ):
         assert get_text("https://example.test/fruit") == "pomelo"
 
@@ -296,7 +296,7 @@ def test_request_retries_a_truncated_body_only_when_safe(method, attempts):
         patch(
             "repomatic.http.urlopen", side_effect=[IncompleteRead(b"")] * 3
         ) as mock_open,
-        patch("repomatic.http.time.sleep"),
+        patch("repomatic.http.sleep"),
         pytest.raises(FetchError),
     ):
         request("https://example.test/basket", method=method)
@@ -331,7 +331,7 @@ def test_get_json_retries_a_cut_off_gzip_body():
     whole = FakeResponse(gzip.compress(RAW), headers=GZIP_HEADERS)
     with (
         patch("repomatic.http.urlopen", side_effect=[cut_off, whole]),
-        patch("repomatic.http.time.sleep") as mock_sleep,
+        patch("repomatic.http.sleep") as mock_sleep,
     ):
         assert get_json("https://example.test/mango") == PAYLOAD
     assert mock_sleep.call_args_list == [call(1)]
@@ -414,7 +414,7 @@ def test_download_retries_only_what_can_change(tmp_path, failures, attempts, suc
 
     with (
         patch("repomatic.http.urlopen", side_effect=responses) as mock_open,
-        patch("repomatic.http.time.sleep"),
+        patch("repomatic.http.sleep"),
     ):
         if succeeds:
             download("https://example.test/quince", dest)
@@ -434,7 +434,7 @@ def test_download_refuses_a_truncated_body(tmp_path):
             "repomatic.http.urlopen",
             side_effect=[_StreamedBody(b"fig", advertised=10) for _ in range(3)],
         ),
-        patch("repomatic.http.time.sleep"),
+        patch("repomatic.http.sleep"),
         pytest.raises(FetchError, match="got 3 of 10 bytes") as caught,
     ):
         download("https://example.test/fig", dest)

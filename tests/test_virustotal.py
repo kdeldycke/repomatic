@@ -74,10 +74,10 @@ class FakeClock:
 
 @pytest.fixture
 def clock(monkeypatch):
-    """Drive the module's `time` calls through a {class}`FakeClock`."""
+    """Drive the module's `monotonic` and `sleep` calls through a {class}`FakeClock`."""
     fake = FakeClock()
-    monkeypatch.setattr("repomatic.release.virustotal.time.monotonic", fake.monotonic)
-    monkeypatch.setattr("repomatic.release.virustotal.time.sleep", fake.sleep)
+    monkeypatch.setattr("repomatic.release.virustotal.monotonic", fake.monotonic)
+    monkeypatch.setattr("repomatic.release.virustotal.sleep", fake.sleep)
     return fake
 
 
@@ -420,7 +420,7 @@ def test_poll_detection_stats():
             "repomatic.release.virustotal.get_json",
             _vt_api(undetected=65, harmless=7, **{"type-unsupported": 5}),
         ),
-        patch("repomatic.release.virustotal.time.sleep"),
+        patch("repomatic.release.virustotal.sleep"),
     ):
         enriched = poll_detection_stats("key", results, timeout=60)
 
@@ -475,7 +475,7 @@ def test_poll_detection_stats_empty():
 # --- download_release_binaries ---
 
 
-@patch("repomatic.release.virustotal.time.sleep")
+@patch("repomatic.release.virustotal.sleep")
 def test_download_release_binaries_waits_for_the_asset_list(mock_sleep, tmp_path):
     """The download starts once the release lists an asset, not before."""
     dest = tmp_path / "binaries"
@@ -505,7 +505,7 @@ def test_download_release_binaries_waits_for_the_asset_list(mock_sleep, tmp_path
     assert dest.is_dir()
 
 
-@patch("repomatic.release.virustotal.time.sleep")
+@patch("repomatic.release.virustotal.sleep")
 def test_download_release_binaries_retries_a_failed_read(mock_sleep, tmp_path):
     """A read that fails is retried like one that lists no asset."""
     with patch_gh(
@@ -521,7 +521,7 @@ def test_download_release_binaries_retries_a_failed_read(mock_sleep, tmp_path):
     assert mock_sleep.call_count == 1
 
 
-@patch("repomatic.release.virustotal.time.sleep")
+@patch("repomatic.release.virustotal.sleep")
 def test_download_release_binaries_downloads_after_the_last_empty_read(
     mock_sleep, tmp_path
 ):

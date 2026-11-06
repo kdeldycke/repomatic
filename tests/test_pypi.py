@@ -328,7 +328,7 @@ def test_get_trusted_publishers_retries_incomplete_read():
             "repomatic.http.urlopen",
             side_effect=[IncompleteRead(b""), FakeResponse(body)],
         ),
-        patch("repomatic.http.time.sleep"),
+        patch("repomatic.http.sleep"),
     ):
         assert (
             get_trusted_publishers(
@@ -501,7 +501,7 @@ def test_wait_for_release_polls_until_the_version_answers():
     answers = [None, None, {"info": {"version": "1.0.0"}}]
     with (
         patch("repomatic.pypi.get_json_soft", side_effect=answers) as lookup,
-        patch("repomatic.pypi.time.sleep") as sleep,
+        patch("repomatic.pypi.sleep") as sleep,
     ):
         assert wait_for_release("papaya", "1.0.0", attempts=5, delay=15) == 3
     assert lookup.call_args.args[0] == "https://pypi.org/pypi/papaya/1.0.0/json"
@@ -511,7 +511,7 @@ def test_wait_for_release_polls_until_the_version_answers():
 def test_wait_for_release_gives_up_without_a_last_wait():
     with (
         patch("repomatic.pypi.get_json_soft", return_value=None) as lookup,
-        patch("repomatic.pypi.time.sleep") as sleep,
+        patch("repomatic.pypi.sleep") as sleep,
     ):
         assert wait_for_release("papaya", "1.0.0", attempts=3, delay=15) is None
     assert lookup.call_count == 3
@@ -530,7 +530,7 @@ def test_wait_pypi_cli(tmp_path, answers, exit_code, message):
     dist_dir = _dist_dir(tmp_path, "papaya-1.0.0.tar.gz")
     with (
         patch("repomatic.pypi.get_json_soft", side_effect=answers),
-        patch("repomatic.pypi.time.sleep"),
+        patch("repomatic.pypi.sleep"),
     ):
         result = CliRunner().invoke(
             repomatic,

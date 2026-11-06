@@ -53,7 +53,7 @@ def _no_transient_retry():
     with (
         patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", ()),
         patch("repomatic.github.gh._TRANSIENT_THROTTLE_BACKOFF_SECONDS", ()),
-        patch("repomatic.github.gh.time.sleep"),
+        patch("repomatic.github.gh.sleep"),
     ):
         yield
 
@@ -338,7 +338,7 @@ def test_401_transient_clears_on_same_token_retry():
     with (
         patch("repomatic.github.gh.run") as mock_run,
         patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", (1, 3)),
-        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch("repomatic.github.gh.sleep") as mock_sleep,
         patch.dict(
             "os.environ",
             {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value"},
@@ -363,7 +363,7 @@ def test_401_transient_retry_exhausts_then_falls_back():
     with (
         patch("repomatic.github.gh.run") as mock_run,
         patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", (1, 3)),
-        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch("repomatic.github.gh.sleep") as mock_sleep,
         patch.dict(
             "os.environ",
             {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value", "GITHUB_TOKEN": "gha"},
@@ -387,7 +387,7 @@ def test_401_transient_retry_disabled_when_schedule_empty():
     with (
         patch("repomatic.github.gh.run") as mock_run,
         patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", ()),
-        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch("repomatic.github.gh.sleep") as mock_sleep,
         patch.dict(
             "os.environ",
             {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value"},
@@ -409,7 +409,7 @@ def test_non_401_skips_transient_retry():
     with (
         patch("repomatic.github.gh.run") as mock_run,
         patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", (1, 3)),
-        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch("repomatic.github.gh.sleep") as mock_sleep,
         patch.dict(
             "os.environ",
             {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value"},
@@ -437,7 +437,7 @@ def test_secondary_limit_clears_on_same_token_retry():
     with (
         patch("repomatic.github.gh.run") as mock_run,
         patch("repomatic.github.gh._TRANSIENT_THROTTLE_BACKOFF_SECONDS", (15, 30)),
-        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch("repomatic.github.gh.sleep") as mock_sleep,
         patch.dict(
             "os.environ",
             {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value"},
@@ -467,7 +467,7 @@ def test_secondary_limit_retry_exhausts_then_raises():
     with (
         patch("repomatic.github.gh.run") as mock_run,
         patch("repomatic.github.gh._TRANSIENT_THROTTLE_BACKOFF_SECONDS", (15, 30)),
-        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch("repomatic.github.gh.sleep") as mock_sleep,
         patch.dict(
             "os.environ",
             {**_CLEAN_ENV, "REPOMATIC_PAT": "pat-value", "GITHUB_TOKEN": "gha"},
@@ -494,7 +494,7 @@ def test_bad_credentials_raises_without_waiting():
     with (
         patch("repomatic.github.gh.run") as mock_run,
         patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", (1, 3)),
-        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch("repomatic.github.gh.sleep") as mock_sleep,
         patch.dict(
             "os.environ",
             {**_CLEAN_ENV, "REPOMATIC_PAT": "revoked"},
@@ -517,7 +517,7 @@ def test_bad_credentials_still_reaches_cross_token_fallback():
     with (
         patch("repomatic.github.gh.run") as mock_run,
         patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", (1, 3)),
-        patch("repomatic.github.gh.time.sleep") as mock_sleep,
+        patch("repomatic.github.gh.sleep") as mock_sleep,
         patch.dict(
             "os.environ",
             {**_CLEAN_ENV, "REPOMATIC_PAT": "revoked", "GITHUB_TOKEN": "gha"},

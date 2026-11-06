@@ -37,10 +37,10 @@ import gzip
 import hashlib
 import json
 import logging
-import time
 import zlib
 from contextlib import nullcontext
 from http.client import HTTPException, IncompleteRead
+from time import sleep
 from typing import NamedTuple
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -276,7 +276,7 @@ def request(
             if delay is None:
                 raise FetchError(str(exc)) from exc
             logging.debug(f"Truncated body from {url}, retrying in {delay}s: {exc}")
-            time.sleep(delay)
+            sleep(delay)
         except HTTPError as exc:
             raise FetchError(
                 str(exc), status=exc.code, body=error_excerpt(exc)
@@ -378,7 +378,7 @@ def download(
                 f"Download attempt {attempt}/{DOWNLOAD_ATTEMPTS} of {url} failed"
                 f" ({exc}); retrying."
             )
-            time.sleep(2 * attempt)
+            sleep(2 * attempt)
     raise AssertionError("unreachable")  # pragma: no cover
 
 
