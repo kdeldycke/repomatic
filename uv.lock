@@ -11,6 +11,8 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P1W"
 
 [options.exclude-newer-package]
+click-extra = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
+extra-platforms = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
 repomatic = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
 
 [[package]]
@@ -243,12 +245,15 @@ wheels = [
 name = "click-extra"
 version = "9.5.1"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.14'",
+]
 dependencies = [
     { name = "boltons" },
     { name = "click" },
     { name = "cloup" },
     { name = "deepmerge" },
-    { name = "extra-platforms" },
+    { name = "extra-platforms", version = "13.13.0", source = { registry = "https://pypi.org/simple" } },
     { name = "tabulate", extra = ["widechars"] },
     { name = "wcmatch" },
     { name = "wcwidth" },
@@ -258,9 +263,31 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/be/74/50e7ee690b689ab5c91bb5c0972b9b9c0af76dafe22fa95102aa46378f32/click_extra-9.5.1-py3-none-any.whl", hash = "sha256:f3f009268bbc28b8ee7060321a156f85a56118791209e64570770a625a2b121c", size = 699337, upload-time = "2026-10-27T11:52:21.524Z" },
 ]
 
+[[package]]
+name = "click-extra"
+version = "10.2.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14'",
+]
+dependencies = [
+    { name = "click" },
+    { name = "cloup" },
+    { name = "extra-platforms", version = "14.0.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "tabulate", extra = ["widechars"] },
+    { name = "wcmatch" },
+    { name = "wcwidth" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/de/5e/db9986517ce10c38bb224b24f18f64bf6061effc295a2c28fc1569843bcd/click_extra-10.2.0.tar.gz", hash = "sha256:499b8ad73f9fa9182f799fbb14ebbc7e61a6dde9c2977954173fdcef4b32994e", size = 1983138, upload-time = "2026-11-06T15:19:43.396Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/95/6dc226234cae567cc2d56e81e9b33272889ca7e6eafd29b13c081aae5328/click_extra-10.2.0-py3-none-any.whl", hash = "sha256:4ff4ca100daf9ca4486293b0d0f882e337216ad01fd920b77659258f34ffcb3f", size = 763108, upload-time = "2026-11-06T15:19:41.255Z" },
+]
+
 [package.optional-dependencies]
 sphinx = [
     { name = "docutils" },
+    { name = "myst-parser" },
+    { name = "packaging" },
     { name = "pygments" },
     { name = "sphinx" },
 ]
@@ -444,9 +471,24 @@ wheels = [
 name = "extra-platforms"
 version = "13.13.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.14'",
+]
 sdist = { url = "https://files.pythonhosted.org/packages/3e/2f/c8f34db12c09070b47885d51e4f5cf722107442c3c423cb9a1eb5ec7047a/extra_platforms-13.13.0.tar.gz", hash = "sha256:77f9927d5c3ca286241ccba049d4ac6d8256e3df123779e036148fc94d0ff583", size = 495226, upload-time = "2026-10-25T16:18:40.743Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/80/1e/d3bbdc269318732e0c4e60411cd0ab419298e886d0d323df6f024208ee68/extra_platforms-13.13.0-py3-none-any.whl", hash = "sha256:6c0f39a18d3cf02cfaa061e1cb70f2a2f4bdc37557688518d887931c525e512b", size = 108736, upload-time = "2026-10-25T16:18:38.922Z" },
+]
+
+[[package]]
+name = "extra-platforms"
+version = "14.0.1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/99/37/5c2fde6d7c6036fd53144e63b37d8632314f791f3d681d3fcf0456d06292/extra_platforms-14.0.1.tar.gz", hash = "sha256:c58c5cb5dab87ee907b977be403ed2fa2e923bdc27bd39c76c6b60c99ea0700c", size = 506679, upload-time = "2026-10-31T14:39:37.474Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/b8/4679e946fbb68bc3889595c612fa79e0d95f30b9c2f815b64e5a03769425/extra_platforms-14.0.1-py3-none-any.whl", hash = "sha256:39be8b76a407d5f2506484fa164bafb0c2ecd7578cc9b0b1bc3507477d2f296a", size = 106791, upload-time = "2026-10-31T14:39:35.994Z" },
 ]
 
 [[package]]
@@ -893,8 +935,10 @@ name = "repomatic"
 version = "8.2.0.dev0"
 source = { editable = "." }
 dependencies = [
-    { name = "click-extra" },
-    { name = "extra-platforms" },
+    { name = "click-extra", version = "9.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
+    { name = "click-extra", version = "10.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
+    { name = "extra-platforms", version = "13.13.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
+    { name = "extra-platforms", version = "14.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "packaging" },
     { name = "py-walk" },
     { name = "pyproject-metadata" },
@@ -905,7 +949,7 @@ dependencies = [
 
 [package.dev-dependencies]
 docs = [
-    { name = "click-extra", extra = ["sphinx"], marker = "python_full_version >= '3.14'" },
+    { name = "click-extra", version = "10.2.0", source = { registry = "https://pypi.org/simple" }, extra = ["sphinx"], marker = "python_full_version >= '3.14'" },
     { name = "coverage", marker = "python_full_version >= '3.14'" },
     { name = "furo", marker = "python_full_version >= '3.14'" },
     { name = "myst-parser", marker = "python_full_version >= '3.14'" },
@@ -954,7 +998,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 docs = [
-    { name = "click-extra", extras = ["sphinx"], marker = "python_full_version >= '3.14'", specifier = ">=9.5.1" },
+    { name = "click-extra", extras = ["sphinx"], marker = "python_full_version >= '3.14'", specifier = ">=10.2" },
     { name = "coverage", marker = "python_full_version >= '3.14'", specifier = ">=7.16.2" },
     { name = "furo", marker = "python_full_version >= '3.14'", specifier = ">=2025.12.19" },
     { name = "myst-parser", marker = "python_full_version >= '3.14'", specifier = ">=5.1" },

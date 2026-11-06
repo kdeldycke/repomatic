@@ -16,21 +16,12 @@
 
 from __future__ import annotations
 
-import os
-import re
 import tomllib
-from datetime import UTC, datetime
+from datetime import date
 from pathlib import Path
 
-from docutils.nodes import container, section
-from docutils.transforms import Transform
-from docutils.transforms.references import PropagateTargets
+from click_extra.sphinx.announcement import years_since
 from extra_platforms import is_github_ci
-from sphinxcontrib.mermaid import MermaidClassDiagram
-
-TYPE_CHECKING = False
-if TYPE_CHECKING:
-    from docutils.nodes import document
 
 project_path = Path(__file__).parent.parent.resolve()
 
@@ -59,13 +50,8 @@ project = " ".join(word.title() for word in project_id.split("-"))
 github_user = "kdeldycke"
 
 # Whole years since `0.0.1` (2021-12-11), the oldest entry of the changelog, for
-# the announcement banner below. Counted on the calendar, so the figure moves on
-# the anniversary itself: a day count divided by 365 moves one day early per leap
-# year. Not named `today`, which is a Sphinx config value.
-build_date = datetime.now(tz=UTC).date()
-maintained_years = (
-    build_date.year - 2021 - ((build_date.month, build_date.day) < (12, 11))
-)
+# the announcement banner below.
+maintained_years = years_since(date(2021, 12, 11))
 
 # Addons.
 extensions = [
@@ -115,8 +101,9 @@ myst_fence_as_directive = ["mermaid"]
 # the same string as the section ID the page publishes (`cache-dir` for
 # `cache.dir`). GitHub, `lychee` and myst-parser's own default slug function
 # write `cachedir` instead: `[tool.lychee]` says why it skips these links.
-# `make_id` leaves nothing of a changelog release heading: `ReleaseAnchors`
-# below gives each one an anchor made from its version.
+# `make_id` leaves nothing of a changelog release heading:
+# `click_extra_release_anchors` below gives each one an anchor made from its
+# version.
 myst_heading_anchors = 6
 myst_heading_slug_func = "docutils.nodes.make_id"
 
@@ -131,27 +118,13 @@ myst_heading_slug_func = "docutils.nodes.make_id"
 # this list is what still fails a local build run without `--fail-on-warning`.
 click_extra_fail_on_warnings = ["click_extra.todo_unrendered", "myst.xref_missing"]
 
+# Anchor each changelog release on its version, like `#v1-4-2`, in place of a
+# positional `#idN`. See click-extra's click_extra/sphinx/changelog.py.
+click_extra_release_anchors = True
+
+# click_extra.sphinx keeps the wheel scrolling the page over the `autoclasstree`
+# diagrams that this zoom would capture. See click_extra/sphinx/mermaid.py.
 mermaid_d3_zoom = True
-
-
-class NoZoomClassDiagram(MermaidClassDiagram):
-    """``autoclasstree`` with its diagram opted out of inline d3 zoom.
-
-    ``mermaid_d3_zoom`` is all-or-nothing: it attaches wheel and drag handlers
-    to every diagram's ``<svg>``, and sphinxcontrib-mermaid has no per-diagram
-    opt-out while its fullscreen feature is active. On the tall class
-    inheritance trees of the API sections, the wheel handler hijacks page
-    scrolling. So this subclass wraps each tree in a marked container that
-    ``custom.css`` targets to disable pointer events on the inline SVG: events
-    then never reach the ``<svg>``, d3's handlers stay quiet, and the page
-    scrolls normally. The fullscreen viewer clones the diagram outside the
-    container, so its button and zoom still work there. Registered in
-    :func:`setup` as an override of the upstream directive.
-    """
-
-    def run(self):
-        return [container("", *super().run(), classes=["autoclasstree"])]
-
 
 # Applies to every table carrying the (default) `sphinx-datatable` class:
 # currently only the binaries catalog. An empty `order` preserves the CSV's
@@ -247,10 +220,6 @@ nitpicky = True
 nitpick_ignore = [
     # py-walk publishes no inventory to link this annotation to.
     ("py:class", "py_walk.models.parser.Parser"),
-    # click-extra publishes its docs from `main`, where 10.0.0 moved these out of
-    # `click_extra.blocks`. repomatic stays on the released 9.x, which keeps them.
-    ("py:func", "click_extra.blocks.region_markers"),
-    ("py:func", "click_extra.blocks.replace_region"),
 ]
 
 # Concatenate class and __init__ docstrings.
@@ -351,41 +320,12 @@ linkcheck_anchors_ignore_for_url = [
 # retry before reporting them as broken.
 linkcheck_retries = 3
 
-# Authenticate the github.com crawl when CI exposes a token: GitHub throttles
-# anonymous requests to ~1 per minute, enough to overrun the link-check job
-# budget on link-heavy repos. docs.yaml exposes `GITHUB_TOKEN` on the linkcheck
-# step for exactly this consumer; local builds carry no token and stay
-# anonymous.
-#
-# Release-asset downloads are the exception and stay anonymous: an
-# `Authorization` header makes github.com redirect them to the legacy
-# `objects.githubusercontent.com` host instead of `release-assets`, and that
-# signed URL answers 401 whatever the next request carries. The binaries page
-# tabulates one download URL per binary ever released, so authenticating them
-# reports the whole catalog as broken. Checking that many anonymously stays
+# click_extra.sphinx signs the github.com requests with the `GITHUB_TOKEN` that
+# docs.yaml exposes on the linkcheck step, release downloads excepted: see
+# click-extra's click_extra/sphinx/linkcheck.py. The binaries page links one
+# download per binary ever released, and checking that many anonymously stays
 # affordable: the endpoint answers a CDN redirect, not a rendered page, and a
-# burst of them draws none of the throttling above.
-#
-# `linkcheck_auth` carries the exception because its patterns are regular
-# expressions, where `linkcheck_request_headers` matches whole hosts only.
-if os.environ.get("GITHUB_TOKEN"):
-
-    def github_bearer_auth(request):
-        """Sign a request with the CI token.
-
-        Returns the prepared request, as ``requests`` expects from an ``auth``
-        callable.
-        """
-        request.headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
-        return request
-
-    linkcheck_auth = [
-        (
-            r"https://github\.com/(?!.*/releases/(?:latest/)?download/)",
-            github_bearer_auth,
-        ),
-    ]
-
+# burst of them draws no throttling.
 linkcheck_ignore = [
     # These sites return 403 to bots but are valid.
     r"https://docutils\.sourceforge\.io",
@@ -491,109 +431,10 @@ def prune_build_artifacts(app, exception):
         sources.rmdir()
 
 
-def rehome_moved_nodes(app: object, doctree: document) -> None:
-    """Point every node of a page at the page's own document.
-
-    myst-parser parses an `{eval-rst}` block into a throwaway document that
-    shares the page's settings, then moves the parsed nodes into the page. The
-    moved nodes keep the throwaway document as theirs. Before it pickles a page,
-    Sphinx removes the build environment from a copy of the page's settings, not
-    from the settings object the throwaway document still holds. So without this
-    hook, every page holding an `{eval-rst}` block pickles the whole build
-    environment, about 15 MB, and a full build writes gigabytes of doctrees.
-    """
-    for node in doctree.findall():
-        if node.document is not doctree:
-            node.document = doctree
-
-
-def drop_unused_viewcode_modules(app: object, env: object) -> None:
-    """Forget each module `sphinx.ext.viewcode` read but no document links.
-
-    `viewcode` reads the source of every module a documented object may come
-    from, and keeps an entry for that module even when none of its objects gets
-    a `[source]` link. A serial read drops such an entry when it purges the next
-    document. A parallel read merges the entries of its workers after every
-    purge has run, so each unused module becomes a published page that nothing
-    links to (sphinx-doc/sphinx#14675). Dropping the entries with no recorded
-    use gives both reads the same output.
-    """
-    modules = getattr(env, "_viewcode_modules", {})
-    for modname, entry in list(modules.items()):
-        # A module viewcode could not read is `False`. A read one is a tuple of
-        # its code, its tags, the objects documented from it, and its refname.
-        if entry and not entry[2]:
-            del modules[modname]
-
-
-RELEASE_HEADING = re.compile(r"(?P<version>\d+\.\d+\.\d+)(?:\.\w+)? \([^)]+\)")
-"""Rendered title of a changelog release: `1.4.2 (2026-03-15)`.
-
-The release in preparation carries a `.devN` suffix, and the `unreleased` label
-in place of a date: `1.5.0.dev0 (unreleased)`.
-"""
-
-
-class ReleaseAnchors(Transform):
-    """Anchor each release of the changelog on its version, like `#v1-4-2`.
-
-    docutils builds a section ID from the title, minus its leading digits and
-    hyphens. That leaves nothing of `1.4.2 (2026-03-15)`, so the section takes
-    the next value of a per-page counter: `#id1` for the newest release. The
-    next release then moves every older one, and a saved `#id40` link shows a
-    different release.
-
-    The version ID replaces that ID on the section, and in the table myst-parser
-    resolves a `[text](changelog.md#v1-4-2)` link against. The `.devN` suffix
-    of the release in preparation is left out, so its anchor does not change the
-    day it ships.
-
-    Runs right before `PropagateTargets`: the section then holds only the ID
-    docutils gave it, and nothing has read that ID yet.
-    """
-
-    default_priority = PropagateTargets.default_priority - 1
-
-    def apply(self, **kwargs: object) -> None:
-        renamed: dict[str, str] = {}
-        for release in self.document.findall(section):
-            match = RELEASE_HEADING.fullmatch(release[0].astext())
-            if not match:
-                continue
-            anchor = "v" + match["version"].replace(".", "-")
-            # Makes a second pass, or a second heading of that version, a no-op.
-            if anchor in self.document.ids:
-                continue
-            docutils_id = release["ids"][0]
-            release["ids"][0] = anchor
-            del self.document.ids[docutils_id]
-            self.document.ids[anchor] = release
-            for name in release["names"]:
-                self.document.nameids[name] = anchor
-            renamed[docutils_id] = anchor
-
-        # The same object as `env.metadata[docname]["myst_slugs"]`, which is why
-        # it is updated in place.
-        slugs = getattr(self.document, "myst_slugs", {})
-        for slug, (line, section_id, title) in list(slugs.items()):
-            if section_id in renamed:
-                del slugs[slug]
-                anchor = renamed[section_id]
-                slugs[anchor] = (line, anchor, title)
-
-
 def setup(app):
     """Sphinx extension entry point.
 
-    Swaps sphinxcontrib-mermaid's ``autoclasstree`` directive for
-    :class:`NoZoomClassDiagram`: conf.py is loaded as the last extension,
-    so this registration wins. Anchors each changelog release on its version
-    with :class:`ReleaseAnchors`, keeps each pickled page free of the build
-    environment with :func:`rehome_moved_nodes`, and gives a parallel read the
-    viewcode pages of a serial one with :func:`drop_unused_viewcode_modules`.
+    Removes what the build leaves in the output tree that is not content, with
+    :func:`prune_build_artifacts`.
     """
-    app.add_directive("autoclasstree", NoZoomClassDiagram, override=True)
-    app.add_transform(ReleaseAnchors)
-    app.connect("doctree-read", rehome_moved_nodes)
-    app.connect("env-updated", drop_unused_viewcode_modules)
     app.connect("build-finished", prune_build_artifacts)

@@ -56,6 +56,8 @@ TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
+    from click._termui_impl import ProgressBar
+
     from .registry import ResolvedBinary, ToolSpec
 
 
@@ -91,6 +93,9 @@ def _progress(label: str, total: int) -> Generator[Callable[[int], object], None
     :return: The callable that advances the bar by the size of a chunk.
     """
     if total:
+        # click-extra 10's `progressbar` has no `length`-only overload to infer
+        # the item type from, unlike the Click one 9.x re-exports.
+        bar: ProgressBar[int]
         with progressbar(length=total, label=label, file=sys.stderr) as bar:
             yield bar.update
     else:

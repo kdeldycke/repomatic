@@ -119,8 +119,8 @@ def test_changelog_releases_are_anchored_on_their_version(built_docs, source, pa
 
     docutils reduces a release heading to nothing and numbers its section from
     a per-page counter, so `#id40` names another release after each new one.
-    `ReleaseAnchors` of `docs/conf.py` gives each section an anchor like
-    `#v1-4-2` instead.
+    `click_extra_release_anchors` in `docs/conf.py` gives each section an anchor
+    like `#v1-4-2` instead.
     """
     changelog = Changelog((PROJECT_ROOT / source).read_text(encoding="UTF-8"))
     html = read_html(built_docs, page)
@@ -183,7 +183,7 @@ def test_pickled_pages_carry_no_build_environment(built_docs):
 
     A node that keeps a throwaway document as its own pickles that document's
     settings with the page, build environment included. See
-    `rehome_moved_nodes` in `docs/conf.py`.
+    `click_extra/sphinx/doctrees.py` in click-extra.
     """
     doctrees = built_docs / ".doctrees"
     environment = (doctrees / "environment.pickle").stat().st_size

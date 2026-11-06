@@ -153,11 +153,10 @@ test = [
   "pytest-xdist[psutil]>=3.7",
 ]
 docs = [
-  # click-extra 9.5.1 logs the click_extra.todo_unrendered warning that
-  # docs/conf.py fails the build on. An older release never logs it, so a {todo}
-  # no page renders builds clean. The [sphinx] extra pulls docutils, pygments and
-  # sphinx.
-  "click-extra[sphinx]>=9.5.1",
+  # click-extra 10.2 ships `click_extra.sphinx.announcement`, which docs/conf.py
+  # imports, and the build hooks conf.py no longer copies: below it, the build
+  # stops at that import. The [sphinx] extra pulls docutils, pygments and sphinx.
+  "click-extra[sphinx]>=10.2",
   # furo 2025.12.19 is the first release that accepts Sphinx 9 (`sphinx<10`);
   # 2025.09.25 caps it below 9, which the lock cannot satisfy.
   "furo>=2025.12.19",
@@ -191,8 +190,8 @@ docs = [
   # activates it too late to register jquery.js on its own.
   "sphinxcontrib-jquery>=4",
   # sphinxcontrib-mermaid 2.1.0 fixes the interaction of fullscreen, d3 zoom
-  # and lazy rendering, which the class-tree override in docs/conf.py relies
-  # on; 2.0.0 re-renders each diagram when furo's theme toggle flips.
+  # and lazy rendering, which the class-tree override of click_extra.sphinx
+  # relies on; 2.0.0 re-renders each diagram when furo's theme toggle flips.
   "sphinxcontrib-mermaid>=2.1",
   # sphinxext-opengraph 0.11.0 escapes the reserved HTML characters of
   # `og:description`; 0.13.0 is the first release built against Sphinx 8.
@@ -243,7 +242,10 @@ exclude-newer = "1 week"
 # `repomatic run` cannot resolve that pin, and every job that needs the tool
 # fails. `sync-uv-lock` prunes such an entry once the window has passed its
 # cutoff.
-exclude-newer-package = { repomatic = "0 day" }
+# click-extra and extra-platforms are published by this repository's own
+# maintainer: the cooldown guards against a compromised upstream, which does not
+# apply here, and it would hold back the click-extra release docs/conf.py needs.
+exclude-newer-package = { click-extra = "0 day", extra-platforms = "0 day", repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
 build-backend.source-exclude = [
@@ -456,7 +458,6 @@ warn_unused_configs = true
 overrides = [
   { module = [
     "py_walk.*",
-    "sphinxcontrib.mermaid",
   ], ignore_missing_imports = true },
 ]
 
