@@ -1,9 +1,11 @@
 # Changelog
 
-## [`8.2.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v8.1.0...main)
+## [`8.2.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v8.2.0...main)
 
 > [!WARNING]
 > This version is **not released yet** and is under active development.
+
+## [`8.2.0` (2026-11-07)](https://github.com/kdeldycke/repomatic/compare/v8.1.0...v8.2.0)
 
 - Add the `lint-shell` job to `lint.yaml`, which runs ShellCheck on the shell scripts that `format-shell` formats.
 - `repomatic run shellcheck` with no arguments now lints the shell scripts of the repository.
