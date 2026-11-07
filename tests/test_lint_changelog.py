@@ -39,6 +39,7 @@ from repomatic.lint_changelog import (
     lint_changelog_dates,
     warn_on_empty_sections,
     warn_on_entry_order,
+    warn_on_late_entries,
     warn_on_long_bullets,
     warn_on_positional_references,
 )
@@ -46,6 +47,8 @@ from repomatic.pypi import PyPIRelease
 from tests.conftest import (
     MULTI_RELEASE_CHANGELOG,
     assert_shipped_text_reads_true_downstream,
+    run_git,
+    seed_commit,
 )
 
 
@@ -568,6 +571,93 @@ def test_annotation_reads_true_downstream(warn, content, capsys):
     assert_shipped_text_reads_true_downstream("The changelog annotation", annotation)
 
 
+_LATE_BULLET = "- Fix the label of the pear crate."
+_OLDER_HEADING = (
+    "## [`1.2.1` (2024-01-01)](https://github.com/user/repo/compare/v1.2.0...v1.2.1)"
+)
+
+
+@pytest.fixture
+def tagged_checkout(tmp_path, monkeypatch, hermetic_git):
+    """Build a git checkout, the current directory, holding a changelog.
+
+    The returned function commits *shipped* as `changelog.md` and tags that
+    commit `v1.2.2`, then writes *current* over the file and returns its path.
+    With *shipped* set to `None`, it commits *current* and creates no tag.
+    """
+
+    def _checkout(shipped, current):
+        run_git("init", "--initial-branch=main", cwd=tmp_path)
+        seed_commit(tmp_path, "changelog.md", shipped or current, "Release 1.2.2")
+        if shipped is not None:
+            run_git("tag", "v1.2.2", cwd=tmp_path)
+        path = tmp_path / "changelog.md"
+        path.write_text(current, encoding="UTF-8")
+        monkeypatch.chdir(tmp_path)
+        return path
+
+    return _checkout
+
+
+@pytest.mark.parametrize(
+    ("shipped", "current", "expected"),
+    (
+        pytest.param(
+            _released_changelog(_SHORT_BULLET),
+            _released_changelog(f"{_SHORT_BULLET}\n{_LATE_BULLET}"),
+            "1.2.2: changelog entry 2 is not in the section that v1.2.2 released",
+            id="late-entry",
+        ),
+        # The edits of `--fix` after a release touch no entry.
+        pytest.param(
+            _released_changelog(_SHORT_BULLET),
+            _released_changelog(
+                f"> [!NOTE]\n> `1.2.2` is available on PyPI.\n\n{_SHORT_BULLET}"
+            ).replace("2024-01-15", "2024-01-16"),
+            None,
+            id="date-and-admonition",
+        ),
+        # With no tag to read, as in a shallow clone, there is nothing to compare.
+        pytest.param(
+            None,
+            _released_changelog(f"{_SHORT_BULLET}\n{_LATE_BULLET}"),
+            None,
+            id="no-tag",
+        ),
+        # Only the newest released section is compared with its tag.
+        pytest.param(
+            _released_changelog(
+                f"{_SHORT_BULLET}\n\n{_OLDER_HEADING}\n\n{_SHORT_BULLET}"
+            ),
+            _released_changelog(
+                f"{_SHORT_BULLET}\n\n{_OLDER_HEADING}\n\n{_SHORT_BULLET}\n{_LATE_BULLET}"
+            ),
+            None,
+            id="older-section",
+        ),
+    ),
+)
+def test_warn_on_late_entries(tagged_checkout, shipped, current, expected, caplog):
+    """An entry the newest released section gained after its tag is reported."""
+    path = tagged_checkout(shipped, current)
+    with caplog.at_level(logging.WARNING):
+        warn_on_late_entries(Changelog(current), path)
+    if expected is None:
+        assert caplog.records == []
+    else:
+        assert expected in caplog.text
+
+
+def test_late_entry_annotation_reads_true_downstream(tagged_checkout, capsys):
+    """The late-entry annotation cites a section the published docs declare."""
+    current = _released_changelog(f"{_SHORT_BULLET}\n{_LATE_BULLET}")
+    path = tagged_checkout(_released_changelog(_SHORT_BULLET), current)
+    warn_on_late_entries(Changelog(current), path)
+    annotation = capsys.readouterr().out
+    assert annotation.startswith("::warning::")
+    assert_shipped_text_reads_true_downstream("The changelog annotation", annotation)
+
+
 def test_lint_changelog_dates_warns_long_unreleased_bullet(tmp_path, caplog):
     """lint-changelog surfaces the bullet-length warning without failing.
 
@@ -579,6 +669,18 @@ def test_lint_changelog_dates_warns_long_unreleased_bullet(tmp_path, caplog):
     with caplog.at_level(logging.WARNING):
         assert lint_changelog_dates(path, bullet_word_threshold=5) == 0
     assert "1.2.3: changelog entry 1 runs" in caplog.text
+
+
+def test_lint_changelog_dates_warns_late_entry(tagged_checkout, monkeypatch, caplog):
+    """lint-changelog surfaces an entry added after the release tag, without failing."""
+    _patch_sources(monkeypatch, pypi={"1.2.2": ("2024-01-15", False)}, github=["1.2.2"])
+    path = tagged_checkout(
+        _released_changelog(_SHORT_BULLET),
+        _released_changelog(f"{_SHORT_BULLET}\n{_LATE_BULLET}"),
+    )
+    with caplog.at_level(logging.WARNING):
+        assert lint_changelog_dates(path) == 0
+    assert "1.2.2: changelog entry 2 is not in the section" in caplog.text
 
 
 def test_lint_fix_corrects_date(changelog_file, monkeypatch):

@@ -21,12 +21,13 @@ compares it with three sources: PyPI uploads, GitHub releases and git tags. A
 date that disagrees, a version published but never documented, and a section
 whose availability note is stale are reported, and repaired under `--fix`.
 
-Four content checks run beside it and never change the exit code: a warning on
+Five content checks run beside it and never change the exit code: a warning on
 over-long bullets in the unreleased section, on released sections that hold no
 entry, on an entry filed out of the Breaking, then Deprecated, then ordinary
-order, and on a `#N` naming no issue. A fifth, on a heading writing its version
-with the `v` of a git tag, is fatal, since no check reads such a heading.
-`--fix` strips the prefix instead.
+order, on a `#N` naming no issue, and on an entry the newest released section
+gained after its release tag. A sixth, on a heading writing its version with the
+`v` of a git tag, is fatal, since no check reads such a heading. `--fix` strips
+the prefix instead.
 
 The changelog model these checks read and rewrite lives in
 {mod}`repomatic.changelog`.
@@ -35,9 +36,11 @@ The changelog model these checks read and rewrite lives in
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import asdict, dataclass, field, replace
 from functools import cached_property
+from pathlib import Path
 from typing import NamedTuple
 
 from packaging.version import Version
@@ -50,7 +53,7 @@ from .changelog import (
     availability_admonition,
 )
 from .file_ops import normalize_text, write_if_changed
-from .git_ops import GitError, get_all_version_tags
+from .git_ops import GitError, get_all_version_tags, show_file
 from .github.gh import gh_json
 from .github.outputs import AnnotationLevel, emit_annotation
 from .github.releases import (
@@ -71,7 +74,6 @@ from .versions import safe_version
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from pathlib import Path
     from typing import Final, TypeVar
 
     ReleaseT = TypeVar("ReleaseT")
@@ -447,6 +449,59 @@ def warn_on_positional_references(changelog: Changelog) -> None:
             f"Changelog entry {index} for {version} names #{number}, which is no "
             f"issue or pull request of {slug}, yet GitHub links it as one. Write "
             f"a position in words, or link the thread meant. See {LINT_DOCS_URL}",
+        )
+
+
+def warn_on_late_entries(changelog: Changelog, changelog_path: Path) -> None:
+    """Warn about an entry added to the newest released section, non-fatally.
+
+    A commit written while a release is pending, then rebased or cherry-picked
+    onto that release, puts its entry in the section the release froze. Git
+    applies the hunk there with no conflict, since the freeze rewrites the
+    heading alone. The entry then names a change the release never shipped, and
+    the notes of the next release leave it out.
+
+    Each entry of the newest released section is compared with that section in
+    the changelog its release tag holds. The date and the admonitions are no
+    entries, so the edits of `--fix` after a release never count. The check is
+    skipped when git cannot read the changelog at the tag: in a shallow clone,
+    before the tag exists, or outside a git checkout.
+
+    Only the newest released section is inspected. A section rewritten on
+    purpose, like by a consolidation, is reported until the next release.
+
+    :param changelog: The parsed changelog to inspect.
+    :param changelog_path: The changelog file, read again at the release tag.
+    """
+    versions = [version for version, _date in changelog.extract_all_releases()]
+    if not versions:
+        return
+    version = max(versions, key=lambda v: safe_version(v) or Version("0"))
+    tag = f"v{version}"
+    try:
+        relative_path = Path(os.path.relpath(changelog_path)).as_posix()
+    except ValueError:
+        # On Windows, a path on another drive has no form relative to this one.
+        logging.debug(f"Cannot read {changelog_path} at {tag} from here.")
+        return
+    shipped = show_file(tag, relative_path)
+    if shipped is None:
+        return
+    released = set(Changelog(shipped).decompose_version(version).bullets)
+    for index, bullet in enumerate(changelog.decompose_version(version).bullets, 1):
+        if bullet in released:
+            continue
+        logging.warning(
+            f"⚠ {version}: changelog entry {index} is not in the section that "
+            f"{tag} released. Move the entry of a later change to the unreleased "
+            f"section."
+        )
+        emit_annotation(
+            AnnotationLevel.WARNING,
+            f"Changelog entry {index} for {version} is not in the section that "
+            f"{tag} released. A rebase or a cherry-pick across a release files "
+            f"the entry of a later change there, and git reports no conflict. "
+            f"Move it to the unreleased section. See {LINT_DOCS_URL}",
         )
 
 
@@ -1125,10 +1180,11 @@ def lint_changelog_dates(
     GitHub releases, or PyPI packages but have no corresponding changelog
     entry. Orphans are logged as warnings and cause a non-zero exit code.
 
-    Four non-fatal content checks run first and never affect the exit code:
+    Five non-fatal content checks run first and never affect the exit code:
     {func}`warn_on_long_bullets`, {func}`warn_on_entry_order` and
-    {func}`warn_on_positional_references` over the unreleased section, and
-    {func}`warn_on_empty_sections` over the released ones. A fifth,
+    {func}`warn_on_positional_references` over the unreleased section,
+    {func}`warn_on_empty_sections` over the released ones, and
+    {func}`warn_on_late_entries` over the newest released one. A sixth,
     {func}`check_tag_prefixed_headings`, fails the run on a heading no check
     can read, and rewrites it under `fix`.
 
@@ -1192,6 +1248,7 @@ def lint_changelog_dates(
     warn_on_empty_sections(changelog)
     warn_on_entry_order(changelog)
     warn_on_positional_references(changelog)
+    warn_on_late_entries(changelog, changelog_path)
     releases = changelog.extract_all_releases()
 
     if not releases:

@@ -8,6 +8,7 @@
 - Add the `lint-shell` job to `lint.yaml`, which runs ShellCheck on the shell scripts that `format-shell` formats.
 - `repomatic run shellcheck` with no arguments now lints the shell scripts of the repository.
 - Add the `title-octicons` check to `lint-repo`, which warns when a docs page title strays from the octicon registry of the `sphinx-docs` agent.
+- `lint-changelog` now warns about an entry the newest released section gained after its release tag, which a rebase across a release files there.
 - `repomatic run` now warns when mdformat or shfmt targets a file outside the working directory, which the config it writes there does not reach.
 - Add the `shfmt_changed` metadata key, which says whether the commit range touches a file of `shfmt_files`.
 - `repomatic init` now warns when it overwrites local edits in a skill or agent copy.
@@ -16,6 +17,7 @@
 - The default `gitignore.extra-content` now keeps the `scripts/` folder of an agent skill, which the virtualenv template's `[Ss]cripts` rule ignored.
 - The `manpages` release job and the packager command of the install page now pass the `wrap` target after a `--` separator.
 - The bundled `benchmark-update` skill now drops an excluded project from the metrics subjects and store, and follows a transferred one in both.
+- The bundled `benchmark-update` skill now marks incomplete support 🪫 in place of 🟡, and leaves a cell blank in place of `N/A`.
 - The bundled `file-bug-report` skill now covers a reply on an existing issue, and paces its `gh search` calls under the search API rate limit.
 - The bundled `repomatic-upgrade` skill now passes `lint-repo` the `--has-*` flag of each secret the repository holds, which a local run cannot read.
 - The bundled `repomatic-upgrade` skill no longer ports the local edits of a synced copy that upstream `main` already holds.
@@ -79,7 +81,6 @@
 - In a repository `repomatic` depends on, like click-extra, the bundled `repomatic-ship` skill now checks that the pinned `repomatic` imports against the release tree.
 - The bundled `babysit-ci` skill now passes `ci-status --wait` one `--workflow` per workflow a push started, when an older red run would end the wait at once.
 - The bundled `babysit-ci` skill now leaves for the next release a `📦 Package install` red that only a release can heal, and watches the other jobs past it.
-- The bundled `benchmark-update` skill now marks incomplete support 🪫 in place of 🟡, and leaves a cell blank in place of `N/A`.
 - Bump Nuitka from `4.3.1` to `4.3.3`, which guards the `--main-entry-point` launcher itself, and drop the plugin `repomatic run nuitka` loaded for it.
 - Bump the `repomatic run` pins of Biome to `2.6.3`, bump-my-version to `1.6.7`, gh to `2.103.2`, labelmaker to `0.6.5`, Ruff to `0.17.2` and Wrangler to `4.152.0`.
 - The default cache directory follows an absolute `XDG_CACHE_HOME` on macOS too, and ignores a relative one on Linux.

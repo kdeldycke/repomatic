@@ -272,6 +272,10 @@ def lint_changelog(
     then Deprecated, then unmarked order, and about an unreleased entry
     naming a #N that is no issue or pull request of the repository.
 
+    Warns, non-fatally, about an entry the newest released section gained
+    after its release tag: a rebase or a cherry-pick across a release files
+    the entry of a later change there, with no conflict.
+
     Fails on a heading writing its version with the v of a git tag, which no
     check reads. --fix strips the prefix instead.
 
