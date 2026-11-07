@@ -43,6 +43,7 @@
 - The bundled `sphinx-docs` agent now warns against a `conf.py` helper named after a config value, like `today`.
 - The bundled `sphinx-docs` agent now relies on the build hooks of click-extra `10.2.0` instead of copying them into `conf.py`.
 - The bundled `sphinx-docs-sync` skill now tests the removal of a setting with `sphinx-build -D`, without an edit to a shared `conf.py`.
+- The bundled `github-housekeeping` skill now gives a branch-sync PR the milestone of the PRs it carries, in place of its live milestone.
 - The Docs workflow now also runs on a push that only changes a `.claude/agents/*.md` file, which the documentation includes.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
 - Fix a re-run of the `docs.yaml` GitHub Pages deploy failing on the `github-pages` artifact its first attempt left in the run.
