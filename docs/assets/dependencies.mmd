@@ -31,11 +31,9 @@ flowchart LR
     wcwidth(["`wcwidth`"])
     alabaster(["`alabaster`"])
     babel(["`babel`"])
-    boltons(["`boltons`"])
     bracex(["`bracex`"])
     certifi(["`certifi`"])
     charset_normalizer(["`charset-normalizer`"])
-    deepmerge(["`deepmerge`"])
     execnet(["`execnet`"])
     idna(["`idna`"])
     imagesize(["`imagesize`"])
@@ -89,7 +87,7 @@ flowchart LR
         types_pyyaml{{"`types-pyyaml >=6.0.12.9`"}}
     end
 
-    repomatic ==>|" >=9.5 "| click_extra
+    repomatic ==>|" >=10 "| click_extra
     repomatic ==>|" >=20 "| packaging
     repomatic ==>|" >=6.0.1 "| pyyaml
     repomatic ==>|" >=10 "| wcmatch
@@ -115,6 +113,8 @@ flowchart LR
     sphinx --> sphinxcontrib_qthelp
     sphinx --> sphinxcontrib_serializinghtml
     click_extra --> sphinx
+    click_extra --> myst_parser
+    click_extra --> packaging
     click_extra --> pygments
     click_extra --> cloup
     click_extra --> docutils
@@ -123,8 +123,6 @@ flowchart LR
     click_extra --> extra_platforms
     click_extra --> tabulate
     click_extra --> wcwidth
-    click_extra --> boltons
-    click_extra --> deepmerge
     pytest --> packaging
     pytest --> pygments
     pytest --> colorama
@@ -195,7 +193,6 @@ flowchart LR
     click alabaster "https://pypi.org/project/alabaster/" _blank
     click babel "https://pypi.org/project/babel/" _blank
     click beautifulsoup4 "https://pypi.org/project/beautifulsoup4/" _blank
-    click boltons "https://pypi.org/project/boltons/" _blank
     click bracex "https://pypi.org/project/bracex/" _blank
     click certifi "https://pypi.org/project/certifi/" _blank
     click charset_normalizer "https://pypi.org/project/charset-normalizer/" _blank
@@ -204,7 +201,6 @@ flowchart LR
     click cloup "https://pypi.org/project/cloup/" _blank
     click colorama "https://pypi.org/project/colorama/" _blank
     click coverage "https://pypi.org/project/coverage/" _blank
-    click deepmerge "https://pypi.org/project/deepmerge/" _blank
     click docutils "https://pypi.org/project/docutils/" _blank
     click execnet "https://pypi.org/project/execnet/" _blank
     click extra_platforms "https://pypi.org/project/extra-platforms/" _blank

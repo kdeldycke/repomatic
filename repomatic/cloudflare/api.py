@@ -52,8 +52,7 @@ from enum import StrEnum
 from pathlib import Path
 
 import tomlrt
-from click_extra import echo
-from click_extra.carapace import xdg_dir
+from click_extra import echo, xdg_dir
 from extra_platforms import is_macos
 
 from ..http import FetchError, request

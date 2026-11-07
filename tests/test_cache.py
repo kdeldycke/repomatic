@@ -90,8 +90,9 @@ def test_cache_dir_platform_default(monkeypatch, platform, environ, expected):
     """An absolute `XDG_CACHE_HOME` comes first, except on Windows."""
     monkeypatch.delenv("REPOMATIC_CACHE_DIR", raising=False)
     monkeypatch.setattr("repomatic.cache.load_repomatic_config", Config)
-    monkeypatch.setattr("repomatic.cache.is_macos", lambda: platform == "macos")
-    monkeypatch.setattr("repomatic.cache.is_windows", lambda: platform == "windows")
+    # click_extra.get_cache_dir() imports both from extra_platforms on each call.
+    monkeypatch.setattr("extra_platforms.is_macos", lambda: platform == "macos")
+    monkeypatch.setattr("extra_platforms.is_windows", lambda: platform == "windows")
     for name in ("LOCALAPPDATA", "XDG_CACHE_HOME"):
         monkeypatch.delenv(name, raising=False)
     # Path.home() reads HOME on POSIX and USERPROFILE on Windows.

@@ -59,15 +59,6 @@ wheels = [
 ]
 
 [[package]]
-name = "boltons"
-version = "26.2.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/71/56/14c4a4931910a81ddeccfbe227925ea738e3c445d3e2af960f0bcbba1616/boltons-26.2.0.tar.gz", hash = "sha256:d39cfd15c1a1c3bd4d705c82252fa9edb8e4f5e8cc039f8e39afac7b1b47e92c", size = 242047, upload-time = "2026-09-07T10:48:17.711Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/ac/1f8e4f4855e382a67392ca3bba329cb93aba1e3039289c52a86bf337f7a2/boltons-26.2.0-py3-none-any.whl", hash = "sha256:41942cbce440211bbcf2487ccdc356964ad674f95a01068b8a0dd7a1d1fed036", size = 199536, upload-time = "2026-09-07T10:48:16.319Z" },
-]
-
-[[package]]
 name = "bracex"
 version = "3.2"
 source = { registry = "https://pypi.org/simple" }
@@ -243,37 +234,12 @@ wheels = [
 
 [[package]]
 name = "click-extra"
-version = "9.5.1"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version < '3.14'",
-]
-dependencies = [
-    { name = "boltons" },
-    { name = "click" },
-    { name = "cloup" },
-    { name = "deepmerge" },
-    { name = "extra-platforms", version = "13.13.0", source = { registry = "https://pypi.org/simple" } },
-    { name = "tabulate", extra = ["widechars"] },
-    { name = "wcmatch" },
-    { name = "wcwidth" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/b8/e43719f26249218419c40c71e0f70936c5f1f3b7df266845a21c03986854/click_extra-9.5.1.tar.gz", hash = "sha256:0398ce20bba177504faca37752fe5e0e0756cb1d543765b4d4b6d119d5e3bd48", size = 1830880, upload-time = "2026-10-27T11:52:23.78Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/be/74/50e7ee690b689ab5c91bb5c0972b9b9c0af76dafe22fa95102aa46378f32/click_extra-9.5.1-py3-none-any.whl", hash = "sha256:f3f009268bbc28b8ee7060321a156f85a56118791209e64570770a625a2b121c", size = 699337, upload-time = "2026-10-27T11:52:21.524Z" },
-]
-
-[[package]]
-name = "click-extra"
 version = "10.2.0"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.14'",
-]
 dependencies = [
     { name = "click" },
     { name = "cloup" },
-    { name = "extra-platforms", version = "14.0.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "extra-platforms" },
     { name = "tabulate", extra = ["widechars"] },
     { name = "wcmatch" },
     { name = "wcwidth" },
@@ -441,15 +407,6 @@ wheels = [
 ]
 
 [[package]]
-name = "deepmerge"
-version = "4.0.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ca/e9/5e99e56e03f9461858e686fdaf82e2516671bc1bd46f8b7ad7b9a8375f6f/deepmerge-4.0.0.tar.gz", hash = "sha256:948565f2bc9cdb41259a4a23d26638e5840c9e084a343ab279ffd3edcfdf74d3", size = 22792, upload-time = "2026-10-25T19:25:28.967Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c2/89/362146b2ec7d0d503f824ac8496c88f0408ee0d39203b02cc10feac08146/deepmerge-4.0.0-py3-none-any.whl", hash = "sha256:a36dd5810fc3b90bd3e0b681158221361d6a31a6109411b27b211b371fed6d5b", size = 15429, upload-time = "2026-10-25T19:25:28.012Z" },
-]
-
-[[package]]
 name = "docutils"
 version = "0.22.4"
 source = { registry = "https://pypi.org/simple" }
@@ -469,23 +426,8 @@ wheels = [
 
 [[package]]
 name = "extra-platforms"
-version = "13.13.0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version < '3.14'",
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3e/2f/c8f34db12c09070b47885d51e4f5cf722107442c3c423cb9a1eb5ec7047a/extra_platforms-13.13.0.tar.gz", hash = "sha256:77f9927d5c3ca286241ccba049d4ac6d8256e3df123779e036148fc94d0ff583", size = 495226, upload-time = "2026-10-25T16:18:40.743Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/80/1e/d3bbdc269318732e0c4e60411cd0ab419298e886d0d323df6f024208ee68/extra_platforms-13.13.0-py3-none-any.whl", hash = "sha256:6c0f39a18d3cf02cfaa061e1cb70f2a2f4bdc37557688518d887931c525e512b", size = 108736, upload-time = "2026-10-25T16:18:38.922Z" },
-]
-
-[[package]]
-name = "extra-platforms"
 version = "14.0.1"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.14'",
-]
 sdist = { url = "https://files.pythonhosted.org/packages/99/37/5c2fde6d7c6036fd53144e63b37d8632314f791f3d681d3fcf0456d06292/extra_platforms-14.0.1.tar.gz", hash = "sha256:c58c5cb5dab87ee907b977be403ed2fa2e923bdc27bd39c76c6b60c99ea0700c", size = 506679, upload-time = "2026-10-31T14:39:37.474Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/90/b8/4679e946fbb68bc3889595c612fa79e0d95f30b9c2f815b64e5a03769425/extra_platforms-14.0.1-py3-none-any.whl", hash = "sha256:39be8b76a407d5f2506484fa164bafb0c2ecd7578cc9b0b1bc3507477d2f296a", size = 106791, upload-time = "2026-10-31T14:39:35.994Z" },
@@ -935,10 +877,8 @@ name = "repomatic"
 version = "8.2.0.dev0"
 source = { editable = "." }
 dependencies = [
-    { name = "click-extra", version = "9.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
-    { name = "click-extra", version = "10.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
-    { name = "extra-platforms", version = "13.13.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
-    { name = "extra-platforms", version = "14.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
+    { name = "click-extra" },
+    { name = "extra-platforms" },
     { name = "packaging" },
     { name = "py-walk" },
     { name = "pyproject-metadata" },
@@ -949,7 +889,7 @@ dependencies = [
 
 [package.dev-dependencies]
 docs = [
-    { name = "click-extra", version = "10.2.0", source = { registry = "https://pypi.org/simple" }, extra = ["sphinx"], marker = "python_full_version >= '3.14'" },
+    { name = "click-extra", extra = ["sphinx"], marker = "python_full_version >= '3.14'" },
     { name = "coverage", marker = "python_full_version >= '3.14'" },
     { name = "furo", marker = "python_full_version >= '3.14'" },
     { name = "myst-parser", marker = "python_full_version >= '3.14'" },
@@ -986,7 +926,7 @@ docs = ">=3.14"
 
 [package.metadata]
 requires-dist = [
-    { name = "click-extra", specifier = ">=9.5" },
+    { name = "click-extra", specifier = ">=10" },
     { name = "extra-platforms", specifier = ">=12.0.2" },
     { name = "packaging", specifier = ">=20" },
     { name = "py-walk", specifier = ">=0.3.3" },

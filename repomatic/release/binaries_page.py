@@ -45,11 +45,6 @@ pre-release is refreshed on every push to the default branch, so any row
 frozen into the CSV would be stale within hours, while the workflow run
 artifacts behind the link always are the current builds.
 ```
-
-```{todo}
-Once the `click-extra` floor reaches `10.0.0`: import `region_markers` and
-`replace_region` from the package root alone.
-```
 """
 
 from __future__ import annotations
@@ -58,15 +53,7 @@ import json
 import logging
 from pathlib import Path
 
-# click-extra 10.0.0 moved `click_extra.blocks` to `click_extra.markdown.blocks`
-# and exports both names from its root.
-try:
-    from click_extra import region_markers, replace_region
-except ImportError:
-    from click_extra.blocks import (  # type: ignore[import-not-found, no-redef, unused-ignore]
-        region_markers,
-        replace_region,
-    )
+from click_extra import region_markers, replace_region
 
 from ..bundle import get_data_content
 from ..file_ops import write_if_changed

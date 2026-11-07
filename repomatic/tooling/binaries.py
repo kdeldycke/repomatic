@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import functools
 import logging
-import sys
 import tarfile
 import tempfile
 import zipfile
@@ -93,10 +92,10 @@ def _progress(label: str, total: int) -> Generator[Callable[[int], object], None
     :return: The callable that advances the bar by the size of a chunk.
     """
     if total:
-        # click-extra 10's `progressbar` has no `length`-only overload to infer
-        # the item type from, unlike the Click one 9.x re-exports.
+        # click-extra's `progressbar` has no `length`-only overload to infer the
+        # item type from, unlike Click's.
         bar: ProgressBar[int]
-        with progressbar(length=total, label=label, file=sys.stderr) as bar:
+        with progressbar(length=total, label=label) as bar:
             yield bar.update
     else:
         # The spinner animates on a thread of its own: no chunk advances it.

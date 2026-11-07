@@ -81,11 +81,11 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  # click-extra 9.5 ships LazyChoice, which cli/main.py builds its project-aware
-  # option types on, keeps the lazy command modules unloaded when a
-  # configuration file is read, and fixes a Ctrl+C lost while run_jobs() waits
-  # on a task (deps/sync.py, tooling/checksums.py).
-  "click-extra>=9.5",
+  # click-extra 10.0 ships get_cache_dir(), the platform default of cache.py,
+  # and exports xdg_dir(), region_markers() and replace_region() from its root:
+  # below it, cache.py, cloudflare/api.py and release/binaries_page.py fail to
+  # import.
+  "click-extra>=10",
   # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
   # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
   # under patched subprocess in tests.

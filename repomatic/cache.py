@@ -51,15 +51,13 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import posixpath
 import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
-from click_extra import ColumnSpec
-from extra_platforms import is_macos, is_windows
+from click_extra import ColumnSpec, get_cache_dir
 
 from .config import load_repomatic_config
 from .file_ops import atomic_write
@@ -98,32 +96,6 @@ note above.
 """
 
 
-def _platform_cache_dir() -> Path:
-    """Return the platform-appropriate default cache directory.
-
-    - Windows: `%LOCALAPPDATA%\\repomatic\\Cache`.
-    - macOS: `$XDG_CACHE_HOME/repomatic`, else `~/Library/Caches/repomatic`.
-    - Linux/POSIX: `$XDG_CACHE_HOME/repomatic`, else `~/.cache/repomatic`.
-
-    A user who sets `XDG_CACHE_HOME` asks every tool to keep its cache there,
-    macOS included. A relative value is ignored, as the XDG specification says.
-    """
-    home = Path.home()
-    if is_windows():
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if local_app_data:
-            return Path(local_app_data) / "repomatic" / "Cache"
-        return home / "AppData" / "Local" / "repomatic" / "Cache"
-    # XDG paths are POSIX paths, so posixpath checks them the same way on every
-    # host.
-    xdg_cache_home = os.environ.get("XDG_CACHE_HOME", "").strip()
-    if posixpath.isabs(xdg_cache_home):
-        return Path(xdg_cache_home) / "repomatic"
-    if is_macos():
-        return home / "Library" / "Caches" / "repomatic"
-    return home / ".cache" / "repomatic"
-
-
 def cache_dir() -> Path:
     """Resolve the cache root directory.
 
@@ -131,14 +103,7 @@ def cache_dir() -> Path:
 
     1. `REPOMATIC_CACHE_DIR` environment variable.
     2. `cache.dir` in `[tool.repomatic]`.
-    3. Platform-specific default.
-
-    ```{todo}
-    Take the platform default from `get_cache_dir("repomatic")` of
-    `click_extra.carapace`, and delete `_platform_cache_dir()`, once the
-    `click-extra` floor reaches `10.0.0`: that release ships the function, added
-    in [kdeldycke/click-extra@b05771d](https://github.com/kdeldycke/click-extra/commit/b05771dc1d8f6c5228a3fa7211ff2ccfc49c89fa).
-    ```
+    3. Platform-specific default, from `click_extra.get_cache_dir()`.
 
     :return: Absolute path to the cache root (may not exist yet).
     """
@@ -153,7 +118,7 @@ def cache_dir() -> Path:
         return Path(config.cache.dir).expanduser().resolve()
 
     # 3. Platform default.
-    return _platform_cache_dir()
+    return get_cache_dir("repomatic")
 
 
 def lock_path(name: str) -> Path:
