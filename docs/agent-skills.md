@@ -112,7 +112,7 @@ sequenceDiagram
 
     Note over Ship,CL: Phase 1 reconcile substance, then summarize
     par code
-        Ship->>AG: code review (simplify, dedup, harmonize, fix CI's red inventory)
+        Ship->>AG: code review (simplify, dedup, harmonize, modernize within floors, fix CI's red inventory)
     and docs
         Ship->>AG: docs verification
     and bundled assets

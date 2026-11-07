@@ -3,7 +3,7 @@ name: repomatic-deps
 description: Generate dependency graphs. Audit pyproject.toml declarations against the version policy. Explore unused dependency APIs that could simplify code, and flag thin dependencies that in-house code could replace. Modernize code against the changelogs of upgraded dependencies.
 compatibility: 'Designed for Claude Code. Recommended model: Opus.'
 allowed-tools: Bash Read Grep Glob Agent Edit Write WebFetch
-argument-hint: '[graph [--level N]|review [all|runtime|dev|policy]|explore [<package>]|modernize [<package>]]'
+argument-hint: '[graph [--level N]|review [all|runtime|dev|policy]|explore [<package>]|modernize [--no-bump] [<package>]]'
 ---
 
 ## Context
@@ -33,7 +33,7 @@ You help users understand and maintain their project's dependencies. This skill 
 - `graph`: Generate and analyze the dependency graph only.
 - `review [all|runtime|dev|policy]`: Audit `pyproject.toml` declarations only.
 - `explore [<package>]`: Search for unused dependency APIs that could simplify existing code, and flag thin dependencies that in-house code could replace.
-- `modernize [<package>]`: Refactor code to adopt new features from upgraded dependencies, applying and test-gating each change.
+- `modernize [--no-bump] [<package>]`: Refactor code to adopt new features from upgraded dependencies, applying and test-gating each change. With `--no-bump`, it adopts only what the declared floors provide and moves no version.
 - If `$ARGUMENTS` starts with `--level` or a number, treat it as `graph` mode with those arguments.
 
 ---
@@ -317,6 +317,7 @@ The usage catalog of step 1 also shows when the project uses a dependency so lit
 
 - No argument: every dependency upgraded since the last release tag.
 - `<package>`: a single dependency (e.g., `modernize click-extra`).
+- `--no-bump`: keep every version where it is, as `/repomatic-ship` does. It combines with `<package>`. See [Keeping every version](#keeping-every-version) for what changes.
 
 ### Procedure
 
@@ -334,7 +335,7 @@ The usage catalog of step 1 also shows when the project uses a dependency so lit
    - A bug fix that lets us delete a workaround — search comments for the package name, `work around`, `TODO`, and version-guarded branches.
    - A deprecation we still call, which must move to the replacement before the dependency removes it. The test suite's warnings summary names each deprecated call the tests reach, with its file and line.
 
-4. **Apply one dependency at a time.** Make the edits for a single package, keeping each behavior-preserving. If adopting an API needs a higher floor, raise it and rewrite the comment per [Floor bumps to adopt new APIs](#floor-bumps-to-adopt-new-apis), then run `uv lock`.
+4. **Apply one dependency at a time.** Make the edits for a single package, keeping each behavior-preserving. If adopting an API needs a higher floor, raise it and rewrite the comment per [Floor bumps to adopt new APIs](#floor-bumps-to-adopt-new-apis), then run `uv lock`. Under `--no-bump`, report it instead.
 
 5. **Verify before moving on.** Run the project's tests, `mypy`, and `ruff` (the same fast local channel `/babysit-ci` and `/repomatic-ship` rely on). If anything fails, fix it within the same change or revert that package's edits. Only move to the next dependency once green. A change that cannot be made green is reverted, not forced.
 
@@ -345,6 +346,19 @@ The usage catalog of step 1 also shows when the project uses a dependency so lit
 - **New capability.** Adopting a feature to *add* behavior is out of scope: this mode only removes or replaces existing code.
 - **Major-version migrations.** A breaking upgrade that needs broad rework is a deliberate human project. Report it and stop, do not attempt it autonomously.
 - **Speculative adoptions.** If no current code is simplified, do nothing.
+
+### Keeping every version
+
+`--no-bump` runs the procedure above without moving a version, and it is the form `/repomatic-ship` runs. A release then ships the dependency set the cycle tested, and no `[project]` floor raised inside the cooldown blocks it at `lint-deps`. These rules replace the matching steps:
+
+- **Never raise a floor or move the lockfile to unlock a simplification.** The specifiers in `pyproject.toml` and the versions in `uv.lock` stay as they are.
+- **Read each floor the cycle raised, beside the lock delta.** `git diff <tag> -- pyproject.toml` names them. Read the changelog from the old floor to the new one: a release that the lock held before the raise falls outside the lock delta.
+- **Take the floor from the environment that runs the call site.** Package code runs where users install it, on the `[project]` floor or the floor of its extra. A dependency group that declares a higher floor raises it only for the code that group runs, like `docs/conf.py`.
+- **Adopt only what that floor provides.** The suite runs on the locked release, which is often newer than the floor, so a green run proves nothing about the floor. Check each API against the release that introduced it. When the changelog leaves that unclear, probe at the floor: `uv run --no-project --exclude-newer '{window}' --with '<pkg>==<floor>' python probe.py`.
+- **From a lock-only bump, take only the deprecations.** Its new APIs sit above the floor. Move a deprecated call to its replacement when the floor already provides that replacement.
+- **Delete compatibility code for releases below the floor.** No install needs a version guard, an `ImportError` fallback or a bug workaround for a release below the floor. The search is cheap, so cover every floor the project declares.
+- **Report each adoption that needs a higher floor.** Name the API, the call site and the release that introduced it, for a later run without `--no-bump`.
+- **Raise a floor only when the code needs it to run.** When the code already calls an API that the floor lacks, every install at the floor breaks. Raise it to the first release that has the API, per the [lowest-version check](#lowest-version-check), and report it as a fix.
 
 ---
 
