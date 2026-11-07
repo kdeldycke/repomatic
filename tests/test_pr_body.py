@@ -280,6 +280,8 @@ def test_render_pr_fills_the_release_checklist_from_one_lookup(github_env):
     assert readiness.call_args.kwargs["source_url"] == (
         "https://github.com/owner/repo/blob/abc12345def67890"
     )
+    # The verdict asks PyPI, like the release lane's gate it forecasts.
+    assert readiness.call_args.kwargs["query_pypi"] is True
 
 
 def test_render_pr_reads_the_diff_table_from_its_file(

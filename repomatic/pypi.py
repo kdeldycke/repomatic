@@ -36,10 +36,12 @@ from urllib.parse import urlencode, urlsplit
 from .config import load_repomatic_config
 from .github.urls import parse_github_repo
 from .http import FetchError, get_cached_json, get_json_soft, request
+from .humanize import parse_iso_datetime
 from .versions import safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from datetime import datetime
     from pathlib import Path
     from typing import Any
 
@@ -294,6 +296,10 @@ class PyPIRelease(NamedTuple):
     this carries the first non-empty one across the version's files.
     """
 
+    uploaded_at: datetime | None = None
+    """Earliest upload instant across all files, where {attr}`date` keeps the
+    day alone. `None` when PyPI records no upload time."""
+
 
 def pypi_release_dates(
     package: str, *, force_refresh: bool = False
@@ -331,11 +337,17 @@ def pypi_release_dates(
             (str(f["yanked_reason"]) for f in files if f.get("yanked_reason")),
             "",
         )
+        instants = [
+            instant
+            for f in files
+            if (instant := parse_iso_datetime(f.get("upload_time_iso_8601")))
+        ]
         result[version] = PyPIRelease(
             date=earliest_date,
             yanked=all_yanked,
             package=package,
             yanked_reason=reason,
+            uploaded_at=min(instants, default=None),
         )
 
     return result

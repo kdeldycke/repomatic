@@ -155,17 +155,19 @@ Four layers, ordered by how cheap the failure is:
 
    | Countdown                | What lifts the block                                                                                                   | Links to           |
    | :----------------------- | :--------------------------------------------------------------------------------------------------------------------- | :----------------- |
-   | `2026-09-10 (in 3 days)` | The clock. A floor inside the cooldown clears the day its locked release ages out of the window.                       | `sync-uv-lock`     |
+   | `2026-09-10 (in 3 days)` | The clock. A floor inside the cooldown clears the day the oldest release it admits ages out of the window.             | `sync-uv-lock`     |
    | 🚧 *needs release*       | Upstream. The git track sits inside the managed idiom, so `sync-dep-sources` opens the swap PR once the release ships. | `sync-dep-sources` |
    | ✋ *needs an edit*       | A maintainer. Nothing watches this one; the `lint-deps` report names the edit.                                         | nothing            |
 
    A dated countdown and the `sync-uv-lock` pull request's `❄️ Cooldown bypasses` table forecast the same day from the same two numbers: the locked release's `upload-time`, and the `exclude-newer` span. The two populations differ, though. That table lists every active `exclude-newer-package` freeze, including one whose floor was never raised, which does not block a release. The banner lists every blocking floor demanding a version inside the window.
 
-   The link is a search over the job's open pull requests on that branch, rather than a pull request number. `sync-uv-lock` opened eight pull requests in the 24 days to 2026-09-04 and closed seven, so a number would go stale within days, and resolving one at render time would cost an API call in a check that is otherwise offline. A merged pull request is filtered out on purpose: it carries the forecast it computed on its last push, and that date can have moved since.
+   A floor below the locked release can still admit only releases inside the window, like `>=10` while each `10.x` release is that young. `uv.lock` holds the locked release alone. So the banner and `lint-deps --fatal` read the upload times of the releases that floor admits from PyPI, and date the countdown from the oldest one. A failed lookup leaves that floor unchecked, with a warning in the job log.
+
+   The link is a search over the job's open pull requests on that branch, rather than a pull request number. `sync-uv-lock` opened eight pull requests in the 24 days to 2026-09-04 and closed seven, so a number would go stale within days, and resolving one at render time would cost an API call on every push. A merged pull request is filtered out on purpose: it carries the forecast it computed on its last push, and that date can have moved since.
 
 3. **The release lane**, as `_release-build.yaml`'s `lint-deps` job. Fatal only on a release commit, so test-driving a git branch mid-cycle stays frictionless. `build-package` depends on it, so a failure skips the wheel build, which leaves `package_built` false and skips `publish-pypi`, and fails the lane, which skips the engine's tag, release and publish jobs with it.
 
-4. **The test suite**, upstream only, as a millisecond-latency copy of the same check.
+4. **The test suite**, upstream only, as a millisecond-latency copy of the same check, without the PyPI lookup.
 
 Layer 3 is a backstop that should never fire. By the time it does, the freeze commit is already on `main` and the recovery is to burn the version per the skip-and-move-forward rule.
 

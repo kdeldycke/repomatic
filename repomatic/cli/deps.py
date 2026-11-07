@@ -527,9 +527,12 @@ def lint_deps(
     published metadata, so the wheel builds and uploads exactly as it would
     have, and only the install fails.
 
-    Runs entirely offline, reading pyproject.toml and uv.lock. The lockfile
-    pass is what catches a source override on a package no table names, since
-    it records the resolved origin of the whole tree.
+    Reads pyproject.toml and uv.lock. The lockfile pass is what catches a
+    source override on a package no table names, since it records the
+    resolved origin of the whole tree. With --fatal, a floor below a locked
+    release still inside the cooldown is also checked against the releases
+    PyPI records, since uv.lock holds the locked release alone. With
+    --no-fatal, the command runs offline.
 
     Reads lint-deps.allow from [tool.repomatic] for packages exempted by
     name, each mapped to the reason it is safe, and
@@ -553,6 +556,7 @@ def lint_deps(
         lockfile,
         config.minimum_release_age,
         allow=config.lint_deps.allow,
+        query_pypi=fatal,
     )
     allow_warnings = unused_allow_warnings(findings, config.lint_deps.allow)
 

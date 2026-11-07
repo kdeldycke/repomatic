@@ -334,6 +334,7 @@ def _arg_sources(
             allow=config.lint_deps.allow,
             source_url=blob_url,
             repo_url=md.repo_url or None,
+            query_pypi=True,
         )
 
     return {

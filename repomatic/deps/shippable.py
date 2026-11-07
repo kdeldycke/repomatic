@@ -30,6 +30,7 @@ The `lint-deps` command renders the findings, and the release PR opens with
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -42,7 +43,7 @@ from packaging.utils import canonicalize_name
 
 from ..github.outputs import AnnotationLevel
 from ..humanize import format_countdown
-from ..pypi import is_pypi_url
+from ..pypi import is_pypi_url, pypi_release_dates
 from ..pyproject import uv_table
 from ..tabular import render_markdown_table
 from ..versions import safe_version
@@ -66,6 +67,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
     from typing import Any
+
+    from packaging.requirements import Requirement
 
 LINT_DEPS_HEADER_DEFS: tuple[ColumnSpec, ...] = (
     ColumnSpec("package", "Package"),
@@ -699,11 +702,56 @@ class StaleFloor:
     {attr}`~repomatic.deps.requirements.RequirementArray.published`."""
 
 
+def _record_floor(
+    offenders: dict[str, StaleFloor], name: str, stale: StaleFloor
+) -> None:
+    """Keep one finding per package in *offenders*.
+
+    A floor reaching the published metadata outranks one that only a
+    resolution of its array meets.
+    """
+    reported = offenders.get(name)
+    if reported is None or (stale.published and not reported.published):
+        offenders[name] = stale
+
+
+def _oldest_admitted_upload(requirement: Requirement, name: str) -> datetime | None:
+    """Upload time of the oldest PyPI release that *requirement* admits.
+
+    Yanked releases do not count, since uv skips them. Pre-releases count only
+    when the specifier names one or admits nothing else, which is how
+    `packaging` filters them.
+
+    :param requirement: The requirement whose specifier picks the releases.
+    :param name: Canonical name of the package to look up.
+    :return: The earliest upload, or `None` when PyPI answers nothing or
+        records no upload time for an admitted release.
+    """
+    releases = pypi_release_dates(name)
+    if not releases:
+        logging.warning(
+            f"Cannot read the PyPI releases of {name}: its floor is not checked"
+            " against the cooldown."
+        )
+        return None
+    uploads: dict[str, datetime] = {}
+    for version, release in releases.items():
+        if release.yanked or release.uploaded_at is None:
+            continue
+        if safe_version(version) is not None:
+            uploads[version] = release.uploaded_at
+    return min(
+        (uploads[version] for version in requirement.specifier.filter(uploads)),
+        default=None,
+    )
+
+
 def floors_inside_cooldown(
     doc: Mapping[str, Any],
     lock: LockFile,
     window: str,
     now: datetime | None = None,
+    query_pypi: bool = False,
 ) -> dict[str, StaleFloor]:
     """Dependency floors that no cooldown-gated resolution can satisfy.
 
@@ -738,12 +786,22 @@ def floors_inside_cooldown(
     that version: releases reach an index in version order, so nothing
     satisfying such a floor can be older than what is already locked.
 
+    A floor below a locked version inside the window can still exclude every
+    older release, as `>=10` does while each `10.x` release is inside the
+    window. `uv.lock` holds the locked version alone, so it cannot show this.
+    With *query_pypi*, the upload times come from PyPI, and the floor is
+    reported when the oldest release it admits is inside the window. A failed
+    lookup leaves that floor unchecked, and logs a warning.
+
     :param doc: Parsed `pyproject.toml`.
     :param lock: The parsed `uv.lock`.
     :param window: Cooldown window, in any form `[tool.uv] exclude-newer`
         accepts.
     :param now: The instant the window counts back from. Read from the clock
         when `None`.
+    :param query_pypi: Ask PyPI for the releases that a floor below a locked
+        version inside the window admits. Off, the check reads the lock alone
+        and needs no network.
     :return: Mapping of canonical package name to the offending floor, the day
         it clears and the array declaring it, empty when every floor resolves
         without an exemption.
@@ -754,6 +812,12 @@ def floors_inside_cooldown(
     if cutoff is None:
         return {}
     span = resolve_exclude_newer_span(window)
+
+    def clears(upload: datetime) -> str:
+        # The release ages out of a rolling window on its own, which is the
+        # whole remedy for this finding. An absolute cutoff never moves, so it
+        # leaves no date to wait for.
+        return format_countdown(upload + span, now) if span is not None else ""
 
     offenders: dict[str, StaleFloor] = {}
     for array in requirement_arrays(doc):
@@ -767,23 +831,28 @@ def floors_inside_cooldown(
             locked = safe_version(lock.version_of(name))
             if locked is None:
                 continue
-            # The locked release ages out of a rolling window on its own, which
-            # is the whole remedy for this finding. An absolute cutoff never
-            # moves, so it leaves no date to wait for.
-            clears = format_countdown(upload + span, now) if span is not None else ""
-            for spec in requirement.specifier:
-                if spec.operator not in LOWER_BOUND_OPERATORS | PIN_OPERATOR:
-                    continue
-                floor = safe_version(spec.version)
-                if floor is None or floor < locked:
-                    continue
-                # One finding per package: a floor reaching the published
-                # metadata outranks one only a resolution of the array meets.
-                reported = offenders.get(name)
-                if reported is None or (array.published and not reported.published):
-                    offenders[name] = StaleFloor(
-                        str(floor), clears, array.location, array.published
-                    )
+            floors = [
+                floor
+                for spec in requirement.specifier
+                if spec.operator in LOWER_BOUND_OPERATORS | PIN_OPERATOR
+                and (floor := safe_version(spec.version)) is not None
+            ]
+            demanding = next((floor for floor in floors if floor >= locked), None)
+            if demanding is not None:
+                stale = StaleFloor(
+                    str(demanding), clears(upload), array.location, array.published
+                )
+                _record_floor(offenders, name, stale)
+                continue
+            if not floors or not query_pypi:
+                continue
+            oldest = _oldest_admitted_upload(requirement, name)
+            if oldest is None or oldest < cutoff:
+                continue
+            stale = StaleFloor(
+                str(max(floors)), clears(oldest), array.location, array.published
+            )
+            _record_floor(offenders, name, stale)
     return offenders
 
 
@@ -792,15 +861,16 @@ def scan_project(
     lock_path: Path,
     window: str,
     allow: Mapping[str, str] | None = None,
+    query_pypi: bool = False,
 ) -> list[DepFinding]:
     """Every reason this project cannot be released as it stands.
 
     Folds the three checks into one ordered report: what `pyproject.toml`
     declares ({func}`scan_pyproject`), what `uv.lock` resolved
     ({func}`scan_lock`), and which floors no cooldown-gated resolution can
-    satisfy ({func}`floors_inside_cooldown`). Entirely offline, so it costs
-    nothing to run on every push and cannot fail on a flaky index. Each file
-    is parsed once.
+    satisfy ({func}`floors_inside_cooldown`). Offline unless *query_pypi* is
+    set, so it costs nothing to run on every push and cannot fail on a flaky
+    index. Each file is parsed once.
 
     A package flagged by both halves is reported once, keeping the
     `pyproject.toml` finding: that is where the reader has something to edit,
@@ -812,6 +882,8 @@ def scan_project(
         accepts.
     :param allow: Package name to the reason it may ship from a non-index
         source.
+    :param query_pypi: Check a floor below a locked version inside the window
+        against the releases PyPI records: see {func}`floors_inside_cooldown`.
     :return: Findings sorted by package, then by location.
     """
     allow = allow or {}
@@ -825,7 +897,8 @@ def scan_project(
         if finding.package not in reported
     ]
 
-    for name, stale in floors_inside_cooldown(doc, lock, window).items():
+    stale_floors = floors_inside_cooldown(doc, lock, window, query_pypi=query_pypi)
+    for name, stale in stale_floors.items():
         findings.append(
             DepFinding(
                 package=name,
@@ -1043,6 +1116,7 @@ def build_release_readiness(
     allow: Mapping[str, str] | None = None,
     source_url: str | None = None,
     repo_url: str | None = None,
+    query_pypi: bool = False,
 ) -> str:
     """Build the release PR's opening verdict.
 
@@ -1071,13 +1145,18 @@ def build_release_readiness(
     :param repo_url: Repository homepage, without a trailing slash. Each dated
         or awaited countdown links to the pull request queue of the job that
         clears it. Omitted, the countdowns render as plain text.
+    :param query_pypi: Check a floor below a locked version inside the window
+        against the releases PyPI records, as the release lane's gate does:
+        see {func}`floors_inside_cooldown`.
     :return: {data}`RELEASE_READY_SENTENCE`, or a GitHub-flavored markdown
         `[!CAUTION]` blockquote naming what blocks the release and when each
         blocker lifts.
     """
     blocking = [
         finding
-        for finding in scan_project(pyproject_path, lock_path, window, allow=allow)
+        for finding in scan_project(
+            pyproject_path, lock_path, window, allow=allow, query_pypi=query_pypi
+        )
         if finding.blocking
     ]
     if not blocking:

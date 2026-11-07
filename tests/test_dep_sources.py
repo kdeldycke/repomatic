@@ -21,8 +21,10 @@ The swaps are {mod}`repomatic.deps.sources`, the gate is
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from click_extra.testing import CliRunner
@@ -390,6 +392,130 @@ def test_floors_inside_cooldown(
         # release turns 8 days old.
         expected = (upload + timedelta(days=8)).date()
         assert stale.clears.startswith(expected.isoformat())
+
+
+def _fresh_lock_project(
+    tmp_path: Path, requirement: str, now: datetime
+) -> tuple[Path, Path]:
+    """Write a project requiring *requirement*, `cherry` 1.2.0 locked a day ago.
+
+    :param tmp_path: Directory to write the two files into.
+    :param requirement: The `cherry` requirement of `[project] dependencies`.
+    :param now: The instant the locked upload counts back from.
+    :return: The paths of `pyproject.toml` and `uv.lock`.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        COOLDOWN_PYPROJECT.format(requirement=requirement), encoding="UTF-8"
+    )
+    lock = tmp_path / "uv.lock"
+    upload = now - timedelta(days=1)
+    lock.write_text(
+        COOLDOWN_LOCK.format(
+            locked="1.2.0", upload=upload.isoformat().replace("+00:00", "Z")
+        ),
+        encoding="UTF-8",
+    )
+    return pyproject, lock
+
+
+def _cherry_releases(
+    now: datetime, ages: dict[str, int], yanked: tuple[str, ...] = ()
+) -> dict[str, PyPIRelease]:
+    """The PyPI answer for `cherry`: each version uploaded *ages* days ago."""
+    return {
+        version: PyPIRelease(
+            date=(now - timedelta(days=age)).date().isoformat(),
+            yanked=version in yanked,
+            package="cherry",
+            uploaded_at=now - timedelta(days=age),
+        )
+        for version, age in ages.items()
+    }
+
+
+@pytest.mark.parametrize(
+    ("ages", "yanked", "flagged"),
+    (
+        # The floor admits a release older than the window, which an index
+        # resolution falls back to.
+        ({"1.0.0": 30, "1.2.0": 1}, (), False),
+        # Every release the floor admits is inside the window.
+        ({"0.9.0": 30, "1.0.0": 2, "1.2.0": 1}, (), True),
+        # A yanked release does not count, since uv skips it.
+        ({"1.0.0": 30, "1.1.0": 2, "1.2.0": 1}, ("1.0.0",), True),
+        # Nor does a pre-release, which the floor does not name.
+        ({"1.0.0": 2, "1.1.0rc1": 30, "1.2.0": 1}, (), True),
+    ),
+)
+def test_floor_below_the_locked_release_reads_pypi(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ages: dict[str, int],
+    yanked: tuple[str, ...],
+    flagged: bool,
+) -> None:
+    """A floor below a fresh locked release is checked against PyPI's uploads."""
+    now = datetime.now(UTC)
+    pyproject, lock = _fresh_lock_project(tmp_path, "cherry>=1.0", now)
+    lookup = Mock(return_value=_cherry_releases(now, ages, yanked))
+    monkeypatch.setattr("repomatic.deps.shippable.pypi_release_dates", lookup)
+
+    offenders = floors_inside_cooldown(
+        read_project(pyproject),
+        LockFile.load(lock),
+        "8 days",
+        now=now,
+        query_pypi=True,
+    )
+    assert lookup.call_args.args == ("cherry",)
+    assert (set(offenders) == {"cherry"}) is flagged
+    if flagged:
+        stale = offenders["cherry"]
+        assert stale.floor == "1.0"
+        # The floor lifts the day the oldest release it admits turns 8 days old.
+        expected = (now - timedelta(days=2) + timedelta(days=8)).date()
+        assert stale.clears.startswith(expected.isoformat())
+
+
+def test_floor_below_the_locked_release_skips_a_failed_lookup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An empty PyPI answer leaves the floor unchecked, with a warning."""
+    now = datetime.now(UTC)
+    pyproject, lock = _fresh_lock_project(tmp_path, "cherry>=1.0", now)
+    monkeypatch.setattr(
+        "repomatic.deps.shippable.pypi_release_dates", Mock(return_value={})
+    )
+
+    with caplog.at_level(logging.WARNING):
+        offenders = floors_inside_cooldown(
+            read_project(pyproject),
+            LockFile.load(lock),
+            "8 days",
+            now=now,
+            query_pypi=True,
+        )
+    assert offenders == {}
+    assert "Cannot read the PyPI releases of cherry" in caplog.text
+
+
+def test_floor_below_the_locked_release_stays_offline_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without `query_pypi`, the check reads the lock alone."""
+    now = datetime.now(UTC)
+    pyproject, lock = _fresh_lock_project(tmp_path, "cherry>=1.0", now)
+    lookup = Mock(side_effect=AssertionError("PyPI was asked"))
+    monkeypatch.setattr("repomatic.deps.shippable.pypi_release_dates", lookup)
+
+    offenders = floors_inside_cooldown(
+        read_project(pyproject), LockFile.load(lock), "8 days", now=now
+    )
+    assert offenders == {}
+    assert not lookup.called
 
 
 COOLDOWN_GROUP_PYPROJECT = """\
@@ -859,6 +985,23 @@ def test_lint_deps_fails_on_a_blocker_only_when_fatal(
     assert "✓" not in result.stdout
 
 
+@pytest.mark.parametrize(("fatal", "asked"), (("--fatal", True), ("--no-fatal", False)))
+def test_lint_deps_asks_pypi_only_when_fatal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fatal: str, asked: bool
+) -> None:
+    """Only the release gate checks a floor below a fresh locked release."""
+    now = datetime.now(UTC)
+    _fresh_lock_project(tmp_path, "cherry>=1.0", now)
+    lookup = Mock(return_value=_cherry_releases(now, {"1.0.0": 2, "1.2.0": 1}))
+    monkeypatch.setattr("repomatic.deps.shippable.pypi_release_dates", lookup)
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(repomatic, ["lint-deps", "--no-policy", fatal])
+    assert lookup.called is asked
+    assert result.exit_code == (1 if asked else 0), result.output
+    assert ("`cherry>=1.0`" in result.stdout) is asked
+
+
 def test_lint_deps_reports_an_allowed_source_without_blocking(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1019,6 +1162,23 @@ def test_consequence_distinguishes_broken_from_divergent(
     findings = scan_project(pyproject, tmp_path / "uv.lock", "1 week")
     assert len(findings) == 1
     assert expected in findings[0].consequence
+
+
+def test_release_readiness_asks_pypi_when_told(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The release PR verdict sees a floor below a fresh locked release."""
+    now = datetime.now(UTC)
+    pyproject, lock = _fresh_lock_project(tmp_path, "cherry>=1.0", now)
+    monkeypatch.setattr(
+        "repomatic.deps.shippable.pypi_release_dates",
+        Mock(return_value=_cherry_releases(now, {"1.0.0": 2, "1.2.0": 1})),
+    )
+
+    assert build_release_readiness(pyproject, lock, "1 week") == RELEASE_READY_SENTENCE
+    banner = build_release_readiness(pyproject, lock, "1 week", query_pypi=True)
+    assert banner.startswith("> [!CAUTION]")
+    assert "`cherry`" in banner
 
 
 def test_release_readiness_flips_the_pr_opening(tmp_path: Path) -> None:

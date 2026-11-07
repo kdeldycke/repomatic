@@ -46,6 +46,7 @@
 - The bundled `github-housekeeping` skill now gives a branch-sync PR the milestone of the PRs it carries, in place of its live milestone.
 - The Docs workflow now also runs on a push that only changes a `.claude/agents/*.md` file, which the documentation includes.
 - Raise the `click-extra` floor to `10.0`, which requires `extra-platforms` `14.0` and drops the `boltons` and `deepmerge` dependencies.
+- Fix `lint-deps --fatal` and the release PR verdict passing a floor below the locked release when every release it admits is inside the cooldown.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
 - Fix a re-run of the `docs.yaml` GitHub Pages deploy failing on the `github-pages` artifact its first attempt left in the run.
 - Fix `lint-repo` warning about a young `nuitka` pin in a repository that compiles no binary, where nothing installs it.
