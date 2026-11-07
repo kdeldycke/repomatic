@@ -24,6 +24,7 @@
 - The bundled `repomatic-upgrade` skill now reads the annotations of a cancelled CI job, where GitHub names a runner image it is retiring.
 - The bundled `repomatic-upgrade` skill now reports a `repomatic run` tool pinned inside the cooldown as a breaking row.
 - The bundled `repomatic-deps` skill now takes `modernize --no-bump`, which adopts only what the declared floors provide and moves no version.
+- The bundled `repomatic-deps` skill now passes `--exclude-newer-package` to a floor test install when `[tool.uv]` exempts a release still inside the cooldown.
 - The bundled `repomatic-ship` skill now runs `/repomatic-deps modernize --no-bump` in its code pass.
 - The bundled `repomatic-ship` skill now takes `--deep`, which refactors the whole repository before the reconciliation sweep.
 - The bundled `repomatic-ship` skill now says which installs a cooldown-blocked fresh resolution also breaks: those exempting the release itself, like a downstream `repomatic` pin.

@@ -167,7 +167,7 @@ A floor can also be too low: the code calls an API that the declared version lac
 4. **Probe what the suite cannot see.** Two cases pass the suite and still break a user. The test tooling can hold a dependency above its floor, as pytest does for `packaging`. A mocked client hides the library behind it. For each one, write a script that makes the call the code makes, and run it against the floor: `uv run --no-project --exclude-newer '{window}' --with '<pkg>==<floor>' python probe.py`.
 5. **Raise a floor that fails**, to the first release that passes. Name the failing call in the comment.
 
-To test one floor alone, build an environment from the lockfile and swap that package in with `uv pip install --exclude-newer '{window}' --no-deps '<pkg>==<floor>'`. `uv run --with` resolves the package's own dependencies again, so a failure there can come from another package.
+To test one floor alone, build an environment from the lockfile and swap that package in with `uv pip install --exclude-newer '{window}' --no-deps '<pkg>==<floor>'`. `uv run --with` resolves the package's own dependencies again, so a failure there can come from another package. When `[tool.uv] exclude-newer-package` exempts a package whose locked or floor release is still inside the window, add `--exclude-newer-package '<pkg>=0 day'` to each install: without it, uv finds no release to install.
 
 #### Special cases
 
