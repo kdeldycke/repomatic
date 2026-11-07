@@ -298,11 +298,17 @@ Common false-positive patterns to reject early:
 
 ### Removal candidates
 
-The usage catalog of step 1 also shows when the project uses a dependency so little that in-house code can replace it.
+The usage catalog of step 1 also shows when the project uses a dependency so little that in-house code can replace it. A plain `explore` reports these verdicts; the `--deep` pass of `/repomatic-ship` applies them.
 
-- **Flag a thin dependency.** A package that a few call sites use, and that the standard library or a short function can replace, is a removal candidate.
-- **Check what else requires it.** Run `uv tree --invert --package {pkg}` before you report that the lockfile drops it. Another dependency can still require it: then only the direct entry and its type stubs leave the lock.
-- **Keep it installed as a reference until the replacement matches it.** Compare the two over a generated range of inputs, edge cases included, and remove the package only when no output differs.
+- **Rank each candidate by the packages that leave `uv tree` per line of code written.** Run `uv tree --invert --package {pkg}` first. A package that another dependency still installs leaves nothing: keep declaring it, with its type stubs, since a rewrite that frees no package only adds an undeclared import.
+- **Keep a dependency that is public API, validates input, writes user data or ships TLS certificates.** A glob flag that users pass, a metadata validator, a TOML writer that could corrupt a backup, and an HTTP client that carries `certifi` into a binary all stay.
+- **Port only what the callers use.** A copy of the old API with every option is the dependency under a new name: challenge each helper, and delete one that no caller needs.
+- **Compare the replacement with the old package over generated or exhaustive inputs, then run the suite without it.** Keep the package installed as the oracle until the comparison is done. A test may keep it as the oracle after.
+- **Classify each mismatch as accepted, as a bug of the old package or as a regression, then pin the verdict with a test.** A date parser that truncates where the old one rounded is accepted when the test says so. A merge that appended lists, against the documented rule, was the old bug.
+- **Match what current installs get from the lockfile, not the floor or the docs.** A path that the installed release resolves one way keeps resolving that way.
+- **Make one commit per dependency, each gated by the tests and mypy.** A dropped untyped stub typed its calls as `Any`, so the drop exposes type errors the stub hid: read them as findings.
+- **Move a helper that several projects of the maintainer need into the dependency that owns the domain, never into this project.** A consumer on an older pin of that dependency keeps its copy, with a `{todo}` naming the release that lets it go.
+- **Rerun the audit after a `requires-python` raise.** A stdlib API the new floor provides turns a keep into a drop: `datetime.fromisoformat` for a date library, `glob` on Python 3.13 for a glob library.
 
 ---
 

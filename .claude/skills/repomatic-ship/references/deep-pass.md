@@ -42,6 +42,30 @@ The pass covers the code, its tests and the workflows the repository owns. Prose
 
 **Ask each lane to report its proposals and its helpers inventory, then act on both after the join.** The proposals are the moves, the cross-lane duplicates and the public API changes that ownership blocked. The inventory lists the generic helpers its modules define or re-implement inline: ANSI stripping, width measurement, write-if-changed, subprocess launch, env var parsing. Two inventories naming the same helper are one cross-lane duplicate.
 
+## Instructions lane
+
+**Give the repository's own instruction files a lane of their own: `AGENTS.md`, `.claude/agents/**` and `.claude/skills/**`.** Downstream, the lane covers only what the repository authors, as step 1's bundled-asset lane says: a synced copy is overwritten at the next sync, so a finding there goes to the step-8 report. The global instruction file of the maintainer's machine is out of scope: another tool of theirs tunes it. The lane runs after the code lanes join, since the code decides which rules still hold.
+
+**Mechanize first, then refactor what remains.** A rule that code can check becomes a conformance test, a `lint-repo` check or an autofix rule, and the prose shrinks to a pointer. Only then relocate and compress what stays: a compression pass keeps a duplicate that a mechanization deletes.
+
+**Mechanize each directive a machine can check, and keep the judgment calls as prose.** Checkable: a spelling, a placement, an ordering, a word ceiling, a required comment, a flag on a command, a file that must exist. Judgment: a verdict, a trade-off, a design choice, a harness quirk. The test for a candidate is whether a false failure costs an afternoon: a check that is under-inclusive by construction is still worth having.
+
+**Prefer a `lint-repo` check to a test for a generic rule.** A test in this repository runs here alone; a `lint-repo` check reaches every repository that pins the release. Downstream, a `lint-repo` check is upstream work: the lane writes the test it can land, and reports the check for step 8.
+
+**Give each `gh api` recipe in a skill a CLI option, and delete the pitfall prose with it.** A recipe with pitfalls attached, like the full SHA, `--allow-escape-sequences` or the stale `gh run list`, is a missing CLI option, and the option carries the pitfall once.
+
+**Then give each surviving rule one verdict: drop, relocate, extract, compress or keep.** Drop a rule another layer states word for word, or whose target is gone. Relocate a rule about one function, test, workflow or page beside it: a docstring, a test docstring, a comment in the workflow, a comment at the top of the page. Extract a procedure with steps into a skill, or into the `references/` folder of the skill that runs it. Compress only what stays, and measure in tokens: a text saving under 10% keeps its original, and a corpus written under a word ceiling clears the bar nowhere, so keep is the common verdict.
+
+**Never compress a `description`.** It is the retrieval surface the router matches against the user's own words: keep its redundant trigger phrases.
+
+**Read the code before you settle a disagreement between a rule and its mechanism.** A rule that restates code drifts from it, and no test notices. Where the prose and the test disagree, the mechanism won, and the prose is the side to fix.
+
+**Keep each deleted rule only where it is scar tissue.** A line that exists because someone made that mistake reads as redundant exactly because it now prevents the error: `git log -S` on it before you cut it.
+
+**Repoint every consumer of a moved rule in the same edit.** A docs page that includes the file publishes what stays in it. A test or a packaging manifest reads the file by name. A sync writes generated content back over a comment that cites it: fix the generator instead. A base-class docstring renders on each subclass, so a cross-reference in it needs its full path.
+
+**Gate the lane with the asset tests, the docs build and the suite.** `tests/test_claude_assets.py` and `tests/test_skills.py` hold the bundled assets to their contract: the directive word ceiling, the module paths, the config keys, the workflow files and the skill names each asset cites. A relocated rule that lands in a docstring needs the docs build, which is the only check on a cross-reference role. Measure each file before and after, and report both sizes.
+
 ## Join and cross-lane wave
 
 **Merge each worktree per path, never with a working-tree checkout.** `git merge-file`, with the seed as the base, the main file as ours and the worktree file as theirs, touches no index: a parallel session's commit cannot sweep the merge in. `git apply -3` on an exported patch does the same job. Register each new file with `git add --intent-to-add` before the gate: an inventory test reads `git ls-files`, and an unregistered file fails it.
@@ -64,13 +88,13 @@ The pass covers the code, its tests and the workflows the repository owns. Prose
 - **Lock each convention the pass applied in a conformance test.** A sweep that hoisted every function-local import, or put `encoding=` on every text I/O, earns a test that iterates the population and names the violator, or the next cycle undoes it.
 - **Speed up a hot path only where a measurement shows the gain.** Compare against the old code in one interleaved run, with the median of 10 or more samples. Look first where past passes found the gains: the startup imports of the CLI (`python -X importtime -c "import {pkg}"`), one file parsed several times in one command, a log line formatted before its level is checked, a whole file read where a bounded slice does, a network call made twice for one answer, and a download that fetches every artifact to bump one.
 - **Cache only a pure function of hashable arguments.** A cache that reads the environment, the working directory, the filesystem or the clock gives stale results to the next caller, and to the next test. A cache keyed on a file's path, size and mtime is the shape that holds for a parsed file. Never add work at import time, and never cache on a decoration-time singleton: a context-dependent value cached there made its own test flake.
-- **Run `/repomatic-deps explore`, then apply each Adopt verdict that needs no higher floor.** Step 1's code lane runs `modernize --no-bump` after the pass.
+- **Run `/repomatic-deps explore`, then apply each Adopt verdict that needs no higher floor, and each removal verdict.** Its § Removal candidates holds the rules of a replacement by stdlib code: rank by the packages freed per line written, keep what is public API or validates or writes user data, compare against the old package as the oracle, classify each mismatch and pin it with a test, one commit per dependency gated by the tests and mypy. Step 1's code lane runs `modernize --no-bump` after the pass.
 
 On a new major, the pass also takes what a major release allows:
 
 - **Propose a `requires-python` raise when the floor names a Python that upstream no longer maintains.** The oldest release that upstream still maintains, listed on https://devguide.python.org/versions/, is the floor to propose. State the proposal before the survey, and again in the step-7 report. Leave the floor as it is: the maintainer applies it with `/repomatic-test-matrix drop <version>`, or by hand where that skill is missing, since the test matrix and the ruff and mypy targets move with it. The next pass then uses what the new floor provides.
 - **Delete every deprecated surface.** On another release, delete only the surfaces whose `**Deprecated:**` entry named this release or an earlier one. A plan that a docstring or an alias registry makes for the next major is not a trigger before that major: a pass once executed such a plan on a minor, and the maintainer reverted all of it.
-- **Raise dependency floors only to releases older than `minimum-release-age`.** A `[project]` floor inside the cooldown blocks the release at `lint-deps`. Run `/repomatic-deps modernize` without `--no-bump`, and apply the Adopt verdicts of `explore` that need a higher floor. Then delete the compatibility code that each new floor makes dead.
+- **Raise dependency floors only to releases older than `minimum-release-age`.** A `[project]` floor inside the cooldown blocks the release at `lint-deps`. Run `/repomatic-deps modernize` without `--no-bump`, and apply the Adopt verdicts of `explore` that need a higher floor. Then delete the compatibility code that each new floor makes dead, and rerun the removal audit of `explore`: a new floor turns a keep into a drop.
 
 ## Traps
 

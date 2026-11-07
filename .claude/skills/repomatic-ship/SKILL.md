@@ -52,7 +52,7 @@ The sweep agents (step 1) and the babysitter (step 6) all follow these rules. Re
 
 ### Deep pass
 
-**Run the deep pass first when the invocation passes `--deep`.** Read `references/deep-pass.md` before it starts. The pass refactors the whole repository in phases, commits and pushes each phase on its own, and gives step 1 the moves and removals it made.
+**Run the deep pass first when the invocation passes `--deep`.** Read `references/deep-pass.md` before it starts. The pass refactors the whole repository in phases, its own instruction files included, commits and pushes each phase on its own, and gives step 1 the moves and removals it made.
 
 ### 1. Reconciliation sweep
 
