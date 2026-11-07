@@ -23,6 +23,7 @@
 - The bundled `repomatic-upgrade` skill now reports a `repomatic run` tool pinned inside the cooldown as a breaking row.
 - The bundled `repomatic-deps` skill now takes `modernize --no-bump`, which adopts only what the declared floors provide and moves no version.
 - The bundled `repomatic-ship` skill now runs `/repomatic-deps modernize --no-bump` in its code pass.
+- The bundled `repomatic-ship` skill now takes `--deep`, which refactors the whole repository before the reconciliation sweep.
 - The bundled `repomatic-ship` skill now says which installs a cooldown-blocked fresh resolution also breaks: those exempting the release itself, like a downstream `repomatic` pin.
 - The bundled `repomatic-ship` skill now also fixes an in-cycle defect that a cycle test states, and requires a regression test that CI runs.
 - The bundled `brand-assets` skill now covers a mark that exists only as a raster illustration, and reads its alpha channel before calling a background opaque.

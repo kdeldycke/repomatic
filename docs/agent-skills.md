@@ -110,6 +110,12 @@ sequenceDiagram
 
     Op->>Ship: claude --dangerously-skip-permissions /repomatic-ship
 
+    opt /repomatic-ship --deep
+        Note over Ship,AG: Deep pass over the whole repository
+        Ship->>AG: survey, refactor lanes, moves across packages
+        Ship->>Main: commit the refactor alone, after its own gate
+    end
+
     Note over Ship,CL: Phase 1 reconcile substance, then summarize
     par code
         Ship->>AG: code review (simplify, dedup, harmonize, modernize within floors, fix CI's red inventory)
