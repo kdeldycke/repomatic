@@ -334,6 +334,7 @@ The usage catalog of step 1 also shows when the project uses a dependency so lit
    - A new helper that replaces hand-rolled logic.
    - A bug fix that lets us delete a workaround — search comments for the package name, `work around`, `TODO`, and version-guarded branches.
    - A deprecation we still call, which must move to the replacement before the dependency removes it. The test suite's warnings summary names each deprecated call the tests reach, with its file and line.
+   - A `{todo}` admonition naming the package. Check each one against the new floor, not only those the changelog of the range mentions: a trigger met before the range still counts. `git tag --contains {sha}` names the first release carrying a change. Confirm that release covers the case the todo describes before you act on it.
 
 4. **Apply one dependency at a time.** Make the edits for a single package, keeping each behavior-preserving. If adopting an API needs a higher floor, raise it and rewrite the comment per [Floor bumps to adopt new APIs](#floor-bumps-to-adopt-new-apis), then run `uv lock`. Under `--no-bump`, report it instead.
 
