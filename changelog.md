@@ -63,6 +63,7 @@
 - Document the `.staging/` folder of the claude.ai skill sync, which a symlinked user skills directory also needs in `.gitignore`.
 - Document the `typos` trap of a bracket glob like `[Ss]cripts`, which reports `cripts` as a typo.
 - Render each bundled subagent on a docs page of its own, where the `sphinx-docs` icon registry shows its icons.
+- Fix `prune-caches` failing the build job of a container that ships no `gh`, like the `manylinux` one, when the pinned `gh` cannot be downloaded.
 
 ## [`8.1.0` (2026-11-03)](https://github.com/kdeldycke/repomatic/compare/v8.0.0...v8.1.0)
 

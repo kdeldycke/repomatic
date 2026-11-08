@@ -172,3 +172,17 @@ def test_cli_warns_when_the_listing_is_refused(mock_pages, mock_run):
     assert result.exit_code == 0, result.output
     assert "Could not list the caches" in result.output
     mock_run.assert_not_called()
+
+
+def test_cli_warns_when_gh_cannot_start():
+    """A container job with no `gh` gets a warning, not a failed build."""
+    missing = FileNotFoundError(2, "No such file or directory", "gh")
+    with patch("repomatic.github.gh.run", side_effect=missing):
+        result = CliRunner().invoke(
+            repomatic,
+            ["prune-caches", "--repo", REPO, "--prefix", "nuitka-linux-x64-"],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "Could not list the caches" in result.output
+    assert "Cannot run gh" in result.output

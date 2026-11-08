@@ -821,3 +821,13 @@ def test_gh_executable_falls_back_to_path(failure, caplog):
         assert gh_executable() == "gh"
     assert "falling back to whatever is on PATH" in caplog.text
     gh_executable.cache_clear()
+
+
+def test_run_gh_command_reports_a_gh_that_cannot_start():
+    """A missing binary raises the error every caller of `gh` already handles."""
+    missing = FileNotFoundError(2, "No such file or directory", "gh")
+    with (
+        patch("repomatic.github.gh.run", side_effect=missing),
+        pytest.raises(GhCommandError, match=r"Cannot run gh: .*No such file"),
+    ):
+        run_gh_command(["api", "repos/orchard/papaya"])

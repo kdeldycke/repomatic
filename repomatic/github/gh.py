@@ -54,6 +54,7 @@ from .status import with_status_annotation
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping, Sequence
+    from subprocess import CompletedProcess
     from typing import Any
 
 _HTTP_STATUS_RE = re.compile(r"HTTP (\d{3})")
@@ -180,7 +181,10 @@ def gh_executable() -> str:
     have already done real work (a release publish, an issue upsert), so a
     download failure must not strand them: a hosted runner ships a usable
     `gh`, and degrading to it beats failing the job. The fallback is logged,
-    never silent.
+    never silent. A container job, like the `manylinux` build of a binary,
+    ships no `gh` at all: {func}`run_gh_command` then raises
+    {class}`GhCommandError`, which a housekeeping caller like `prune-caches`
+    reports as a warning.
     ```
 
     Memoized: the install-and-verify path runs once per process however many
@@ -251,6 +255,19 @@ def gh_env(token: str | None = None) -> dict[str, str] | None:
     return {**os.environ, "GH_TOKEN": token} if token else None
 
 
+def _run_gh(cmd: list[str], env: dict[str, str] | None) -> CompletedProcess[str]:
+    """Run one `gh` command line, capturing its output.
+
+    :raises GhCommandError: The binary could not start, as in a container job
+        that ships no `gh` once the pinned build failed to download.
+    """
+    try:
+        return run(cmd, capture_output=True, encoding="UTF-8", check=False, env=env)
+    except OSError as error:
+        msg = f"Cannot run {cmd[0]}: {error}"
+        raise GhCommandError(msg) from error
+
+
 def run_gh_command(args: list[str]) -> str:
     """Run a `gh` CLI command and return stdout.
 
@@ -283,7 +300,7 @@ def run_gh_command(args: list[str]) -> str:
     github_token = os.environ.get("GITHUB_TOKEN")
     primary = resolve_gh_token()
     env = gh_env(primary)
-    process = run(cmd, capture_output=True, encoding="UTF-8", check=False, env=env)
+    process = _run_gh(cmd, env)
 
     # Bounded same-token retry, before the cross-token fallback. Catches
     # transient GitHub failures a re-run with the same credential clears:
@@ -307,7 +324,7 @@ def run_gh_command(args: list[str]) -> str:
             f"gh command {failure}, retrying in {delay}s with the same token."
         )
         sleep(delay)
-        process = run(cmd, capture_output=True, encoding="UTF-8", check=False, env=env)
+        process = _run_gh(cmd, env)
 
     if process.returncode:
         stderr = process.stderr
@@ -321,13 +338,7 @@ def run_gh_command(args: list[str]) -> str:
                 f"Primary token returned 401 ({auth_marker}), retrying with "
                 "GITHUB_TOKEN."
             )
-            retry = run(
-                cmd,
-                capture_output=True,
-                encoding="UTF-8",
-                check=False,
-                env=gh_env(github_token),
-            )
+            retry = _run_gh(cmd, gh_env(github_token))
             if not retry.returncode:
                 return retry.stdout
             logging.warning("GITHUB_TOKEN fallback also failed.")
