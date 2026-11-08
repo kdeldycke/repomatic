@@ -299,6 +299,9 @@ def _download_once(
     dest: Path,
     timeout: float,
     progress: Callable[[int], AbstractContextManager[Callable[[int], object]]] | None,
+    *,
+    headers: Mapping[str, str] | None = None,
+    unredirected_headers: Mapping[str, str] | None = None,
 ) -> str:
     """Stream *url* into *dest* once, with no retry.
 
@@ -308,11 +311,12 @@ def _download_once(
     """
     sha256 = hashlib.sha256()
     total = received = 0
+    prepared = Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
+    for name, value in (unredirected_headers or {}).items():
+        prepared.add_unredirected_header(name, value)
     try:
         with (
-            urlopen(
-                Request(url, headers={"User-Agent": USER_AGENT}), timeout=timeout
-            ) as response,
+            urlopen(prepared, timeout=timeout) as response,
             dest.open("wb") as file,
         ):
             total = int(response.headers.get("Content-Length") or 0)
@@ -343,6 +347,8 @@ def download(
     timeout: float = DOWNLOAD_TIMEOUT,
     progress: Callable[[int], AbstractContextManager[Callable[[int], object]]]
     | None = None,
+    headers: Mapping[str, str] | None = None,
+    unredirected_headers: Mapping[str, str] | None = None,
 ) -> str:
     """Stream *url* into *dest* and return the SHA-256 of the body.
 
@@ -363,12 +369,24 @@ def download(
         advertised length (`0` when the server sends none) before the first
         chunk, it returns a context manager. The context manager yields the
         callable that receives the size of each chunk.
+    :param headers: Extra request headers, merged over the `User-Agent`.
+        urllib sends them again to the target of a redirect.
+    :param unredirected_headers: Request headers sent to *url* alone, never
+        to the target of a redirect. A credential goes here: a GitHub release
+        asset redirects to a storage host that must not receive the token.
     :return: Lowercase hex SHA-256 digest of the body.
     :raises FetchError: On a client error, or when the last attempt fails.
     """
     for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
         try:
-            return _download_once(url, dest, timeout, progress)
+            return _download_once(
+                url,
+                dest,
+                timeout,
+                progress,
+                headers=headers,
+                unredirected_headers=unredirected_headers,
+            )
         except FetchError as exc:
             dest.unlink(missing_ok=True)
             client_error = exc.status is not None and 400 <= exc.status < 500

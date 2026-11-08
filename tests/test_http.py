@@ -443,6 +443,28 @@ def test_download_refuses_a_truncated_body(tmp_path):
     assert not dest.exists()
 
 
+def test_download_keeps_a_credential_off_the_redirect(tmp_path):
+    """An unredirected header reaches the URL alone, never its redirect target."""
+    with patch(
+        "repomatic.http.urlopen", return_value=_StreamedBody(b"plum")
+    ) as mock_open:
+        download(
+            "https://api.example.test/assets/7",
+            tmp_path / "plum.bin",
+            headers={"Accept": "application/octet-stream"},
+            unredirected_headers={"Authorization": "Bearer t0ken"},
+        )
+
+    sent = mock_open.call_args.args[0]
+    assert sent.get_header("Authorization") == "Bearer t0ken"
+    assert sent.get_header("Accept") == "application/octet-stream"
+    redirected = urllib.request.HTTPRedirectHandler().redirect_request(
+        sent, None, 302, "Found", Message(), "https://storage.example.test/plum"
+    )
+    assert redirected.get_header("Authorization") is None
+    assert redirected.get_header("Accept") == "application/octet-stream"
+
+
 def test_suite_refuses_an_unmocked_fetch():
     """A fetch that no test stubbed fails at once.
 

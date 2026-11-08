@@ -62,6 +62,7 @@ from ..deps.pins import exclude_newer_cutoff, min_release_age_days
 from ..deps.uv import UvError, uv_cmd, uvx_cmd
 from ..file_inventory import FileInventory
 from ..file_ops import normalize_text
+from ..github.gh import resolve_gh_token
 from ..github.outputs import add_problem_matcher, remove_problem_matcher
 from ..hashing import compute_file_sha256
 from ..humanize import today_utc
@@ -738,7 +739,10 @@ def _path_tools_env(
         companion = TOOL_REGISTRY[tool_name]
         try:
             bin_path = binaries.install_binary(
-                companion, skip_checksum=skip_checksum, no_cache=no_cache
+                companion,
+                skip_checksum=skip_checksum,
+                no_cache=no_cache,
+                token=resolve_gh_token(),
             )
         except UnsupportedPlatformError as exc:
             # The companion publishes nothing for this platform, so no run can
@@ -777,7 +781,10 @@ def _command_prefix(
     """
     if spec.backend is ToolBackend.BINARY:
         binary = binaries.install_binary(
-            spec, skip_checksum=skip_checksum, no_cache=no_cache
+            spec,
+            skip_checksum=skip_checksum,
+            no_cache=no_cache,
+            token=resolve_gh_token(),
         )
         cmd = [str(binary)]
     elif spec.backend is ToolBackend.NPM:

@@ -31,6 +31,7 @@ import pytest
 from extra_platforms import AARCH64, LINUX, MACOS, UBUNTU, X86_64
 
 from repomatic.cache import cached_binary_path
+from repomatic.http import FetchError
 from repomatic.tooling.binaries import (
     _STAGING_DIRS,
     ChecksumMismatchError,
@@ -605,6 +606,113 @@ def test_install_binary_cleans_staging_after_a_failed_download(tmp_path, cache_e
 
     assert not download.call_args.args[2].parent.exists()
     assert len(_STAGING_DIRS) == staging_count
+
+
+GITHUB_RELEASE_URL = (
+    "https://github.com/orchard/papaya/releases/download/v1.0.0/papaya-linux.tar.gz"
+)
+ASSET_API_URL = "https://api.github.com/repos/orchard/papaya/releases/assets/42"
+RELEASE = {"assets": [{"name": "papaya-linux.tar.gz", "url": ASSET_API_URL}]}
+
+
+def test_install_binary_downloads_a_release_asset_through_the_api(tmp_path, cache_env):
+    """With a token, the asset comes through the API, the token off the redirect."""
+    with (
+        _on_linux_x86_64(),
+        patch("repomatic.tooling.binaries.get_json", return_value=RELEASE) as lookup,
+        _staged_download(tmp_path, b"binary") as (download, _),
+    ):
+        install_binary(_binary_spec(url=GITHUB_RELEASE_URL), token="t0ken")
+
+    assert lookup.call_args.args == (
+        "https://api.github.com/repos/orchard/papaya/releases/tags/v1.0.0",
+    )
+    assert lookup.call_args.kwargs == {"headers": {"Authorization": "Bearer t0ken"}}
+    assert download.call_count == 1
+    assert download.call_args.args[0] == ASSET_API_URL
+    assert download.call_args.kwargs["headers"] == {
+        "Accept": "application/octet-stream"
+    }
+    assert download.call_args.kwargs["unredirected_headers"] == {
+        "Authorization": "Bearer t0ken"
+    }
+
+
+@pytest.mark.parametrize(
+    ("url", "token"),
+    (
+        pytest.param(GITHUB_RELEASE_URL, "", id="no-token"),
+        pytest.param(TARBALL_URL, "t0ken", id="not-a-release"),
+    ),
+)
+def test_install_binary_skips_the_api_without_token_or_release(
+    tmp_path, cache_env, url, token
+):
+    """No token, or no GitHub release, downloads the registry URL as before."""
+    with (
+        _on_linux_x86_64(),
+        patch("repomatic.tooling.binaries.get_json") as lookup,
+        _staged_download(tmp_path, b"binary") as (download, _),
+    ):
+        install_binary(_binary_spec(url=url), token=token)
+
+    lookup.assert_not_called()
+    assert download.call_args.args[0] == url.format(version="1.0.0")
+    assert "unredirected_headers" not in download.call_args.kwargs
+
+
+@pytest.mark.parametrize(
+    "lookup",
+    (
+        pytest.param({"side_effect": FetchError("HTTP 404", status=404)}, id="failed"),
+        pytest.param({"return_value": {"assets": []}}, id="asset-missing"),
+    ),
+)
+def test_install_binary_falls_back_when_the_api_lookup_fails(
+    tmp_path, cache_env, lookup
+):
+    """A lookup that finds no asset downloads the registry URL anonymously."""
+    with (
+        _on_linux_x86_64(),
+        patch("repomatic.tooling.binaries.get_json", **lookup),
+        _staged_download(tmp_path, b"binary") as (download, _),
+    ):
+        install_binary(_binary_spec(url=GITHUB_RELEASE_URL), token="t0ken")
+
+    assert download.call_count == 1
+    assert download.call_args.args[0] == GITHUB_RELEASE_URL
+
+
+def test_install_binary_retries_the_registry_url_after_an_api_failure(
+    tmp_path, cache_env
+):
+    """A download that fails on the API route is tried again on the registry URL."""
+    with (
+        _on_linux_x86_64(),
+        patch("repomatic.tooling.binaries.get_json", return_value=RELEASE),
+        _staged_download(tmp_path, b"binary") as (download, _),
+    ):
+        download.side_effect = [BinaryInstallError("Cannot download"), None]
+        install_binary(_binary_spec(url=GITHUB_RELEASE_URL), token="t0ken")
+
+    assert [c.args[0] for c in download.call_args_list] == [
+        ASSET_API_URL,
+        GITHUB_RELEASE_URL,
+    ]
+
+
+def test_install_binary_never_retries_a_checksum_mismatch(tmp_path, cache_env):
+    """A mismatch on the API route fails at once: the same bytes fail again."""
+    with (
+        _on_linux_x86_64(),
+        patch("repomatic.tooling.binaries.get_json", return_value=RELEASE),
+        _staged_download(tmp_path, b"binary") as (download, _),
+    ):
+        download.side_effect = ChecksumMismatchError("SHA-256 mismatch")
+        with pytest.raises(ChecksumMismatchError):
+            install_binary(_binary_spec(url=GITHUB_RELEASE_URL), token="t0ken")
+
+    assert download.call_count == 1
 
 
 # ---------------------------------------------------------------------------

@@ -624,7 +624,7 @@ def captured_labelmaker(monkeypatch):
     monkeypatch.setattr(
         labels_module,
         "ensure_binary",
-        lambda _name: Path("/fake/labelmaker"),
+        lambda _name, **_kwargs: Path("/fake/labelmaker"),
     )
     monkeypatch.setattr(labels_module, "_run_labelmaker", run)
     return calls, staged

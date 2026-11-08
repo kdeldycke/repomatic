@@ -35,6 +35,7 @@ import tempfile
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
+from urllib.parse import quote, unquote, urlsplit
 
 from click_extra import Spinner, progressbar
 
@@ -44,7 +45,7 @@ from ..cache import (
     store_binary,
 )
 from ..hashing import compute_file_sha256
-from ..http import FetchError, download
+from ..http import FetchError, download, get_json
 from .registry import (
     ArchiveFormat,
     BinaryInstallError,
@@ -53,11 +54,14 @@ from .registry import (
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
+    from collections.abc import Callable, Generator, Mapping
 
     from click._termui_impl import ProgressBar
 
     from .registry import ResolvedBinary, ToolSpec
+
+GITHUB_RELEASE_BY_TAG_URL = "https://api.github.com/repos/{repo}/releases/tags/{tag}"
+"""REST endpoint listing the assets of a GitHub release, by tag."""
 
 
 class ChecksumMismatchError(BinaryInstallError):
@@ -109,6 +113,8 @@ def _download_and_verify(
     dest_path: Path,
     *,
     label: str | None = None,
+    headers: Mapping[str, str] | None = None,
+    unredirected_headers: Mapping[str, str] | None = None,
 ) -> None:
     """Download a file and verify its SHA-256 checksum.
 
@@ -121,6 +127,9 @@ def _download_and_verify(
         `None` skips verification (logs the computed digest for reference).
     :param dest_path: Where to write the downloaded file.
     :param label: Progress bar label. Defaults to the destination filename.
+    :param headers: Extra request headers, see {func}`repomatic.http.download`.
+    :param unredirected_headers: Request headers kept off a redirect, see
+        {func}`repomatic.http.download`.
     :raises BinaryInstallError: If the download fails.
     :raises ChecksumMismatchError: If the checksum does not match.
     """
@@ -129,6 +138,8 @@ def _download_and_verify(
             url,
             dest_path,
             progress=functools.partial(_progress, label or dest_path.name),
+            headers=headers,
+            unredirected_headers=unredirected_headers,
         )
     except FetchError as exc:
         msg = f"Cannot download {url}: {exc}"
@@ -348,8 +359,75 @@ def _store(spec: ToolSpec, resolved: ResolvedBinary, extracted: Path) -> Path | 
     return cached
 
 
+def _release_asset_api_url(resolved: ResolvedBinary, token: str) -> str | None:
+    """REST API address of the release asset *resolved* downloads, if any.
+
+    :return: The API URL of the asset, under `releases/assets/`, or `None` to download
+        `resolved.url` instead: no token, a URL that is no GitHub release
+        download, a failed lookup, or a release that lists no such asset.
+    """
+    if not token:
+        return None
+    try:
+        repo, tag = resolved.release_source
+    except ValueError:
+        return None
+    asset = unquote(urlsplit(resolved.url).path.rsplit("/", 1)[-1])
+    endpoint = GITHUB_RELEASE_BY_TAG_URL.format(repo=repo, tag=quote(tag, safe=""))
+    try:
+        release = get_json(endpoint, headers={"Authorization": f"Bearer {token}"})
+    except FetchError as error:
+        logging.warning(f"Cannot look up {asset} through the GitHub API: {error}")
+        return None
+    assets = release.get("assets", []) if isinstance(release, dict) else []
+    for item in assets:
+        if isinstance(item, dict) and item.get("name") == asset and item.get("url"):
+            return str(item["url"])
+    logging.warning(f"The GitHub API lists no {asset} in the {tag} release of {repo}.")
+    return None
+
+
+def _fetch_archive(
+    resolved: ResolvedBinary,
+    checksum: str | None,
+    archive: Path,
+    *,
+    label: str,
+    token: str,
+) -> None:
+    """Download and verify the archive of *resolved*, through the API first.
+
+    :raises BinaryInstallError: If no route delivers the archive.
+    :raises ChecksumMismatchError: If the archive does not hash to *checksum*.
+    """
+    api_url = _release_asset_api_url(resolved, token)
+    if api_url is not None:
+        try:
+            _download_and_verify(
+                api_url,
+                checksum,
+                archive,
+                label=label,
+                headers={"Accept": "application/octet-stream"},
+                unredirected_headers={"Authorization": f"Bearer {token}"},
+            )
+        except ChecksumMismatchError:
+            raise
+        except BinaryInstallError as error:
+            logging.warning(
+                f"Authenticated download failed, retrying {resolved.url}: {error}"
+            )
+        else:
+            return
+    _download_and_verify(resolved.url, checksum, archive, label=label)
+
+
 def install_binary(
-    spec: ToolSpec, *, skip_checksum: bool = False, no_cache: bool = False
+    spec: ToolSpec,
+    *,
+    skip_checksum: bool = False,
+    no_cache: bool = False,
+    token: str = "",
 ) -> Path:
     """Download, verify and extract a binary tool, and return its executable.
 
@@ -367,9 +445,21 @@ def install_binary(
     of the cache, the staging copy is returned, and its directory lasts as long
     as the process: see `_STAGING_DIRS`.
 
+    ```{note}
+    With a *token*, a GitHub release asset downloads through the REST API, the
+    route `gh release download` takes. An outage can refuse anonymous requests
+    alone, and the authenticated route stays open through it. The token goes
+    to `api.github.com` only: the API redirects the download to a storage host,
+    which gets the request without it. Without a token, or when the API route
+    fails for any reason but a checksum mismatch, the download falls back to
+    the release URL the registry records.
+    ```
+
     :param spec: Tool specification with `binary` set.
     :param skip_checksum: Skip SHA-256 verification when `True`.
     :param no_cache: Bypass the cache entirely when `True`.
+    :param token: GitHub token that authenticates the download of a release
+        asset. Empty downloads anonymously.
     :return: Path to the ready-to-run executable.
     :raises BinaryInstallError: On any failure to install the binary. The
         subclasses {class}`~repomatic.tooling.registry.UnsupportedPlatformError`
@@ -400,8 +490,12 @@ def install_binary(
     staging_dir = Path(staging.name)
     try:
         archive = staging_dir / resolved.archive_name
-        _download_and_verify(
-            resolved.url, checksum, archive, label=f"{spec.name} {spec.version}"
+        _fetch_archive(
+            resolved,
+            checksum,
+            archive,
+            label=f"{spec.name} {spec.version}",
+            token=token,
         )
         extracted = _extract_binary(archive, resolved, staging_dir)
     except BinaryInstallError:
@@ -418,7 +512,7 @@ def install_binary(
 
 
 @functools.cache
-def ensure_binary(name: str) -> Path:
+def ensure_binary(name: str, *, token: str = "") -> Path:
     """Install a registry binary tool and return the path to its executable.
 
     The seam for repomatic code that shells out to a third-party binary but is
@@ -438,6 +532,7 @@ def ensure_binary(name: str) -> Path:
 
     :param name: Registry key of a tool whose
         {class}`~repomatic.tooling.registry.ToolSpec` declares a `binary`.
+    :param token: GitHub token passed on to {func}`install_binary`.
     :return: Absolute path to the ready-to-run executable.
     :raises ValueError: If the tool is unknown or ships no binary.
     :raises BinaryInstallError: If the binary cannot be installed.
@@ -446,4 +541,4 @@ def ensure_binary(name: str) -> Path:
     if spec.binary is None:
         msg = f"{name!r} is not a binary tool in the repomatic registry."
         raise ValueError(msg)
-    return install_binary(spec)
+    return install_binary(spec, token=token)

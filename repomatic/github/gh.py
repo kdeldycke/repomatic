@@ -191,7 +191,7 @@ def gh_executable() -> str:
     of the ~60 call sites fire.
     """
     try:
-        return str(ensure_binary("gh"))
+        return str(ensure_binary("gh", token=resolve_gh_token()))
     except (BinaryInstallError, OSError) as error:
         logging.warning(
             "Could not install the pinned gh, falling back to whatever is on PATH "

@@ -54,6 +54,7 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
+from .github.gh import resolve_gh_token
 from .humanize import format_file_size
 from .tabular import render_markdown_table
 from .tooling.binaries import ensure_binary
@@ -137,7 +138,7 @@ def _optimize_png(path: Path) -> None:
     """
     subprocess.run(
         [
-            str(ensure_binary("oxipng")),
+            str(ensure_binary("oxipng", token=resolve_gh_token())),
             "--opt",
             OXIPNG_OPT_LEVEL,
             "--strip",

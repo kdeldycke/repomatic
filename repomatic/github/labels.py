@@ -54,7 +54,7 @@ from ..bundle import get_data_content
 from ..http import FetchError, get_bytes
 from ..tooling.binaries import ensure_binary
 from .event import get_event_subject
-from .gh import gh_env, gh_json
+from .gh import gh_env, gh_json, resolve_gh_token
 from .pr import list_changed_files
 from .threads import ThreadKind, repo_args
 
@@ -716,7 +716,7 @@ def apply_labels(
         `labels.extra-files` URL cannot be fetched.
     """
     sources = list(label_sources(config, is_awesome=is_awesome, root=root))
-    lm = ensure_binary("labelmaker")
+    lm = ensure_binary("labelmaker", token=resolve_gh_token())
     with tempfile.TemporaryDirectory(prefix="repomatic-labels-") as tmpdir:
         for source in sources:
             staged = Path(tmpdir) / source.path

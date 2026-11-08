@@ -217,7 +217,7 @@ $ repomatic run shfmt --version 3.14.0 --checksum abc123... -- .
 | macOS    | `$XDG_CACHE_HOME/repomatic` or `~/Library/Caches/repomatic` |
 | Windows  | `%LOCALAPPDATA%\repomatic\Cache`                            |
 
-A download is verified against the SHA-256 checksum the registry records, then cached with a digest of the extracted binary. Each later use checks the cached binary against that digest, and downloads it again on a mismatch. A failed download is tried again, except on a client error (`4xx`), which gets the same answer every time.
+A download is verified against the SHA-256 checksum the registry records, then cached with a digest of the extracted binary. Each later use checks the cached binary against that digest, and downloads it again on a mismatch. A failed download is tried again, except on a client error (`4xx`), which gets the same answer every time. With a token in `REPOMATIC_PAT`, `GH_TOKEN` or `GITHUB_TOKEN`, a binary published as a GitHub release asset downloads through the REST API, the route `gh release download` takes. That route still works when GitHub slows down or refuses anonymous requests. The token goes to `api.github.com` only, and the download falls back to the release URL when the API route fails.
 
 The cache also holds the configs repomatic generates from `[tool.X]` sections and bundled defaults, one file per distinct content, so two checkouts with different settings never share a file. Entries older than 30 days are auto-purged.
 
