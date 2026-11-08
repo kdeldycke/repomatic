@@ -24,7 +24,7 @@ import json
 import urllib.request
 from contextlib import contextmanager
 from email.message import Message
-from http.client import IncompleteRead, RemoteDisconnected
+from http.client import HTTPMessage, IncompleteRead, RemoteDisconnected
 from io import BytesIO
 from unittest.mock import call, patch
 from urllib.error import HTTPError, URLError
@@ -459,8 +459,14 @@ def test_download_keeps_a_credential_off_the_redirect(tmp_path):
     assert sent.get_header("Authorization") == "Bearer t0ken"
     assert sent.get_header("Accept") == "application/octet-stream"
     redirected = urllib.request.HTTPRedirectHandler().redirect_request(
-        sent, None, 302, "Found", Message(), "https://storage.example.test/plum"
+        sent,
+        BytesIO(),
+        302,
+        "Found",
+        HTTPMessage(),
+        "https://storage.example.test/plum",
     )
+    assert redirected is not None
     assert redirected.get_header("Authorization") is None
     assert redirected.get_header("Accept") == "application/octet-stream"
 
