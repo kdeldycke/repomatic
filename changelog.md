@@ -16,6 +16,7 @@
 - `update-docs` now refreshes a page whose only self-updating block is a click-extra `<!-- envelope -->` region.
 - The default `gitignore.extra-content` now keeps the `scripts/` folder of an agent skill, which the virtualenv template's `[Ss]cripts` rule ignored.
 - The `manpages` release job and the packager command of the install page now pass the `wrap` target after a `--` separator.
+- The bundled `babysit-ci` skill now covers the fixture errors that pytest `9.2.0` causes by ignoring `xdist_group`, and how to lock the shared resource.
 - The bundled `benchmark-update` skill now drops an excluded project from the metrics subjects and store, and follows a transferred one in both.
 - The bundled `benchmark-update` skill now marks incomplete support 🪫 in place of 🟡, and leaves a cell blank in place of `N/A`.
 - The bundled `file-bug-report` skill now covers a reply on an existing issue, and paces its `gh search` calls under the search API rate limit.
