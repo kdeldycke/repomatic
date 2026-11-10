@@ -323,6 +323,15 @@ class OcticonRegistry:
     `sphinx-docs` agent, so an octicon keeps one meaning across their sites.
     The agent carries the registry as a table, which {meth}`markdown_table`
     renders.
+
+    ```{todo}
+    Review the octicon of each page once a sphinx-design release carries
+    [executablebooks/sphinx-design#309](https://github.com/executablebooks/sphinx-design/pull/309),
+    which adds 81 icons to the 328 of `0.7.0`, like `agent`, `ai-model` and
+    `flowchart`. Adopt a new icon only once the `docs` dependencies of every
+    site that takes it require that release: `0.7.0` reports an error on an
+    icon it does not know, and renders the role as plain text.
+    ```
     """
 
     icons: dict[str, tuple[str, ...]]

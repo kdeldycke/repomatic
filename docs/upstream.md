@@ -89,6 +89,10 @@ repomatic lints awesome lists with it:
 
 - [`#687` - Show version in error tracebacks](https://github.com/tox-dev/sphinx-autodoc-typehints/pull/687)
 
+### [`sphinx-design`](https://github.com/executablebooks/sphinx-design)
+
+- [`#309` - Upgrade Octicons to `v19.42.0`](https://github.com/executablebooks/sphinx-design/pull/309)
+
 ### [`sphinxcontrib-mermaid`](https://github.com/mgaitan/sphinxcontrib-mermaid)
 
 - [`#118` - Do not fail on empty class diagram generation](https://github.com/mgaitan/sphinxcontrib-mermaid/pull/118)
