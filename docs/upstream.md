@@ -267,12 +267,12 @@ Pull requests and issues still pending upstream.
 
 - [`lychee#1772` - Suggest alternative frontend services from LibRedirect](https://github.com/lycheeverse/lychee/issues/1772)
 
-- [`markdown-it-py#445` - Image `alt` text loses backslash escapes and entities](https://github.com/executablebooks/markdown-it-py/issues/445): the cause of `mdformat#599` and `MyST-Parser#1210`. Closed by [`markdown-it-py#446`](https://github.com/executablebooks/markdown-it-py/pull/446), which no release carries yet.
+- [`markdown-it-py#445` - Image `alt` text loses backslash escapes and entities](https://github.com/executablebooks/markdown-it-py/issues/445): the cause of `mdformat#599` and `MyST-Parser#1210`. Closed by [`markdown-it-py#446`](https://github.com/executablebooks/markdown-it-py/pull/446) and [`markdown-it-py#460`](https://github.com/executablebooks/markdown-it-py/pull/460), which no release carries yet.
 
 - [`mdformat#599` - Backslash escapes and entities are deleted from image `alt` text](https://github.com/hukkin/mdformat/issues/599): the `format-markdown` job applies that loss to every image it formats. See [A known mdformat defect](tool-runner.md#a-known-mdformat-defect).
 
   ```{todo}
-  When a `markdown-it-py` release carries the fix for [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445), run the reproducer from [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599) through `repomatic run mdformat`. Then update this entry and [A known mdformat defect](tool-runner.md#a-known-mdformat-defect) to match the result. With markdown-it-py `main` at `9aa1aae`, a bare mdformat `1.0.0` keeps every character of that reproducer: it writes `\*` as `*` and `&amp;` as `&`, as it does in link text.
+  When a `markdown-it-py` release carries the fix for [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445), run the reproducer from [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599) through `repomatic run mdformat`. Then update this entry and [A known mdformat defect](tool-runner.md#a-known-mdformat-defect) to match the result. With markdown-it-py `main` at `9aa1aae`, a bare mdformat `1.0.0` keeps every character of that reproducer: it writes `\*` as `*` and `&amp;` as `&`, as it does in link text. A code span in the alt text makes it stop on `Could not format` instead: markdown-it-py now keeps the span, while mdformat's own renderer still drops it, as [hukkin/mdformat#414](https://github.com/hukkin/mdformat/issues/414) tracks.
   ```
 
 - [`mdformat-myst#25` - Block attributes formatting introduce extra empty line](https://github.com/executablebooks/mdformat-myst/issues/25)
