@@ -263,12 +263,12 @@ Pull requests and issues still pending upstream.
 
 - [`lychee#1772` - Suggest alternative frontend services from LibRedirect](https://github.com/lycheeverse/lychee/issues/1772)
 
-- [`markdown-it-py#445` - Image `alt` text loses backslash escapes and entities](https://github.com/executablebooks/markdown-it-py/issues/445): the cause of `mdformat#599` and `MyST-Parser#1210`.
+- [`markdown-it-py#445` - Image `alt` text loses backslash escapes and entities](https://github.com/executablebooks/markdown-it-py/issues/445): the cause of `mdformat#599` and `MyST-Parser#1210`. Closed by [`markdown-it-py#446`](https://github.com/executablebooks/markdown-it-py/pull/446), which no release carries yet.
 
 - [`mdformat#599` - Backslash escapes and entities are deleted from image `alt` text](https://github.com/hukkin/mdformat/issues/599): the `format-markdown` job applies that loss to every image it formats. See [A known mdformat defect](tool-runner.md#a-known-mdformat-defect).
 
   ```{todo}
-  When a `markdown-it-py` release carries the fix for [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445), run the reproducer from [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599) through `repomatic run mdformat`. Then update this entry and [A known mdformat defect](tool-runner.md#a-known-mdformat-defect) to match the result.
+  When a `markdown-it-py` release carries the fix for [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445), run the reproducer from [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599) through `repomatic run mdformat`. Then update this entry and [A known mdformat defect](tool-runner.md#a-known-mdformat-defect) to match the result. With markdown-it-py `main` at `9aa1aae`, a bare mdformat `1.0.0` keeps every character of that reproducer: it writes `\*` as `*` and `&amp;` as `&`, as it does in link text.
   ```
 
 - [`mdformat-myst#25` - Block attributes formatting introduce extra empty line](https://github.com/executablebooks/mdformat-myst/issues/25)
@@ -279,9 +279,9 @@ Pull requests and issues still pending upstream.
   When `sync-tool-versions` moves the `mdformat-web` pin past `0.2.0`, run the reproducer from [hukkin/mdformat-web#8](https://github.com/hukkin/mdformat-web/issues/8) through `repomatic run mdformat`. Then update this entry to match the result.
   ```
 
-- [`MyST-Parser#1210` - Image `alt` text loses backslash escapes](https://github.com/executablebooks/MyST-Parser/issues/1210): the same loss in the `alt` attribute of a page that Sphinx builds.
+- [`MyST-Parser#1210` - Image `alt` text loses backslash escapes](https://github.com/executablebooks/MyST-Parser/issues/1210): the same loss in the `alt` attribute of a page that Sphinx builds. Closed by [`MyST-Parser#1211`](https://github.com/executablebooks/MyST-Parser/pull/1211), which no release carries yet.
 
-- [`MyST-Parser#1151` - Cross-reference to an explicit target emits a false-positive `myst.xref_missing` warning](https://github.com/executablebooks/MyST-Parser/issues/1151)
+- [`MyST-Parser#1151` - Cross-reference to an explicit target emits a false-positive `myst.xref_missing` warning](https://github.com/executablebooks/MyST-Parser/issues/1151): fixed by [`MyST-Parser#1158`](https://github.com/executablebooks/MyST-Parser/pull/1158) and [`MyST-Parser#1207`](https://github.com/executablebooks/MyST-Parser/pull/1207), which no release carries yet.
 
 - [`py-walk#11` - `py-walk` maintenance status](https://github.com/pacha/py-walk/issues/11): `sly`, the only dependency of `py-walk`, is retired, and `py-walk` has had no commit since 2024-10-26. repomatic reads its ignore files through `py-walk`: see [`repomatic.file_inventory`](repomatic.file_inventory.md).
 
@@ -290,8 +290,6 @@ Pull requests and issues still pending upstream.
 - [`ruff#19421` - Failure to create cache key on invalid symlink](https://github.com/astral-sh/ruff/issues/19421)
 
 - [`sphinx#14623` - `todolist` produce duplicate titles for admonitions](https://github.com/sphinx-doc/sphinx/issues/14623)
-
-- [`sphinx-design#304` - Implements vertical tabs](https://github.com/executablebooks/sphinx-design/pull/304)
 
 <!-- typos:off -->
 
