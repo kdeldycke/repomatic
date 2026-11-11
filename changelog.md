@@ -31,6 +31,7 @@
 - The bundled `repomatic-ship` skill now says which installs a cooldown-blocked fresh resolution also breaks: those exempting the release itself, like a downstream `repomatic` pin.
 - The bundled `repomatic-ship` skill now also fixes an in-cycle defect that a cycle test states, and requires a regression test that CI runs.
 - The bundled `repomatic-ship` skill now resolves the last published release fresh, and reports a crash there for the maintainer to yank or patch.
+- The bundled `repomatic-ship` skill now reports a `{todo}` that schedules its work for the version the release cuts.
 - The bundled `brand-assets` skill now covers a mark that exists only as a raster illustration, and reads its alpha channel before calling a background opaque.
 - The bundled `sphinx-docs` agent now lists `click_extra.todo_unrendered` among its strictness flags, and registers icons for `design.md` and `performance.md` pages.
 - The bundled `sphinx-docs` agent now covers hiding the readme banner on the docs front page, and registers an icon for `agents.md` pages.
