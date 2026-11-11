@@ -313,7 +313,9 @@ class RunStatus:
 
         An error gates a merge: a workflow-level failure or a failed required
         job. A warning does not: a failed probe, or a run with no result for
-        its commit.
+        its commit. A notice asks for nothing: a matrix whose `if:` skipped it
+        before it evaluated, like a release-only stage on an ordinary push or
+        the binary stages of a project that compiles none.
 
         :yields: `(level, message)` pairs, errors first.
         """
@@ -336,6 +338,15 @@ class RunStatus:
                 f"{self.workflow}: allowed-failure probe failed: {job.name}",
             )
         for job in self.unexpanded_jobs:
+            if job.skipped:
+                yield (
+                    AnnotationLevel.NOTICE,
+                    (
+                        f"{self.workflow}: the matrix behind {job.name!r} never"
+                        " evaluated: its `if:` skipped it, so no cell of it ran."
+                    ),
+                )
+                continue
             yield (
                 AnnotationLevel.WARNING,
                 (

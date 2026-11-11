@@ -62,6 +62,7 @@
 - Fix the `build-finished` hook of the docs and of the bundled `sphinx-docs` agent deleting `.buildinfo` locally, which hid html-only setting changes from incremental builds.
 - Fix the bundled `brand-assets` skill naming the social banner after its style, where its own `docs/conf.py` wiring reads `banner-social`.
 - Fix the bundled `repomatic-ship` skill having a downstream repo re-point install page download URLs after a short ship, which only repomatic's freeze pins.
+- Fix `ci-status` warning about a matrix job whose `if:` skipped it, like a release stage on an ordinary push: it now prints a notice.
 - Regrade the benchmark with ✅, 🪫 and ❌ marks, each linked to its evidence, in place of plain `✓` and `~`.
 - Move `cruft`, which has had no commit since December 2024, from the benchmark tables to its excluded projects.
 - Document the `.staging/` folder of the claude.ai skill sync, which a symlinked user skills directory also needs in `.gitignore`.

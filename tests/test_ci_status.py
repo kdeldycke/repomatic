@@ -158,6 +158,13 @@ def test_a_matrix_never_expanded_is_named_in_the_findings():
     assert run(job("✅ ubuntu-26.04 / py3.11")).unexpanded_jobs == ()
 
 
+def test_a_skipped_matrix_never_expanded_is_a_notice():
+    """A matrix its `if:` ruled out is named, without a warning to act on."""
+    status = run(job("🧬 Project metadata"), job(UNEXPANDED_MATRIX_JOB, "skipped"))
+    assert [level for level, _ in status.findings()] == [AnnotationLevel.NOTICE]
+    assert status.verdict == "green"
+
+
 def test_a_failed_matrix_never_expanded_blocks():
     """A matrix that failed before it expanded is a required failure."""
     status = run(job(UNEXPANDED_MATRIX_JOB, "failure"), conclusion="failure")
