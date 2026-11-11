@@ -45,6 +45,7 @@ from click_extra import (
 from ..github.caches import PRUNE_CACHES_HEADER_DEFS, prune_caches
 from ..github.ci_status import (
     CI_STATUS_HEADER_DEFS,
+    FAILED_POLL_LIMIT,
     STABLE_GLYPH,
     UNSTABLE_GLYPH,
     WatchState,
@@ -456,6 +457,8 @@ def prune_caches_cmd(
     help=(
         "Poll until a required job fails, or until every run settled and the tip"
         " has a run of its own. Each poll prints the runs whose verdict changed."
+        " A GitHub server error or rate limit skips the poll it hits, and"
+        f" {FAILED_POLL_LIMIT} failed polls in a row end the wait."
     ),
 )
 @option(

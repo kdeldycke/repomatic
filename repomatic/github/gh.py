@@ -60,6 +60,15 @@ if TYPE_CHECKING:
 _HTTP_STATUS_RE = re.compile(r"HTTP (\d{3})")
 """The HTTP status `gh api` writes into its error output, like `HTTP 404`."""
 
+_RATE_LIMIT_MARKER = "rate limit"
+"""What the message of a `403` holds when GitHub refused it for a spent quota.
+
+GitHub answers a request past either of its rate limits with a `403` or a `429`.
+A `403` also means a missing permission, which no wait cures, so the message
+tells the two apart: it opens on `API rate limit exceeded` for the primary
+limit, and names a `secondary rate limit` for the other one. Matched without
+regard to case."""
+
 _AUTH_FALLBACK_MARKERS = ("Bad credentials", "Requires authentication")
 """Stderr substrings that mean: the primary token's auth context was
 rejected. Both surface as a 401 from the GitHub API. `Bad credentials`
@@ -141,6 +150,24 @@ class GhCommandError(RuntimeError):
         `None` when the error output names none: a network error, a `gh`
         usage error.
         """
+
+    @property
+    def transient(self) -> bool:
+        """Whether the same command may succeed when run again later.
+
+        True for a server error (`5xx`) and for a rate limit. GitHub refuses a
+        spent quota with a `429`, or with a `403` whose message names the limit,
+        and `gh api graphql` reports its secondary limit with no HTTP status
+        (see `_TRANSIENT_THROTTLE_MARKERS`). Any other client error (`4xx`) is
+        not transient: the same request gets the same answer. Nor is any other
+        failure with no HTTP status: a network error then reads the same as a
+        `gh` that cannot start.
+        """
+        if self.status is None:
+            return bool(_matched_marker(self.stderr, _TRANSIENT_THROTTLE_MARKERS))
+        if self.status >= 500 or self.status == 429:
+            return True
+        return self.status == 403 and _RATE_LIMIT_MARKER in self.stderr.casefold()
 
 
 class GhOutputError(RuntimeError):

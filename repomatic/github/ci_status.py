@@ -62,7 +62,7 @@ from urllib.parse import quote
 
 from click_extra import ColumnSpec
 
-from .gh import GhOutputError, gh_json
+from .gh import GhCommandError, GhOutputError, gh_json
 from .outputs import AnnotationLevel
 from .runs import commit_runs, job_log, read_run, workflow_runs
 from .workflow_files import load_workflows, workflow_triggers
@@ -108,6 +108,15 @@ LOG_NAME_RE = re.compile(r"[^\w.-]+")
 
 RUN_FIELDS = ("conclusion", "headSha", "jobs", "status", "workflowName")
 """The `gh run view --json` fields a {class}`RunStatus` is built from."""
+
+FAILED_POLL_LIMIT = 3
+"""Failed polls in a row that end a watch.
+
+{func}`watch_ci_status` skips a poll that meets a transient error, like the
+`HTTP 504` GitHub answers when it cannot respond in time: a fault that clears
+within a few intervals costs a few polls, not the watch. A fault that lasts this
+many polls in a row ends the watch with its error, as a persistent one must.
+"""
 
 
 @dataclass(frozen=True)
@@ -770,6 +779,14 @@ def watch_ci_status(
     Every poll pays the REST quota of {func}`read_ci_status`, a handful of
     calls, and *interval* is what keeps a long watch inside it.
 
+    A poll that fails with a transient error, a GitHub server error or a rate
+    limit (see {attr}`~repomatic.github.gh.GhCommandError.transient`), yields
+    nothing: the watch logs a warning and polls again after *interval*.
+    {data}`FAILED_POLL_LIMIT` failed polls in a row end it with the error of the
+    last one, and any other error ends it at once. A *timeout* that passes after
+    a failed poll ends the watch on the last status it yielded, or with the
+    error when it yielded none.
+
     :param workflows: Workflow filenames to read.
     :param branch: Branch to read runs from.
     :param state: The verdicts already reported, updated on each poll.
@@ -781,25 +798,45 @@ def watch_ci_status(
     :param clock: Reads a monotonic clock, for *timeout*. Defaults to
         {func}`time.monotonic`, resolved the same way.
     :yields: The status of each poll, and the runs whose verdict changed.
+    :raises GhCommandError: When a poll fails with an error that is not
+        transient, when {data}`FAILED_POLL_LIMIT` polls in a row fail, or when
+        the *timeout* passes before a poll read the runs.
+    :raises GhOutputError: When a poll reads an answer that is not a run.
     """
     sleep = sleep or time.sleep
     clock = clock or time.monotonic
     names = list(workflows)
     deadline = clock() + timeout if timeout else None
+    status: CIStatus | None = None
+    failures: list[GhCommandError] = []
     while True:
-        status = read_ci_status(names, branch)
-        changed = state.record(status)
-        yield status, changed
-        if until_change and changed:
-            return
-        if status.blocking and not until_change:
-            return
-        if status.settled and (status.runs_on_tip or not status.tip_sha):
-            return
+        try:
+            status = read_ci_status(names, branch)
+        except GhCommandError as error:
+            failures.append(error)
+            if not error.transient or len(failures) >= FAILED_POLL_LIMIT:
+                raise
+            logging.warning(
+                f"Cannot read the CI runs of {branch!r}, polling again"
+                f" ({len(failures)}/{FAILED_POLL_LIMIT} failed polls in a row):"
+                f" {str(error).strip()}"
+            )
+        else:
+            failures.clear()
+            changed = state.record(status)
+            yield status, changed
+            if until_change and changed:
+                return
+            if status.blocking and not until_change:
+                return
+            if status.settled and (status.runs_on_tip or not status.tip_sha):
+                return
         if deadline is None:
             sleep(interval)
             continue
         left = deadline - clock()
         if left <= 0:
+            if status is None:
+                raise failures[-1]
             return
         sleep(min(interval, left))

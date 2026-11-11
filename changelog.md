@@ -57,6 +57,7 @@
 - Fix `lint-repo` warning about a young `nuitka` pin in a repository that compiles no binary, where nothing installs it.
 - Fix `sync-runner-images` never retiring an image that only a repository's own matrix names: it moves a `[tool.repomatic.test-matrix]` entry and reports a workflow one.
 - Fix a Sigstore server error failing the `build-package` job: it now tries the PEP 740 signing three times, a minute apart.
+- Fix `ci-status --wait` ending on one GitHub `5xx` or rate limit: it skips that poll, and ends after three failed polls in a row.
 - Fix the `docs/binaries.md` page `sync-binaries` creates claiming every push compiles all binaries, where a push builds the `nuitka.dev-targets` canary alone. An existing page keeps its prose: edit it by hand.
 - Fix the bundled `sphinx-docs` agent advising against asserting `result.exit_code` in `{click:run}` blocks, and claiming downstream install pages carry versioned download URLs.
 - Fix the `build-finished` hook of the docs and of the bundled `sphinx-docs` agent deleting `.buildinfo` locally, which hid html-only setting changes from incremental builds.

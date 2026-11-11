@@ -318,6 +318,56 @@ def test_command_error_defaults_its_stderr_to_the_message():
     assert error.status == 422
 
 
+@pytest.mark.parametrize(
+    ("stderr", "transient"),
+    (
+        pytest.param(
+            "HTTP 504: We couldn't respond to your request in time."
+            " (https://api.github.com/x)",
+            True,
+            id="gateway-timeout",
+        ),
+        pytest.param("HTTP 502: Bad Gateway", True, id="bad-gateway"),
+        pytest.param("HTTP 429 (https://api.github.com/x)", True, id="too-many"),
+        pytest.param(
+            "gh: API rate limit exceeded for 192.0.2.1. (HTTP 403)",
+            True,
+            id="primary-limit",
+        ),
+        pytest.param(
+            "HTTP 403: You have exceeded a secondary rate limit."
+            " (https://api.github.com/x)",
+            True,
+            id="secondary-limit",
+        ),
+        pytest.param(
+            "GraphQL: No server is currently available to service your request.",
+            True,
+            id="graphql-throttle",
+        ),
+        pytest.param(
+            "Resource not accessible by integration (HTTP 403)",
+            False,
+            id="forbidden",
+        ),
+        pytest.param(
+            "HTTP 401: Bad credentials (https://api.github.com/x)",
+            False,
+            id="bad-credentials",
+        ),
+        pytest.param(
+            "HTTP 404: Not Found (https://api.github.com/x)", False, id="not-found"
+        ),
+        pytest.param(
+            "dial tcp: lookup api.github.com: no such host", False, id="no-status"
+        ),
+    ),
+)
+def test_command_error_tells_a_transient_failure(stderr, transient):
+    """Only a server error or a rate limit may clear when the call is sent again."""
+    assert GhCommandError(stderr).transient is transient
+
+
 def test_failure_message_omits_status_when_no_incident():
     """The healthy status annotation (empty string) leaves the error untouched."""
     with (

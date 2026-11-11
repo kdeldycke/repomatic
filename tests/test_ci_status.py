@@ -29,6 +29,7 @@ from click.testing import CliRunner
 
 from repomatic.cli.main import repomatic
 from repomatic.github.ci_status import (
+    FAILED_POLL_LIMIT,
     STABLE_GLYPH,
     UNSTABLE_GLYPH,
     CIStatus,
@@ -1162,6 +1163,181 @@ def test_watch_never_sleeps_past_the_timeout():
     assert slept == [60, 30]
 
 
+GATEWAY_TIMEOUT = (
+    "HTTP 504: We couldn't respond to your request in time. Sorry about that."
+    " Please try resubmitting your request and contact us if the problem"
+    " persists. (https://api.github.com/repos/kiwi/orchard/actions/runs/1/jobs"
+    "?per_page=100)"
+)
+"""What `gh run view` prints when GitHub times out on the jobs of a run."""
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    (
+        pytest.param(GATEWAY_TIMEOUT, id="server-error"),
+        pytest.param(
+            "HTTP 403: API rate limit exceeded for 192.0.2.1."
+            " (https://api.github.com/repos/kiwi/orchard/actions/runs/1)",
+            id="rate-limit",
+        ),
+    ),
+)
+def test_watch_skips_a_poll_that_fails_transiently(stderr, caplog):
+    """A transient read failure costs its poll alone: the watch ends as usual."""
+    slept: list[float] = []
+    with (
+        patch(
+            "repomatic.github.ci_status.read_ci_status",
+            side_effect=[GhCommandError(stderr), _status(_tests_run("success"))],
+        ) as mock,
+        caplog.at_level("WARNING"),
+    ):
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=WatchState(),
+                interval=30,
+                sleep=slept.append,
+            )
+        )
+    assert mock.call_count == 2
+    assert slept == [30]
+    assert [status.settled for status, _changed in seen] == [True]
+    assert f"(1/{FAILED_POLL_LIMIT} failed polls in a row)" in caplog.text
+
+
+def test_watch_ends_after_too_many_failed_polls_in_a_row():
+    """A fault that lasts the whole bound ends the watch with its error."""
+    slept: list[float] = []
+    with (
+        patch(
+            "repomatic.github.ci_status.read_ci_status",
+            side_effect=[
+                GhCommandError(GATEWAY_TIMEOUT) for _ in range(FAILED_POLL_LIMIT)
+            ],
+        ) as mock,
+        pytest.raises(GhCommandError, match="HTTP 504"),
+    ):
+        list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=WatchState(),
+                interval=30,
+                sleep=slept.append,
+            )
+        )
+    assert mock.call_count == FAILED_POLL_LIMIT
+    assert slept == [30] * (FAILED_POLL_LIMIT - 1)
+
+
+def test_watch_counts_only_the_failed_polls_in_a_row():
+    """A poll that reads resets the count, so scattered faults never end a watch."""
+    faults = [GhCommandError(GATEWAY_TIMEOUT) for _ in range(FAILED_POLL_LIMIT - 1)]
+    polls = [*faults, _status(_tests_run("")), *faults, _status(_tests_run("success"))]
+    with patch("repomatic.github.ci_status.read_ci_status", side_effect=polls) as mock:
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=WatchState(),
+                interval=30,
+                sleep=lambda delay: None,
+            )
+        )
+    assert mock.call_count == len(polls)
+    assert [status.settled for status, _changed in seen] == [False, True]
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    (
+        pytest.param(
+            "HTTP 404: Not Found"
+            " (https://api.github.com/repos/kiwi/orchard/actions/runs/1)",
+            id="not-found",
+        ),
+        pytest.param(
+            "HTTP 403: Resource not accessible by integration"
+            " (https://api.github.com/repos/kiwi/orchard/actions/runs/1)",
+            id="forbidden",
+        ),
+    ),
+)
+def test_watch_ends_at_once_on_a_client_error(stderr):
+    """A client error gets the same answer on every poll, so the first one ends it."""
+    with (
+        patch(
+            "repomatic.github.ci_status.read_ci_status",
+            side_effect=[GhCommandError(stderr)],
+        ) as mock,
+        pytest.raises(GhCommandError) as excinfo,
+    ):
+        list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=WatchState(),
+                interval=30,
+                sleep=lambda delay: pytest.fail("slept after a client error"),
+            )
+        )
+    assert mock.call_count == 1
+    assert excinfo.value.stderr == stderr
+
+
+def test_watch_raises_at_the_timeout_when_no_poll_read():
+    """A watch whose every poll failed has no status to end on, only the error."""
+    ticks = iter([0, 40, 70])
+    slept: list[float] = []
+    with (
+        patch(
+            "repomatic.github.ci_status.read_ci_status",
+            side_effect=[GhCommandError(GATEWAY_TIMEOUT) for _ in range(2)],
+        ) as mock,
+        pytest.raises(GhCommandError, match="HTTP 504"),
+    ):
+        list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=WatchState(),
+                interval=30,
+                timeout=60,
+                sleep=slept.append,
+                clock=lambda: next(ticks),
+            )
+        )
+    assert mock.call_count == 2
+    assert slept == [20]
+
+
+def test_watch_ends_on_the_last_status_read_at_the_timeout():
+    """A timeout right after a failed poll ends the watch on the poll before it."""
+    ticks = iter([0, 10, 70])
+    slept: list[float] = []
+    with patch(
+        "repomatic.github.ci_status.read_ci_status",
+        side_effect=[_status(_tests_run("")), GhCommandError(GATEWAY_TIMEOUT)],
+    ) as mock:
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml"],
+                "main",
+                state=WatchState(),
+                interval=30,
+                timeout=60,
+                sleep=slept.append,
+                clock=lambda: next(ticks),
+            )
+        )
+    assert mock.call_count == 2
+    assert slept == [30]
+    assert [status.settled for status, _changed in seen] == [False]
+
+
 def test_ci_status_command_waits_and_prints_each_change(tmp_path):
     """Under --wait the command prints the changes, then the table of the last poll."""
     polls = iter([_status(_tests_run("")), _status(_tests_run("success"))])
@@ -1193,6 +1369,31 @@ def test_ci_status_command_waits_and_prints_each_change(tmp_path):
     assert f"⏱ 🔬 Tests ({TIP_SHA[:8]}): green" in result.output
     assert slept == [5]
     assert (tmp_path / "s").is_file()
+
+
+def test_ci_status_command_waits_through_a_server_error():
+    """One GitHub timeout under --wait costs a poll, not the exit code."""
+    slept: list[float] = []
+    with (
+        patch("repomatic.cli.ci.monitored_workflows", return_value=["tests.yaml"]),
+        patch(
+            "repomatic.github.ci_status.read_ci_status",
+            side_effect=[
+                GhCommandError(GATEWAY_TIMEOUT),
+                _status(_tests_run("success")),
+            ],
+        ),
+        patch(
+            "repomatic.cli.ci.watch_ci_status",
+            partial(watch_ci_status, sleep=slept.append),
+        ),
+    ):
+        result = CliRunner().invoke(
+            repomatic, ["ci-status", "--wait", "--interval", "5"]
+        )
+    assert result.exit_code == 0, result.output
+    assert f"⏱ 🔬 Tests ({TIP_SHA[:8]}): green" in result.output
+    assert slept == [5]
 
 
 def test_ci_status_command_writes_the_failed_logs(tmp_path):
