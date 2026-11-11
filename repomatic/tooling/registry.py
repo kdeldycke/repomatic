@@ -1552,27 +1552,27 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "2ac5e37b3236b3c07dec5cdf1527acf143aec4674a6089b0bf424d021b35e099",
+        ): "63b7d4478d467a61fe47cdb3162f720c6797856e61a04f7e125d1cdc282488b8",
         (
             LINUX,
             X86_64,
-        ): "93c301fd4120ff076e2cc2a6d6a61cab4a4bdb81899287c0938b452e56d1f454",
+        ): "6155d4114f9a0f5b8f6d4fda96266c9d5f6add71df80da7f684ee5e72eb14588",
         (
             MACOS,
             AARCH64,
-        ): "316d50a32c3726a80ab39c6d12141b70080498973c5e8a9b068b12cde78b10c1",
+        ): "90724dd2905cb1ce033343c71ed60e52fe898674f882803e3110cd228e09e1c5",
         (
             MACOS,
             X86_64,
-        ): "f3451079971633a7f769fb958fe06b0d64b5f1dc46df0854aa1ddb9a6f4031d6",
+        ): "8de057f425909b02c0184892539755d70ecc3244c4b214ae9382cedd691127e0",
         (
             WINDOWS,
             AARCH64,
-        ): "b149fbe092d658d20c0ed40f326a25ebd382f3f2bc27a1526357672bfecdef6d",
+        ): "bbee0a3b8826ae6fcf9b5424c6af6637b8c32899c8d679b1d851624a688c497d",
         (
             WINDOWS,
             X86_64,
-        ): "518f759fba43205f17a717656054c1d25bc883455a6296989e9d021c6edb7c59",
+        ): "7da6eb1932ad86921420a7198dbc9e62a10bcd995144704dc19b81d3fb802182",
     },
 }
 """Tool name to platform-keyed SHA-256 hex digest mapping.
@@ -1593,7 +1593,7 @@ VERSIONS: dict[str, str] = {
     "oxipng": "10.2.1",
     "shellcheck": "0.11.0",
     "shfmt": "3.14.1",
-    "typos": "1.51.1",
+    "typos": "1.52.0",
 }
 """Tool name to the version each checksum set was computed for.
 
@@ -1832,7 +1832,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "bump-my-version": ToolSpec(
         name="bump-my-version",
-        version="1.6.7",
+        version="1.8.1",
         reads_pyproject=True,
         pyproject_table="bumpversion",
         source_url="https://github.com/callowayproject/bump-my-version",
@@ -2249,7 +2249,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "nuitka": ToolSpec(
         name="nuitka",
         display_name="Nuitka",
-        version="4.3.3",
+        version="4.3.4",
         package="nuitka[onefile]",
         source_url="https://github.com/Nuitka/Nuitka",
         config_docs_url="https://nuitka.net/doc/user-manual.html",
@@ -2540,7 +2540,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "typos": ToolSpec(
         name="typos",
-        version="1.51.1",
+        version="1.52.0",
         source_url="https://github.com/crate-ci/typos",
         config_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
         cli_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
@@ -2637,7 +2637,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "wrangler": ToolSpec(
         name="wrangler",
         display_name="Wrangler",
-        version="4.156.0",
+        version="4.157.0",
         npm=NpmSpec(),
         source_url="https://github.com/cloudflare/workers-sdk",
         # The monorepo tags each package of it, like `wrangler@4.150.0`: the
@@ -2697,7 +2697,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "zizmor": ToolSpec(
         name="zizmor",
         default_args=(".",),
-        version="1.31.1",
+        version="1.32.0",
         source_url="https://github.com/zizmorcore/zizmor",
         config_docs_url="https://docs.zizmor.sh/configuration/",
         cli_docs_url="https://docs.zizmor.sh/usage/",
