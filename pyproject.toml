@@ -86,10 +86,9 @@ dependencies = [
   # below it, cache.py, cloudflare/api.py and release/binaries_page.py fail to
   # import.
   "click-extra>=10",
-  # extra-platforms 12.0.2 reimplemented is_macos() with sys.platform, avoiding
-  # the platform.platform() shell-out to ``cmd /c ver`` on Windows that broke
-  # under patched subprocess in tests.
-  "extra-platforms>=12.0.2",
+  # extra-platforms 14.0 is the oldest release that click-extra 10.0, the floor
+  # above, accepts: no lower floor can install beside it.
+  "extra-platforms>=14",
   # packaging 20 added the major and minor aliases of Version, which
   # metadata/project.py compares to decide whether a version bump is allowed.
   "packaging>=20",

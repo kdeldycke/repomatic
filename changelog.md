@@ -46,7 +46,7 @@
 - The bundled `sphinx-docs` agent now warns against a `conf.py` helper named after a config value, like `today`.
 - The bundled `sphinx-docs-sync` skill now tests the removal of a setting with `sphinx-build -D`, without an edit to a shared `conf.py`.
 - The bundled `github-housekeeping` skill now gives a branch-sync PR the milestone of the PRs it carries, in place of its live milestone.
-- Raise the `click-extra` floor to `10.0`, which requires `extra-platforms` `14.0` and drops the `boltons` and `deepmerge` dependencies.
+- Raise the `click-extra` floor to `10.0`, which drops the `boltons` and `deepmerge` dependencies, and the `extra-platforms` floor to the `14.0` it requires.
 - Bump the `repomatic run` pins of Biome to `2.6.4`, bump-my-version to `1.8.1`, gh to `2.103.3`, mypy to `2.4.1`, Nuitka to `4.3.4`, Ruff to `0.17.3`, typos to `1.52.0`, Wrangler to `4.157.0` and zizmor to `1.32.0`.
 - Download a pinned binary of a GitHub release through the REST API when a token is set, and keep the token off the redirect to the asset host.
 - Fix `lint-deps --fatal` and the release PR verdict passing a floor below the locked release when every release it admits is inside the cooldown.
