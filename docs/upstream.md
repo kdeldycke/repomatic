@@ -103,9 +103,12 @@ Issues found while building repomatic and resolved upstream. Where repomatic car
 
 - [`bump-my-version#331`](https://github.com/callowayproject/bump-my-version/issues/331) - `1.1.1` broke the `replace` command on `[[tool.bumpversion.files]]` entries that do not apply. repomatic held `bump-my-version` at `1.1.0` until a later release fixed it.
 - [`lychee#1930`](https://github.com/lycheeverse/lychee/issues/1930) - `lychee` read its configuration only from its own file, so repomatic translated `[tool.lychee]` into that file. Since `0.24.0` ([`lychee#2104`](https://github.com/lycheeverse/lychee/pull/2104)), `lychee` reads the section from `pyproject.toml` itself, and repomatic no longer translates it.
+- [`markdown-it-py#445`](https://github.com/executablebooks/markdown-it-py/issues/445) / [`markdown-it-py#446`](https://github.com/executablebooks/markdown-it-py/pull/446) / [`markdown-it-py#460`](https://github.com/executablebooks/markdown-it-py/pull/460) - Image `alt` text lost its backslash escapes and entities, the cause of `mdformat#599` and `MyST-Parser#1210`. `4.3.0` carries both fixes.
 - [`mdformat-myst#45`](https://github.com/executablebooks/mdformat-myst/issues/45) / [`mdformat-myst#46`](https://github.com/executablebooks/mdformat-myst/pull/46) - `mdformat-myst` depended on `mdformat-frontmatter`, which made it incompatible with `mdformat` `1.0.0`. `#46` replaced that dependency with `mdformat-front-matters`. repomatic ran `mdformat-myst` from its `master` branch, then from a fork, until a release carried the change.
 - [`mdformat-pelican#3`](https://github.com/gaige/mdformat-pelican/issues/3) / [`mdformat-pelican#4`](https://github.com/gaige/mdformat-pelican/pull/4) - `mdformat-pelican` and `mdformat-gfm` could not run together, also reported as [`mdformat-gfm#38`](https://github.com/hukkin/mdformat-gfm/issues/38). repomatic depended on a personal fork that carried the fix, then on unreleased upstream, then on the release that shipped it.
 - [`mdformat-web#5`](https://github.com/hukkin/mdformat-web/pull/5) - The HTML formatter added an extra doctype to `html` code blocks. repomatic ran a patched `mdformat-web` from June 2023 until `0.2.0` shipped the fix.
+- [`MyST-Parser#1151`](https://github.com/executablebooks/MyST-Parser/issues/1151) / [`MyST-Parser#1158`](https://github.com/executablebooks/MyST-Parser/pull/1158) / [`MyST-Parser#1207`](https://github.com/executablebooks/MyST-Parser/pull/1207) - A cross-reference to an explicit target emitted a false-positive `myst.xref_missing` warning. `5.2.0` carries both fixes.
+- [`MyST-Parser#1210`](https://github.com/executablebooks/MyST-Parser/issues/1210) / [`MyST-Parser#1211`](https://github.com/executablebooks/MyST-Parser/pull/1211) - Image `alt` text lost its backslash escapes in a page that Sphinx builds. `5.2.0` carries the fix.
 - [`Nuitka#3879`](https://github.com/Nuitka/Nuitka/issues/3879) / [`Nuitka#4024`](https://github.com/Nuitka/Nuitka/issues/4024) - `--main-entry-point` crashed without a positional main program, then built a binary that failed at startup when the entry point carried the name of its package. repomatic compiled each entry point from its file path, with `--python-flag=-m` for a `__main__.py`, and skipped every src-layout project, until `4.3` fixed both.
 - [`Nuitka#3994`](https://github.com/Nuitka/Nuitka/issues/3994) - A symlink inside an `--include-data-dir` tree shipped dangling, and crashed the macOS code signing. The tool runner staged a copy of the directory with no symlinks until `4.3`, which ships the content of such a link.
 - [`Nuitka#3998`](https://github.com/Nuitka/Nuitka/issues/3998) - `enableCcache` replaced a user-set `CCACHE_SLOPPINESS` with its own value. Since `4.3` Nuitka adds its value to the user's.
@@ -267,8 +270,6 @@ Pull requests and issues still pending upstream.
 
 - [`lychee#1772` - Suggest alternative frontend services from LibRedirect](https://github.com/lycheeverse/lychee/issues/1772)
 
-- [`markdown-it-py#445` - Image `alt` text loses backslash escapes and entities](https://github.com/executablebooks/markdown-it-py/issues/445): the cause of `mdformat#599` and `MyST-Parser#1210`. Closed by [`markdown-it-py#446`](https://github.com/executablebooks/markdown-it-py/pull/446) and [`markdown-it-py#460`](https://github.com/executablebooks/markdown-it-py/pull/460), which `markdown-it-py` `4.3.0` carries.
-
 - [`mdformat#599` - Backslash escapes and entities are deleted from image `alt` text](https://github.com/hukkin/mdformat/issues/599): the `format-markdown` job applies that loss to every image it formats. See [A known mdformat defect](tool-runner.md#a-known-mdformat-defect).
 
   ```{todo}
@@ -282,10 +283,6 @@ Pull requests and issues still pending upstream.
   ```{todo}
   When `sync-tool-versions` moves the `mdformat-web` pin past `0.2.0`, run the reproducer from [hukkin/mdformat-web#8](https://github.com/hukkin/mdformat-web/issues/8) through `repomatic run mdformat`. Then update this entry to match the result.
   ```
-
-- [`MyST-Parser#1210` - Image `alt` text loses backslash escapes](https://github.com/executablebooks/MyST-Parser/issues/1210): the same loss in the `alt` attribute of a page that Sphinx builds. Closed by [`MyST-Parser#1211`](https://github.com/executablebooks/MyST-Parser/pull/1211), which `MyST-Parser` `5.2.0` carries.
-
-- [`MyST-Parser#1151` - Cross-reference to an explicit target emits a false-positive `myst.xref_missing` warning](https://github.com/executablebooks/MyST-Parser/issues/1151): fixed by [`MyST-Parser#1158`](https://github.com/executablebooks/MyST-Parser/pull/1158) and [`MyST-Parser#1207`](https://github.com/executablebooks/MyST-Parser/pull/1207), which `MyST-Parser` `5.2.0` carries.
 
 - [`py-walk#11` - `py-walk` maintenance status](https://github.com/pacha/py-walk/issues/11): `sly`, the only dependency of `py-walk`, is retired, and `py-walk` has had no commit since 2024-10-26. repomatic reads its ignore files through `py-walk`: see [`repomatic.file_inventory`](repomatic.file_inventory.md).
 
