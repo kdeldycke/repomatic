@@ -53,7 +53,7 @@ $ uvx --from "repomatic @ git+https://github.com/kdeldycke/repomatic" -- repomat
 `repomatic` is available on a couple of package managers:
 
 `````{tab-set}
-:class: tabs-vertical
+:orientation: vertical
 ````{tab-item} uv
 Easiest way is to [install `uv`](https://docs.astral.sh/uv/getting-started/installation/), then install `repomatic` system-wide with the [`uv tool`](https://docs.astral.sh/uv/guides/tools/#installing-tools) command:
 
