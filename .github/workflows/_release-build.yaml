@@ -176,7 +176,7 @@ jobs:
         env:
           COMMIT: ${{ matrix.commit }}
         run: >
-          uvx --no-progress 'click-extra==9.5.1'
+          uvx --no-progress 'click-extra==10.1.1'
           prebake field git_tag_sha "${COMMIT}"
       - name: Build package
         run: uv --no-progress build
@@ -190,7 +190,7 @@ jobs:
         shell: bash
         run: |
           for attempt in 1 2 3; do
-            uvx --no-progress 'pypi-attestations==0.0.30' sign ./dist/*.whl ./dist/*.tar.gz && exit 0
+            uvx --no-progress 'pypi-attestations==0.0.31' sign ./dist/*.whl ./dist/*.tar.gz && exit 0
             rm -f ./dist/*.publish.attestation
             if [ "${attempt}" -lt 3 ]; then
               echo "::warning::Signing attempt ${attempt} failed: retrying in 60 seconds."
