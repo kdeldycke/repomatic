@@ -64,11 +64,12 @@ When adding a tool that repomatic shells out to, register it and reach it throug
 
 ### Documented exemptions this repository claims
 
-Four installs deliberately bypass the window. The first three are per-package and never widen to the rest of the tree; the fourth is a whole job, and says why it has to be.
+Five installs deliberately bypass the window. The first four are per-package and never widen to the rest of the tree; the fifth is a whole job, and says why it has to be.
 
 - **The upstream toolkit's own pin.** `repomatic` runs from a pin that moves in lockstep with the `uses:` refs pointing at it, so a release must be installable the minute it is published or every downstream repo breaks until the window elapses. The release freeze emits an `--exclude-newer-package` escape hatch beside the pin it writes.
 - **A security fix still inside the window.** `audit --fix` reaches a CVE fix through an `exclude-newer-package` entry rather than lifting `exclude-newer` for everything.
 - **A registry tool pinned ahead of the window.** A hand bump can pin a tool before its release clears the window. A dated `exclude-newer-package` entry in `pyproject.toml` then admits it, and `sync-uv-lock` prunes the entry once the window has passed its date. The entry covers this repository alone: a downstream repository that adopts the release before that date needs the same entry.
+- **A dependency the same maintainer publishes.** The cooldown guards against a compromised upstream, which does not apply to `click-extra`: this repository's own maintainer publishes it. A zero-span `exclude-newer-package` entry admits one of its releases, and `sync-uv-lock` freezes the span to a date, then prunes the entry once that release clears the window.
 - **The `test-package-install` job.** Its subject *is* the freshly published artifact, so a cooldown would make the question it exists to answer unanswerable. Scoping the opt-out to one job is what keeps it honest: it holds no secrets, inherits `permissions: {}`, and only runs `--version` on a throwaway runner.
 
 ### Commit messages: the `[changelog]` prefix invariant
@@ -80,10 +81,6 @@ Only `[changelog] …` qualifies as a parsed bracket prefix here, and it is an i
 The generic conventions bind every text artifact to ASD-STE100. Only part of that is mechanically checkable, so only that part is enforced: `tests/test_claude_assets.py` holds every bundled skill and agent to a 25-word ceiling on each *directive*, and leaves the rationale after it alone. Its docstrings say what counts as a directive, why the ceiling binds each sentence of a `description` and never the whole field, and why the approved-word dictionary stays out of scope.
 
 A directive over the ceiling is nearly always two rules sharing a bullet, or a rule with its exception folded in. Split it; do not raise the number.
-
-### Python floor: 3.11
-
-`requires-python` is `>=3.11`, which overrides the generic Python 3.10 rule. Available here: `typing.Self`, `enum.StrEnum`, `tomllib` with no fallback, `except*` and `BaseException.add_note()`. Still unavailable: multi-line f-string expressions, the PEP 695 `type` statement and generics syntax, and `typing.override` (all 3.12+).
 
 ### Defaults: the `Config` dataclass surface
 
