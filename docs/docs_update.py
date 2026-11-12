@@ -15,9 +15,10 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 """Regenerate the committed CLI captures in `docs/assets/`, and the octicon table.
 
-Runs as phase 3 of `repomatic update-docs` (the `[tool.repomatic] docs.update-script`
-default names this file), so the autofix lane's `update-docs` job refreshes the
-captures on every push and ships them in its pull request.
+Runs as the script phase of `repomatic update-docs` (the
+`[tool.repomatic] docs.update-script` default names this file), so the autofix
+lane's `update-docs` job refreshes the captures on every push and ships them in its
+pull request.
 
 The octicon table is the registry the `sphinx-docs` agent carries, rendered from
 `repomatic/data/octicons.toml`: the agent ships to repositories that have no copy

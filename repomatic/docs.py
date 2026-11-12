@@ -101,7 +101,10 @@ class DocsPhase(Enum):
     )
     DIRECTIVES = (
         "Directive-block refresh",
-        "Refresh the {matrix} and :mirror: blocks of docs/ and readme.md.",
+        (
+            "Refresh the {matrix}, <!-- envelope --> and :mirror: blocks of docs/"
+            " and readme.md."
+        ),
     )
 
     def __init__(self, label: str, description: str) -> None:

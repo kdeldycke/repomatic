@@ -5,8 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- Add the `lint-shell` job to `lint.yaml`, which runs ShellCheck on the shell scripts that `format-shell` formats.
-- `repomatic run shellcheck` with no arguments now lints the shell scripts of the repository.
+- Add the `lint-shell` job to `lint.yaml`, and make a bare `repomatic run shellcheck` lint the shell scripts that `format-shell` formats.
 - Add the `title-octicons` check to `lint-repo`, which warns when a docs page title strays from the octicon registry of the `sphinx-docs` agent.
 - `lint-changelog` now warns about an entry the newest released section gained after its release tag, which a rebase across a release files there.
 - `repomatic run` now warns when mdformat or shfmt targets a file outside the working directory, which the config it writes there does not reach.
@@ -15,8 +14,7 @@
 - A `repomatic init` that moves the upstream pin now names each tool pin of the new release still inside the cooldown, like `lint-repo` does.
 - `update-docs` now refreshes a page whose only self-updating block is a click-extra `<!-- envelope -->` region.
 - The default `gitignore.extra-content` now keeps the `scripts/` folder of an agent skill, which the virtualenv template's `[Ss]cripts` rule ignored.
-- The `manpages` release job and the packager command of the install page now pass the `wrap` target after a `--` separator.
-- The bundled `babysit-ci` skill now covers the fixture errors that pytest `9.2.0` causes by ignoring `xdist_group`, and how to lock the shared resource.
+- The bundled `babysit-ci` skill, `sphinx-docs` agent and `pytest` template now say that pytest `9.2.0` with pytest-xdist `3.8.0` ignores `xdist_group`, and the first two how to lock the shared resource.
 - The bundled `benchmark-update` skill now drops an excluded project from the metrics subjects and store, and follows a transferred one in both.
 - The bundled `benchmark-update` skill now marks incomplete support 🪫 in place of 🟡, and leaves a cell blank in place of `N/A`.
 - The bundled `file-bug-report` skill now covers a reply on an existing issue, and paces its `gh search` calls under the search API rate limit.
@@ -24,32 +22,31 @@
 - The bundled `repomatic-upgrade` skill no longer ports the local edits of a synced copy that upstream `main` already holds.
 - The bundled `repomatic-upgrade` skill now reads the annotations of a cancelled CI job, where GitHub names a runner image it is retiring.
 - The bundled `repomatic-upgrade` skill now reports a `repomatic run` tool pinned inside the cooldown as a breaking row.
-- The bundled `repomatic-deps` skill now takes `modernize --no-bump`, which adopts only what the declared floors provide and moves no version.
+- The bundled `repomatic-deps` skill now takes `modernize --no-bump`, which adopts only what the declared floors provide, and the `repomatic-ship` skill runs it in its code pass.
+- The bundled `repomatic-deps` skill now checks each `{todo}` naming an upgraded package against its new floor, and ranks a removal candidate by the packages it frees.
 - The bundled `repomatic-deps` skill now passes `--exclude-newer-package` to a floor test install when `[tool.uv]` exempts a release still inside the cooldown.
-- The bundled `repomatic-ship` skill now runs `/repomatic-deps modernize --no-bump` in its code pass.
 - The bundled `repomatic-ship` skill now takes `--deep`, which refactors the whole repository before the reconciliation sweep.
 - The bundled `repomatic-ship` skill now says which installs a cooldown-blocked fresh resolution also breaks: those exempting the release itself, like a downstream `repomatic` pin.
 - The bundled `repomatic-ship` skill now also fixes an in-cycle defect that a cycle test states, and requires a regression test that CI runs.
 - The bundled `repomatic-ship` skill now resolves the last published release fresh, and reports a crash there for the maintainer to yank or patch.
 - The bundled `repomatic-ship` skill now reports a `{todo}` that schedules its work for the version the release cuts.
 - The bundled `brand-assets` skill now covers a mark that exists only as a raster illustration, and reads its alpha channel before calling a background opaque.
-- The bundled `sphinx-docs` agent now lists `click_extra.todo_unrendered` among its strictness flags, and registers icons for `design.md` and `performance.md` pages.
-- The bundled `sphinx-docs` agent now covers hiding the readme banner on the docs front page, and registers an icon for `agents.md` pages.
-- The bundled `sphinx-docs` agent now covers the doctree pickle and `viewcode` hooks, `copybutton_exclude`, `sitemap_excludes` per builder, and sidebar icon selectors under `dirhtml`.
-- The bundled `sphinx-docs` agent now keeps the `linkcheck_ignore` entry of a host that timed out until several runs pass.
+- The bundled `sphinx-docs` agent now lists `click_extra.todo_unrendered` among its strictness flags.
+- The bundled `sphinx-docs` agent now covers hiding the readme banner on the docs front page.
+- The bundled `sphinx-docs` agent now covers `copybutton_exclude`, `sitemap_excludes` per builder, sidebar icon selectors under `dirhtml`, and the doctree and `viewcode` hooks click-extra `10.2.0` registers.
+- The bundled `sphinx-docs` agent now keeps the `linkcheck_ignore` entry of a host that timed out until several runs pass, and the default `^!` of `linkcheck_anchors_ignore`.
 - The bundled `sphinx-docs` agent now puts each link exclude in the list of the checker that meets the link: lychee reads the doc files, Sphinx linkcheck the built pages.
-- The bundled `sphinx-docs` agent now registers icons for nine more click-extra pages, and gives the `history`, `operation-contracts`, `parameters`, `todolist` and `types` pages new icons.
+- The bundled `sphinx-docs` agent now registers icons for `agents.md`, `design.md`, `performance.md` and nine click-extra pages, and gives the `history`, `operation-contracts`, `parameters`, `todolist` and `types` pages new icons.
 - The bundled `sphinx-docs` agent now lists click-extra's marker regions and text-only docs tests, and links the upstream `dependencies`, `nuitka` and `commit-messages` pages.
 - The bundled `sphinx-docs` agent now enables a MyST extension only once the docs use its syntax, and no longer recommends `ogp_image_alt` or a `myst.domains` suppression.
 - The bundled `sphinx-docs` agent now keys its icon registry by octicon, with one row per icon listing the pages that take it.
 - The bundled `sphinx-docs` agent now takes each octicon name from the icon set of the locked sphinx-design version.
 - The bundled `sphinx-docs` agent now leaves its icon uniqueness rules to the `title-octicons` check of `lint-repo`.
 - The bundled `sphinx-docs` agent now warns against a `conf.py` helper named after a config value, like `today`.
-- The bundled `sphinx-docs` agent now relies on the build hooks of click-extra `10.2.0` instead of copying them into `conf.py`.
 - The bundled `sphinx-docs-sync` skill now tests the removal of a setting with `sphinx-build -D`, without an edit to a shared `conf.py`.
 - The bundled `github-housekeeping` skill now gives a branch-sync PR the milestone of the PRs it carries, in place of its live milestone.
-- The Docs workflow now also runs on a push that only changes a `.claude/agents/*.md` file, which the documentation includes.
 - Raise the `click-extra` floor to `10.0`, which requires `extra-platforms` `14.0` and drops the `boltons` and `deepmerge` dependencies.
+- Bump the `repomatic run` pins of Biome to `2.6.4`, bump-my-version to `1.8.1`, gh to `2.103.3`, mypy to `2.4.1`, Nuitka to `4.3.4`, Ruff to `0.17.3`, typos to `1.52.0`, Wrangler to `4.157.0` and zizmor to `1.32.0`.
 - Download a pinned binary of a GitHub release through the REST API when a token is set, and keep the token off the redirect to the asset host.
 - Fix `lint-deps --fatal` and the release PR verdict passing a floor below the locked release when every release it admits is inside the cooldown.
 - Fix a CI job leaving a duplicate of its issue, like `Broken links`, open when GitHub's search index misses that duplicate.
@@ -57,19 +54,24 @@
 - Fix `lint-repo` warning about a young `nuitka` pin in a repository that compiles no binary, where nothing installs it.
 - Fix `sync-runner-images` never retiring an image that only a repository's own matrix names: it moves a `[tool.repomatic.test-matrix]` entry and reports a workflow one.
 - Fix a Sigstore server error failing the `build-package` job: it now tries the PEP 740 signing three times, a minute apart.
+- Fix `prune-caches` failing the build job of a container that ships no `gh`, like the `manylinux` one, when the pinned `gh` cannot be downloaded.
 - Fix `ci-status --wait` ending on one GitHub `5xx` or rate limit: it skips that poll, and ends after three failed polls in a row.
-- Fix the `docs/binaries.md` page `sync-binaries` creates claiming every push compiles all binaries, where a push builds the `nuitka.dev-targets` canary alone. An existing page keeps its prose: edit it by hand.
-- Fix the bundled `sphinx-docs` agent advising against asserting `result.exit_code` in `{click:run}` blocks, and claiming downstream install pages carry versioned download URLs.
-- Fix the `build-finished` hook of the docs and of the bundled `sphinx-docs` agent deleting `.buildinfo` locally, which hid html-only setting changes from incremental builds.
-- Fix the bundled `brand-assets` skill naming the social banner after its style, where its own `docs/conf.py` wiring reads `banner-social`.
-- Fix the bundled `repomatic-ship` skill having a downstream repo re-point install page download URLs after a short ship, which only repomatic's freeze pins.
 - Fix `ci-status` warning about a matrix job whose `if:` skipped it, like a release stage on an ordinary push: it now prints a notice.
+- Fix `ci-status --failed-logs` keeping the terminal hyperlinks and other escape sequences that are not colors in the logs it writes.
+- Fix the `docs/binaries.md` page `sync-binaries` creates claiming every push compiles all binaries, where a push builds the `nuitka.dev-targets` canary alone. An existing page keeps its prose: edit it by hand.
+- Fix the `build-finished` hook of the docs and of the bundled `sphinx-docs` agent deleting `.buildinfo` locally, which hid html-only setting changes from incremental builds.
+- Fix the bundled `sphinx-docs` agent advising against asserting `result.exit_code` in `{click:run}` blocks.
+- Fix the bundled `sphinx-docs` agent naming click-extra modules and helpers that its `10.0` release renamed or removed, like `sphinx/click.py` and `_run_mirror`.
+- Fix the bundled `sphinx-docs` agent claiming a `:mirror:` block cannot import a module beside its page, and that the subagents page runs `{click:run}`.
+- Fix the bundled `sphinx-docs` agent and `repomatic-ship` skill treating a downstream install page as carrying versioned download URLs, which only repomatic's freeze pins.
+- Fix the bundled `brand-assets` skill naming the social banner after its style, where its own `docs/conf.py` wiring reads `banner-social`.
 - Regrade the benchmark with ✅, 🪫 and ❌ marks, each linked to its evidence, in place of plain `✓` and `~`.
 - Move `cruft`, which has had no commit since December 2024, from the benchmark tables to its excluded projects.
+- Add a support envelope section to the install page, which lists the Python versions `repomatic` no longer supports.
 - Document the `.staging/` folder of the claude.ai skill sync, which a symlinked user skills directory also needs in `.gitignore`.
 - Document the `typos` trap of a bracket glob like `[Ss]cripts`, which reports `cripts` as a typo.
 - Render each bundled subagent on a docs page of its own, where the `sphinx-docs` icon registry shows its icons.
-- Fix `prune-caches` failing the build job of a container that ships no `gh`, like the `manylinux` one, when the pinned `gh` cannot be downloaded.
+- Fix the `show-metadata` sample of the test matrix page, which rendered no output.
 
 ## [`8.1.0` (2026-11-03)](https://github.com/kdeldycke/repomatic/compare/v8.0.0...v8.1.0)
 

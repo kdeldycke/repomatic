@@ -689,9 +689,10 @@ class StaleFloor:
     """The offending lower bound, as the requirement writes it."""
 
     clears: str
-    """Date the locked release ages past the cooldown, with a countdown
-    (`2026-09-10 (in 3 days)`), or empty when the window is an absolute cutoff
-    nothing ages past on its own."""
+    """Date the oldest release the floor admits ages past the cooldown, with a
+    countdown (`2026-09-10 (in 3 days)`), or empty when the window is an
+    absolute cutoff nothing ages past on its own. For a floor at the locked
+    version, that release is the locked one."""
 
     location: str
     """The TOML path of the array declaring the floor, like

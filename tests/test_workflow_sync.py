@@ -60,6 +60,7 @@ from repomatic.tooling.runner import run_tool
 from repomatic.upstream import (
     DEFAULT_REPO,
     UPSTREAM_ASSET_GLOB,
+    UPSTREAM_ASSET_PREFIX,
     UPSTREAM_SOURCE_GLOB,
     UPSTREAM_SOURCE_PREFIX,
 )
@@ -1340,6 +1341,13 @@ def test_header_extraction_nonexistent() -> None:
             ["my_pkg/**", "tests/**"],
             id="upstream-assets-dropped",
         ),
+        # Nor does a docs page include one, whatever the glob names.
+        pytest.param(
+            [f"{UPSTREAM_ASSET_PREFIX}agents/*.md", "docs/**"],
+            ["my_pkg"],
+            ["docs/**"],
+            id="narrower-upstream-asset-path-dropped",
+        ),
         pytest.param(
             ["tests/**", "pyproject.toml", "uv.lock", "changelog.md"],
             ["my_pkg"],
@@ -1359,6 +1367,31 @@ def test_substitute_source_paths(
 ) -> None:
     """Upstream source globs are retargeted; everything else is kept or dropped."""
     assert _substitute_source_paths(paths, source_paths) == expected
+
+
+@pytest.mark.parametrize("filename", ALL_WORKFLOW_FILES)
+def test_downstream_triggers_name_no_upstream_asset(filename: str) -> None:
+    """No downstream `paths:` filter names a path under `.claude/`.
+
+    A thin caller renders its triggers from the canonical workflow, and a
+    workflow with no thin caller copies its header. Downstream, `.claude/` holds
+    synced copies that neither a test nor a docs page reads, so a push touching
+    one alone must start no run.
+    """
+    spec = PathsSpec(source_paths=("my_pkg",))
+    if filename in REUSABLE_WORKFLOWS:
+        content = generate_thin_caller(filename, paths_spec=spec)
+    else:
+        content = generate_workflow_header(filename, paths_spec=spec)
+    named = [
+        path
+        for trigger in workflow_triggers(yaml.safe_load(content)).values()
+        if isinstance(trigger, dict)
+        for key in ("paths", "paths-ignore")
+        for path in trigger.get(key, ())
+        if path.startswith(UPSTREAM_ASSET_PREFIX)
+    ]
+    assert not named, f"{filename} keeps upstream asset paths downstream: {named}"
 
 
 @pytest.mark.parametrize(

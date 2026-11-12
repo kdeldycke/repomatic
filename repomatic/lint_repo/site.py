@@ -33,6 +33,7 @@ from fnmatch import fnmatchcase
 from urllib.parse import urlsplit
 
 import tomlrt
+from click_extra.markdown.blocks import fence_spans, walk_fences
 
 from ..bundle import get_data_content
 from ..checks import CheckResult
@@ -394,10 +395,14 @@ class OcticonRegistry:
 
 
 def _page_title(path: Path) -> str | None:
-    """The first `#` heading of the page at *path*, if it has one."""
-    for line in path.read_text(encoding="UTF-8").splitlines():
-        if line.startswith("# "):
-            return line
+    """The first `#` heading of the page at *path*, if it has one.
+
+    A `#` line inside a code fence, like a shell comment, is no heading.
+    """
+    lines = path.read_text(encoding="UTF-8").splitlines()
+    for index, span in walk_fences(lines, fence_spans(lines, chars="`~")):
+        if span is None and lines[index].startswith("# "):
+            return lines[index]
     return None
 
 

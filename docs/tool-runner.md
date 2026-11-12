@@ -38,7 +38,8 @@ from repomatic.cli.main import repomatic
 ```
 
 ```{click:run}
-invoke(repomatic, args=['run', '--list'])
+result = invoke(repomatic, args=['run', '--list'])
+assert result.exit_code == 0
 ```
 
 ## Available tools
@@ -148,7 +149,8 @@ If none of the above applies (no config file, no `[tool.X]`, no bundled default)
 To see which precedence level is active for each tool in your repo:
 
 ```{click:run}
-invoke(repomatic, args=['run', '--list'])
+result = invoke(repomatic, args=['run', '--list'])
+assert result.exit_code == 0
 ```
 
 The "Config source" column shows whether the tool is using a native config file (level 1), `[tool.X]` (level 2), a bundled default (level 3), or bare invocation (level 4).
@@ -325,9 +327,9 @@ The same text in an ordinary link keeps its characters, so the defect belongs to
 
 This is mdformat itself, not a plugin that repomatic bundles: it occurs with a bare `mdformat` and no plugins loaded. `repomatic run mdformat` therefore cannot prevent it, and the `format-markdown` job carries it into every consuming repository. The loss is silent, it applies to prose that is already committed, and no check reports it.
 
-mdformat tracks the code span as [hukkin/mdformat#414](https://github.com/hukkin/mdformat/issues/414), where the maintainer records that a proper fix needs `markdown-it-py` synced with markdown-it `14.0.0`. It tracks the escape and the entity as [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599), and [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445) reports their cause in `markdown-it-py`. Both losses are still present in mdformat `1.0.0`.
+mdformat tracks the code span as [hukkin/mdformat#414](https://github.com/hukkin/mdformat/issues/414), where the maintainer records that a proper fix needs `markdown-it-py` synced with markdown-it `14.0.0`. It tracks the escape and the entity as [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599), and [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445) reports their cause in `markdown-it-py`. Both losses are present in mdformat `1.0.0` run on `markdown-it-py` `4.2.0` or older. `markdown-it-py` `4.3.0` carries the fix of that cause, and `repomatic run mdformat` resolves it once the [cooldown](configuration.md#minimum-release-age) admits that release. The [upstream page](upstream.md#open-upstream) tracks the result.
 
-Write image alt-text without code spans, backslashes or entities until mdformat corrects this. Rewording the alt-text is the stable repair: a restored code span, escape or entity is deleted again by the next `format-markdown` run.
+Write image alt-text without code spans, backslashes or entities until mdformat corrects this. Rewording the alt-text is the stable repair: with `markdown-it-py` `4.2.0` or older, a restored code span, escape or entity is deleted again by the next `format-markdown` run.
 
 ## Tool details
 

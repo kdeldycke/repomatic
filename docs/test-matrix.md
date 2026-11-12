@@ -26,7 +26,8 @@ from repomatic.cli.main import repomatic
 ```
 
 ```{click:run}
-invoke(repomatic, args=['show-test-matrix', 'full'])
+result = invoke(repomatic, args=['show-test-matrix', 'full'])
+assert result.exit_code == 0
 ```
 
 This is the built-in default plus two rows. The default holds the six runners from the inventory below, the default Python versions, and the rows the transform chain contributes: the `3.16` prerelease flagged `unstable`, and the free-threaded `3.15t` build pinned to a single runner as a stable smoke test. The rows with a `resolution` or a `source` value are this repository's own: see [§ Run every declared floor in one cell](#run-every-declared-floor-in-one-cell) and [§ Test the source distribution like a distribution](#test-the-source-distribution-like-a-distribution).
@@ -34,7 +35,8 @@ This is the built-in default plus two rows. The default holds the six runners fr
 The reduced pull-request matrix keeps one runner per OS and two Python versions, for faster feedback:
 
 ```{click:run}
-invoke(repomatic, args=['show-test-matrix', 'pr'])
+result = invoke(repomatic, args=['show-test-matrix', 'pr'])
+assert result.exit_code == 0
 ```
 
 Rows sort on `--row-axis` first and `--col-axis` next, and those two axes lead the columns. Both options accept any job key the matrix carries, and list your own matrix's keys in `--help`, so a repository varying on a `click-version` sees that axis offered.
@@ -46,23 +48,27 @@ Rows sort on `--row-axis` first and `--col-axis` next, and those two axes lead t
 ![This repository's own matrix, pivoted into the compact grid](assets/matrix-grid-screen.svg)
 
 ```{click:run}
-invoke(repomatic, args=['show-test-matrix', 'pr', '--grid'])
+result = invoke(repomatic, args=['show-test-matrix', 'pr', '--grid'])
+assert result.exit_code == 0
 ```
 
 Because a grid has two axes and a matrix may vary on more, a repository testing several dependency versions per job (a `click-version` axis, say) lands all of them on the same Python-by-runner intersection. Such a cell states how many jobs it stands for, `✅ stable ×5`, so it never reads as a single job. This repository's own grid has two such cells: `✅ stable ×2` on `ubuntu-26.04-arm`, at the floor Python and at the newest stable one, where the `resolution` row and the `source` row each share the intersection of their twin. To break them apart, pivot onto the axis that separates them. A job with no value on a grid axis has no cell there, so pivoting the columns onto `resolution` shows the `lowest-direct` job alone:
 
 ```{click:run}
-invoke(repomatic, args=['show-test-matrix', '--grid', '--col-axis', 'resolution'])
+result = invoke(repomatic, args=['show-test-matrix', '--grid', '--col-axis', 'resolution'])
+assert result.exit_code == 0
 ```
 
 Only the plain listing, without `--grid`, keeps every job. Both views honor the global `--table-format` option, so the same jobs render as GitHub-flavored Markdown, CSV, JSON, and the rest.
 
 ### The raw GitHub Actions matrix
 
-For the matrix the [`metadata` job](workflows.md) hands to CI, request the `test_matrix_pr` (or `test_matrix`) key from [`repomatic show-metadata`](cli.md). The pull-request matrix holds the `os` and `python-version` axes plus the `include`/`exclude` directives that shape them:
+For the matrix the [`metadata` job](workflows.md) hands to CI, request the `test_matrix_pr` (or `test_matrix`) key from [`repomatic show-metadata`](cli.md). The pull-request matrix holds the `os` and `python-version` axes plus the `include` and `exclude` directives that shape them. A directive with no entry is left out, so only `include` shows here, which gives every job its `stable` state:
 
 ```{click:run}
-invoke(repomatic, args=['show-metadata', 'test_matrix_pr', '--output-format', 'json'])
+result = invoke(repomatic, args=['show-metadata', 'test_matrix_pr', '--output-format', 'json'])
+assert result.exit_code == 0
+assert '"test_matrix_pr"' in result.output
 ```
 
 A full matrix that carries a [`full-include`](configuration.md) row has another shape: a flat list with one entry per job, which GitHub runs as written. This repository's `test_matrix` is one.

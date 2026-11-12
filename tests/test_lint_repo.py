@@ -2037,6 +2037,16 @@ def test_sphinx_fragment_links_only_applies_to_a_myst_project():
             None,
             id="no-title",
         ),
+        # A shell comment in a code block is no title.
+        pytest.param(
+            {
+                "index.md": "```{include} ../readme.md\n```\n\n"
+                "```shell-session\n# Install the orchard.\n$ uv tool install papaya\n"
+                "```\n\n~~~shell-session\n# Pick a pear.\n~~~\n"
+            },
+            None,
+            id="fenced-comment",
+        ),
     ),
 )
 def test_title_octicons(tmp_path, monkeypatch, pages, message):
@@ -2044,7 +2054,8 @@ def test_title_octicons(tmp_path, monkeypatch, pages, message):
 
     A page that the registry does not list, a sidebar octicon, and two pages
     sharing an octicon outside a declared family each warn. A generated module
-    page and a page with no `#` title are not checked.
+    page and a page with no `#` title are not checked, and neither is a `#` line
+    inside a code fence.
     """
     docs = tmp_path / "docs"
     docs.mkdir()

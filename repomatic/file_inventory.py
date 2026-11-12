@@ -411,7 +411,9 @@ class FileInventory:
 
         ```{todo}
         Stop excluding Zsh once `shfmt` formats those constructs:
-        [mvdan/sh#1203](https://github.com/mvdan/sh/issues/1203).
+        [mvdan/sh#1203](https://github.com/mvdan/sh/issues/1203). Give the
+        `shellcheck` registry entry a file list of its own in the same change,
+        which keeps the Zsh files out.
         ```
         """
         candidates = self.glob_files(

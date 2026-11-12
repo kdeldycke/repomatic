@@ -54,6 +54,15 @@ every one. Downstream, `.claude/` holds synced copies that no test reads, so the
 glob is dropped there like the {data}`UPSTREAM_SOURCE_PREFIX` paths.
 """
 
+UPSTREAM_ASSET_PREFIX: str = UPSTREAM_ASSET_GLOB.removesuffix("**")
+"""Path prefix of the bundled skills and agents in canonical workflows.
+
+The workflows written downstream drop every path under it, not only
+{data}`UPSTREAM_ASSET_GLOB`. A narrower entry names synced copies there too,
+like the `.claude/agents/*.md` of the docs workflow: the subagent pages that
+include the agents exist in this repository alone.
+"""
+
 UPSTREAM_PACKAGE: str = repo_name(DEFAULT_REPO)
 """Distribution name of the upstream toolkit, derived from {data}`DEFAULT_REPO`.
 

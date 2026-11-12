@@ -37,6 +37,10 @@ import pytest
 
 from repomatic.changelog import Changelog
 
+# The tests run on Linux alone, but collection imports the module everywhere.
+if sys.platform != "win32":
+    import fcntl
+
 # The docs dependency group requires Python >= 3.14 (see pyproject.toml
 # [tool.uv] dependency-groups.docs). Only build under the same conditions the
 # docs workflow uses: Linux, that Python floor, and uv available to provision
@@ -54,9 +58,9 @@ pytestmark = [
         shutil.which("uv") is None,
         reason="needs uv to build the docs",
     ),
-    # Sphinx crashes with a FileNotFoundError on searchindex.js.tmp when
-    # concurrent builds share the same output directory (sphinx-doc/sphinx#13702).
-    # Force all tests in this module onto a single xdist worker.
+    # Under `--dist=loadgroup`, this marker keeps the tests of the module on one
+    # xdist worker, so no other worker waits on the build. pytest-xdist 3.8.0
+    # ignores it under pytest 9.2.0, and `built_docs` does not depend on it.
     pytest.mark.xdist_group("sphinx"),
 ]
 
@@ -71,32 +75,47 @@ ratio past a hundred.
 """
 
 
-@pytest.fixture(scope="module")
-def built_docs(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Build the HTML documentation once and return its output directory.
+@pytest.fixture(scope="session")
+def built_docs(tmp_path_factory: pytest.TempPathFactory, worker_id: str) -> Path:
+    """Build the HTML documentation once per session and return its directory.
 
     Builds into a throwaway directory (rather than ``docs/_build``) so the run
     is hermetic and never clobbers a developer's local build. Reads in parallel,
     like the `docs.yaml` build these tests stand in for.
+
+    Every xdist worker of the session reads the same build, whichever worker
+    the scheduler gives the tests of this module. The build goes into the
+    directory the workers share, under an exclusive lock: the first worker to
+    take the lock builds, and the others wait for it. Two builds into one
+    directory at the same time crash Sphinx on `searchindex.js.tmp`
+    ([sphinx-doc/sphinx#13702](https://github.com/sphinx-doc/sphinx/issues/13702)).
     """
-    out_dir = tmp_path_factory.mktemp("sphinx-html")
-    subprocess.run(
-        [
-            "uv",
-            "run",
-            "--group",
-            "docs",
-            "sphinx-build",
-            "--builder",
-            "html",
-            "--jobs",
-            "auto",
-            str(PROJECT_ROOT / "docs"),
-            str(out_dir),
-        ],
-        check=True,
-        cwd=PROJECT_ROOT,
-    )
+    basetemp = tmp_path_factory.getbasetemp()
+    # The base directory of each worker sits in the one its session shares.
+    shared = basetemp if worker_id == "master" else basetemp.parent
+    out_dir = shared / "sphinx-html"
+    built = shared / "sphinx-html.built"
+    with (shared / "sphinx-html.lock").open("w", encoding="UTF-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        if not built.exists():
+            subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "--group",
+                    "docs",
+                    "sphinx-build",
+                    "--builder",
+                    "html",
+                    "--jobs",
+                    "auto",
+                    str(PROJECT_ROOT / "docs"),
+                    str(out_dir),
+                ],
+                check=True,
+                cwd=PROJECT_ROOT,
+            )
+            built.touch()
     return out_dir
 
 

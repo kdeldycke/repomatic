@@ -103,7 +103,7 @@ def cache_dir() -> Path:
 
     1. `REPOMATIC_CACHE_DIR` environment variable.
     2. `cache.dir` in `[tool.repomatic]`.
-    3. Platform-specific default, from `click_extra.get_cache_dir()`.
+    3. Platform-specific default, from {func}`click_extra.get_cache_dir`.
 
     :return: Absolute path to the cache root (may not exist yet).
     """

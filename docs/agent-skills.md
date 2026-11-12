@@ -20,7 +20,8 @@ To list all available skills with descriptions:
 
 ```{click:run}
 from repomatic.cli.main import repomatic
-invoke(repomatic, args=['list-skills'])
+result = invoke(repomatic, args=['list-skills'])
+assert result.exit_code == 0
 ```
 
 ## Available skills

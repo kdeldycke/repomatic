@@ -29,6 +29,7 @@ from click.testing import CliRunner
 from repomatic.cli.main import repomatic
 from repomatic.config import Config, DocsConfig
 from repomatic.docs import (
+    DIRECTIVE_BLOCK_MARKERS,
     DocsPhase,
     PhaseResult,
     PhaseStatus,
@@ -219,6 +220,14 @@ def test_has_directive_block(tmp_path, text, expected):
     page = tmp_path / "page.md"
     page.write_text(text, encoding="UTF-8")
     assert has_directive_block(page) is expected
+
+
+def test_directive_phase_names_every_block_family():
+    """The help of the refresh phase names each kind of block it refreshes."""
+    families = {marker.strip("{}:<!- ") for marker in DIRECTIVE_BLOCK_MARKERS}
+    assert families == {"envelope", "matrix", "mirror"}
+    missing = [f for f in families if f not in DocsPhase.DIRECTIVES.description]
+    assert not missing, f"The description leaves out: {missing}"
 
 
 def test_update_docs_check_skips_writes_and_propagates(tmp_path, monkeypatch):

@@ -70,10 +70,8 @@ class Triage(NamedTuple):
     """The open issues to close as duplicates or as resolved."""
 
 
-def list_issues(
-    title: str = "", *, repository: str | None = None
-) -> list[dict[str, Any]]:
-    """List all issues (open and closed), optionally filtered by title.
+def list_issues(title: str, *, repository: str | None = None) -> list[dict[str, Any]]:
+    """List the issues, open and closed, whose title is *title*.
 
     ```{note}
 
@@ -92,7 +90,7 @@ def list_issues(
     search, and the two listings merge.
     ```
 
-    :param title: If provided, only return issues whose title matches exactly.
+    :param title: The exact title the issues carry.
     :param repository: Repository in `owner/name` form, or `None` to let `gh`
         resolve it.
     :return: List of issue dicts with `number`, `title`, `createdAt`,
@@ -107,16 +105,14 @@ def list_issues(
         "--json",
         "number,title,createdAt,state",
     ]
-    if not title:
-        issues: list[dict[str, Any]] = gh_json([*args, "--state", "all"]) or []
-        return issues
     matches: dict[int, dict[str, Any]] = {}
     for listing in (
         [*args, "--state", "all", "--search", f"{title} in:title"],
         [*args, "--state", "open"],
     ):
         for issue in gh_json(listing) or []:
-            # `--search` is full-text, not exact match. Filter to exact title.
+            # Neither listing matches the title exactly: `--search` is
+            # full-text, and the open listing names every open issue.
             if issue["title"] == title:
                 matches[issue["number"]] = issue
     return list(matches.values())

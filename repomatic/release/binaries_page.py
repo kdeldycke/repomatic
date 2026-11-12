@@ -116,7 +116,7 @@ false-positive submission round (see the `/av-false-positive` skill).
 """
 
 PAGE_REGION = "binaries-chart"
-"""Region name spliced by {func}`click_extra.markdown.blocks.replace_region`.
+"""Region name spliced by {func}`click_extra.replace_region`.
 
 The generated chart lives between the `<!-- binaries-chart -->` and
 `<!-- binaries-chart-end -->` markers of {data}`PAGE_START_MARKER` and
@@ -126,8 +126,8 @@ The generated chart lives between the `<!-- binaries-chart -->` and
 PAGE_START_MARKER, PAGE_END_MARKER = region_markers(PAGE_REGION)
 """Opening and closing markers of the generated chart region in the binaries page.
 
-Spelled by {func}`click_extra.markdown.blocks.region_markers`, so they cannot drift from
-the grammar {func}`~click_extra.markdown.blocks.replace_region` matches.
+Spelled by {func}`click_extra.region_markers`, so they cannot drift from the
+grammar {func}`~click_extra.replace_region` matches.
 """
 
 # The paragraphs stay on one line each: the page this writes is reformatted by
@@ -397,8 +397,7 @@ def update_binaries_page(page_path: Path, chart_section: str, repo_slug: str) ->
     A missing page is created (with parent directories) from
     {data}`PAGE_TEMPLATE`. On an existing page only the region between
     {data}`PAGE_START_MARKER` and {data}`PAGE_END_MARKER` is replaced by
-    {func}`click_extra.markdown.blocks.replace_region`, leaving all surrounding prose
-    untouched.
+    {func}`click_extra.replace_region`, leaving all surrounding prose untouched.
 
     :param page_path: Path to the Markdown page.
     :param chart_section: Rendered chart from {func}`render_chart_section`,

@@ -469,8 +469,10 @@ addopts = [
   # One worker per logical CPU: `auto` counts physical cores once psutil is
   # installed, which halves the workers on the x86 runners.
   "--numprocesses=logical",
-  # `loadgroup` honours the `xdist_group` marker tests/test_sphinx_crossrefs.py
-  # carries, which keeps its docs build on one worker. `load` ignores the marker.
+  # `loadgroup` keeps the tests of one `xdist_group` on one worker, so only that
+  # worker waits on the docs build of tests/test_sphinx_crossrefs.py. `load`
+  # ignores the marker, and so does pytest-xdist 3.8.0 under pytest 9.2.0:
+  # https://github.com/pytest-dev/pytest-xdist/issues/1407.
   "--dist=loadgroup",
   # Import test modules via importlib instead of prepending their root dir to
   # sys.path. Avoids "import file mismatch" collection errors when an installed

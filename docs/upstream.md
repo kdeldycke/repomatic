@@ -237,16 +237,16 @@ A dependency can stand in for a feature that a preferred library lacks:
 
 - [`furo#921`](https://github.com/pradyunsg/furo/discussions/921) (discussion): Furo shows no icons in toctree entries. repomatic's documentation adds them with CSS.
 
-- [`MyST-Parser#1212` - Nested rendering of fragments from another source](https://github.com/executablebooks/MyST-Parser/issues/1212), third item: MyST-Parser parses an `{eval-rst}` block into a throwaway document, and the nodes it moves into the page keep that document. Each API page then pickles the whole Sphinx build environment, about 15 MB, and a full build writes gigabytes of doctrees. [A comment there](https://github.com/executablebooks/MyST-Parser/issues/1212#issuecomment-6342160033) reports this cost, with a reproducer. `docs/conf.py` points the moved nodes back at their page.
+- [`MyST-Parser#1212` - Nested rendering of fragments from another source](https://github.com/executablebooks/MyST-Parser/issues/1212), third item: MyST-Parser parses an `{eval-rst}` block into a throwaway document, and the nodes it moves into the page keep that document. Each API page then pickles the whole Sphinx build environment, about 15 MB, and a full build writes gigabytes of doctrees. [A comment there](https://github.com/executablebooks/MyST-Parser/issues/1212#issuecomment-6342160033) reports this cost, with a reproducer. Since click-extra `10.2.0`, `click_extra.sphinx` points the moved nodes back at their page, so `docs/conf.py` carries no copy.
 
   ```{todo}
-  Once MyST-Parser renders an `{eval-rst}` block into the page's own document, delete `rehome_moved_nodes` from `docs/conf.py`, then this entry. Keep `test_pickled_pages_carry_no_build_environment` in `tests/test_sphinx_crossrefs.py`: it shows whether the upstream change holds.
+  Once MyST-Parser renders an `{eval-rst}` block into the page's own document, delete this entry. The `rehome_moved_nodes` hook of `click_extra.sphinx` tracks the same release in click-extra. Keep `test_pickled_pages_carry_no_build_environment` in `tests/test_sphinx_crossrefs.py`: it shows whether the upstream change holds.
   ```
 
-- [`sphinx#14675` - sphinx.ext.viewcode generates a module page with no source links](https://github.com/sphinx-doc/sphinx/issues/14675): a parallel read makes `sphinx.ext.viewcode` publish a source page for each module it read but no document links, like `pathlib` or `re`. `docs/conf.py` drops those modules before the pages are written. `docs.yaml` reads in parallel, so a downstream project that uses `viewcode` publishes such pages unless its own `conf.py` drops them too.
+- [`sphinx#14675` - sphinx.ext.viewcode generates a module page with no source links](https://github.com/sphinx-doc/sphinx/issues/14675): a parallel read makes `sphinx.ext.viewcode` publish a source page for each module it read but no document links, like `pathlib` or `re`. Since click-extra `10.2.0`, `click_extra.sphinx` drops those modules before the pages are written, so `docs/conf.py` carries no copy. `docs.yaml` reads in parallel, so a downstream project that uses `viewcode` publishes such pages unless it lists `click_extra.sphinx` in its `extensions`, with click-extra `10.2.0` or later.
 
   ```{todo}
-  Once Sphinx publishes no `viewcode` page for an unused module under a parallel read, delete `drop_unused_viewcode_modules` from `docs/conf.py`, then this entry.
+  Once Sphinx publishes no `viewcode` page for an unused module under a parallel read, delete this entry. The `drop_unused_viewcode_modules` hook of `click_extra.sphinx` tracks the same fix in click-extra.
   ```
 
 ## Declined by upstream
@@ -267,12 +267,12 @@ Pull requests and issues still pending upstream.
 
 - [`lychee#1772` - Suggest alternative frontend services from LibRedirect](https://github.com/lycheeverse/lychee/issues/1772)
 
-- [`markdown-it-py#445` - Image `alt` text loses backslash escapes and entities](https://github.com/executablebooks/markdown-it-py/issues/445): the cause of `mdformat#599` and `MyST-Parser#1210`. Closed by [`markdown-it-py#446`](https://github.com/executablebooks/markdown-it-py/pull/446) and [`markdown-it-py#460`](https://github.com/executablebooks/markdown-it-py/pull/460), which no release carries yet.
+- [`markdown-it-py#445` - Image `alt` text loses backslash escapes and entities](https://github.com/executablebooks/markdown-it-py/issues/445): the cause of `mdformat#599` and `MyST-Parser#1210`. Closed by [`markdown-it-py#446`](https://github.com/executablebooks/markdown-it-py/pull/446) and [`markdown-it-py#460`](https://github.com/executablebooks/markdown-it-py/pull/460), which `markdown-it-py` `4.3.0` carries.
 
 - [`mdformat#599` - Backslash escapes and entities are deleted from image `alt` text](https://github.com/hukkin/mdformat/issues/599): the `format-markdown` job applies that loss to every image it formats. See [A known mdformat defect](tool-runner.md#a-known-mdformat-defect).
 
   ```{todo}
-  When a `markdown-it-py` release carries the fix for [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445), run the reproducer from [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599) through `repomatic run mdformat`. Then update this entry and [A known mdformat defect](tool-runner.md#a-known-mdformat-defect) to match the result. With markdown-it-py `main` at `9aa1aae`, a bare mdformat `1.0.0` keeps every character of that reproducer: it writes `\*` as `*` and `&amp;` as `&`, as it does in link text. A code span in the alt text makes it stop on `Could not format` instead: markdown-it-py now keeps the span, while mdformat's own renderer still drops it, as [hukkin/mdformat#414](https://github.com/hukkin/mdformat/issues/414) tracks.
+  Once the `minimum-release-age` cooldown lets `repomatic run mdformat` resolve `markdown-it-py` `4.3.0`, which carries the fix for [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445), run the reproducer from [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599) through it. Then update this entry and [A known mdformat defect](tool-runner.md#a-known-mdformat-defect) to match the result. With markdown-it-py `main` at `9aa1aae`, which differs from `4.3.0` by its release commit alone, a bare mdformat `1.0.0` keeps every character of that reproducer: it writes `\*` as `*` and `&amp;` as `&`, as it does in link text. A code span in the alt text makes it stop on `Could not format` instead: markdown-it-py now keeps the span, while mdformat's own renderer still drops it, as [hukkin/mdformat#414](https://github.com/hukkin/mdformat/issues/414) tracks.
   ```
 
 - [`mdformat-myst#25` - Block attributes formatting introduce extra empty line](https://github.com/executablebooks/mdformat-myst/issues/25)
@@ -283,9 +283,9 @@ Pull requests and issues still pending upstream.
   When `sync-tool-versions` moves the `mdformat-web` pin past `0.2.0`, run the reproducer from [hukkin/mdformat-web#8](https://github.com/hukkin/mdformat-web/issues/8) through `repomatic run mdformat`. Then update this entry to match the result.
   ```
 
-- [`MyST-Parser#1210` - Image `alt` text loses backslash escapes](https://github.com/executablebooks/MyST-Parser/issues/1210): the same loss in the `alt` attribute of a page that Sphinx builds. Closed by [`MyST-Parser#1211`](https://github.com/executablebooks/MyST-Parser/pull/1211), which no release carries yet.
+- [`MyST-Parser#1210` - Image `alt` text loses backslash escapes](https://github.com/executablebooks/MyST-Parser/issues/1210): the same loss in the `alt` attribute of a page that Sphinx builds. Closed by [`MyST-Parser#1211`](https://github.com/executablebooks/MyST-Parser/pull/1211), which `MyST-Parser` `5.2.0` carries.
 
-- [`MyST-Parser#1151` - Cross-reference to an explicit target emits a false-positive `myst.xref_missing` warning](https://github.com/executablebooks/MyST-Parser/issues/1151): fixed by [`MyST-Parser#1158`](https://github.com/executablebooks/MyST-Parser/pull/1158) and [`MyST-Parser#1207`](https://github.com/executablebooks/MyST-Parser/pull/1207), which no release carries yet.
+- [`MyST-Parser#1151` - Cross-reference to an explicit target emits a false-positive `myst.xref_missing` warning](https://github.com/executablebooks/MyST-Parser/issues/1151): fixed by [`MyST-Parser#1158`](https://github.com/executablebooks/MyST-Parser/pull/1158) and [`MyST-Parser#1207`](https://github.com/executablebooks/MyST-Parser/pull/1207), which `MyST-Parser` `5.2.0` carries.
 
 - [`py-walk#11` - `py-walk` maintenance status](https://github.com/pacha/py-walk/issues/11): `sly`, the only dependency of `py-walk`, is retired, and `py-walk` has had no commit since 2024-10-26. repomatic reads its ignore files through `py-walk`: see [`repomatic.file_inventory`](repomatic.file_inventory.md).
 

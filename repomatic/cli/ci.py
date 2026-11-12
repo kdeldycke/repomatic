@@ -65,7 +65,12 @@ from ..github.job_timings import (
 from ..github.outputs import AnnotationLevel, report_finding
 from ..github.pr import list_automation_prs, release_pr as release_pr_status
 from ..github.runs import cancel_superseded_runs
-from ..github.workflow_files import WORKFLOW_DIR, literal_runners, matrix_runners
+from ..github.workflow_files import (
+    WORKFLOW_DIR,
+    literal_runners,
+    load_workflows,
+    matrix_runners,
+)
 from ..matrix.axes import (
     KNOWN_RUNNERS,
     MatrixName,
@@ -919,11 +924,14 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
     Every label this repository runs is looked up in GitHub's available-images
     table. A **retirement** rewrites each literal `runs-on:` naming a deprecated
     image onto its successor, because those jobs carry an end date, and moves
-    the image out of `[tool.repomatic.test-matrix]`. An **upgrade** adds a
-    strictly newer *version* to the full test matrix as a
-    `continue-on-error` probe rather than migrating onto it: nothing is bet on
-    it, but the suite starts exercising it at once, which surfaces a dependency
-    breaking there while there is runway to report it upstream.
+    the image out of `[tool.repomatic.test-matrix]`. A job whose own matrix
+    lists the image gets a warning instead, to move it by hand. An **upgrade**
+    also rewrites each literal `runs-on:`, onto a strictly newer *version*, and
+    adds that version to the full test matrix as a `continue-on-error` probe
+    rather than migrating the matrix onto it: nothing is bet on it there, but
+    the suite starts exercising it at once, which surfaces a dependency breaking
+    there while there is runway to report it upstream. The probe is left out
+    when this repository already runs that version.
 
     Strictly newer by version is what separates an upgrade from a flavour. A
     same-version variant carrying a different toolchain is not a newer image and
@@ -942,12 +950,12 @@ def sync_runner_images(ctx: Context, dry_run: bool, output: Path | None) -> None
     exit_if_disabled(ctx, "sync-runner-images.sync")
 
     config = get_tool_config(ctx)
-    literal = literal_runners()
-    matrix = matrix_runners()
-    tracked = set(KNOWN_RUNNERS) | set(literal) | set(matrix)
+    workflows = load_workflows(WORKFLOW_DIR)
+    literal = literal_runners(workflows=workflows)
+    matrix = matrix_runners(workflows=workflows)
     changes = plan_runner_changes(
         literal,
-        tracked | configured_runners(config.test_matrix),
+        {*KNOWN_RUNNERS, *literal, *matrix, *configured_runners(config.test_matrix)},
         fetch_catalog(),
         config.sync_runner_images.ignore,
         matrix,

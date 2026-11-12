@@ -22,7 +22,9 @@ addopts = [
     "--numprocesses=logical",
     # `loadgroup` is `load` plus the `xdist_group` marker: every test of a group
     # runs on one worker, so a heavy module-scoped fixture, like a docs build,
-    # is set up once. The default `load` ignores the marker.
+    # is set up once. The default `load` ignores the marker, and so does
+    # `loadgroup` under pytest 9.2.0 with pytest-xdist 3.8.0:
+    # https://github.com/pytest-dev/pytest-xdist/issues/1407.
     "--dist=loadgroup",
     # Import test modules via importlib instead of prepending their root dir to
     # sys.path. Avoids "import file mismatch" collection errors when an installed

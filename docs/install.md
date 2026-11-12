@@ -29,7 +29,8 @@ $ uvx -- repomatic --help
 
 ```{click:run}
 from repomatic.cli.main import repomatic
-invoke(repomatic, args=['--help'])
+result = invoke(repomatic, args=['--help'])
+assert result.exit_code == 0
 ```
 ````
 

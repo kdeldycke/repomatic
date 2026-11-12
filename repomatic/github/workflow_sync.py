@@ -65,7 +65,7 @@ from ..config import Config
 from ..deps.pins import min_release_age_days
 from ..upstream import (
     DEFAULT_REPO,
-    UPSTREAM_ASSET_GLOB,
+    UPSTREAM_ASSET_PREFIX,
     UPSTREAM_SOURCE_GLOB,
     UPSTREAM_SOURCE_PREFIX,
 )
@@ -532,7 +532,7 @@ def _apply_paths_spec(
 
     1. Substitute {data}`UPSTREAM_SOURCE_GLOB` with `{sp}/**` for each
        *source_paths* entry, drop other {data}`UPSTREAM_SOURCE_PREFIX` paths
-       and {data}`UPSTREAM_ASSET_GLOB`.
+       and every {data}`UPSTREAM_ASSET_PREFIX` path.
     2. Strip *ignore_paths* entries (exact string match).
     3. Append *extra_paths* (deduplicated, order-preserving).
 
@@ -606,7 +606,9 @@ def _substitute_source_paths(
       is empty the glob is dropped entirely.
     - Other paths starting with {data}`UPSTREAM_SOURCE_PREFIX` are dropped
       (upstream-specific files like `repomatic/data/labels.toml`), and so is
-      {data}`UPSTREAM_ASSET_GLOB`, which only upstream tests read.
+      every path under {data}`UPSTREAM_ASSET_PREFIX`, like
+      {data}`~repomatic.upstream.UPSTREAM_ASSET_GLOB`, which only upstream
+      reads.
     - All other paths (universal paths like `pyproject.toml`, `tests/**`)
       are kept as-is.
 
@@ -619,7 +621,7 @@ def _substitute_source_paths(
     for path in paths:
         if path == UPSTREAM_SOURCE_GLOB:
             result.extend(f"{sp}/**" for sp in source_paths)
-        elif path.startswith(UPSTREAM_SOURCE_PREFIX) or path == UPSTREAM_ASSET_GLOB:
+        elif path.startswith((UPSTREAM_SOURCE_PREFIX, UPSTREAM_ASSET_PREFIX)):
             # Drop upstream-specific paths.
             continue
         else:

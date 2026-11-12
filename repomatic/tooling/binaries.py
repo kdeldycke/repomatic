@@ -35,7 +35,7 @@ import tempfile
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import quote, unquote
 
 from click_extra import Spinner, progressbar
 
@@ -372,7 +372,7 @@ def _release_asset_api_url(resolved: ResolvedBinary, token: str) -> str | None:
         repo, tag = resolved.release_source
     except ValueError:
         return None
-    asset = unquote(urlsplit(resolved.url).path.rsplit("/", 1)[-1])
+    asset = unquote(resolved.archive_name)
     endpoint = GITHUB_RELEASE_BY_TAG_URL.format(repo=repo, tag=quote(tag, safe=""))
     try:
         release = get_json(endpoint, headers={"Authorization": f"Bearer {token}"})
