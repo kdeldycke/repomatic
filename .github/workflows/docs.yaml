@@ -31,10 +31,11 @@ name: 📚 Docs
     # of what the crawl exists to cover.
     # `.claude/agents/*.md`, `.github/code-of-conduct.md`, `AGENTS.md` and `license` are what the subagent,
     # `code-of-conduct`, `contributing` and `license` pages include from outside `docs/`. Without an entry of its
-    # own, a push touching just one of them skips the workflow, and its page stays stale.
+    # own, a push touching just one of them skips the workflow, and its page stays stale. `.github/*.md` also
+    # covers the contribution guides and the pull request template of an awesome list, which the crawl reads too.
     paths:
       - .claude/agents/*.md
-      - .github/code-of-conduct.md
+      - .github/*.md
       - .github/workflows/docs.yaml
       - AGENTS.md
       - changelog.md

@@ -17,9 +17,11 @@
 
 from __future__ import annotations
 
+import re
 from importlib.resources import files
 
 from repomatic.init.run import _copy_template_tree
+from tests.conftest import load_workflow
 
 TEMPLATE_ROOT = files("repomatic.data").joinpath("awesome_template")
 
@@ -54,6 +56,33 @@ def test_bundled_files_exist():
     """All expected awesome-template files are bundled in the package."""
     actual = _collect_files(TEMPLATE_ROOT)
     assert actual == EXPECTED_FILES
+
+
+def _path_filter(pattern: str) -> re.Pattern[str]:
+    """Compile one `paths:` entry of a workflow trigger with GitHub's glob rules.
+
+    `*` stops at a `/`, and `**` crosses it.
+    """
+    regex = re.escape(pattern).replace(r"\*\*", ".*").replace(r"\*", "[^/]*")
+    return re.compile(rf"{regex}\Z")
+
+
+def test_docs_workflow_runs_on_every_template_doc_file():
+    """A push touching only a Markdown file of the template still checks its links.
+
+    `check-broken-links` crawls every `doc_files` entry, so a template file the
+    `paths:` filter of `docs.yaml` misses waits for the monthly run instead.
+    """
+    filters = [
+        _path_filter(pattern)
+        for pattern in load_workflow("docs.yaml")["on"]["push"]["paths"]
+    ]
+    missed = sorted(
+        path
+        for path in EXPECTED_FILES
+        if path.endswith(".md") and not any(f.match(path) for f in filters)
+    )
+    assert not missed, f"docs.yaml runs on no push touching only {missed}"
 
 
 def test_copy_template_tree(tmp_path):
