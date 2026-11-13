@@ -117,6 +117,7 @@ from repomatic.lint_repo.tool_config import (
     RETIRED_TEMPLATE_EXCLUDES,
     anchored_exclude_core,
     check_bootstrap_config_drift,
+    check_gitleaks_default_rules,
     check_superseded_local_excludes,
     missing_template_entries,
     template_member_name,
@@ -1479,6 +1480,48 @@ def test_every_host_only_anchored_bundle_entry_is_readable():
             f" `anchored_exclude_core` cannot read, so a bare downstream copy"
             f" of it goes unreported. Teach the extractor the shape."
         )
+
+
+@pytest.mark.parametrize(
+    ("section", "passed"),
+    (
+        pytest.param(
+            {"allowlist": {"paths": [r"\.env\.sample$"]}}, False, id="allowlist-only"
+        ),
+        pytest.param(
+            {"extend": {"useDefault": False}, "allowlist": {"paths": ["fruit"]}},
+            False,
+            id="defaults-turned-off",
+        ),
+        pytest.param(
+            {"extend": {"useDefault": True}, "allowlist": {"paths": ["fruit"]}},
+            True,
+            id="extends-the-defaults",
+        ),
+        pytest.param({"extend": {"path": "orchard.toml"}}, True, id="extends-a-file"),
+        pytest.param(
+            {"rules": [{"id": "apple-key", "regex": "apple-[0-9]{8}"}]},
+            True,
+            id="own-rules",
+        ),
+        pytest.param({}, None, id="empty-section-runs-with-defaults"),
+    ),
+)
+def test_gitleaks_default_rules(section, passed, tmp_path, monkeypatch):
+    """Only a section left with some rule set passes."""
+    monkeypatch.chdir(tmp_path)
+    result = check_gitleaks_default_rules(_tools({"gitleaks": section}))
+    assert result.passed is passed
+
+
+def test_gitleaks_default_rules_skips_a_section_a_native_config_outranks(
+    tmp_path, monkeypatch
+):
+    """gitleaks reads a native `.gitleaks.toml` and never the section."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".gitleaks.toml").write_text("", encoding="UTF-8")
+    ctx = _tools({"gitleaks": {"allowlist": {"paths": ["fruit"]}}})
+    assert check_gitleaks_default_rules(ctx).passed is None
 
 
 def _lint_context_in(tmp_path, monkeypatch, **fields) -> LintContext:

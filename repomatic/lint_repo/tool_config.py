@@ -33,6 +33,7 @@ import tomlrt
 from ..bundle import get_data_content
 from ..checks import CheckResult
 from ..components import SyncMode
+from ..tooling.registry import TOOL_REGISTRY
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -461,3 +462,44 @@ def check_superseded_local_excludes(ctx: LintContext) -> Iterator[CheckResult]:
             f"[{comp.tool_section}] exclude carries no entry the bundled"
             f" `{comp.source_file}` superseded.",
         )
+
+
+def check_gitleaks_default_rules(ctx: LintContext) -> CheckResult:
+    """Report a `[tool.gitleaks]` section that leaves gitleaks with no rule.
+
+    `repomatic run gitleaks` translates the section into the config file it
+    hands gitleaks, and a gitleaks config replaces the built-in rule set instead
+    of adding to it. A section that holds only an allowlist therefore makes the
+    `lint-secrets` job scan the history with no rule at all: the job stays green
+    whatever the history leaks. The section keeps a rule set when it sets
+    `extend.useDefault = true`, extends another config through `extend.path`,
+    or declares `rules` of its own.
+
+    gitleaks never reads the section in two cases, and the check skips both: a
+    native `.gitleaks.toml` takes precedence over it, and `repomatic run` passes
+    over an empty section, so gitleaks runs with its defaults.
+
+    :return: A `CheckResult`, indeterminate when gitleaks does not read the
+        section.
+    """
+    spec = TOOL_REGISTRY["gitleaks"]
+    section = ctx.tool_table.get(spec.pyproject_key)
+    if not isinstance(section, Mapping) or not section:
+        return CheckResult(None, "[tool.gitleaks] rule set: skipped (no section).")
+    native = spec.find_native_config()
+    if native is not None:
+        return CheckResult(
+            None, f"[tool.gitleaks] rule set: skipped (`{native}` takes precedence)."
+        )
+    extend = section.get("extend")
+    if not isinstance(extend, Mapping):
+        extend = {}
+    if extend.get("useDefault") is True or extend.get("path") or section.get("rules"):
+        return CheckResult(True, "[tool.gitleaks] keeps a rule set to scan with.")
+    return CheckResult(
+        False,
+        "[tool.gitleaks] sets neither `extend.useDefault = true`, an `extend.path`"
+        " nor `rules`, so gitleaks scans with no rule at all and `lint-secrets`"
+        " passes whatever the history leaks. Add `[tool.gitleaks.extend]` with"
+        " `useDefault = true`.",
+    )

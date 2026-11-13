@@ -76,7 +76,11 @@ from .site import (
     check_title_octicons,
     check_wrangler_config,
 )
-from .tool_config import check_bootstrap_config_drift, check_superseded_local_excludes
+from .tool_config import (
+    check_bootstrap_config_drift,
+    check_gitleaks_default_rules,
+    check_superseded_local_excludes,
+)
 from .workflows import (
     check_metadata_keys,
     check_pr_templates,
@@ -736,6 +740,21 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             " narrowed on purpose, or still needs"
         ),
         applies=lambda ctx: bool(ctx.tool_table),
+    ),
+    RepoCheck(
+        "gitleaks-default-rules",
+        check_gitleaks_default_rules,
+        summary="[tool.gitleaks] keeps a rule set for gitleaks to scan with",
+        description=(
+            "Warns when `[tool.gitleaks]` sets neither `extend.useDefault = true`, an"
+            " `extend.path` nor `rules`. `repomatic run gitleaks` hands the section to"
+            " gitleaks as its config file, and a gitleaks config replaces the built-in"
+            " rule set instead of adding to it: a section holding only an allowlist"
+            " leaves the `lint-secrets` job scanning with no rule at all, green"
+            " whatever the history leaks. A native `.gitleaks.toml` takes precedence"
+            " over the section, and the check then skips it"
+        ),
+        applies=lambda ctx: bool(ctx.tool_table.get("gitleaks")),
     ),
     RepoCheck(
         "inline-pins-match-upstream",
