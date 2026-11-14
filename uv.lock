@@ -11,9 +11,8 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P1W"
 
 [options.exclude-newer-package]
-click-extra = "2026-11-08T00:00:00Z"
 repomatic = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
-sphinx-design = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
+sphinx-design = "2026-11-12T00:00:00Z"
 
 [[package]]
 name = "accessible-pygments"
@@ -225,11 +224,11 @@ wheels = [
 
 [[package]]
 name = "click"
-version = "8.5.0"
+version = "8.5.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c7/0e/7fa0ef50764b67090eca4114772a2abf8b6148198475e54c660b97caeee6/click-8.5.0.tar.gz", hash = "sha256:ba0d2089de75ea0310e2dde03160e6ca10009947fb95a182f9b54021bb272e34", size = 382235, upload-time = "2026-08-26T13:33:14.56Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/45/37/edbf1b0707709013c0cf2e8317e03d97ed29bf4cac709fe328904ae92a38/click-8.5.1.tar.gz", hash = "sha256:9bbfada76703fd1d784b83eea012e3e8c6a001a876543ef104fa56aaaeb072b4", size = 399151, upload-time = "2026-11-06T17:37:01.021Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/58/50/6c0d534c5f134586a8e1ba4e330569e32f057e33372ae556463212fb4cd3/click-8.5.0-py3-none-any.whl", hash = "sha256:255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360", size = 125251, upload-time = "2026-08-26T13:33:12.928Z" },
+    { url = "https://files.pythonhosted.org/packages/31/7d/164b7ffc8624fe9efb4221bf9af485d5c1e41b9ae118045d2b6dc5457d8b/click-8.5.1-py3-none-any.whl", hash = "sha256:8bb5376d2006950386f8c6427613334a2acadc5f559cb80e638d00b4df957e37", size = 126163, upload-time = "2026-11-06T17:36:59.287Z" },
 ]
 
 [[package]]
@@ -1256,11 +1255,11 @@ wheels = [
 
 [[package]]
 name = "types-docutils"
-version = "0.23.0.20261030"
+version = "0.23.0.20261107"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/dd/91/093dd26df8f008367c6d0ae66592fca57e985b91aac3c7242b24594473a7/types_docutils-0.23.0.20261030.tar.gz", hash = "sha256:cc8fcc4c24320263d54158fc0914464fc9b0210992c5bdd24acf01b273b9adf1", size = 58600, upload-time = "2026-10-30T07:50:16.743Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5f/80/d19724558bad27983fa500f0e44f159e97031bbc842207995b66480baa21/types_docutils-0.23.0.20261107.tar.gz", hash = "sha256:9bb297fc33fe0f606c883217779a4f532ee023d7da852dcc244513c0f100228a", size = 58673, upload-time = "2026-11-07T07:55:19.171Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/69/e64310cd286616e060fa7e25aa3953a1ded3fb158cb3c3853fee273c5262/types_docutils-0.23.0.20261030-py3-none-any.whl", hash = "sha256:1e19e751868a108d2a96b72013fe3aac29d7f0b8737dd0722cbc8c92ce398352", size = 92178, upload-time = "2026-10-30T07:50:15.706Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/26/5ffc9517119f08e530509af6296c6e8fff36176ef479ddb8f765fdfee8fd/types_docutils-0.23.0.20261107-py3-none-any.whl", hash = "sha256:47def8a8c78bff72d6aa86a6daaa0a49ef3911e1f538f911f1bbd8006f3e196e", size = 92176, upload-time = "2026-11-07T07:55:18.144Z" },
 ]
 
 [[package]]
