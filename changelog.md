@@ -12,6 +12,9 @@
 
 ## [`8.2.0` (2026-11-12)](https://github.com/kdeldycke/repomatic/compare/v8.1.0...v8.2.0)
 
+> [!NOTE]
+> `8.2.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/8.2.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v8.2.0).
+
 - Add the `lint-shell` job to `lint.yaml`, and make a bare `repomatic run shellcheck` lint the shell scripts that `format-shell` formats.
 - Add the `title-octicons` check to `lint-repo`, which warns when a docs page title strays from the octicon registry of the `sphinx-docs` agent.
 - `lint-changelog` now warns about an entry the newest released section gained after its release tag, which a rebase across a release files there.
