@@ -36,7 +36,7 @@ assert result.exit_code == 0
 
 ````{tab-item} Specific version
 ```shell-session
-$ uvx -- repomatic==8.2.0 --help
+$ uvx -- repomatic==8.2.1 --help
 ```
 ````
 
@@ -139,9 +139,9 @@ To ease deployment, standalone executables of `repomatic`'s latest version are a
 
 | Platform    | `arm64`                                                                                                                                           | `x64`                                                                                                                                         |
 | :---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux**   | [Download `repomatic-8.2.0-linux-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v8.2.0/repomatic-8.2.0-linux-arm64.bin)     | [Download `repomatic-8.2.0-linux-x64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v8.2.0/repomatic-8.2.0-linux-x64.bin)     |
-| **macOS**   | [Download `repomatic-8.2.0-macos-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v8.2.0/repomatic-8.2.0-macos-arm64.bin)     | [Download `repomatic-8.2.0-macos-x64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v8.2.0/repomatic-8.2.0-macos-x64.bin)     |
-| **Windows** | [Download `repomatic-8.2.0-windows-arm64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v8.2.0/repomatic-8.2.0-windows-arm64.exe) | [Download `repomatic-8.2.0-windows-x64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v8.2.0/repomatic-8.2.0-windows-x64.exe) |
+| **Linux**   | [Download `repomatic-8.2.1-linux-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v8.2.1/repomatic-8.2.1-linux-arm64.bin)     | [Download `repomatic-8.2.1-linux-x64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v8.2.1/repomatic-8.2.1-linux-x64.bin)     |
+| **macOS**   | [Download `repomatic-8.2.1-macos-arm64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v8.2.1/repomatic-8.2.1-macos-arm64.bin)     | [Download `repomatic-8.2.1-macos-x64.bin`](https://github.com/kdeldycke/repomatic/releases/download/v8.2.1/repomatic-8.2.1-macos-x64.bin)     |
+| **Windows** | [Download `repomatic-8.2.1-windows-arm64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v8.2.1/repomatic-8.2.1-windows-arm64.exe) | [Download `repomatic-8.2.1-windows-x64.exe`](https://github.com/kdeldycke/repomatic/releases/download/v8.2.1/repomatic-8.2.1-windows-x64.exe) |
 
 That way you have a chance to try it out without installing Python or `uv`. Or embed it in your CI/CD pipelines running on minimal images. Or run it on old platforms without worrying about dependency hell.
 
@@ -152,7 +152,7 @@ Binaries of all past releases, with their VirusTotal analyses, are cataloged on 
 Every binary is signed with a [build provenance attestation](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations) at release time. After downloading one, verify it with the [`gh` CLI](https://cli.github.com):
 
 ```shell-session
-$ gh attestation verify repomatic-8.2.0-linux-x64.bin --repo kdeldycke/repomatic --signer-repo kdeldycke/repomatic
+$ gh attestation verify repomatic-8.2.1-linux-x64.bin --repo kdeldycke/repomatic --signer-repo kdeldycke/repomatic
 ```
 
 `--signer-repo kdeldycke/repomatic` is required because the release runs from the reusable `_release-engine.yaml` workflow whose signing identity is `kdeldycke/repomatic`. Downstream projects that build binaries through the same reusable workflow verify with their own `--repo` but keep `--signer-repo kdeldycke/repomatic`.
