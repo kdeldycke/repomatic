@@ -117,19 +117,13 @@ def default_config(monkeypatch):
     monkeypatch.setattr(cli_deps, "get_tool_config", lambda ctx: Config())
 
 
-@pytest.fixture
-def no_github_repo(monkeypatch):
-    """Drop GITHUB_REPOSITORY so --repo defaults to empty (CI sets it)."""
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
-
-
 def _fail(*args, **kwargs):
     """Sentinel: a code path that must not run in the test under exercise."""
     raise AssertionError("unexpected call")
 
 
 def test_audit_report_lists_vulnerabilities_and_exits_nonzero(
-    monkeypatch, default_config, no_github_repo
+    monkeypatch, default_config
 ):
     monkeypatch.setattr(
         cli_deps, "collect_vulnerable_packages", lambda *a, **k: [_sample_vuln()]
@@ -144,7 +138,7 @@ def test_audit_report_lists_vulnerabilities_and_exits_nonzero(
     assert "GHSA-4fvr-rgm6-gqmc" in result.output
 
 
-def test_audit_report_clean_exits_zero(monkeypatch, default_config, no_github_repo):
+def test_audit_report_clean_exits_zero(monkeypatch, default_config):
     monkeypatch.setattr(cli_deps, "collect_vulnerable_packages", lambda *a, **k: [])
     result = CliRunner().invoke(
         repomatic, ["--no-color", "audit"], catch_exceptions=False
@@ -153,9 +147,7 @@ def test_audit_report_clean_exits_zero(monkeypatch, default_config, no_github_re
     assert "No known vulnerabilities found." in result.output
 
 
-def test_audit_exit_zero_overrides_findings(
-    monkeypatch, default_config, no_github_repo
-):
+def test_audit_exit_zero_overrides_findings(monkeypatch, default_config):
     monkeypatch.setattr(
         cli_deps, "collect_vulnerable_packages", lambda *a, **k: [_sample_vuln()]
     )
@@ -165,9 +157,7 @@ def test_audit_exit_zero_overrides_findings(
     assert result.exit_code == 0
 
 
-def test_audit_report_does_not_call_the_fix_engine(
-    monkeypatch, default_config, no_github_repo
-):
+def test_audit_report_does_not_call_the_fix_engine(monkeypatch, default_config):
     """Report mode is read-only: it must never reach the upgrade path."""
     monkeypatch.setattr(cli_deps, "collect_vulnerable_packages", lambda *a, **k: [])
     monkeypatch.setattr(cli_deps, "fix_vulnerable_deps", _fail)
@@ -177,9 +167,7 @@ def test_audit_report_does_not_call_the_fix_engine(
     assert result.exit_code == 0
 
 
-def test_audit_output_writes_markdown(
-    monkeypatch, default_config, no_github_repo, tmp_path
-):
+def test_audit_output_writes_markdown(monkeypatch, default_config, tmp_path):
     monkeypatch.setattr(
         cli_deps, "collect_vulnerable_packages", lambda *a, **k: [_sample_vuln()]
     )
@@ -193,9 +181,7 @@ def test_audit_output_writes_markdown(
     assert "aiohttp" in content
 
 
-def test_audit_passes_configured_sources_without_repo(
-    monkeypatch, default_config, no_github_repo
-):
+def test_audit_passes_configured_sources_without_repo(monkeypatch, default_config):
     """Without a repository, the command still hands over every configured source.
 
     Skipping the GitHub Advisory Database is the library's call, made where
@@ -228,7 +214,7 @@ def test_audit_passes_configured_sources_without_repo(
     ),
 )
 def test_audit_github_only_sources_without_repo_query_nothing(
-    monkeypatch, no_github_repo, args, expected
+    monkeypatch, args, expected
 ):
     """A GitHub-only source list without a repository runs no `uv audit`.
 
@@ -267,9 +253,7 @@ def test_audit_keeps_github_source_with_repo(monkeypatch, default_config):
     assert AdvisorySource.GITHUB_ADVISORIES in captured["sources"]
 
 
-def test_audit_fix_delegates_to_engine(
-    monkeypatch, default_config, no_github_repo, tmp_path
-):
+def test_audit_fix_delegates_to_engine(monkeypatch, default_config, tmp_path):
     """The upgrade report reaches both the terminal and the `--output` file."""
     calls = {}
 
@@ -297,7 +281,7 @@ def test_audit_fix_delegates_to_engine(
     assert report.strip() in result.output
 
 
-def test_audit_fix_no_fixable_exits_zero(monkeypatch, default_config, no_github_repo):
+def test_audit_fix_no_fixable_exits_zero(monkeypatch, default_config):
     monkeypatch.setattr(cli_deps, "fix_vulnerable_deps", lambda *a, **k: AuditFix())
     result = CliRunner().invoke(
         repomatic, ["--no-color", "audit", "--fix"], catch_exceptions=False
@@ -322,7 +306,7 @@ def test_audit_fix_no_fixable_exits_zero(monkeypatch, default_config, no_github_
     ),
 )
 def test_audit_fix_reports_an_engine_failure(
-    monkeypatch, default_config, no_github_repo, error, message
+    monkeypatch, default_config, error, message
 ):
     """A fix that cannot run ends the command on its message, not a traceback."""
 
@@ -337,7 +321,7 @@ def test_audit_fix_reports_an_engine_failure(
     assert message in result.output
 
 
-def test_audit_fix_skipped_when_sync_disabled(tmp_path, monkeypatch, no_github_repo):
+def test_audit_fix_skipped_when_sync_disabled(tmp_path, monkeypatch):
     """`vulnerable-deps.sync = false` in `pyproject.toml` turns the fix off."""
     (tmp_path / "pyproject.toml").write_text(
         "[tool.repomatic]\nvulnerable-deps.sync = false\n", encoding="UTF-8"

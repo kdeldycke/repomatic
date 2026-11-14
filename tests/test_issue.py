@@ -413,8 +413,6 @@ def cli_lifecycle(monkeypatch):
 
     monkeypatch.setattr("repomatic.cli.github.manage_issue_lifecycle", spy)
     monkeypatch.setattr("repomatic.github.token.validate_gh_token_env", lambda: None)
-    # `--repo` falls back to `$GITHUB_REPOSITORY`, which CI sets.
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     return calls
 
 

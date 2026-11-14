@@ -1807,7 +1807,6 @@ def test_minimal_run():
 def test_cli_passes_a_project_with_nothing_wrong(tmp_path, monkeypatch):
     """`lint-repo` prints each verdict and exits 0 when no fatal check fails."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.delenv("REPOMATIC_PAT", raising=False)
     result = CliRunner().invoke(repomatic, ["lint-repo"])
     assert result.exit_code == 0, result.output
@@ -1818,7 +1817,6 @@ def test_cli_passes_a_project_with_nothing_wrong(tmp_path, monkeypatch):
 def test_cli_fails_on_a_fatal_finding(tmp_path, monkeypatch):
     """A fatal check failing turns into an error annotation and exit code 1."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.delenv("REPOMATIC_PAT", raising=False)
     (tmp_path / "_redirects").write_text("/a /b 301\n/a /c 301\n", encoding="UTF-8")
     result = CliRunner().invoke(repomatic, ["lint-repo"])

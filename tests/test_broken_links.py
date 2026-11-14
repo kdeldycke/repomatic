@@ -505,7 +505,6 @@ def test_a_ci_run_detects_every_default(tmp_path, monkeypatch):
 def test_no_repository_name_to_detect_is_an_error(tmp_path, monkeypatch):
     """With neither `$GITHUB_REPOSITORY` nor a clone, no name selects the label."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     with (
         patch("repomatic.broken_links.manage_issue_lifecycle") as lifecycle,
         pytest.raises(ValueError, match="No repository name specified"),

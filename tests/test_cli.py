@@ -305,7 +305,6 @@ def test_disabled_sync_needs_no_repository(tmp_path, monkeypatch, command, key):
         f"[tool.repomatic]\n{key} = false\n", encoding="UTF-8"
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.setattr(cli_main, "Metadata", lambda: SimpleNamespace(repo_slug=None))
 
     result = CliRunner().invoke(repomatic, ["--verbosity", "INFO", command])
@@ -561,7 +560,6 @@ def test_repo_option_falls_back_in_order(
     monkeypatch, probe, args, env, detected, expected
 ):
     """`--repo`, then `$GITHUB_REPOSITORY`, then the repository of the checkout."""
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.setattr(
         cli_main, "Metadata", lambda: SimpleNamespace(repo_slug=detected)
     )
@@ -572,7 +570,6 @@ def test_repo_option_falls_back_in_order(
 
 @pytest.mark.parametrize("probe", REPO_PROBES)
 def test_repo_option_refuses_to_run_without_a_repository(monkeypatch, probe):
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.setattr(cli_main, "Metadata", lambda: SimpleNamespace(repo_slug=None))
     result = CliRunner().invoke(probe, [])
     assert result.exit_code == 2
@@ -581,7 +578,6 @@ def test_repo_option_refuses_to_run_without_a_repository(monkeypatch, probe):
 
 def test_upload_without_a_repository_names_the_flag(tmp_path, monkeypatch):
     """`--upload-to` with no repository fails before it packs anything."""
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     dist = tmp_path / "dist"
     dist.mkdir()
     (dist / "papaya-1.2.3-linux-arm64.bin").write_bytes(b"\x7fELF")

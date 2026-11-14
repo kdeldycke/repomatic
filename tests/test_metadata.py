@@ -1856,7 +1856,6 @@ def test_repo_slug_fallback_chain(monkeypatch, gh_slug, remote_slug, expected):
     auth the real chain yields `None`, which is what made the original pair of
     tests assert nothing at all on CI.
     """
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
 
     def fake_gh(args, **kwargs):
         if gh_slug is None:
@@ -1874,7 +1873,6 @@ def test_repo_slug_fallback_chain(monkeypatch, gh_slug, remote_slug, expected):
 
 def test_repo_name_fallback_to_gh_cli(monkeypatch):
     """`repo_name` is the trailing segment of a gh-resolved slug."""
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.setattr(
         "repomatic.metadata.env.get_repo_slug_from_remote", lambda: None
     )
@@ -1902,7 +1900,6 @@ def test_is_awesome(monkeypatch, repo, expected):
 
 def test_is_awesome_none_slug(monkeypatch):
     """Test that is_awesome returns False when repo_slug is None."""
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.setattr(Metadata, "repo_slug", None)
     assert Metadata().is_awesome is False
 
@@ -1925,7 +1922,6 @@ def test_repo_url_composed(monkeypatch):
 
 def test_repo_url_fallback(monkeypatch):
     """`repo_url` composes the default server with a gh-resolved slug."""
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.delenv("GITHUB_SERVER_URL", raising=False)
     monkeypatch.setattr(
         "repomatic.metadata.env.get_repo_slug_from_remote", lambda: None
@@ -1939,7 +1935,6 @@ def test_repo_url_fallback(monkeypatch):
 
 def test_repo_url_none_without_a_slug(monkeypatch):
     """No slug from any source leaves the URL undefined rather than malformed."""
-    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     monkeypatch.setattr(Metadata, "repo_slug", None)
 
     assert Metadata().repo_url is None

@@ -311,6 +311,18 @@ def scrub_workflow_event(monkeypatch):
         monkeypatch.delenv(envvar, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _no_ci_repository(monkeypatch):
+    """Hide the CI run's own `GITHUB_REPOSITORY` from every test.
+
+    CI sets it and a local run does not. Every `--repo` option and
+    `Metadata.repo_slug` fall back to it, so an expectation written against a
+    local run fails on every CI runner. Deleting it gives both the local
+    behavior; a test of the CI context sets it back with `monkeypatch.setenv`.
+    """
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+
+
 def run_git(*args: str, cwd) -> str:
     """Run a git command in *cwd* and return its stdout."""
     result = run(
