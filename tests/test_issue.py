@@ -413,6 +413,8 @@ def cli_lifecycle(monkeypatch):
 
     monkeypatch.setattr("repomatic.cli.github.manage_issue_lifecycle", spy)
     monkeypatch.setattr("repomatic.github.token.validate_gh_token_env", lambda: None)
+    # `--repo` falls back to `$GITHUB_REPOSITORY`, which CI sets.
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     return calls
 
 
@@ -433,6 +435,8 @@ def test_issue_cli_opens_with_the_body_file(cli_lifecycle, tmp_path):
             "🍈 fruit",
             "--label",
             "🤖 ci",
+            "--repo",
+            "orchard/papaya",
         ],
         catch_exceptions=False,
     )
@@ -446,7 +450,17 @@ def test_issue_cli_opens_with_the_body_file(cli_lifecycle, tmp_path):
         TITLE,
         NO_ISSUES_COMMENT,
     )
-    assert kwargs == {"repository": None, "assignees": ()}
+    assert kwargs == {"repository": "orchard/papaya", "assignees": ()}
+
+
+def test_issue_cli_leaves_the_repository_to_gh(cli_lifecycle):
+    """Without `--repo` or `$GITHUB_REPOSITORY`, `gh` resolves the repository."""
+    result = CliRunner().invoke(
+        repomatic, ["issue", "--close", "--title", TITLE], catch_exceptions=False
+    )
+    assert result.exit_code == 0
+    [(_args, kwargs)] = cli_lifecycle
+    assert kwargs["repository"] is None
 
 
 def test_issue_cli_closes_with_its_comment(cli_lifecycle):
