@@ -1364,27 +1364,27 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "11a2e6770b3d7c8ce8cbec4652a516584b179dc30febecce0ca852d87074bee8",
+        ): "bd0c5860a6220b68ceb82d7a00b7a4ed97fbaf3904eb41bcb897f9ec74af4148",
         (
             LINUX,
             X86_64,
-        ): "eb9afd5af3c04bd242be6db39fb812a025b42469af8c6a621535036dbd9b0c63",
+        ): "69ca8e9ff548091b2bfbd178d6f73142b483a5257b07854de702c68fb7f8c06b",
         (
             MACOS,
             AARCH64,
-        ): "1d1edbda5ee33475144c56ba452dbda28e1b061088fb875102a2df6cda84c9b4",
+        ): "dec6124a5e3ea475e8625a7a85b5a2ec939c1077624f95b78cfc1cb96199fab1",
         (
             MACOS,
             X86_64,
-        ): "eea768e85adf17a1680b0333c4305dd42df3f3bf73e1e1578eb04d4a365cb899",
+        ): "b92f74faad4521cff6bc45b54fc3806562d9aa136f8655222f1266e9819526e1",
         (
             WINDOWS,
             AARCH64,
-        ): "8c354a918847a290d0dccaab0f0f65a8a88eb59899535e560c0725e262bbd9e3",
+        ): "bafa8941638d2347d8fb9243ca5b7ee7d7e3e6bc96ca8c3de99a24be51274cae",
         (
             WINDOWS,
             X86_64,
-        ): "ed7aa62b0f22ac4258d3d8668e0af8d53085168d421a8d4ec708040c5e275c0c",
+        ): "d3aac0b55e1b52ce586892b7c64de6bd2fc3774fe5b71129426af92c8a3c0571",
     },
     "gh": {
         (
@@ -1585,7 +1585,7 @@ the registry, and so `VERSIONS` can anchor the offline staleness test.
 
 VERSIONS: dict[str, str] = {
     "actionlint": "1.7.12",
-    "biome": "2.6.4",
+    "biome": "2.6.6",
     "gh": "2.103.3",
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.5",
@@ -1759,7 +1759,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         ),
         default_paths="json_files",
         display_name="Biome",
-        version="2.6.4",
+        version="2.6.6",
         source_url="https://github.com/biomejs/biome",
         tag_pattern=r"^@biomejs/biome@(?P<version>.+)$",
         config_docs_url="https://biomejs.dev/reference/configuration/",
@@ -2228,7 +2228,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "npm": ToolSpec(
         name="npm",
-        version="12.2.1",
+        version="12.2.2",
         npm=NpmSpec(),
         source_url="https://github.com/npm/cli",
         cli_docs_url="https://docs.npmjs.com/cli/",
@@ -2362,7 +2362,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "pyproject-fmt": ToolSpec(
         name="pyproject-fmt",
         default_paths="pyproject_files",
-        version="2.30.3",
+        version="2.30.6",
         source_url="https://github.com/tox-dev/pyproject-fmt",
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         cli_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
@@ -2392,7 +2392,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.17.3",
+        version="0.17.4",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
@@ -2637,7 +2637,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "wrangler": ToolSpec(
         name="wrangler",
         display_name="Wrangler",
-        version="4.157.0",
+        version="4.158.0",
         npm=NpmSpec(),
         source_url="https://github.com/cloudflare/workers-sdk",
         # The monorepo tags each package of it, like `wrangler@4.150.0`: the
