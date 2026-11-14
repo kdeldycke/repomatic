@@ -24,9 +24,12 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+from click.testing import CliRunner
 
+from repomatic.cli.main import repomatic
 from repomatic.github.issue import (
     ISSUE_LIST_LIMIT,
+    NO_ISSUES_COMMENT,
     Triage,
     close_issue,
     create_issue,
@@ -397,3 +400,82 @@ def test_create_issue_rejects_unparsable_output(tmp_path, output):
         pytest.raises(RuntimeError, match="Could not read a thread number"),
     ):
         create_issue(body_file, [], "Papaya")
+
+
+@pytest.fixture
+def cli_lifecycle(monkeypatch):
+    """Capture what the `issue` command hands to `manage_issue_lifecycle`."""
+    calls = []
+
+    def spy(*args, **kwargs):
+        calls.append((args, kwargs))
+        return 7 if args[0] else None
+
+    monkeypatch.setattr("repomatic.cli.github.manage_issue_lifecycle", spy)
+    monkeypatch.setattr("repomatic.github.token.validate_gh_token_env", lambda: None)
+    return calls
+
+
+def test_issue_cli_opens_with_the_body_file(cli_lifecycle, tmp_path):
+    """`--open` passes the body and the bot label, and names the issue."""
+    body_file = tmp_path / "papaya.md"
+    body_file.write_text("The papaya crate is empty.\n", encoding="UTF-8")
+    result = CliRunner().invoke(
+        repomatic,
+        [
+            "issue",
+            "--open",
+            "--title",
+            TITLE,
+            "--body-file",
+            str(body_file),
+            "--label",
+            "🍈 fruit",
+            "--label",
+            "🤖 ci",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "Issue #7" in result.output
+    [(args, kwargs)] = cli_lifecycle
+    assert args == (
+        True,
+        "The papaya crate is empty.\n",
+        ["🤖 ci", "🍈 fruit"],
+        TITLE,
+        NO_ISSUES_COMMENT,
+    )
+    assert kwargs == {"repository": None, "assignees": ()}
+
+
+def test_issue_cli_closes_with_its_comment(cli_lifecycle):
+    """`--close` needs no body, and leaves the comment it is given."""
+    result = CliRunner().invoke(
+        repomatic,
+        ["issue", "--close", "--title", TITLE, "--close-comment", "Crate refilled."],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "Issue #" not in result.output
+    [(args, _kwargs)] = cli_lifecycle
+    assert args[0] is False
+    assert args[1] == ""
+    assert args[4] == "Crate refilled."
+
+
+@pytest.mark.parametrize(
+    ("args", "error"),
+    (
+        pytest.param(["--title", TITLE], "Pass --open", id="no-state"),
+        pytest.param(
+            ["--open", "--title", TITLE], "--open needs --body-file", id="no-body"
+        ),
+    ),
+)
+def test_issue_cli_validates_its_inputs(cli_lifecycle, args, error):
+    """A missing state or body stops the command before any call to GitHub."""
+    result = CliRunner().invoke(repomatic, ["issue", *args])
+    assert result.exit_code != 0
+    assert error in result.output
+    assert not cli_lifecycle

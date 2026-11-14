@@ -56,6 +56,9 @@ filing a new one, so this bound is never reached in practice. It also bounds the
 open issues listed beside the search, newest first.
 """
 
+NO_ISSUES_COMMENT = "No more issues."
+"""Comment {func}`manage_issue_lifecycle` leaves on an issue it closes as resolved."""
+
 
 class Triage(NamedTuple):
     """What {func}`triage_issues` decided for the issues sharing one title."""
@@ -255,7 +258,7 @@ def manage_issue_lifecycle(
     body: str,
     labels: Sequence[str],
     title: str,
-    no_issues_comment: str = "No more issues.",
+    no_issues_comment: str = NO_ISSUES_COMMENT,
     *,
     repository: str | None = None,
     assignees: Sequence[str] = (),

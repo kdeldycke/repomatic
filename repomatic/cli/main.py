@@ -211,6 +211,7 @@ COMMANDS: dict[str, LazySubcommand] = {
     "broken-links": LazySubcommand(
         "repomatic.cli.github.broken_links", section=_section_github
     ),
+    "issue": LazySubcommand("repomatic.cli.github.issue", section=_section_github),
     "lock-threads": LazySubcommand(
         "repomatic.cli.github.lock_threads", section=_section_github
     ),

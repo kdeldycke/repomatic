@@ -46,6 +46,7 @@ from ..github.event import (
     get_default_number,
     is_pull_request,
 )
+from ..github.issue import NO_ISSUES_COMMENT, manage_issue_lifecycle
 from ..github.labels import apply_labels, labels_for_thread
 from ..github.outputs import format_multiline_output
 from ..github.pr import upsert_pr
@@ -405,6 +406,105 @@ def broken_links(
         )
     except ValueError as error:
         raise UsageError(str(error)) from error
+
+
+@subcommand(
+    short_help="Open, update or close the issue tracking a condition",
+    examples=(
+        (
+            "Open the issue, or update the one already open",
+            (
+                'repomatic issue --open --title "Weather station offline"'
+                " --body-file station.md"
+            ),
+        ),
+        (
+            "Close it once the condition clears",
+            'repomatic issue --close --title "Weather station offline"',
+        ),
+    ),
+)
+@option(
+    "--open/--close",
+    "is_open",
+    default=None,
+    help=(
+        "Whether the condition holds. --open creates the issue, or updates and"
+        " reopens the one already there. --close closes it."
+    ),
+)
+@option(
+    "--title",
+    required=True,
+    help="Exact title of the issue, which finds it again on the next run.",
+)
+@option(
+    "--body-file",
+    type=file_path(exists=True, readable=True, resolve_path=True),
+    default=None,
+    help="Markdown file holding the issue body. Required with --open.",
+)
+@option(
+    "--label",
+    "labels",
+    multiple=True,
+    help=(
+        f"Label a new issue carries beside {BOT_ISSUE_LABEL!r}. The label must"
+        " exist. Repeat to provide multiple."
+    ),
+)
+@option(
+    "--assignee",
+    "assignees",
+    multiple=True,
+    help="Login to assign a new issue to. Repeat to provide multiple.",
+)
+@option(
+    "--close-comment",
+    default=NO_ISSUES_COMMENT,
+    show_default=True,
+    help="Comment left on an issue that --close closes.",
+)
+@repo_option(detect=False)
+@require_token("validate_gh_token_env")
+def issue(
+    is_open: bool | None,
+    title: str,
+    body_file: Path | None,
+    labels: tuple[str, ...],
+    assignees: tuple[str, ...],
+    close_comment: str,
+    repo: str | None,
+) -> None:
+    """Open, update or close the one issue tracking a condition.
+
+    The issue is found again by its exact title. --open creates it with the
+    body of --body-file, or updates the issue already there, and reopens it
+    when it was closed. --close closes every open issue with that title. Both
+    close any duplicate, and every issue carries the bot label.
+
+    Each repomatic operation that tracks a condition has a command of its own.
+    This one serves a job a repository runs on its own, which has none.
+
+    Requires the gh CLI to be authenticated.
+    """
+    if is_open is None:
+        msg = "Pass --open when the condition holds, or --close when it cleared."
+        raise UsageError(msg)
+    if is_open and body_file is None:
+        msg = "--open needs --body-file."
+        raise UsageError(msg)
+    number = manage_issue_lifecycle(
+        is_open,
+        body_file.read_text(encoding="UTF-8") if body_file else "",
+        list(dict.fromkeys((BOT_ISSUE_LABEL, *labels))),
+        title,
+        close_comment,
+        repository=repo,
+        assignees=assignees,
+    )
+    if number is not None:
+        echo(f"Issue #{number}")
 
 
 @subcommand(
