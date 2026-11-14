@@ -79,7 +79,7 @@ If one of these rule conflict with the linter, the linter's rule should takes pr
 
   Use your own domain, or the source repository. GitHub Pages, GitLab Pages and Read the Docs are fine for documentation and articles, not for a commercial product.
 
-- Must be reachable by CI/CD jobs. If the domain return `40x` errors for rate-limiting or content protection, replace it with a stable link:
+- Must be reachable by readers. When a page answers `40x` errors to a browser too, for rate-limiting or content protection, replace it with a stable link:
 
   - [`sci-hub.st`](https://sci-hub.st) for research papers
   - [`archive.ph`](https://archive.ph) for news articles
@@ -91,7 +91,7 @@ If one of these rule conflict with the linter, the linter's rule should takes pr
 
 - When a GitHub repository has been transferred to a new owner, update the URL to the new canonical location instead of relying on the redirect (the old `OWNER/REPO` namespace can be reclaimed by anyone, which would leave the link pointing at unrelated content).
 
-- When a vendor blog disappears (acquisition, rebrand, decommissioned subdomain), wrap the original URL with `https://web.archive.org/web/<YYYYMMDDhhmmss>/` rather than a fuzzy year prefix: a specific timestamp is more durable than letting Wayback pick the closest snapshot at request time.
+- When a vendor blog disappears (acquisition, rebrand, decommissioned subdomain), wrap the original URL with `https://web.archive.org/web/<YYYYMMDDhhmmss>/` rather than a fuzzy year prefix: a specific timestamp is more durable than letting Wayback pick the closest snapshot at request time. Open the capture before you link it: the newest one can show a later version of the page, without the content the entry cites.
 
 ### Item title
 

@@ -79,7 +79,7 @@ $ npx awesome-lint
 
   请使用您自己的域名或源代码仓库。GitHub Pages、GitLab Pages 和 Read the Docs 可用于文档和文章，但不可用于商业产品。
 
-- 必须可被 CI/CD 作业访问。如果域名因速率限制或内容保护而返回 `40x` 错误，请用稳定链接替换：
+- 必须可被读者访问。如果页面因速率限制或内容保护对浏览器也返回 `40x` 错误，请用稳定链接替换：
 
   - [`sci-hub.st`](https://sci-hub.st) 用于研究论文
   - [`archive.ph`](https://archive.ph) 用于新闻文章
@@ -91,7 +91,7 @@ $ npx awesome-lint
 
 - 当 GitHub 仓库已转移到新所有者时，请将 URL 更新为新的规范位置，而不是依赖重定向（旧的 `OWNER/REPO` 命名空间可被任何人重新认领，这会使链接指向不相关的内容）。
 
-- 当供应商博客消失时（被收购、品牌重塑、子域停用），请用 `https://web.archive.org/web/<YYYYMMDDhhmmss>/` 包装原始 URL，而不是使用模糊的年份前缀：具体的时间戳比让 Wayback 在请求时选择最近快照更耐久。
+- 当供应商博客消失时（被收购、品牌重塑、子域停用），请用 `https://web.archive.org/web/<YYYYMMDDhhmmss>/` 包装原始 URL，而不是使用模糊的年份前缀：具体的时间戳比让 Wayback 在请求时选择最近快照更耐久。链接快照前请先打开它：最新的快照可能显示页面的较新版本，其中已没有条目所引用的内容。
 
 ### 项目标题
 

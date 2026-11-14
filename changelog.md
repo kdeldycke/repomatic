@@ -8,6 +8,7 @@
 - Add the `gitleaks-default-rules` check to `lint-repo`, which warns when `[tool.gitleaks]` leaves gitleaks with no rule to scan with.
 - Add the `issue` command, which opens, updates or closes one issue from a title and a body file, for a job outside repomatic.
 - `docs.yaml` now runs on a push that touches only a Markdown file at the root of `.github/`, like the contribution guide of an awesome list.
+- The awesome-template contribution guide now replaces a `40x` link only when browsers get the error too, and asks to check a capture before linking it.
 
 ## [`8.2.0` (2026-11-12)](https://github.com/kdeldycke/repomatic/compare/v8.1.0...v8.2.0)
 
