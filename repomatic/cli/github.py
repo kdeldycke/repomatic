@@ -22,6 +22,7 @@ under its help section.
 from __future__ import annotations
 
 import functools
+import logging
 from pathlib import Path
 from typing import cast
 
@@ -44,6 +45,7 @@ from ..github import token as _token_mod
 from ..github.event import (
     get_default_author,
     get_default_number,
+    is_fork_pull_request,
     is_pull_request,
 )
 from ..github.issue import NO_ISSUES_COMMENT, manage_issue_lifecycle
@@ -332,6 +334,13 @@ def apply_labels_cmd(
         echo(f"Would label {kind.label} #{number} with: {', '.join(labels)}")
         return
     if not add_labels(number, labels, kind=kind, repository=repo):
+        # The labels then wait for the maintainer, as without this command.
+        if is_fork_pull_request():
+            logging.warning(
+                f"Skip labelling {kind.label} #{number}: the workflows of a pull "
+                "request from a fork run with a read-only token."
+            )
+            return
         raise ClickException(f"Failed to label {kind.label} #{number}")
     echo(f"Labelled {kind.label} #{number} with: {', '.join(labels)}")
 

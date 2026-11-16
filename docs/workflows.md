@@ -486,6 +486,7 @@ None of these jobs read a label config committed to the repository. `labels.toml
 - Labels freshly opened issues and PRs with `repomatic apply-labels`: content rules match the title and body, file rules match a pull request's changed paths
 - Rules are configured as `[tool.repomatic.labels]` tables mapping each label to its patterns, overlaid on the bundled defaults
 - Additive only: labels already on the thread stay, and none is ever removed
+- A pull request from a fork runs this job with a read-only token, so the labeller warns and leaves its labels to the maintainer
 - Then adds a `💖 sponsor` label to issues and PRs from sponsors with `repomatic sponsor-label`, using the GitHub GraphQL API. Nothing else sets that label. This step runs even when the labeller failed
 - **Skipped for**:
   - `prepare-release`, `major-version-increment` and `minor-version-increment` branches

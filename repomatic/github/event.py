@@ -168,3 +168,21 @@ def get_default_branch() -> str | None:
 def is_pull_request() -> bool:
     """Check if the current event is a pull request."""
     return bool(get_event_pull_request())
+
+
+def is_fork_pull_request() -> bool:
+    """Check if the current run is a `pull_request` event from a fork.
+
+    GitHub runs the `pull_request` workflows of a pull request from a fork with a
+    read-only token, whatever `permissions:` the job asks for, so every write to
+    the repository fails with `Resource not accessible by integration`. A deleted
+    fork leaves `head.repo` empty, which still reads as a fork.
+    """
+    if os.environ.get("GITHUB_EVENT_NAME") != WorkflowEvent.pull_request:
+        return False
+    pull_request = get_event_pull_request()
+    if not pull_request:
+        return False
+    head = (pull_request.get("head") or {}).get("repo") or {}
+    base = (pull_request.get("base") or {}).get("repo") or {}
+    return head.get("full_name") != base.get("full_name")

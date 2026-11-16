@@ -29,6 +29,7 @@ from repomatic.github.event import (
     get_default_branch,
     get_default_number,
     get_github_event,
+    is_fork_pull_request,
     is_pull_request,
 )
 
@@ -74,6 +75,36 @@ def test_get_default_branch(event, expected):
     """The repository node names the branch a pull request opens against."""
     with patch("repomatic.github.event.get_github_event", return_value=event):
         assert get_default_branch() == expected
+
+
+def _pr_from(head_repo):
+    """A pull request event whose head lives in *head_repo*."""
+    return {
+        "pull_request": {
+            "head": {"repo": head_repo},
+            "base": {"repo": {"full_name": "papaya/orchard"}},
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("event_name", "event", "expected"),
+    (
+        ("pull_request", _pr_from({"full_name": "quince/orchard"}), True),
+        ("pull_request", _pr_from({"full_name": "papaya/orchard"}), False),
+        # A deleted fork leaves no head repository behind.
+        ("pull_request", _pr_from(None), True),
+        # `pull_request_target` runs with the token of the base repository.
+        ("pull_request_target", _pr_from({"full_name": "quince/orchard"}), False),
+        ("issues", _ISSUE_EVENT, False),
+        ("pull_request", {}, False),
+    ),
+)
+def test_is_fork_pull_request(monkeypatch, event_name, event, expected):
+    """Only a `pull_request` event from another repository reads as a fork."""
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event_name)
+    with patch("repomatic.github.event.get_github_event", return_value=event):
+        assert is_fork_pull_request() is expected
 
 
 def test_get_github_event_reads_the_payload(tmp_path, monkeypatch):

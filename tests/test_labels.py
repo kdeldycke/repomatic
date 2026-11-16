@@ -43,6 +43,7 @@ from repomatic.config import Config, LabelsConfig, load_repomatic_config
 from repomatic.deps.sync import DEPENDENCY_LABEL
 from repomatic.github import labels as labels_module
 from repomatic.github.event import get_github_event
+from repomatic.github.gh import GhCommandError
 from repomatic.github.labels import (
     DEFAULT_CONTENT_RULES,
     DEFAULT_FILE_RULES,
@@ -367,8 +368,11 @@ def test_label_keys_survive_config_loading():
     }
 
 
-def _invoke_apply_labels(tmp_path, event, changed_files=(), *args):
-    """Run `apply-labels` against a synthetic event, capturing `gh` calls."""
+def _invoke_apply_labels(tmp_path, event, changed_files=(), *args, edit_error=None):
+    """Run `apply-labels` against a synthetic event, capturing `gh` calls.
+
+    The label write fails with *edit_error* when one is given.
+    """
     event_path = tmp_path / "event.json"
     event_path.write_text(json.dumps(event), encoding="UTF-8")
     # The event payload is cached per process, so a test that ran earlier in
@@ -380,6 +384,8 @@ def _invoke_apply_labels(tmp_path, event, changed_files=(), *args):
         calls.append(list(gh_args))
         if gh_args[:3] == ["api", "--paginate", "--slurp"]:
             return json.dumps([[{"filename": name} for name in changed_files]])
+        if edit_error and gh_args[1:2] == ["edit"]:
+            raise GhCommandError(edit_error)
         return ""
 
     runner = CliRunner()
@@ -395,6 +401,9 @@ def _invoke_apply_labels(tmp_path, event, changed_files=(), *args):
                 ["apply-labels", "--repo", "kevin/fruits", *args],
                 env={
                     "GH_TOKEN": "x",
+                    "GITHUB_EVENT_NAME": (
+                        "pull_request" if "pull_request" in event else "issues"
+                    ),
                     "GITHUB_EVENT_PATH": str(event_path),
                     "GITHUB_REPOSITORY": "kevin/fruits",
                 },
@@ -439,6 +448,40 @@ def test_apply_labels_live_on_a_pull_request(tmp_path):
     edit = next(call for call in calls if call[:2] == ["pr", "edit"])
     assert edit.count("--add-label") == 2
     assert edit[edit.index("--repo") + 1] == "kevin/fruits"
+
+
+@pytest.mark.parametrize(
+    ("head_repository", "exit_code"),
+    (
+        pytest.param("rose/fruits", 0, id="fork"),
+        pytest.param("kevin/fruits", 1, id="same-repository"),
+    ),
+)
+def test_apply_labels_refused_write(tmp_path, head_repository, exit_code):
+    """A refused label write fails the run, unless the pull request is from a fork.
+
+    GitHub runs the `pull_request` workflows of a pull request from a fork with
+    a read-only token, so the write cannot work there and only warns.
+    """
+    event = {
+        "pull_request": {
+            "number": 7,
+            "title": "Sync the orchard",
+            "body": "",
+            "head": {"repo": {"full_name": head_repository}},
+            "base": {"repo": {"full_name": "kevin/fruits"}},
+        },
+    }
+    result, _ = _invoke_apply_labels(
+        tmp_path,
+        event,
+        ("changelog.md",),
+        "--live",
+        edit_error="GraphQL: Resource not accessible by integration",
+    )
+    assert result.exit_code == exit_code, result.output
+    assert ("read-only token" in result.output) is (exit_code == 0)
+    assert ("Failed to label PR #7" in result.output) is (exit_code == 1)
 
 
 def test_apply_labels_reads_another_thread_from_the_api(tmp_path):
