@@ -227,6 +227,27 @@ def test_a_normal_failure_is_not_read_as_workflow_level():
     assert status.workflow_level_failure is False
 
 
+def test_a_required_job_github_cancelled_still_gates_the_merge():
+    """A required job no runner picked up fails its run with no failed job.
+
+    It is no workflow error, so the verdict names the job instead. Its commit
+    has no result for that job, so the run still blocks.
+    """
+    status = run(job("✅ a"), job("✅ b", "cancelled"), conclusion="failure")
+    assert status.workflow_level_failure is False
+    assert status.stopped_required == (job("✅ b", "cancelled"),)
+    assert status.blocking is True
+    assert status.inconclusive is False
+    assert status.verdict == "1 required job(s) cancelled"
+
+
+def test_a_cancelled_run_is_not_a_stopped_one():
+    """A newer push cancels the whole run: its conclusion is `cancelled`."""
+    status = run(job("✅ a"), job("✅ b", "cancelled"), conclusion="cancelled")
+    assert status.stopped_required == ()
+    assert status.blocking is False
+
+
 def test_skipped_and_cancelled_jobs_are_not_failures():
     """Only `failure` blocks: a skipped job is a gate that did not apply."""
     status = run(job("✅ a", "skipped"), job("✅ b", "cancelled"))
@@ -348,6 +369,17 @@ def test_workflow_level_failure_is_an_error_finding():
     (finding,) = run(job("✅ a"), conclusion="failure").findings()
     assert finding[0] is AnnotationLevel.ERROR
     assert "workflow-level error" in finding[1]
+
+
+def test_a_required_job_github_cancelled_is_an_error_finding():
+    """The finding names the cancelled job and the re-run, not a workflow error."""
+    (finding,) = run(
+        job("✅ a"), job("✅ b", "cancelled"), conclusion="failure"
+    ).findings()
+    assert finding[0] is AnnotationLevel.ERROR
+    assert "required job cancelled: ✅ b." in finding[1]
+    assert "gh run rerun 1 --failed" in finding[1]
+    assert "workflow-level" not in finding[1]
 
 
 def test_run_cells_follow_the_table_columns():

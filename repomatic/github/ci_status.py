@@ -35,7 +35,9 @@ specific ways this module exists to settle:
   failed job is a workflow-level error: an invalid `strategy.matrix`
   expression, malformed YAML, a missing secret. There is no job log to read,
   and treating it as benign is how a persistently red workflow gets written
-  off as a known artifact.
+  off as a known artifact. A required job that GitHub cancelled, like one no
+  runner picked up, fails its run the same way: that job is named instead,
+  and it still gates the merge.
 - **A run that settled without a result.** A newer push cancels the run of
   the commit under it, and a job-level `if:` skips every job of a run: the
   bundled `tests.yaml` does that for a version-bump commit. Neither run has a
@@ -233,9 +235,14 @@ class RunStatus:
         """Whether the run failed around its jobs rather than inside one.
 
         No job log explains this one: read the run's error annotations and
-        fix the workflow itself.
+        fix the workflow itself. A run that failed on a required job GitHub
+        cancelled is not one: see {attr}`stopped_required`.
         """
-        return self.conclusion == "failure" and not any(job.failed for job in self.jobs)
+        return (
+            self.conclusion == "failure"
+            and not any(job.failed for job in self.jobs)
+            and not self.cancelled_required
+        )
 
     @property
     def waiting(self) -> bool:
@@ -249,12 +256,30 @@ class RunStatus:
     @property
     def blocking(self) -> bool:
         """Whether this run holds up a merge."""
-        return bool(self.failed_required) or self.workflow_level_failure
+        return (
+            bool(self.failed_required)
+            or bool(self.stopped_required)
+            or self.workflow_level_failure
+        )
 
     @property
     def cancelled_required(self) -> tuple[JobStatus, ...]:
         """Required jobs stopped before they finished."""
         return tuple(job for job in self.jobs if job.cancelled and job.required)
+
+    @property
+    def stopped_required(self) -> tuple[JobStatus, ...]:
+        """Required jobs that GitHub cancelled inside a run that failed.
+
+        GitHub cancels a job that no runner picked up, and concludes its run
+        `failure`, with no failed job and no job log. Such a job gives its
+        commit no result, and no newer run brings one. A newer push cancels a
+        run instead, with a `cancelled` conclusion: the run's own conclusion
+        tells the two apart.
+        """
+        if self.conclusion != "failure":
+            return ()
+        return self.cancelled_required
 
     @property
     def cancelled(self) -> bool:
@@ -299,6 +324,8 @@ class RunStatus:
             return "workflow-level failure"
         if self.failed_required:
             return f"{len(self.failed_required)} required job(s) failed"
+        if self.stopped_required:
+            return f"{len(self.stopped_required)} required job(s) cancelled"
         if self.running_jobs:
             return f"{len(self.running_jobs)} job(s) still running"
         if self.waiting:
@@ -320,8 +347,9 @@ class RunStatus:
     def findings(self) -> Iterator[tuple[AnnotationLevel, str]]:
         """What the reader must know about this run, one line each.
 
-        An error gates a merge: a workflow-level failure or a failed required
-        job. A warning does not: a failed probe, or a run with no result for
+        An error gates a merge: a workflow-level failure, a failed required job,
+        or a required job that GitHub cancelled in a failed run. A warning does
+        not: a failed probe, or a run with no result for
         its commit. A notice asks for nothing: a matrix whose `if:` skipped it
         before it evaluated, like a release-only stage on an ordinary push or
         the binary stages of a project that compiles none.
@@ -340,6 +368,15 @@ class RunStatus:
             yield (
                 AnnotationLevel.ERROR,
                 f"{self.workflow}: required job failed: {job.name}",
+            )
+        for job in self.stopped_required:
+            yield (
+                AnnotationLevel.ERROR,
+                (
+                    f"{self.workflow}: required job cancelled: {job.name}. Its"
+                    " annotations give the reason, like no runner that picked it"
+                    f" up. Re-run it with `gh run rerun {self.run_id} --failed`."
+                ),
             )
         for job in self.failed_probes:
             yield (
