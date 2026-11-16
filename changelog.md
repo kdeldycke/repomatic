@@ -12,6 +12,7 @@
 - The bundled `babysit-ci` skill now names a required job that no runner picked up as a failure to re-run.
 - Fix `repomatic apply-labels`, which failed the labels job on a pull request from a fork instead of skipping the labels with a warning.
 - Fix `repomatic ci-status`, which reported a required job that no runner picked up as a workflow-level error instead of naming the job.
+- Fix `repomatic sync-uv-lock`, which gave a held-back release capped by another held-back package an `Eligible` date already past.
 
 ## [`8.2.0` (2026-11-12)](https://github.com/kdeldycke/repomatic/compare/v8.1.0...v8.2.0)
 

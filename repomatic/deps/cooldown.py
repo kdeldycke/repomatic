@@ -788,6 +788,14 @@ def compute_held_back_packages(
     `requires-python` bound resolve identically with and without the lift, so
     they are excluded.
 
+    A cap set by a package the probe also moves does not resolve identically.
+    A release that left the window can still be held, by the locked version of
+    a package that depends on it, until the newer version of that package
+    leaves the window and lifts the cap. Such a release is dated by the last of
+    its moved neighbors to leave the window, because the lock records no
+    specifier that names the one capping it. With no neighbor still inside the
+    window, it gets no date.
+
     The probe writes `uv.lock` and restores it byte-for-byte in a `finally`,
     so the canonical in-cooldown lock is left untouched even when resolution
     or parsing fails. Its output is captured, since the probe runs under the
@@ -832,23 +840,39 @@ def compute_held_back_packages(
         lock_path.write_bytes(saved)
 
     span = lock.cooldown_span
-    held = []
-    for name in sorted(lock.versions.keys() & latest.keys()):
-        old_version, new_version = lock.versions[name], latest[name]
-        if not is_newer(new_version, old_version):
-            continue
-        raw_upload = uploads.get(name, "")
-        eligible = ""
-        upload = parse_iso_datetime(raw_upload)
+    moved = sorted(
+        name
+        for name in lock.versions.keys() & latest.keys()
+        if is_newer(latest[name], lock.versions[name])
+    )
+    # The instant each moved release leaves the window on its own.
+    exits: dict[str, datetime] = {}
+    for name in moved:
+        upload = parse_iso_datetime(uploads.get(name, ""))
         if upload is not None and span is not None:
-            eligible = format_countdown(upload + span, now)
+            exits[name] = upload + span
+    held = []
+    for name in moved:
+        lockable = exits.get(name)
+        if lockable is not None and lockable <= now:
+            # Out of its own window, the release waits on a moved neighbor that
+            # caps it. The lock records no specifier to name which one, so the
+            # last of them to leave the window dates it.
+            lockable = max(
+                (
+                    exits[other]
+                    for other in lock.neighbors_of(name) | lifted.neighbors_of(name)
+                    if other in exits and exits[other] > now
+                ),
+                default=None,
+            )
         held.append(
             HeldBackPackage(
                 name,
-                old_version,
-                new_version,
-                format_released(raw_upload, now),
-                eligible,
+                lock.versions[name],
+                latest[name],
+                format_released(uploads.get(name, ""), now),
+                "" if lockable is None else format_countdown(lockable, now),
             )
         )
     return held

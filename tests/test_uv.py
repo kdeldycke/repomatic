@@ -65,6 +65,7 @@ from repomatic.deps.uv import UvError, relock, run_uv, uv_lock_command
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from repomatic.deps.report import HeldBackPackage
     from repomatic.deps.sync import SyncOperation
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -510,11 +511,17 @@ def _write_uv_config(tmp_path: Path, uv_lines: str) -> Path:
     return path
 
 
-def _write_lock(tmp_path: Path, *packages: tuple[str, str, str]) -> Path:
+def _write_lock(
+    tmp_path: Path,
+    *packages: tuple[str, str, str],
+    dependencies: dict[str, tuple[str, ...]] | None = None,
+) -> Path:
     """Write a minimal `uv.lock` with a `P1W` cooldown span.
 
     Each package is a `(name, version, upload_time)` triple; an empty upload
     time omits the `sdist` block, mimicking a git or path source.
+    *dependencies* maps a package name to the names of the packages it
+    depends on.
     """
     lines = [
         "version = 1",
@@ -532,6 +539,9 @@ def _write_lock(tmp_path: Path, *packages: tuple[str, str, str]) -> Path:
             f'version = "{version}"',
             'source = { registry = "https://pypi.org/simple" }',
         ])
+        if dependencies and name in dependencies:
+            edges = ", ".join(f'{{ name = "{dep}" }}' for dep in dependencies[name])
+            lines.append(f"dependencies = [{edges}]")
         if upload:
             lines.append(
                 f'sdist = {{ url = "https://example.test/{name}.tar.gz",'
@@ -1020,6 +1030,63 @@ def test_held_back_probe_captures_uv_and_restores_the_lock(tmp_path):
         ("mango", "2.0.0", "2.10.0")
     ]
     assert lock.read_text(encoding="UTF-8") == original
+
+
+def _probe_held_back(
+    tmp_path: Path,
+    locked: tuple[tuple[str, str, str], ...],
+    lifted: tuple[tuple[str, str, str], ...],
+    dependencies: dict[str, tuple[str, ...]],
+) -> dict[str, HeldBackPackage]:
+    """Run the held-back probe on *locked*, with a `uv lock` that writes *lifted*."""
+    lock = _write_lock(tmp_path, *locked, dependencies=dependencies)
+    lifted_dir = tmp_path / "lifted"
+    lifted_dir.mkdir()
+    lifted_lock = _write_lock(lifted_dir, *lifted, dependencies=dependencies)
+    lifted_text = lifted_lock.read_text(encoding="UTF-8")
+
+    def fake_run(cmd, **kwargs):
+        lock.write_text(lifted_text, encoding="UTF-8")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    with patch("repomatic.deps.uv.subprocess.run", side_effect=fake_run):
+        held = compute_held_back_packages(lock, LockFile.load(lock), ())
+    return {pkg.name: pkg for pkg in held}
+
+
+def test_held_back_probe_dates_a_capped_release_by_its_capper(tmp_path):
+    """A release out of its window moves with the held release that caps it.
+
+    `papaya` `1.10` left its window weeks ago, but the locked `mango` `1.0`
+    caps it. The probe lifts every window at once and moves both, so `papaya`
+    becomes lockable when `mango` `1.10` does, not on a date already past.
+    """
+    now = datetime.now(UTC)
+    old = _stamp(now - timedelta(days=60))
+    held = _probe_held_back(
+        tmp_path,
+        locked=(("mango", "1.0", old), ("papaya", "1.0", old)),
+        lifted=(
+            ("mango", "1.10", _stamp(now - timedelta(days=2))),
+            ("papaya", "1.10", _stamp(now - timedelta(days=30))),
+        ),
+        dependencies={"mango": ("papaya",)},
+    )
+    assert "(in " in held["mango"].eligible
+    assert held["papaya"].eligible == held["mango"].eligible
+
+
+def test_held_back_probe_leaves_an_unexplained_hold_undated(tmp_path):
+    """A release out of its window, with no held neighbor, gets no date."""
+    now = datetime.now(UTC)
+    old = _stamp(now - timedelta(days=60))
+    held = _probe_held_back(
+        tmp_path,
+        locked=(("papaya", "1.0", old),),
+        lifted=(("papaya", "1.10", _stamp(now - timedelta(days=30))),),
+        dependencies={},
+    )
+    assert held["papaya"].eligible == ""
 
 
 def test_held_back_probe_failure_reports_nothing(tmp_path):

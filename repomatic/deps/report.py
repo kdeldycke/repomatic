@@ -308,8 +308,9 @@ class HeldBackPackage:
 
     Built by {func}`repomatic.deps.cooldown.compute_held_back_packages` for the `## Held
     back by cooldown` report section: a package has already published a newer
-    version, but it is still inside the cooldown window, so `uv lock --upgrade`
-    keeps the older {attr}`locked_version`.
+    version, but that version, or a package capping it, is still inside the
+    cooldown window, so `uv lock --upgrade` keeps the older
+    {attr}`locked_version`.
     """
 
     name: str
@@ -319,16 +320,18 @@ class HeldBackPackage:
     """Version held in the lock: the newest release outside the cooldown."""
 
     available_version: str
-    """Newer version already on the index, still inside the cooldown window."""
+    """Newer version already on the index, which the cooldown keeps out of the
+    lock."""
 
     released: str
     """Upload date of {attr}`available_version` (`YYYY-MM-DD`), or empty when
     the lock records no upload time (a git or path source)."""
 
     eligible: str
-    """Date {attr}`available_version` leaves the cooldown and becomes lockable,
-    with a human-readable countdown (`2026-06-25 (in 4 days)`), or empty when
-    it cannot be computed."""
+    """Date {attr}`available_version` becomes lockable, with a human-readable
+    countdown (`2026-06-25 (in 4 days)`), or empty when it cannot be computed.
+    That is the day it leaves the cooldown, or the day the package capping it
+    does."""
 
     @property
     def row(self) -> tuple[str, str, str, str, str]:
@@ -346,8 +349,9 @@ class HeldBackPackage:
 
 
 EXCLUDE_NEWER_HELD_BACK_NOTE = (
-    "Newer releases already published but withheld because they are still"
-    " inside the [`exclude-newer`](https://docs.astral.sh/uv/reference/"
+    "Newer releases already published but withheld because they, or a package"
+    " capping them, are still inside the"
+    " [`exclude-newer`](https://docs.astral.sh/uv/reference/"
     "settings/#exclude-newer) cooldown window."
 )
 """Intro paragraph for the `sync-uv-lock` held-back section.

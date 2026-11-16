@@ -175,6 +175,33 @@ class LockFile:
         }
 
     @cached_property
+    def dependencies(self) -> dict[str, frozenset[str]]:
+        """Package name to the names of the packages it depends on.
+
+        Joins the `dependencies`, `optional-dependencies` and `dev-dependencies`
+        of every entry of a package, so a package locked at several versions
+        keeps the edges of each. uv records the name of a dependency but not its
+        specifier: this view says which packages constrain each other, not how.
+        """
+        graph: dict[str, set[str]] = {}
+        for pkg in self.data.get("package", []):
+            name = pkg.get("name", "")
+            if not name:
+                continue
+            groups = [
+                pkg.get("dependencies", []),
+                *pkg.get("optional-dependencies", {}).values(),
+                *pkg.get("dev-dependencies", {}).values(),
+            ]
+            graph.setdefault(name, set()).update(
+                dep["name"]
+                for group in groups
+                for dep in group
+                if isinstance(dep, dict) and dep.get("name")
+            )
+        return {name: frozenset(edges) for name, edges in graph.items()}
+
+    @cached_property
     def cooldown_span(self) -> timedelta | None:
         """Width of the rolling cooldown, from `options.exclude-newer-span`.
 
@@ -352,6 +379,19 @@ class LockFile:
         :return: The canonical names of its extras that install nothing.
         """
         return self.empty_extras.get(canonicalize_name(name), frozenset())
+
+    def neighbors_of(self, name: str) -> frozenset[str]:
+        """The packages *name* depends on, and the packages that depend on it.
+
+        :param name: A package name, in any spelling.
+        :return: Their canonical names, without *name* itself.
+        """
+        canonical = canonicalize_name(name)
+        dependents = {
+            other for other, edges in self.dependencies.items() if canonical in edges
+        }
+        own = self.dependencies.get(canonical, frozenset())
+        return (own | dependents) - {canonical}
 
 
 def diff_lock_versions(
