@@ -53,7 +53,12 @@ def job(name: str, conclusion: str = "success", status: str = "completed"):
     return JobStatus(name=name, status=status, conclusion=conclusion)
 
 
-def run(*jobs: JobStatus, conclusion: str = "success", status: str = "completed"):
+def run(
+    *jobs: JobStatus,
+    conclusion: str = "success",
+    status: str = "completed",
+    on_tip: bool = False,
+):
     """Shorthand for a run carrying *jobs*."""
     return RunStatus(
         workflow="🔬 Tests",
@@ -62,6 +67,7 @@ def run(*jobs: JobStatus, conclusion: str = "success", status: str = "completed"
         status=status,
         conclusion=conclusion,
         jobs=jobs,
+        on_tip=on_tip,
     )
 
 
@@ -246,6 +252,21 @@ def test_a_cancelled_run_is_not_a_stopped_one():
     status = run(job("✅ a"), job("✅ b", "cancelled"), conclusion="cancelled")
     assert status.stopped_required == ()
     assert status.blocking is False
+
+
+def test_a_cancelled_run_on_the_tip_gates_the_merge():
+    """A job past its timeout concludes its run `cancelled`, like a push does.
+
+    No newer push stopped a run on the tip, so its commit gets no result from
+    any other run, and the run blocks.
+    """
+    status = run(
+        job("✅ a"), job("✅ b", "cancelled"), conclusion="cancelled", on_tip=True
+    )
+    assert status.stopped_required == (job("✅ b", "cancelled"),)
+    assert status.blocking is True
+    assert status.inconclusive is False
+    assert status.verdict == "1 required job(s) cancelled"
 
 
 def test_skipped_and_cancelled_jobs_are_not_failures():
@@ -650,6 +671,7 @@ def test_read_ci_status_walks_back_from_a_run_that_ran_no_job():
         (40, TIP_SHA),
     ]
     assert status.skipped_on_tip == ["tests.yaml"]
+    assert [run.on_tip for run in status.runs] == [False, True]
     assert status.runs[0].verdict == "cancelled (1 required job(s))"
     assert [run.inconclusive for run in status.runs] == [True, False]
     assert status.blocking == []
@@ -659,7 +681,8 @@ def test_read_ci_status_stops_at_a_cancelled_run():
     """A cancelled run is the newest word on its workflow, whatever ran before.
 
     The green run of the parent is older than the commit left without a result:
-    reporting it would read as a pass on a tree it never saw.
+    reporting it would read as a pass on a tree it never saw. No newer push
+    stopped a run on the tip, so it blocks.
     """
     runs_by_sha = {
         TIP_SHA: [_run_entry(42, "tests.yaml", conclusion="cancelled")],
@@ -675,7 +698,9 @@ def test_read_ci_status_stops_at_a_cancelled_run():
     ) as mock:
         status = read_ci_status(["tests.yaml"], "main")
     assert [(run.run_id, run.head_sha) for run in status.runs] == [(42, TIP_SHA)]
-    assert status.runs[0].inconclusive is True
+    assert status.runs[0].on_tip is True
+    assert status.runs[0].verdict == "1 required job(s) cancelled"
+    assert status.blocking == status.runs
     assert status.skipped_on_tip == []
     assert not _called(mock, PARENT_SHA)
 

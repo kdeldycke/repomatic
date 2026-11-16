@@ -42,7 +42,9 @@ specific ways this module exists to settle:
   the commit under it, and a job-level `if:` skips every job of a run: the
   bundled `tests.yaml` does that for a version-bump commit. Neither run has a
   failed job, and neither says anything about its commit. Reading one as
-  green hides that the matrix never ran on the newest commits.
+  green hides that the matrix never ran on the newest commits. A cancelled run
+  on the tip is not one: no newer push stopped it, so a required job that
+  GitHub cancelled there, like one past its timeout, gates the merge.
 
 A job carrying no stability glyph is required. That covers every non-matrix job
 (`1️⃣ Run-once tests`, `📦 Package install`, `🛡️ Lint types`), where the absence
@@ -59,7 +61,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from urllib.parse import quote
 
 from click_extra import ColumnSpec
@@ -210,6 +212,13 @@ class RunStatus:
     jobs: tuple[JobStatus, ...] = ()
     """Every job of the run."""
 
+    on_tip: bool = False
+    """Whether the run was created for the tip of its branch.
+
+    {func}`read_ci_status` sets it. Only a newer push moves the tip, so no newer
+    push stopped a run on it: {attr}`stopped_required` relies on that.
+    """
+
     @property
     def failed_required(self) -> tuple[JobStatus, ...]:
         """Failing jobs that gate a merge."""
@@ -269,17 +278,18 @@ class RunStatus:
 
     @property
     def stopped_required(self) -> tuple[JobStatus, ...]:
-        """Required jobs that GitHub cancelled inside a run that failed.
+        """Required jobs cancelled in a run that no newer run replaces.
 
+        Such a job gives its commit no result, and no newer run brings one.
         GitHub cancels a job that no runner picked up, and concludes its run
-        `failure`, with no failed job and no job log. Such a job gives its
-        commit no result, and no newer run brings one. A newer push cancels a
-        run instead, with a `cancelled` conclusion: the run's own conclusion
-        tells the two apart.
+        `failure`, with no failed job and no job log. It also cancels a job past
+        its `timeout-minutes`, but concludes that run `cancelled`, like a run
+        that a newer push stopped. That one is told apart by {attr}`on_tip`: a
+        newer push leaves the run it stopped under the tip.
         """
-        if self.conclusion != "failure":
-            return ()
-        return self.cancelled_required
+        if self.conclusion == "failure" or self.on_tip:
+            return self.cancelled_required
+        return ()
 
     @property
     def cancelled(self) -> bool:
@@ -374,8 +384,9 @@ class RunStatus:
                 AnnotationLevel.ERROR,
                 (
                     f"{self.workflow}: required job cancelled: {job.name}. Its"
-                    " annotations give the reason, like no runner that picked it"
-                    f" up. Re-run it with `gh run rerun {self.run_id} --failed`."
+                    " annotations give the reason, like a runner that never"
+                    " picked it up or a timeout. Re-run it with"
+                    f" `gh run rerun {self.run_id} --failed`."
                 ),
             )
         for job in self.failed_probes:
@@ -629,7 +640,8 @@ def read_ci_status(workflows: Iterable[str], branch: str) -> CIStatus:
     cancelled run stops the walk instead: the runs under it are older than the
     commits it left without a result, and a green one among them would hide
     that. A workflow with nothing but skipped runs in the window is reported on
-    the newest of them.
+    the newest of them. Each run records whether it sits on the tip, which
+    decides whether a cancelled job in it blocks.
 
     ```{warning}
     The branch-wide run listing can answer with a stale snapshot: runs from
@@ -677,7 +689,8 @@ def read_ci_status(workflows: Iterable[str], branch: str) -> CIStatus:
         if run is None:
             logging.info(f"No run found for {workflow} on {branch}.")
             continue
-        status.runs.append(run)
+        on_tip = bool(status.tip_sha) and run.head_sha == status.tip_sha
+        status.runs.append(replace(run, on_tip=on_tip))
     return status
 
 
