@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- The bundled `file-bug-report` skill now names a third party's account by its role, not its address, in a vendor's support email too.
 - The bundled `repomatic-ship` skill now fetches the tags first, and stops when nothing since the last tag is left to ship.
 
 ## [`8.3.0` (2026-11-17)](https://github.com/kdeldycke/repomatic/compare/v8.2.0...v8.3.0)
