@@ -47,9 +47,9 @@ Every skill and agent, and nothing else: the 18 skills listed on the [skills pag
 └── skills/{name}/SKILL.md
 ```
 
-That directory is what the marketplace publishes and what the archive mirrors, so `claude --plugin-dir .claude` in a checkout loads exactly what an install gives you. A marketplace install shows that tree back to you, read-only:
+That directory is what the marketplace publishes and what the archive mirrors, so `claude --plugin-dir .claude` in a checkout loads exactly what an install gives you. A marketplace install shows that tree back to you, read-only. The capture predates `8.1.0`, so it still lists the `repomatic-audit` skill that `8.1.0` folded into `repomatic-upgrade`:
 
-![The installed plugin's Contents tab, listing plugin.json, three agents and nineteen skill folders](assets/desktop-plugin-contents.png)
+![The installed plugin's Contents tab of a release before 8.1.0, listing plugin.json, three agents and nineteen skill folders](assets/desktop-plugin-contents.png)
 
 ```{warning}
 Do not add an `agents` path to the manifest to publish the assets from somewhere else. `claude plugin validate --strict` accepts one and Claude Code then loads **zero** agents, with no error anywhere. This was measured against Claude Code 2.1.220: `claude plugin details` reported `Agents (0)` for the custom-path layout and `Agents (3)` for the default one.
@@ -143,9 +143,9 @@ $ gh release download --repo kdeldycke/repomatic --pattern repomatic-claude-plug
 
 That is the only panel the archive goes through. The **Customize > Skills** uploader beside it refuses any zip holding a `.claude-plugin/plugin.json`, and wants a bare skill folder at the archive root instead, so it cannot take a plugin at all ([anthropics/claude-code#20697](https://github.com/anthropics/claude-code/issues/20697#issuecomment-5879859052), measured on Desktop `2.9939.2`).
 
-Every skill and agent arrives in that single upload, listed under the plugin's **Skills** and **Agents** tabs and invocable by typing `/` in chat. The marketplace route below populates the same two tabs:
+Every skill and agent arrives in that single upload, listed under the plugin's **Skills** and **Agents** tabs and invocable by typing `/` in chat. The marketplace route below populates the same two tabs. The Skills capture also predates `8.1.0`, so it lists nineteen commands:
 
-![The Skills tab listing nineteen slash commands](assets/desktop-plugin-skills.png)
+![The Skills tab of a release before 8.1.0, listing nineteen slash commands](assets/desktop-plugin-skills.png)
 
 ![The Agents tab listing grunt-qa, qa-engineer and sphinx-docs](assets/desktop-plugin-agents.png)
 

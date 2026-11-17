@@ -29,6 +29,7 @@
 - Fix `repomatic ci-status`, which failed with an HTTP `404` on the branch of a pull request from a fork.
 - Fix `repomatic init`, which rewrote or deleted managed files while the cooldown held its pin, and named a pin it never wrote.
 - Fix `repomatic sync-uv-lock`, which gave a held-back release capped by another held-back package an `Eligible` date already past.
+- Fix the bundled `babysit-ci` skill, which cancelled the runs on the first failure while it also said to keep them alive until a fix.
 
 ## [`8.2.0` (2026-11-12)](https://github.com/kdeldycke/repomatic/compare/v8.1.0...v8.2.0)
 
