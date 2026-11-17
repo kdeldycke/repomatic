@@ -484,9 +484,11 @@ def init(
     cooldown when it would adopt a release newer than the one already pinned in
     this repository: if the running repomatic version is still inside that
     window, the workflow pin steps back to the newest release that has cleared
-    it, and never below the pin already on disk. Re-running init at the pinned
-    version leaves it untouched. Pass --no-cooldown to pin the running version
-    immediately, or --version to pin an exact tag.
+    it, and never below the pin already on disk. A repository that already
+    carries a pin then gets no file at all: every managed file belongs to the
+    running release, so all of them wait for the pin to move. Re-running init
+    at the pinned version leaves it untouched. Pass --no-cooldown to pin the
+    running version immediately, or --version to pin an exact tag.
 
     --upgrade runs init as the newest release past that window instead, and
     hands off to it through uvx when it is not the running one: the upstream

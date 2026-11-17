@@ -280,7 +280,7 @@ def resolve_default_pin(
     `test_thin_caller_workflow_call_inputs_stay_minimal`). Returning such a pin
     is therefore only half a decision: {func}`resolve_workflow_pin` reads it
     back and, when the repository already carries workflows, tells `init` to
-    skip regenerating them so the tree stays coherent at the pin it keeps. A
+    write no file, so the tree stays coherent at the pin it keeps. A
     first-time adoption has no tree to keep, so there the skew stands as the
     only alternative to writing no workflows at all.
     ```
@@ -360,11 +360,11 @@ class WorkflowPin:
     the next `sync-action-pins` run re-hardens."""
 
     adopts_content: bool = True
-    """Whether the workflows take the content of the running release.
+    """Whether `init` writes the content of the running release.
 
     `False` when the cooldown holds the pin below the running release on a tree
-    that already carries workflows. `init` then leaves the workflows as they
-    are, at the pin they already have.
+    that already carries workflows. `init` then writes no file, and every
+    managed file stays at the pin the tree already has.
     """
 
 
@@ -377,7 +377,7 @@ def resolve_workflow_pin(
     floor: UpstreamRefPin | None,
     warnings: list[str],
 ) -> WorkflowPin:
-    """Resolve the pin `init` writes, and whether the workflows move with it.
+    """Resolve the pin `init` writes, and whether the managed files move with it.
 
     An explicit *version* keeps the build-time SHA and bypasses the cooldown.
     Without one, the pin derives from the running release, held back by
@@ -391,8 +391,17 @@ def resolve_workflow_pin(
     Declining the pin has to decline the content with it, or the cooldown buys
     nothing while the caller half lands anyway, silently.
 
+    The other components render the running release too. They have no
+    reusable-workflow surface to break, but each one still belongs to the
+    release that wrote it. `sync-repomatic` writes the pinned release's copy of
+    every component it keeps in sync, so a skill or a `[tool.X]` section written
+    here comes back as a pull request that reverts it. A section seeded once, or
+    the changelog stub, keeps the newer text beside the older pin instead. A
+    declined pin therefore declines every component, and `init` writes nothing.
+
     Only a repository that already carries workflows (a *floor*) has somewhere
-    to stand: leaving them untouched keeps a coherent tree at *floor*. A
+    to stand: leaving every managed file untouched keeps a coherent tree at
+    *floor*. A
     first-time adoption has no such fallback, since skipping would write no
     workflows at all, and is the one case {func}`resolve_default_pin` documents
     the skew as unavoidable.
@@ -416,9 +425,9 @@ def resolve_workflow_pin(
         return WorkflowPin(version, commit_sha)
     _note_cooldown(
         warnings,
-        f"Leaving the workflows at {version}: their content belongs to repomatic "
-        f"{_base_version()}, which the pin above declines. Pass --no-cooldown to "
-        "adopt both together.",
+        f"Leaving the managed files at {version}: their content belongs to "
+        f"repomatic {_base_version()}, which the pin above declines. Pass "
+        "--no-cooldown to adopt both together.",
     )
     return WorkflowPin(version, commit_sha, adopts_content=False)
 

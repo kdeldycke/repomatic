@@ -1214,7 +1214,43 @@ def test_run_init_held_at_floor_leaves_workflows_untouched(tmp_path, pin_build):
         encoding="UTF-8"
     )
     assert f"autofix.yaml@{'c' * 40} # v7.4.1" in autofix
-    assert any("Leaving the workflows" in warning for warning in result.warnings)
+    assert any("Leaving the managed files" in warning for warning in result.warnings)
+
+
+def test_run_init_held_at_floor_leaves_every_component_untouched(
+    tmp_path, monkeypatch, pin_build
+):
+    """Declining the pin declines the skills, subagents and tool configs too.
+
+    They carry the running release's content as much as a workflow body does,
+    and `sync-repomatic` writes the pinned release's copy of each. Written from
+    a release the cooldown declines, they come back as a sync pull request that
+    reverts them.
+    """
+    pyproject = write_project(tmp_path, monkeypatch)
+    components = ("workflows", "skills", "subagents", "typos")
+    pin_build(version="7.4.1", sha="c" * 40)
+    run_init_here(tmp_path, components=components, cooldown=False)
+
+    # Stand in for the text of the pinned release, which the running one differs
+    # from.
+    skill = tmp_path / ".claude" / "skills" / "babysit-ci" / "SKILL.md"
+    skill.write_text("Text of the pinned release.\n", encoding="UTF-8")
+    seeded = pyproject.read_text(encoding="UTF-8")
+    assert seeded.count("ignore-hidden = false") == 1
+    pyproject.write_text(
+        seeded.replace("ignore-hidden = false", "ignore-hidden = true"),
+        encoding="UTF-8",
+    )
+    before = pyproject.read_bytes()
+
+    pin_build(version="7.4.2", candidates=_CLOCK_ROBUST_CANDIDATES)
+    result = run_init_here(tmp_path, components=components)
+
+    assert not result.created
+    assert not result.updated
+    assert skill.read_text(encoding="UTF-8") == "Text of the pinned release.\n"
+    assert pyproject.read_bytes() == before
 
 
 def test_run_init_first_adoption_writes_workflows_despite_step_back(

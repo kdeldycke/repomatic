@@ -833,8 +833,10 @@ def run_init(
             floor=floor,
             warnings=result.warnings,
         )
+        # A declined pin declines every component, not the workflows alone: see
+        # `resolve_workflow_pin`.
         if not run.pin.adopts_content:
-            selection.names -= workflow_names
+            selection.names.clear()
 
     tool_configs: list[ToolConfigComponent] = []
     for comp in COMPONENTS:
