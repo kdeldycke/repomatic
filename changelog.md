@@ -21,6 +21,7 @@
 - Fix `repomatic ci-status`, which reported a required job that no runner picked up as a workflow-level error, and one past its timeout as a superseded run.
 - Fix `repomatic ci-status`, which failed with an HTTP `404` on the branch of a pull request from a fork.
 - Fix `repomatic init`, which still rewrote the skills, subagents and tool configs when the cooldown held its pin below the running release.
+- Fix `repomatic init`, which said it pinned the newest cleared release while the cooldown kept every file at an older pin.
 - Fix `repomatic sync-uv-lock`, which gave a held-back release capped by another held-back package an `Eligible` date already past.
 
 ## [`8.2.0` (2026-11-12)](https://github.com/kdeldycke/repomatic/compare/v8.1.0...v8.2.0)

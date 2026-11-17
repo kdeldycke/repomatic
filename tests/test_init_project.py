@@ -89,6 +89,7 @@ from repomatic.init.upgrade import (
     highest_upstream_pin,
     resolve_default_pin,
     resolve_upgrade_target,
+    resolve_workflow_pin,
     upgrade_command,
     upgrade_report,
 )
@@ -1190,6 +1191,28 @@ def test_resolve_default_pin_held_at_floor_warns(pin_build):
     )
     assert len(warnings) == 1
     assert "7.4.2" in warnings[0] and "v7.4.1" in warnings[0]
+
+
+def test_resolve_workflow_pin_names_the_floor_it_keeps(pin_build):
+    """A release cleared above the floor is named, never claimed as the pin.
+
+    `init` carries the content of the running release alone, so it cannot write
+    the cleared release in between: every file stays at the floor.
+    """
+    pin_build(candidates=_CLOCK_ROBUST_CANDIDATES, tag_sha="b" * 40)
+    warnings: list[str] = []
+    pin = resolve_workflow_pin(
+        Config(),
+        version=None,
+        cooldown=True,
+        repo="kdeldycke/repomatic",
+        floor=UpstreamRefPin("7.4.0", "c" * 40),
+        warnings=warnings,
+    )
+    assert not pin.adopts_content
+    assert not any("pinning" in warning for warning in warnings)
+    assert any("v7.4.1" in warning and "--upgrade" in warning for warning in warnings)
+    assert any("managed files at v7.4.0" in warning for warning in warnings)
 
 
 def test_run_init_held_at_floor_leaves_workflows_untouched(tmp_path, pin_build):

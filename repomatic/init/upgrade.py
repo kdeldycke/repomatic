@@ -338,12 +338,24 @@ def resolve_default_pin(
             f"{base} now.",
         )
         return f"v{floor.version}", floor.sha
-    _note_cooldown(
-        warnings,
-        f"repomatic {base} is inside the {config.minimum_release_age} "
-        f"minimum-release-age window; pinning the newest cleared release "
-        f"v{stepped_back.version} instead. Pass --no-cooldown to pin {base}.",
-    )
+    if floor is not None:
+        # `init` carries the content of the running release alone, so it cannot
+        # write the cleared release in between: `resolve_workflow_pin` keeps the
+        # floor, and `init --upgrade` runs the cleared release itself.
+        _note_cooldown(
+            warnings,
+            f"repomatic {base} is inside the {config.minimum_release_age} "
+            f"minimum-release-age window; the newest release past it is "
+            f"v{stepped_back.version}, which init --upgrade adopts. Pass "
+            f"--no-cooldown to adopt {base} now.",
+        )
+    else:
+        _note_cooldown(
+            warnings,
+            f"repomatic {base} is inside the {config.minimum_release_age} "
+            f"minimum-release-age window; pinning the newest cleared release "
+            f"v{stepped_back.version} instead. Pass --no-cooldown to pin {base}.",
+        )
     # Fall back to a bare tag pin when the SHA lookup fails.
     return f"v{stepped_back.version}", resolve_tag_to_sha(repo_url, stepped_back.ref)
 
@@ -425,9 +437,8 @@ def resolve_workflow_pin(
         return WorkflowPin(version, commit_sha)
     _note_cooldown(
         warnings,
-        f"Leaving the managed files at {version}: their content belongs to "
-        f"repomatic {_base_version()}, which the pin above declines. Pass "
-        "--no-cooldown to adopt both together.",
+        f"Leaving the managed files at v{floor.version}: their content belongs "
+        f"to repomatic {_base_version()}, which the cooldown declines.",
     )
     return WorkflowPin(version, commit_sha, adopts_content=False)
 
