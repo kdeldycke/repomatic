@@ -1,9 +1,6 @@
 # Changelog
 
-## [`8.3.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v8.2.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`8.3.0` (2026-11-17)](https://github.com/kdeldycke/repomatic/compare/v8.2.0...v8.3.0)
 
 - Add the `gitleaks-default-rules` check to `lint-repo`, which warns when `[tool.gitleaks]` leaves gitleaks with no rule to scan with.
 - Add the `issue` command, which opens, updates or closes one issue from a title and a body file, for a job outside repomatic.
