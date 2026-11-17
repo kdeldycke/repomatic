@@ -12,6 +12,7 @@
 - `sync-uv-lock` and `sync-tool-versions` now hold back a release with a file that carries no provenance, after a release attested on every file.
 - The `Provenance` column of `sync-uv-lock` and `sync-tool-versions` now flags a release where only some files carry provenance, and a trusted publisher whose workflow changed.
 - The bundled `babysit-ci` skill now names a required job that no runner picked up, or that ran past its timeout, as a failure to re-run.
+- The bundled `typos` template now says that the sync drops a reason written beside `extend-words` or `extend-identifiers`, and where to keep it instead.
 - Fix `repomatic apply-labels`, which failed the labels job on a pull request from a fork instead of skipping the labels with a warning.
 - Fix `repomatic ci-status`, which reported a required job that no runner picked up as a workflow-level error, and one past its timeout as a superseded run.
 - Fix `repomatic ci-status`, which failed with an HTTP `404` on the branch of a pull request from a fork.
