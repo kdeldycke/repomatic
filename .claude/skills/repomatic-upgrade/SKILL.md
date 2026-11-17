@@ -12,6 +12,8 @@ argument-hint: '[vOLD vNEW] [all|workflows|configs|upstream]'
 
 !`git diff HEAD -- .github 2>/dev/null | grep -E '^-.*kdeldycke/repomatic/.*v[0-9]+\.[0-9]+\.[0-9]+' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV | head -1 | sed 's/^/PREVIOUS_PIN_UNCOMMITTED /'`
 
+!`cat .git/repomatic/upgrade.json 2>/dev/null || echo "NO_UPGRADE_RECORD"`
+
 !`git log -1 --format='LAST_WORKFLOW_COMMIT %h %ad %s' --date=short -- .github/workflows 2>/dev/null`
 
 !`[ -d ../repomatic/.git ] && echo "SIBLING_CHECKOUT ../repomatic" || echo "NO_SIBLING_CHECKOUT"`
@@ -28,7 +30,7 @@ argument-hint: '[vOLD vNEW] [all|workflows|configs|upstream]'
 
 You bring a downstream repository in line with `kdeldycke/repomatic`, and you do it in two passes in one session. The first pass works the delta of a newer release. The second audits how far the repository has drifted from the tag it now pins. Both passes share one report.
 
-`repomatic init` prints the command launching this skill as its last next step when it moves the upstream pin. The `sync-repomatic` upgrade pull request invites the maintainer to run it, and so does the `sync-workflow-pins` one when a bump moves `repomatic`.
+`repomatic init` prints the command launching this skill as its last next step when it moves the upstream pin. That run also writes the upgrade record the context prints. The `sync-repomatic` upgrade pull request invites the maintainer to run it, and so does the `sync-workflow-pins` one when a bump moves `repomatic`.
 
 **This skill is for downstream repos only.** If the context shows `CANONICAL_REPO`, tell the user this skill is not applicable.
 
@@ -42,14 +44,23 @@ Both values come from `$ARGUMENTS`, in any order, and neither constrains the oth
 
 - **The version pair** drives the first pass, which runs whenever a previous pin is known. Take it from the first source that carries it:
   1. A `vOLD vNEW` pair in `$ARGUMENTS`.
-  2. The uncommitted diff: the removed `uses:` lines carry the previous pin, the added ones the adopted pin. The context prints it as `PREVIOUS_PIN_UNCOMMITTED`.
-  3. The last upgrade commit: `git log -p -1 -- .github/workflows`, reading the previous pin off its removed `uses:` lines.
-  4. Nowhere: the first pass has no delta to review. Skip it and audit alone.
+  2. The upgrade record, through its `previous_pin` and `adopted_pin` fields (§ Read the upgrade record).
+  3. The uncommitted diff: the removed `uses:` lines carry the previous pin, the added ones the adopted pin. The context prints it as `PREVIOUS_PIN_UNCOMMITTED`.
+  4. The last upgrade commit: `git log -p -1 -- .github/workflows`, reading the previous pin off its removed `uses:` lines.
+  5. Nowhere: the first pass has no delta to review. Skip it and audit alone.
 - **The scope** drives the second pass, and defaults to `all`:
   - `all`: run every audit area below.
   - `workflows`: audit workflow files only.
   - `configs`: audit non-workflow config files only.
   - `upstream`: identify downstream innovations that could be contributed back to `repomatic`.
+
+### Read the upgrade record
+
+A `repomatic init` run that moves the upstream pin records itself in `.git/repomatic/upgrade.json`. It lists the paths the run wrote and deleted, the commit it started from as `head`, the paths already uncommitted then as `modified_before`, and the warnings it printed. The context prints the file, or `NO_UPGRADE_RECORD`. In a linked worktree, read it at the path `git rev-parse --git-path repomatic/upgrade.json` prints.
+
+- **Use the record only when its `adopted_pin` is the `ADOPTED_PIN`.** Any other record describes an earlier move.
+- **Take its findings as rows.** Each line of its `warnings` and each pair of its `removed_review` is one: `init` printed them once, before this session started, and no later run prints them again.
+- **Without a record, take the findings from the move itself.** Read the `repomatic init` output section of the `sync-repomatic` pull request that made it. Otherwise, find them as the sections below describe.
 
 ### Read upstream at the adopted tag
 
@@ -75,6 +86,23 @@ Before flagging an issue, verify that the gap isn't **deliberate** or covered by
 - **A `[tool.X]` section is never a candidate for deletion.** The inverse of the rule above, and the more expensive mistake. Every other tool has no `default_config`, so its resolution chain has no level 3 to fall back on: `lychee`, `typos`, `mypy`, `pytest`, `coverage`, `bumpversion` and `uv` are *deployed* into `pyproject.toml` by `repomatic init`, and that section is the only config the tool will ever see. Deleting it does not restore inheritance from a bundled default, it drops the tool to level 4 and runs it bare, silently discarding every rule the section held. Read the tool's `default_config` before proposing a section be dropped "to inherit upstream updates".
 
 When in doubt, search the upstream codebase to confirm whether a behavior is intentional. Read `[tool.repomatic]` in the local `pyproject.toml` carefully before declaring anything missing.
+
+### Commit the upgrade first
+
+The upgrade gets a commit of its own, before the review changes any file. § Run the machinery first then reads the upgraded `HEAD`, so each hunk it finds is real drift. Skip this section when the context shows no `PREVIOUS_PIN_UNCOMMITTED`: the upgrade is committed already.
+
+1. **List the paths of the upgrade.** Take the `created`, `updated` and `deleted` lists of the record when its `head` is `HEAD`. Without such a record, show `git status --short` and ask the user which paths belong to the upgrade.
+
+2. **Ask before you commit a path the record lists under `modified_before`.** It held uncommitted work before the upgrade, which the commit would take along: show its diff first.
+
+3. **Commit those paths alone.** Another session can share the working tree and its index, so never run `git commit --all`, and never commit the whole index:
+
+   ```shell-session
+   $ git add --all -- {paths}
+   $ git commit --message 'Upgrade `repomatic` to `vNEW`' -- {paths}
+   ```
+
+   The subject is the title of the `sync-repomatic` pull request, so the history reads the same whichever way the upgrade came.
 
 ### Run the machinery first
 
@@ -112,10 +140,10 @@ For each bullet outside the skip bin, find what it touches here. Grep the source
 - **A new job, skill or subagent.** Check `[tool.repomatic] exclude` before proposing it: an excluded component is a decision, not a gap.
 - **A dropped or renamed surface.** Grep `tests.yaml`, any other header-only workflow, and local scripts for the old name.
 - **An upstream fix.** Search comments and workflow steps for the workaround it retires: `work around`, `XXX`, `TODO`, version-guarded branches, and inline pins of the tool it fixed.
-- **A generator change**, like a thin caller gaining a trigger or a header gaining `paths:`. Read `git diff HEAD -- .github/workflows` against the changelog, so a diff the release explains is never reported as drift. When the upgrade is already committed, that diff is empty: the generator run (§ Run the machinery first) then proves the commit regenerated every managed file instead of moving the pins by hand.
+- **A generator change**, like a thin caller gaining a trigger or a header gaining `paths:`. Read the diff of the upgrade commit, `git log -p -1 -- .github/workflows`, against the changelog, so a diff the release explains is never reported as drift. The generator run (§ Run the machinery first) then proves the commit regenerated every managed file instead of moving the pins by hand.
 - **A shifted test matrix axis.** Run `show-metadata --output-format json test_matrix test_matrix_pr` at both pins and compare the cells. A pin before `8.0.0` spells that option `--format`. A `[tool.repomatic] test-matrix.exclude` entry names a literal version, so a release that moves the Python axis can make it drop the new stable version and keep the old floor.
 - **A changed job.** Before you report it as adopted, call the released code on this repository's real inputs. An open pull request from that job shows only what its last run did, and that run can predate the adopted pin. A job that reads a file from another project also stops working when that file moves. A change to the binary build shows only in the self-test of the binaries `Build & release` compiles, which the Tests workflow never runs. A push to `main` compiles one target only, so run `gh workflow run release.yaml --ref main`, which builds every target, and read the self-test of each.
-- **A synced skill or subagent.** `repomatic init` rewrites every bundled copy verbatim, so the upgrade also reverts each local commit made to one since the last sync. Take every copy under `skills.location` and `subagents.location` as it stood before the upgrade. That is `HEAD` while the upgrade is uncommitted, and the upgrade commit's parent once it landed. Compare it with upstream's `.claude/skills/{name}/SKILL.md` or `.claude/agents/{name}.md` at `vOLD`. Read those paths, not `repomatic/data/skills/`: its entries are symlinks, and `git show` returns their target path. A copy that matches neither `vOLD` nor any upstream commit between the two tags carries local edits. Upstream holds them already when they were ported before the release. To know, write the three states to files and run `git merge-file -p {vNEW copy} {vOLD copy} {local copy}`. An output equal to the `vNEW` copy means the upgrade drops nothing. Any other output holds edits that the upgrade drops, so report them as a `breaking` row. Then read the same path on upstream `main`, which decides the action and never the status. Edits `main` already holds ship with the next release, so the row only asks to leave the `sync-repomatic` pull request unmerged until then. Port the edits it lacks.
+- **A synced skill or subagent.** `repomatic init` rewrites every bundled copy verbatim, so the upgrade also reverts each local commit made to one since the last sync. When the record's `warnings` hold no `Could not read` line, check only the copies its `overwritten_edits` lists: `init` matched every other one against a file `vOLD` bundled. Take each copy under `skills.location` and `subagents.location` as it stood before the upgrade: at the record's `head`, or else at the parent of the upgrade commit. Compare it with upstream's `.claude/skills/{name}/SKILL.md` or `.claude/agents/{name}.md` at `vOLD`. Read those paths, not `repomatic/data/skills/`: its entries are symlinks, and `git show` returns their target path. A copy that matches neither `vOLD` nor any upstream commit between the two tags carries local edits. Upstream holds them already when they were ported before the release. To know, write the three states to files and run `git merge-file -p {vNEW copy} {vOLD copy} {local copy}`. An output equal to the `vNEW` copy means the upgrade drops nothing. Any other output holds edits that the upgrade drops, so report them as a `breaking` row. Then read the same path on upstream `main`, which decides the action and never the status. Edits `main` already holds ship with the next release, so the row only asks to hold the upgrade back until then: leave the `sync-repomatic` pull request unmerged, or the upgrade commit unpushed. Port the edits it lacks.
 - **A new `lint-repo` check.** Read its line in the `lint-repo` output: a check that passes here offers nothing.
 - **A seeded tool config that lacks a bundled template entry.** `init` writes `[tool.ruff]`, `[tool.pytest]`, `[tool.coverage]`, `[tool.mypy]` and `[tool.mdformat]` once, and `lint-repo` names each entry such a section lacks. Copy the entry when it applies here. Record one that the repository leaves out on purpose under `[tool.repomatic] lint-repo.declined`, with the reason its instructions or comments give. The key is the tool, then the path of the entry in its section, like `mypy.warn_unreachable = "{reason}"`. For one member of a list, add the member as `lint-repo` prints it, like `pytest.addopts."--numprocesses=logical" = "{reason}"`. Ask the user when no reason is stated. Never copy an entry only to silence the warning.
 - **A tool the registry bumped.** The changelog often leaves a tool version bump out. Run `<cmd> run mypy` and `<cmd> run ruff -- check --no-fix` once on the untouched tree, then the same two commands at `vOLD`. A finding that only the new pin reports is a row. When the release adds the gating job itself, every finding it fails on is a row, old ones included. A new `mypy` error is a `breaking` row: the `lint-types` job fails on it. So is a new `ruff` finding that no safe fix clears, which fails `lint-python`. A bumped pin still inside the cooldown is a `breaking` row too. `lint-repo` warns that `repomatic run` cannot install it before the date it names, and every job that runs the tool fails until then. For Nuitka that job is the binary build, so a release cut in that window ships without binaries. Admit the pin with the `[tool.uv] exclude-newer-package` entry the warning gives, or hold releases until that date.
@@ -194,17 +222,19 @@ Give every row and every list item an ID, so the user can answer "apply `F3`" or
 
 1. **Apply one row at a time, breaking rows first.** Keep each change readable on its own in `git diff`. Pass 2 findings wait until every pass 1 row is settled.
 
-2. **Keep the local edits a synced copy carries.** Restore the file as it stood before the upgrade when upstream left it unchanged between the two tags. Otherwise keep that `git merge-file` output as the new copy, once its conflicts are resolved. To re-apply one local commit instead, `git apply -C1` gets past a context line upstream reworded. Then port the edits upstream `main` lacks, as step 4 describes, or the next sync reverts them again.
+2. **Keep the local edits a synced copy carries.** Restore the file as it stood before the upgrade when upstream left it unchanged between the two tags. Otherwise keep that `git merge-file` output as the new copy, once its conflicts are resolved. To re-apply one local commit instead, `git apply -C1` gets past a context line upstream reworded. Write the restored copy with your file-editing tool when a shell write fails: a sandbox can deny one to a skill or agent folder, `git checkout` and `git apply` included. Then port the edits upstream `main` lacks, as step 4 describes, or the next sync reverts them again.
 
 3. **Run the local checks after each row.** The project's tests, `mypy` and `ruff`, plus `<cmd> lint-repo --repo {owner}/{repo}` when the row touched `.github/` or `pyproject.toml`. After a row that touched a workflow, also run `<cmd> run actionlint`, which parses its `${{ }}` expressions. A failing check vetoes the row: revert it and note it in the report. Never loosen a test to pass.
 
 4. **Send generator problems upstream, as edits in the sibling checkout.** When a row needs a change in `repomatic` itself (a generator writing something unwanted, a missing knob, a docs gap, a lesson a synced copy carries) and the context shows `SIBLING_CHECKOUT`, implement it in `../repomatic`: the code, the tests it breaks, and a changelog bullet. Verify it there. `repomatic run typos` and `mdformat` rewrite files in place and print no findings, so judge them by `git diff`. Another session may share that checkout: edit only the files the row needs, and name them in the report so they can be committed by pathspec. Leave every change uncommitted. Without a sibling checkout, describe the change in the report instead.
 
-5. **Never commit, push, or open an issue or pull request.** The user reviews the working tree and decides.
+5. **Commit the applied rows in one commit, after the upgrade commit.** Stage only the files the rows changed in this repository, as § Commit the upgrade first does: `git add --all -- {paths}`, then `git commit -- {paths}`. Name the changes in the subject, and add one body line per change only when the subject cannot name them all. A row a check vetoed stays out.
 
-6. **Close with two short lists.** Keep the tables as the record, then end the answer with two lists, a few words per item, in place of prose about what was applied or skipped. Start each item with its ID, then the row IDs it settles, like `- T1 Decide: (F4) …`:
+6. **Never push, and never open an issue or pull request.** The user reviews both commits and decides.
 
-   - **Done**, numbered `D1`, `D2`, …: each applied row, with the files it changed, from either pass. A `breaking` row carries the detail it needs as sub-bullets here, and a row that needed no local edit stays in its table's closing line.
+7. **Close with two short lists.** Keep the tables as the record, then end the answer with two lists, a few words per item, in place of prose about what was applied or skipped. Start each item with its ID, then the row IDs it settles, like `- T1 Decide: (F4) …`:
+
+   - **Done**, numbered `D1`, `D2`, …: each applied row, with the files it changed and the short SHA of its commit, from either pass. A `breaking` row carries the detail it needs as sub-bullets here, and a row that needed no local edit stays in its table's closing line.
    - **Left to do**, numbered `T1`, `T2`, …: each remaining action, ordered so it can be executed top to bottom, prefixed with one of these five labels and nothing else. Put `Decide:` items first, since an answer can add work below them.
      - `Decide:` a change this pass proposed and the user has not approved, or a choice between options. End the item with the answer you recommend.
      - `Implement:` code or a docs entry to write, naming the checkout when it is not this one.

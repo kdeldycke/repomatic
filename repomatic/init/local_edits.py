@@ -120,34 +120,36 @@ class LocalEditGuard:
         """
         return shipped_digests(self.package, self.previous)
 
-    def check(self, label: str, current: str, new: str) -> str | None:
-        """The warning to give when *new* replaces *current*.
+    def check(self, label: str, current: str, new: str) -> tuple[bool, str | None]:
+        """Whether *new*, replacing *current*, loses a local edit, and the warning.
 
         :param label: The repository-relative path of the copy.
         :param current: The text of the copy on disk.
         :param new: The bundled text about to replace it.
-        :return: A warning when *current* matches no file {attr}`previous`
-            bundled. One warning for the whole run when that release cannot be
-            read. `None` otherwise, as for a change of trailing whitespace only.
+        :return: `(lost, warning)`. *lost* is `True` and *warning* names the
+            copy when *current* matches no file {attr}`previous` bundled. When
+            that release cannot be read, *lost* is `False`, and one warning for
+            the whole run says nothing was checked. Otherwise `(False, None)`,
+            as for a change of trailing whitespace only.
         """
         if normalize_text(current) == normalize_text(new):
-            return None
+            return False, None
         # When the repository already pins the running release, that release
         # bundled *new* itself, so any other text is a local edit.
         if not pins_running_release(f"v{self.previous}"):
             shipped = self.shipped
             if shipped is None:
                 if self._reported_unread:
-                    return None
+                    return False, None
                 self._reported_unread = True
-                return (
+                return False, (
                     f"Could not read the {self.package} `{self.previous}` wheel"
                     " from PyPI, so no overwritten skill or agent was checked for"
                     " local edits."
                 )
             if RemovedAsset.digest(current) in shipped:
-                return None
-        return (
+                return False, None
+        return True, (
             f"Overwrote local edits in {label}: it matches no file"
             f" {self.package} `{self.previous}` bundled. Restore them from git"
             " and port them upstream, or the next sync reverts them again."

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import json
 import re
 import subprocess
 from datetime import date, timedelta
@@ -71,6 +72,7 @@ from repomatic.init.local_edits import shipped_digests
 from repomatic.init.removed_assets import detect_removed_assets
 from repomatic.init.run import (
     AWESOME_TEMPLATE_URL_RE,
+    UPGRADE_RECORD,
     DeletionPolicy,
     InitResult,
     ReportSection,
@@ -93,12 +95,14 @@ from repomatic.init.upgrade import (
     upgrade_command,
     upgrade_report,
 )
-from repomatic.skills import SKILL_PHASE_ORDER, SKILL_PHASES
+from repomatic.skills import SKILL_PHASE_ORDER, SKILL_PHASES, UPGRADE_SKILL
 from repomatic.tooling.registry import TOOL_REGISTRY
 from repomatic.tooling.runner import run_tool
 from tests.conftest import (
     PROJECT_ROOT,
     assert_shipped_text_reads_true_downstream,
+    run_git,
+    seed_commit,
     skip_unless_tool_runs,
 )
 
@@ -1446,7 +1450,8 @@ def test_init_cli_names_the_tool_pins_still_inside_the_cooldown(
     steps = cli_result.output.split("Next steps:", 1)[1]
     assert "1. Each job that installs one of these tool pins fails" in steps
     assert "     `repomatic run papaya` cannot install 1.2.3 yet." in steps
-    assert steps.index("papaya") < steps.index("Commit the generated files and push.")
+    assert steps.index("papaya") < steps.index("/repomatic-upgrade")
+    assert "Commit the generated files" not in steps
     assert "admitted by its entry" not in cli_result.output
     assert "skipped for kiwi" not in cli_result.output
 
@@ -1519,6 +1524,118 @@ def test_next_steps_mention_the_setup_issues_after_a_workflow_write():
     assert steps[0] == "Commit the generated files and push."
     assert "open issues" in steps[1]
     assert len(steps) == 2
+
+
+def test_next_steps_hand_a_pin_move_to_the_review():
+    """A moved pin ends on the review, which commits: no step pushes before it.
+
+    A push ahead of the review would publish the copies whose local edits the
+    run overwrote, and the repository pushed its first workflows long ago.
+    """
+    result = InitResult(
+        updated=[".github/workflows/lint.yaml"],
+        previous_pin="7.4.1",
+        adopted_pin="7.4.2",
+    )
+
+    steps = result.next_steps(Path("papaya"), Config())
+
+    assert len(steps) == 1
+    assert "claude --model opus '/repomatic-upgrade v7.4.1 v7.4.2'" in steps[0]
+    assert "commits the upgrade, then its own changes, and pushes nothing" in steps[0]
+
+
+def test_next_steps_skip_the_setup_issues_on_a_regeneration():
+    """A repository already pinning a release pushed its workflows before."""
+    result = InitResult(
+        updated=[".github/workflows/lint.yaml"],
+        previous_pin="7.4.2",
+        adopted_pin="7.4.2",
+    )
+
+    assert result.next_steps(Path("papaya"), Config()) == [
+        "Commit the generated files and push."
+    ]
+
+
+# --- Upgrade record ---
+
+
+@pytest.fixture
+def git_tree(tmp_path: Path, hermetic_git) -> Path:
+    """A git work tree at *tmp_path*, holding one commit."""
+    run_git("init", "--initial-branch=main", cwd=tmp_path)
+    seed_commit(tmp_path, "readme.md", "Papaya orchard.\n", "Plant the orchard")
+    return tmp_path
+
+
+def test_init_records_a_pin_move_in_the_git_directory(git_tree, pin_build):
+    """The record lists what the run wrote, and the commit and tree it found."""
+    pin_build(version="7.4.1", sha="c" * 40)
+    run_init_here(git_tree, components=("workflows",), cooldown=False)
+    run_git("add", "--all", cwd=git_tree)
+    run_git(
+        "-c",
+        "user.name=Seeder",
+        "-c",
+        "user.email=seeder@example.com",
+        "commit",
+        "--message",
+        "Adopt the workflows",
+        cwd=git_tree,
+    )
+    head = run_git("rev-parse", "HEAD", cwd=git_tree).strip()
+    (git_tree / "notes.md").write_text("Kiwi harvest.\n", encoding="UTF-8")
+
+    pin_build(version="7.4.2", sha="a" * 40)
+    cli_result = CliRunner().invoke(
+        repomatic,
+        ["init", "workflows", "--no-cooldown", "--output-dir", str(git_tree)],
+    )
+
+    assert cli_result.exit_code == 0, cli_result.output
+    record_path = git_tree / ".git" / UPGRADE_RECORD
+    record = json.loads(record_path.read_text(encoding="UTF-8"))
+    assert (record["previous_pin"], record["adopted_pin"]) == ("7.4.1", "7.4.2")
+    assert record["head"] == head
+    assert record["modified_before"] == ["notes.md"]
+    assert ".github/workflows/lint.yaml" in record["updated"]
+    assert record["deleted"] == []
+    # Git never tracks the record, so a commit of the upgrade cannot take it.
+    status = run_git("status", "--porcelain", "--untracked-files=all", cwd=git_tree)
+    assert UPGRADE_RECORD not in status
+
+
+def test_init_records_no_first_adoption(git_tree, pin_build):
+    """A first adoption moves no pin, so it reads no tree and leaves no record."""
+    pin_build(version="7.4.2", sha="a" * 40)
+
+    result = run_init_here(git_tree, components=("workflows",), cooldown=False)
+
+    assert result.head is None
+    assert result.write_record(git_tree, DeletionPolicy()) is None
+    assert not (git_tree / ".git" / "repomatic").exists()
+
+
+def test_init_records_nothing_outside_a_git_work_tree(tmp_path, pin_build):
+    """A pin move in a directory git does not track has nowhere to record."""
+    pin_build(version="7.4.1", sha="c" * 40)
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
+    pin_build(version="7.4.2", sha="a" * 40)
+
+    result = run_init_here(tmp_path, components=("workflows",), cooldown=False)
+
+    assert result.upgraded_pin() == ("7.4.1", "7.4.2")
+    assert result.head is None
+    assert result.write_record(tmp_path, DeletionPolicy()) is None
+
+
+def test_upgrade_skill_reads_the_record_init_writes():
+    """The context of the upgrade skill prints the file `write_record` writes."""
+    entry = COMPONENTS_BY_NAME["skills"].entry(UPGRADE_SKILL)
+    assert entry is not None
+    body = get_data_content(f"{entry.source}/{SKILL_FILENAME}")
+    assert f"!`cat .git/{UPGRADE_RECORD} " in body
 
 
 def test_run_init_no_cooldown_skips_datasource(tmp_path, monkeypatch, pin_build):
@@ -5561,6 +5678,7 @@ def test_init_warns_on_an_overwritten_local_edit(
     for warning in warnings:
         assert target in warning
         assert "`7.4.1`" in warning
+    assert result.overwritten_edits == ([target] if edited else [])
 
 
 def test_init_ignores_a_trailing_whitespace_change(
@@ -5615,6 +5733,7 @@ def test_init_at_the_running_release_reads_no_wheel(
     warnings = _edit_warnings(result.warnings)
     assert len(warnings) == 1
     assert _SKILL_TARGET in warnings[0]
+    assert result.overwritten_edits == [_SKILL_TARGET]
 
 
 def test_init_reports_an_unreadable_wheel_once(
@@ -5635,6 +5754,8 @@ def test_init_reports_an_unreadable_wheel_once(
 
     assert {_SKILL_TARGET, _AGENT_TARGET} <= set(result.updated)
     assert not _edit_warnings(result.warnings)
+    # A copy nothing could check is unknown, not a lost edit.
+    assert result.overwritten_edits == []
     unread = [warning for warning in result.warnings if "Could not read" in warning]
     assert len(unread) == 1
     assert "`7.4.1`" in unread[0]

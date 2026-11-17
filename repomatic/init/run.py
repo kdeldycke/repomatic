@@ -23,9 +23,10 @@ single file within a component.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from dataclasses import dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 from functools import cached_property
 from importlib.resources import files
@@ -54,6 +55,7 @@ from ..components import (
     parse_component_entries,
 )
 from ..file_ops import normalize_text, unlink_with_empty_parents, write_if_changed
+from ..git_ops import git_dir_path, read_work_tree
 from ..github.labels import extra_label_filename
 from ..github.urls import repo_name
 from ..github.workflow_files import WORKFLOW_DIR, parse_workflow_texts
@@ -124,6 +126,14 @@ fragment, or the end of the link.
 
 TEMPLATE_TREE_SKIPPED = frozenset(("__init__.py", "__pycache__"))
 """Entries of a bundled tree that make it a package, not part of the template."""
+
+UPGRADE_RECORD = "repomatic/upgrade.json"
+"""Path of the upgrade record inside the git directory.
+
+{meth}`InitResult.write_record` writes it on a run that moves the upstream pin,
+and the context of the `repomatic-upgrade` skill prints it from
+`.git/repomatic/upgrade.json`, so the two must name the same file.
+"""
 
 
 class ReportSection(Enum):
@@ -239,6 +249,10 @@ class InitResult:
     warnings: list[str] = field(default_factory=list)
     """Warning messages emitted during initialization."""
 
+    overwritten_edits: list[str] = field(default_factory=list)
+    """Relative paths of the skill and agent copies whose local edits the run
+    overwrote. A warning names each one too."""
+
     previous_pin: str | None = None
     """Bare version of the highest upstream `uses:` pin the repository carried
     before the run, read only when a workflow component was selected. `None`
@@ -251,6 +265,17 @@ class InitResult:
     tool_pins_in_cooldown: list[str] = field(default_factory=list)
     """The `lint-repo` line of each registry tool pin that the cooldown still
     holds back, filled only when the run moved the upstream pin forward."""
+
+    head: str | None = None
+    """Full SHA of the commit the run started from, read before any write by a
+    run that regenerates the workflows of a repository already pinning a
+    release. `None` otherwise, outside the top level of a git work tree, or
+    before its first commit."""
+
+    modified_before: list[str] = field(default_factory=list)
+    """Relative paths `git status` listed before the run wrote anything, read
+    with {attr}`head`. A commit of the paths the run wrote takes the earlier
+    changes to these along."""
 
     def record(self, path: str, *, existed: bool, verb: str = "") -> None:
         """File a written *path* as created or updated, and log it.
@@ -299,6 +324,55 @@ class InitResult:
                 else:
                     target.unlink()
 
+    def deleted(self, policy: DeletionPolicy) -> list[str]:
+        """The paths {meth}`prune` deletes under *policy*, in report order."""
+        return [
+            path
+            for section in ReportSection
+            if policy.deletes(section)
+            for path in self.paths(section)
+        ]
+
+    def write_record(self, output_dir: Path, policy: DeletionPolicy) -> Path | None:
+        """Record a run that moved the upstream pin, for the upgrade review.
+
+        The `repomatic-upgrade` skill reads the record in a later session. Its
+        file lists let the skill commit the upgrade alone, apart from any other
+        uncommitted work. Its warnings are the only copy of what the run found:
+        once the copies on disk match the bundled ones, no later run warns
+        about the local edits it overwrote.
+
+        The record is every field of the report, plus the `deleted` paths. It
+        sits in the git directory, at {data}`UPGRADE_RECORD`, so git never
+        tracks it, and each pin move overwrites it.
+
+        :param output_dir: Root of the target repository.
+        :param policy: The deletion policy {meth}`prune` applied.
+        :return: The path written, or `None` when the run moved no pin forward,
+            when *output_dir* is not the top level of a git work tree, or when
+            the write failed.
+        """
+        if self.upgraded_pin() is None:
+            return None
+        target = git_dir_path(output_dir, UPGRADE_RECORD)
+        if target is None:
+            return None
+        content = json.dumps(
+            {**asdict(self), "deleted": self.deleted(policy)},
+            indent=2,
+            ensure_ascii=False,
+        )
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(f"{content}\n", encoding="UTF-8")
+        except OSError as error:
+            # Every file is written by now: a missing record costs the review
+            # its shortcuts, not the run its result.
+            logging.warning(f"Could not write the upgrade record {target}: {error}")
+            return None
+        logging.info(f"Recorded the pin move for the upgrade review: {target}")
+        return target
+
     def upgraded_pin(self) -> tuple[str, str] | None:
         """`(previous, adopted)` when the run moved the upstream pin forward.
 
@@ -321,6 +395,12 @@ class InitResult:
         input for the command about to read it, so it has nothing to commit and
         no step at all.
 
+        A run that moved the upstream pin leaves the commit to the upgrade
+        review, which commits the upgrade on its own before it changes a file.
+        A push before the review would publish the copies whose local edits the
+        run overwrote. Such a run also skips the first-push step: only a first
+        adoption pushes its workflows for the first time.
+
         :param output_dir: Root of the target repository.
         :param config: The resolved configuration, for the skills location.
         :return: One text per step. A step spanning several lines indents its
@@ -331,8 +411,8 @@ class InitResult:
             return []
         steps = []
         if self.tool_pins_in_cooldown:
-            # The entry that admits a pin belongs in the commit that moves it,
-            # so this step comes before that commit.
+            # Each of these pins fails a job from the first push on, so it comes
+            # before whatever commits the run.
             lines = [
                 (
                     "Each job that installs one of these tool pins fails until the"
@@ -341,25 +421,22 @@ class InitResult:
                 *(f"  {line}" for line in self.tool_pins_in_cooldown),
             ]
             steps.append("\n".join(lines))
-        steps.append("Commit the generated files and push.")
-        workflow_prefix = f"{WORKFLOW_DIR.as_posix()}/"
-        if any(path.startswith(workflow_prefix) for path in touched):
-            steps.append(
-                "On first push, workflows will detect missing configuration and"
-                " open issues\nwith setup instructions."
-            )
         moved = self.upgraded_pin()
         if moved:
             previous, adopted = moved
             # A moved pin is the moment to read what the new release offers,
             # and the one this run knows both versions of. The same session then
-            # audits the drift against the adopted tag.
+            # audits the drift against the adopted tag, and commits both.
             lines = [
                 (
                     f"Apply what repomatic v{previous} to v{adopted} lets this"
                     " repository adopt or drop, then audit its drift:"
                 ),
                 f"  {skill_launcher(UPGRADE_SKILL, f'v{previous}', f'v{adopted}')}",
+                (
+                    "The skill commits the upgrade, then its own changes, and"
+                    " pushes nothing."
+                ),
             ]
             skills = COMPONENTS_BY_NAME["skills"]
             skill_dir = skills.resolve_target(
@@ -371,6 +448,16 @@ class InitResult:
                     f' skills/{UPGRADE_SKILL}" first, or use the Claude Code plugin.'
                 )
             steps.append("\n".join(lines))
+            return steps
+        steps.append("Commit the generated files and push.")
+        workflow_prefix = f"{WORKFLOW_DIR.as_posix()}/"
+        if self.previous_pin is None and any(
+            path.startswith(workflow_prefix) for path in touched
+        ):
+            steps.append(
+                "On first push, workflows will detect missing configuration and"
+                " open issues\nwith setup instructions."
+            )
         return steps
 
 
@@ -512,7 +599,10 @@ class _InitRun:
         guard = self.edit_guard
         if guard is None:
             return
-        message = guard.check(self.label(target), current, new)
+        label = self.label(target)
+        lost, message = guard.check(label, current, new)
+        if lost:
+            self.result.overwritten_edits.append(label)
         if message:
             self.result.warn(message)
 
@@ -837,6 +927,13 @@ def run_init(
         # `resolve_workflow_pin`.
         if not run.pin.adopts_content:
             selection.names.clear()
+        elif floor is not None:
+            # Read before any write, for the record of a pin move: see
+            # `InitResult.write_record`.
+            state = read_work_tree(output_dir)
+            if state is not None:
+                result.head = state.head
+                result.modified_before = list(state.uncommitted)
 
     tool_configs: list[ToolConfigComponent] = []
     for comp in COMPONENTS:

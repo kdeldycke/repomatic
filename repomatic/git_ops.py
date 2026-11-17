@@ -283,6 +283,78 @@ def changed_paths() -> tuple[str, ...]:
     return tuple(sorted({entry[3:] for entry in output.split("\0") if entry}))
 
 
+class WorkTreeState(NamedTuple):
+    """The commit and the uncommitted paths of a work tree, read at one moment."""
+
+    head: str | None
+    """Full SHA of `HEAD`, or `None` before the first commit."""
+
+    uncommitted: tuple[str, ...]
+    """The paths `git status` lists, sorted: staged, unstaged, deleted or
+    untracked, each relative to the top level."""
+
+
+def _is_top_level(root: Path) -> bool:
+    """Whether *root* is the top level of a git work tree."""
+    process = _git("-C", str(root), "rev-parse", "--show-toplevel", check=False)
+    if process.returncode:
+        return False
+    return Path(process.stdout.strip()).resolve() == root.resolve()
+
+
+def read_work_tree(root: Path) -> WorkTreeState | None:
+    """Read the commit and the uncommitted paths of the work tree at *root*.
+
+    A probe. Runs with `--no-optional-locks`, so a read beside another git
+    process never stops on its `index.lock`.
+
+    :param root: The directory to read, not necessarily the current one.
+    :return: `None` when *root* is not the top level of a work tree, where the
+        paths a caller holds relative to *root* would not match the ones git
+        lists.
+    """
+    if not _is_top_level(root):
+        return None
+    head = _git(
+        "-C", str(root), "rev-parse", "--verify", "--quiet", "HEAD", check=False
+    ).stdout.strip()
+    status = _git(
+        "--no-optional-locks",
+        "-C",
+        str(root),
+        "status",
+        "--porcelain",
+        "-z",
+        "--untracked-files=all",
+        "--no-renames",
+        check=False,
+    )
+    if status.returncode:
+        return None
+    # Each entry is two status letters and a space, then the path.
+    paths = {entry[3:] for entry in status.stdout.split("\0") if entry}
+    return WorkTreeState(head or None, tuple(sorted(paths)))
+
+
+def git_dir_path(root: Path, name: str) -> Path | None:
+    """The path *name* takes inside the git directory of the work tree at *root*.
+
+    A probe. Resolved by `git rev-parse --git-path`, so each linked worktree
+    gets a path of its own, and git never tracks the file.
+
+    :param root: The top level of the work tree.
+    :param name: A path relative to the git directory.
+    :return: `None` when *root* is not the top level of a work tree.
+    """
+    if not _is_top_level(root):
+        return None
+    process = _git("-C", str(root), "rev-parse", "--git-path", name, check=False)
+    if process.returncode:
+        return None
+    # Relative to *root* in a plain checkout, absolute in a linked worktree.
+    return root / process.stdout.strip()
+
+
 def show_file(ref: str, path: str) -> str | None:
     """Return the content of *path* at *ref*, read from the object store.
 

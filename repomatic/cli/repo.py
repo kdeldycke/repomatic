@@ -556,6 +556,7 @@ def init(
         repo=repo,
     )
     result.prune(output_dir, policy)
+    result.write_record(output_dir, policy)
     _print_init_report(result, policy)
     _print_next_steps(result.next_steps(output_dir, config))
 

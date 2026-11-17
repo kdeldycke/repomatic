@@ -52,7 +52,7 @@ assert result.exit_code == 0
 The typical lifecycle for maintaining a downstream repository follows this sequence. Each skill suggests next steps after completing, creating a guided flow:
 
 1. `/repomatic-init` — One-time setup: bootstrap workflows, labels, and configs
-2. `/repomatic-upgrade` — After each `repomatic` upgrade: adopt, reuse or drop what the new release changed, then audit the repository against the tag it now pins. `repomatic init` prints the command launching it whenever it moves the upstream pin
+2. `/repomatic-upgrade` — After each `repomatic` upgrade: adopt, reuse or drop what the new release changed, then audit the repository against the tag it now pins. `repomatic init` prints the command launching it whenever it moves the upstream pin. The skill commits the upgrade, then its own changes, and pushes nothing
 3. `/repomatic-deps` — As needed: visualize the dependency tree
 4. `/repomatic-changelog` — Before release: draft and validate changelog entries
 5. `/repomatic-ship` — Release time: reconcile, commit, push, and babysit CI to a ready-to-merge release PR

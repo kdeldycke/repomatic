@@ -31,6 +31,7 @@ from repomatic.git_ops import (
     COMMIT_IDENTITY_NAME,
     GitError,
     LeaseRejected,
+    WorkTreeState,
     changed_paths,
     checkout,
     commit_exists,
@@ -51,11 +52,13 @@ from repomatic.git_ops import (
     get_commit,
     get_latest_tag_version,
     get_release_version_from_commits,
+    git_dir_path,
     head_sha,
     is_ancestor,
     is_shallow,
     list_commits,
     merge_base,
+    read_work_tree,
     rebase_onto,
     restore_paths,
     show_file,
@@ -118,6 +121,57 @@ def test_show_file_reads_a_past_commit_in_place(git_workdir):
     assert show_file(tip, "seed.txt") == "changed\n"
     assert show_file(first, "missing.txt") is None
     assert head_sha() == tip
+
+
+# --- Work tree probes ---
+
+
+def test_read_work_tree_lists_every_uncommitted_path(git_workdir):
+    """Staged, unstaged, deleted and untracked paths all count, by their name."""
+    seed_commit(git_workdir, "fruits.txt", "papaya\n", "Add fruits")
+    (git_workdir / "seed.txt").write_text("changed\n", encoding="UTF-8")
+    run_git("rm", "--quiet", "fruits.txt", cwd=git_workdir)
+    orchard = git_workdir / "orchard"
+    orchard.mkdir()
+    (orchard / "kiwi pear.txt").write_text("kiwi\n", encoding="UTF-8")
+
+    assert read_work_tree(git_workdir) == WorkTreeState(
+        head_sha(), ("fruits.txt", "orchard/kiwi pear.txt", "seed.txt")
+    )
+
+
+def test_read_work_tree_before_the_first_commit(tmp_path, hermetic_git):
+    """A tree with no commit yet has no `HEAD` to name."""
+    run_git("init", "--initial-branch=main", cwd=tmp_path)
+    (tmp_path / "seed.txt").write_text("seed\n", encoding="UTF-8")
+
+    assert read_work_tree(tmp_path) == WorkTreeState(None, ("seed.txt",))
+
+
+def test_work_tree_probes_need_the_top_level(git_workdir, tmp_path):
+    """A directory below the top level, or outside any tree, reads as `None`."""
+    orchard = git_workdir / "orchard"
+    orchard.mkdir()
+    meadow = tmp_path / "meadow"
+    meadow.mkdir()
+
+    for directory in (orchard, meadow):
+        assert read_work_tree(directory) is None
+        assert git_dir_path(directory, "papaya.json") is None
+
+
+def test_git_dir_path_is_per_worktree(git_workdir, tmp_path):
+    """Each linked worktree gets a path of its own, in the git directory."""
+    linked = tmp_path / "linked"
+    run_git("worktree", "add", "--quiet", "--detach", str(linked), cwd=git_workdir)
+
+    main = git_dir_path(git_workdir, "papaya.json")
+    branch = git_dir_path(linked, "papaya.json")
+
+    assert main == git_workdir / ".git" / "papaya.json"
+    assert branch is not None
+    assert branch.parent.name == "linked"
+    assert branch.parent.parent.name == "worktrees"
 
 
 # --- Tags ---
