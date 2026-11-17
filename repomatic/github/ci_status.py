@@ -66,7 +66,7 @@ from urllib.parse import quote
 
 from click_extra import ColumnSpec
 
-from .gh import GhCommandError, GhOutputError, gh_json
+from .gh import GhCommandError, GhOutputError, gh_api_pages, gh_json
 from .outputs import AnnotationLevel
 from .runs import commit_runs, job_log, read_run, workflow_runs
 from .workflow_files import load_workflows, workflow_triggers
@@ -580,23 +580,73 @@ def latest_run(workflow: str, branch: str) -> RunStatus | None:
     return _run_status(int(runs[0]["id"]), workflow)
 
 
-def _branch_history(branch: str) -> list[str]:
-    """SHAs of the newest commits on *branch*, tip first.
+def _commit_history(ref: str) -> list[str]:
+    """SHAs of the newest commits reachable from *ref*, tip first.
 
-    :param branch: Branch to read.
+    :param ref: Branch, or any other ref the commits endpoint resolves.
     :return: At most {data}`TIP_HISTORY_DEPTH` SHAs. Empty when the answer
         lists no commit.
     :raises GhCommandError: When the read fails.
     :raises GhOutputError: When the answer is not JSON.
     """
     endpoint = (
-        f"repos/{{owner}}/{{repo}}/commits?sha={quote(branch, safe='')}"
+        f"repos/{{owner}}/{{repo}}/commits?sha={quote(ref, safe='')}"
         f"&per_page={TIP_HISTORY_DEPTH}"
     )
     commits = gh_json(["api", endpoint])
     if not isinstance(commits, list):
         return []
     return [commit["sha"] for commit in commits if commit.get("sha")]
+
+
+def _fork_pull_ref(branch: str) -> str | None:
+    """The ref of the open pull request sent from the *branch* of a fork.
+
+    GitHub keeps the head of every pull request under `refs/pull/<number>/head`,
+    in the repository the pull request targets.
+
+    :param branch: Head branch of the pull request, as its runs name it.
+    :return: The ref, or `None` when no open pull request comes from *branch*.
+    :raises RuntimeError: When several open pull requests come from a branch of
+        that name, sent from different forks.
+    """
+    pulls = gh_api_pages("repos/{owner}/{repo}/pulls?state=open&per_page=100")
+    numbers = sorted(
+        int(pull["number"])
+        for pull in pulls
+        if isinstance(pull, dict) and (pull.get("head") or {}).get("ref") == branch
+    )
+    if len(numbers) > 1:
+        listed = ", ".join(f"#{number}" for number in numbers)
+        msg = f"open pull requests {listed} all come from a branch named {branch!r}"
+        raise RuntimeError(msg)
+    return f"refs/pull/{numbers[0]}/head" if numbers else None
+
+
+def _branch_history(branch: str) -> list[str]:
+    """SHAs of the newest commits on *branch*, tip first.
+
+    The repository answers `404` for the branch of a pull request sent from a
+    fork, as the branch lives in the fork. Its commits are then read from the ref
+    of that pull request, while its runs still carry the name of the branch.
+
+    :param branch: Branch to read.
+    :return: At most {data}`TIP_HISTORY_DEPTH` SHAs. Empty when the answer
+        lists no commit.
+    :raises GhCommandError: When the read fails.
+    :raises GhOutputError: When the answer is not JSON.
+    :raises RuntimeError: When pull requests from several forks share the
+        branch name.
+    """
+    try:
+        return _commit_history(branch)
+    except GhCommandError as error:
+        if error.status != 404:
+            raise
+        pull_ref = _fork_pull_ref(branch)
+        if pull_ref is None:
+            raise
+        return _commit_history(pull_ref)
 
 
 def _runs_on_commit(sha: str, branch: str) -> tuple[dict[str, int], dict[str, int]]:

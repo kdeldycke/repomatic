@@ -810,6 +810,83 @@ def test_read_ci_status_falls_back_past_the_window():
     assert not _called(mock, "run list")
 
 
+KIWI_PULL = {"number": 7, "head": {"ref": "kiwi"}}
+"""An open pull request from the `kiwi` branch of a fork."""
+
+MAIN_PULL = {"number": 6, "head": {"ref": "main"}}
+"""An open pull request from the `main` branch of a fork."""
+
+
+def _fork_gh(pulls, *args, error="gh: Not Found (HTTP 404)", **kwargs):
+    """`_gh` for the `kiwi` branch, which only a fork has.
+
+    The read of that branch fails with *error*. The listing of open pull
+    requests answers *pulls*, and every other read goes to `_gh`.
+    """
+    serve = _gh(*args, **kwargs)
+
+    def dispatch(args):
+        if args[0] == "api" and "/commits?sha=kiwi&" in args[1]:
+            raise GhCommandError(error)
+        if args[:2] == ["api", "--paginate"] and "/pulls?" in args[-1]:
+            return json.dumps([pulls])
+        return serve(args)
+
+    return dispatch
+
+
+def test_read_ci_status_reads_a_fork_branch_from_its_pull_request():
+    """The branch of a pull request from a fork is read from the pull request.
+
+    Its commits come from the ref of the pull request, and its runs from the
+    name of the branch.
+    """
+    runs_by_sha = {TIP_SHA: [_run_entry(42, "tests.yaml", branch="kiwi")]}
+    details = {42: _detail(TIP_SHA, GREEN_JOB)}
+    gh = _fork_gh([MAIN_PULL, KIWI_PULL], [TIP_SHA], runs_by_sha, details=details)
+    with patch("repomatic.github.gh.run_gh_command", side_effect=gh) as mock:
+        status = read_ci_status(["tests.yaml"], "kiwi")
+    assert status.tip_sha == TIP_SHA
+    assert [run.run_id for run in status.runs_on_tip] == [42]
+    assert _called(mock, "/commits?sha=refs%2Fpull%2F7%2Fhead&")
+
+
+@pytest.mark.parametrize(
+    ("http_status", "pulls"),
+    (
+        pytest.param(404, [MAIN_PULL], id="no-pull-request"),
+        pytest.param(502, [KIWI_PULL], id="server-error"),
+    ),
+)
+def test_read_ci_status_keeps_an_unread_branch_an_error(http_status, pulls):
+    """A branch no open pull request comes from fails as the repository answered.
+
+    So does a branch whose read failed on anything else than a `404`, which no
+    pull request explains.
+    """
+    gh = _fork_gh(pulls, [TIP_SHA], error=f"gh: HTTP {http_status}")
+    with (
+        patch("repomatic.github.gh.run_gh_command", side_effect=gh) as mock,
+        pytest.raises(GhCommandError) as caught,
+    ):
+        read_ci_status(["tests.yaml"], "kiwi")
+    assert caught.value.status == http_status
+    assert _called(mock, "/pulls?") is (http_status == 404)
+
+
+def test_read_ci_status_refuses_a_branch_name_two_forks_share():
+    """Two open pull requests from branches of the same name leave no tip to read."""
+    pulls = [{"number": 9, "head": {"ref": "kiwi"}}, KIWI_PULL]
+    with (
+        patch(
+            "repomatic.github.gh.run_gh_command",
+            side_effect=_fork_gh(pulls, [TIP_SHA]),
+        ),
+        pytest.raises(RuntimeError, match="#7, #9 all come from a branch named"),
+    ):
+        read_ci_status(["tests.yaml"], "kiwi")
+
+
 def test_runs_on_tip_is_empty_before_the_tip_runs():
     """Right after a push, every run read belongs to an earlier commit."""
     earlier = RunStatus(

@@ -435,7 +435,8 @@ def prune_caches_cmd(
     "--branch",
     default="main",
     show_default=True,
-    help="Branch whose latest run of each workflow to read.",
+    help="Branch whose latest run of each workflow to read. The branch of a pull "
+    "request from a fork works too.",
 )
 @option(
     "--workflow",
