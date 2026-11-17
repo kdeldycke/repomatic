@@ -20,6 +20,7 @@
 - The bundled `file-bug-report` skill now names the posting order of two drafts that link each other, and diffs a posted body against its draft.
 - The bundled `probe-workflow` skill now tries a local VM before a probe, and runs one on the runner label of the job it stands in for.
 - The bundled `repomatic-ship` skill now reads the warnings of the cycle's merged automation pull requests, for an edit their job left to a human.
+- The bundled `repomatic-ship` skill now resolves the last published release under the cooldown, like every other install.
 - The bundled `repomatic-upgrade` skill now commits the upgrade, then its own changes, and pushes nothing.
 - The bundled `typos` template now says that the sync drops a reason written beside `extend-words` or `extend-identifiers`, and where to keep it instead.
 - The bundled `upstream-audit` skill now keeps a closed issue under "Open upstream" until a release ships its fix.
