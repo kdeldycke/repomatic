@@ -392,11 +392,12 @@ def _emit_upgrade_report(
 @option(
     "--cooldown/--no-cooldown",
     default=True,
-    help="When adopting a repomatic release newer than the one this repository "
-    "already pins, hold the upstream pin back to the newest release past the "
-    "[tool.repomatic] minimum-release-age window. Never moves a pin at or above "
-    "the running version. --no-cooldown pins the running repomatic version "
-    "immediately. Ignored when --version is set.",
+    help="Honor the [tool.repomatic] minimum-release-age window while the running "
+    "repomatic release is inside it: a first adoption pins the newest release "
+    "past the window, and a repository that already pins an older release gets "
+    "no file. Never moves a pin at or above the running version. --no-cooldown "
+    "pins the running repomatic version immediately. Ignored when --version is "
+    "set.",
 )
 @option(
     "--upstream-repo",
@@ -481,14 +482,13 @@ def init(
     component/file entries select a single file.
 
     The derived upstream pin honors the [tool.repomatic] minimum-release-age
-    cooldown when it would adopt a release newer than the one already pinned in
-    this repository: if the running repomatic version is still inside that
-    window, the workflow pin steps back to the newest release that has cleared
-    it, and never below the pin already on disk. A repository that already
-    carries a pin then gets no file at all: every managed file belongs to the
-    running release, so all of them wait for the pin to move. Re-running init
-    at the pinned version leaves it untouched. Pass --no-cooldown to pin the
-    running version immediately, or --version to pin an exact tag.
+    cooldown while the running repomatic version is inside that window. A
+    first adoption then pins the newest release past the window. A repository
+    that already pins an older release gets no file at all: every managed file
+    belongs to the running release, so all of them stay at that pin until it
+    moves. Re-running init at the pinned version leaves it untouched. Pass
+    --no-cooldown to pin the running version immediately, or --version to pin
+    an exact tag.
 
     --upgrade runs init as the newest release past that window instead, and
     hands off to it through uvx when it is not the running one: the upstream

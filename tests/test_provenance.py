@@ -323,7 +323,7 @@ def test_provenance_cell(new, old, expected):
 
 def _lookup(table):
     """A `release_provenance` stand-in answering from *table*."""
-    return lambda package, version: table[package, version]
+    return lambda package, version, **_kwargs: table[package, version]
 
 
 def test_review_holds_the_bumps_that_lost_provenance():
@@ -386,6 +386,20 @@ def test_review_holds_a_release_with_a_file_added_without_provenance():
 
     assert review.holds == [ProvenanceHold("fig", "1.0", "1.1", "orchard/fig")]
     assert review.cells == {}
+
+
+def test_review_reads_the_simple_api_once_per_package():
+    """Both ends of a bump share one read of the page that lists every file."""
+    releases = {
+        "1.0": RELEASE,
+        "1.1": {"fig-1.1-py3-none-any.whl": True, "fig-1.1.tar.gz": True},
+    }
+    calls: list[Request] = []
+    with patch("repomatic.http.urlopen", side_effect=_pypi(releases, None, calls)):
+        review = review_bumps([PypiBump("fig", "fig", "1.0", "1.1")])
+
+    assert review.cells == {"fig": "✅ `orchard/fig`"}
+    assert [call.full_url for call in calls].count(INDEX_URL) == 1
 
 
 # ---------------------------------------------------------------------------

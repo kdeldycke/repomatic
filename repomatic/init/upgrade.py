@@ -195,8 +195,10 @@ def _select_cooldown_pin(
     version is still inside the `minimum-release-age` window (a fresh release a
     `--refresh` just pulled), pinning it would adopt an unproven cut, bypassing
     the cooldown every other version adopter honors. This returns the newest
-    release *older* than `base` that has cleared the window, so the downstream
-    pin steps back to a proven release instead.
+    release *older* than `base` that has cleared the window. A first adoption
+    pins it instead of `base`. A repository that already pins an older release
+    keeps every managed file at that pin, and {func}`resolve_default_pin` names
+    this release for `init --upgrade` when it is newer than that pin.
 
     The step-back is skipped (returns `None`, meaning "keep pinning `base`")
     whenever `base` is safe or nothing better exists:
@@ -327,15 +329,17 @@ def resolve_default_pin(
     )
     if stepped_back is None:
         return f"v{base}", build_sha
+    inside = (
+        f"repomatic {base} is inside the {config.minimum_release_age}"
+        " minimum-release-age window"
+    )
     # The cleared release is no better than what the repository already runs:
     # decline the adoption instead of regressing to it.
     if floor is not None and not is_newer(stepped_back.version, floor.version):
         _note_cooldown(
             warnings,
-            f"repomatic {base} is inside the {config.minimum_release_age} "
-            f"minimum-release-age window; keeping the release this repository "
-            f"already pins, v{floor.version}. Pass --no-cooldown to adopt "
-            f"{base} now.",
+            f"{inside}; keeping the release this repository already pins,"
+            f" v{floor.version}. Pass --no-cooldown to adopt {base} now.",
         )
         return f"v{floor.version}", floor.sha
     if floor is not None:
@@ -344,17 +348,14 @@ def resolve_default_pin(
         # floor, and `init --upgrade` runs the cleared release itself.
         _note_cooldown(
             warnings,
-            f"repomatic {base} is inside the {config.minimum_release_age} "
-            f"minimum-release-age window; the newest release past it is "
-            f"v{stepped_back.version}, which init --upgrade adopts. Pass "
-            f"--no-cooldown to adopt {base} now.",
+            f"{inside}; the newest release past it is v{stepped_back.version},"
+            f" which init --upgrade adopts. Pass --no-cooldown to adopt {base} now.",
         )
     else:
         _note_cooldown(
             warnings,
-            f"repomatic {base} is inside the {config.minimum_release_age} "
-            f"minimum-release-age window; pinning the newest cleared release "
-            f"v{stepped_back.version} instead. Pass --no-cooldown to pin {base}.",
+            f"{inside}; pinning the newest cleared release v{stepped_back.version}"
+            f" instead. Pass --no-cooldown to pin {base}.",
         )
     # Fall back to a bare tag pin when the SHA lookup fails.
     return f"v{stepped_back.version}", resolve_tag_to_sha(repo_url, stepped_back.ref)
@@ -409,14 +410,14 @@ def resolve_workflow_pin(
     every component it keeps in sync, so a skill or a `[tool.X]` section written
     here comes back as a pull request that reverts it. A section seeded once, or
     the changelog stub, keeps the newer text beside the older pin instead. A
-    declined pin therefore declines every component, and `init` writes nothing.
+    declined pin therefore declines every component, and `init` neither writes
+    nor deletes a file.
 
     Only a repository that already carries workflows (a *floor*) has somewhere
     to stand: leaving every managed file untouched keeps a coherent tree at
-    *floor*. A
-    first-time adoption has no such fallback, since skipping would write no
-    workflows at all, and is the one case {func}`resolve_default_pin` documents
-    the skew as unavoidable.
+    *floor*. A first-time adoption has no such fallback, since skipping would
+    write no workflows at all, and is the one case {func}`resolve_default_pin`
+    documents the skew as unavoidable.
 
     :param config: Repomatic config supplying the `minimum-release-age` window.
     :param version: An explicit pin, in its `vX.Y.Z` tag spelling, or `None`.

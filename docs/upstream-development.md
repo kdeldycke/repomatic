@@ -60,7 +60,7 @@ Add the `lint-deps` warnings the review tables of `repomatic-deps` still describ
 ```
 
 ```{todo}
-Add the `lint-repo` checks that the filename, uv-flag, YAML and ordering rules still state in prose: filename case and short extensions, a symlinked `.gitignore`, gitleaks `useDefault`, bumpversion `ignore_missing_files`, a CI-only flag in `addopts`, a bare `uv run` or `uvx` without `--no-progress` or `--frozen` outside the documented job, `apt` in place of `apt-get`, a version literal in no recognized shape, a YAML comment block over 8 lines, a stale `*-probe.yaml`, the awesome topics, jobs ordered by `needs` level, and every job id present in `docs/workflows.md`. About 900 words.
+Add the `lint-repo` checks that the filename, uv-flag, YAML and ordering rules still state in prose: filename case and short extensions, a symlinked `.gitignore`, bumpversion `ignore_missing_files`, a CI-only flag in `addopts`, a bare `uv run` or `uvx` without `--no-progress` or `--frozen` outside the documented job, `apt` in place of `apt-get`, a version literal in no recognized shape, a YAML comment block over 8 lines, a stale `*-probe.yaml`, the awesome topics, jobs ordered by `needs` level, and every job id present in `docs/workflows.md`. About 900 words.
 ```
 
 ```{todo}

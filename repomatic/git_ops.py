@@ -266,6 +266,12 @@ def discard_changes() -> None:
     _git("reset", "--hard", "HEAD")
 
 
+def _status_paths(output: str) -> tuple[str, ...]:
+    """The sorted paths of `git status --porcelain -z --no-renames` *output*."""
+    # Each entry is two status letters and a space, then the path.
+    return tuple(sorted({entry[3:] for entry in output.split("\0") if entry}))
+
+
 def changed_paths() -> tuple[str, ...]:
     """Return the tracked paths whose index or working tree differs from `HEAD`.
 
@@ -279,8 +285,7 @@ def changed_paths() -> tuple[str, ...]:
     output = _git(
         "status", "--porcelain", "-z", "--untracked-files=no", "--no-renames"
     ).stdout
-    # Each entry is two status letters and a space, then the path.
-    return tuple(sorted({entry[3:] for entry in output.split("\0") if entry}))
+    return _status_paths(output)
 
 
 class WorkTreeState(NamedTuple):
@@ -331,9 +336,7 @@ def read_work_tree(root: Path) -> WorkTreeState | None:
     )
     if status.returncode:
         return None
-    # Each entry is two status letters and a space, then the path.
-    paths = {entry[3:] for entry in status.stdout.split("\0") if entry}
-    return WorkTreeState(head or None, tuple(sorted(paths)))
+    return WorkTreeState(head or None, _status_paths(status.stdout))
 
 
 def git_dir_path(root: Path, name: str) -> Path | None:

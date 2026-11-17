@@ -358,9 +358,9 @@ class RunStatus:
         """What the reader must know about this run, one line each.
 
         An error gates a merge: a workflow-level failure, a failed required job,
-        or a required job that GitHub cancelled in a failed run. A warning does
-        not: a failed probe, or a run with no result for
-        its commit. A notice asks for nothing: a matrix whose `if:` skipped it
+        or a required job that GitHub cancelled in a run no newer run replaces.
+        A warning does not: a failed probe, or a run with no result for its
+        commit. A notice asks for nothing: a matrix whose `if:` skipped it
         before it evaluated, like a release-only stage on an ordinary push or
         the binary stages of a project that compiles none.
 

@@ -46,7 +46,7 @@ from dataclasses import dataclass
 
 from click_extra import run_jobs
 
-from ..pypi import ReleaseProvenance, release_provenance
+from ..pypi import ReleaseProvenance, file_provenance, release_provenance
 from .report import ProvenanceHold
 
 TYPE_CHECKING = False
@@ -131,10 +131,15 @@ def is_regression(new: ReleaseProvenance, old: ReleaseProvenance | None) -> bool
 def review_bumps(bumps: Sequence[PypiBump], *, jobs: int = 1) -> ProvenanceReview:
     """Look up the provenance of both ends of each bump, and pick those to hold.
 
+    The Simple API page of a package lists the files of all its releases, so
+    each package reads it once, for both ends of its bump.
+
     :param bumps: The PyPI version moves of the run.
     :param jobs: How many lookups run at once.
     :return: The cell of every bump, and the bumps that lost provenance.
     """
+    packages = list(dict.fromkeys(bump.package for bump in bumps))
+    indexes = dict(zip(packages, run_jobs(file_provenance, packages, jobs=jobs)))
     lookups = [
         (bump.package, version)
         for bump in bumps
@@ -144,7 +149,13 @@ def review_bumps(bumps: Sequence[PypiBump], *, jobs: int = 1) -> ProvenanceRevie
     answers = dict(
         zip(
             lookups,
-            run_jobs(lambda item: release_provenance(*item), lookups, jobs=jobs),
+            run_jobs(
+                lambda item: release_provenance(
+                    *item, provenance_urls=indexes[item[0]]
+                ),
+                lookups,
+                jobs=jobs,
+            ),
         )
     )
     cells: dict[str, str] = {}

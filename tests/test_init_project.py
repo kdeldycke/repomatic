@@ -1638,6 +1638,40 @@ def test_upgrade_skill_reads_the_record_init_writes():
     assert f"!`cat .git/{UPGRADE_RECORD} " in body
 
 
+UPGRADE_SKILL_RECORD_KEYS = (
+    "adopted_pin",
+    "created",
+    "deleted",
+    "head",
+    "modified_before",
+    "overwritten_edits",
+    "previous_pin",
+    "removed_review",
+    "updated",
+    "warnings",
+)
+"""The keys of the upgrade record that the `repomatic-upgrade` skill reads."""
+
+
+@pytest.mark.parametrize("key", UPGRADE_SKILL_RECORD_KEYS)
+def test_upgrade_skill_and_record_agree_on_each_key(key, git_tree):
+    """Each record key the upgrade skill reads is one `write_record` writes.
+
+    A rename on either side fails here, before the skill reads a key that the
+    record no longer holds.
+    """
+    entry = COMPONENTS_BY_NAME["skills"].entry(UPGRADE_SKILL)
+    assert entry is not None
+    body = get_data_content(f"{entry.source}/{SKILL_FILENAME}")
+    assert f"`{key}`" in body, f"The {UPGRADE_SKILL} skill names no `{key}`."
+
+    result = InitResult(previous_pin="7.4.1", adopted_pin="7.4.2")
+    target = result.write_record(git_tree, DeletionPolicy())
+    assert target is not None
+    record = json.loads(target.read_text(encoding="UTF-8"))
+    assert key in record, f"The upgrade record holds no `{key}`."
+
+
 def test_run_init_no_cooldown_skips_datasource(tmp_path, monkeypatch, pin_build):
     """--no-cooldown pins the running version and never consults the datasource."""
     pin_build(sha="")
@@ -5314,6 +5348,58 @@ def test_init_cli_prunes_orphaned_workflow(
     assert cli_result.exit_code == 0, cli_result.output
     assert not wf.exists()
     assert "Pruned" in cli_result.output
+
+
+@pytest.mark.parametrize(
+    "extra",
+    (
+        pytest.param("", id="untouched"),
+        pytest.param(
+            "  kiwi-job:\n    runs-on: ubuntu-26.04\n    steps:\n"
+            "      - run: echo kiwi\n",
+            id="edited",
+        ),
+    ),
+)
+def test_init_held_at_floor_deletes_nothing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pin_build,
+    removed_workflow: None,
+    extra: str,
+) -> None:
+    """Declining the pin declines every deletion of the report too.
+
+    The running release decides what the report lists: here, a workflow it
+    dropped, which the pinned release still ships. Deleted by a run that writes
+    nothing, it comes back with the next `sync-repomatic` pull request.
+    """
+    write_project(tmp_path, monkeypatch)
+    pin_build(version="7.4.1", sha="c" * 40)
+    run_init_here(tmp_path, components=("workflows",), cooldown=False)
+    orphan = tmp_path / _REMOVED_WORKFLOW
+    orphan.write_text(_thin_caller(extra=extra), encoding="UTF-8")
+    # `debug.sync` is off by default, so the run reports this file as excluded.
+    excluded = tmp_path / ".github" / "workflows" / "debug.yaml"
+    excluded.write_text("name: Debug\n", encoding="UTF-8")
+
+    pin_build(version="7.4.2", candidates=_CLOCK_ROBUST_CANDIDATES)
+    cli_result = CliRunner().invoke(
+        repomatic,
+        [
+            "init",
+            "workflows",
+            "--delete-excluded",
+            "--delete-unmodified",
+            "--delete-removed-modified",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert cli_result.exit_code == 0, cli_result.output
+    assert orphan.exists()
+    assert excluded.exists()
 
 
 @pytest.mark.once

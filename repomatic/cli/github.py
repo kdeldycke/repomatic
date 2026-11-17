@@ -490,7 +490,7 @@ def issue(
     The issue is found again by its exact title. --open creates it with the
     body of --body-file, or updates the issue already there, and reopens it
     when it was closed. --close closes every open issue with that title. Both
-    close any duplicate, and every issue carries the bot label.
+    close any duplicate, and a new issue carries the bot label.
 
     Each repomatic operation that tracks a condition has a command of its own.
     This one serves a job a repository runs on its own, which has none.

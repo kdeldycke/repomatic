@@ -17,7 +17,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v8.1.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v8.2.0
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
@@ -207,7 +207,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 ### 🔄 Sync repomatic (`sync-repomatic`)
 
 - Runs [`repomatic init --upgrade --delete-unmodified --delete-excluded`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/init/run.py) to sync all repomatic-managed files: thin-caller workflows, configuration files, and skill definitions
-- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v8.1.0`
+- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v8.2.0`
 - The upgrade pull request lists the `**Breaking:**` and `**Deprecated:**` entries of every release it crosses, the warnings the new release printed (like a `[tool.repomatic]` key it no longer knows, or a skill copy whose local edits it overwrote), the release notes, and the newer releases the cooldown still holds back
 - Never moves the upstream pin back: a release pinned by hand inside the cooldown stays, and the job only regenerates its files. Set `upstream-pin.sync = false` in `[tool.repomatic]` to keep syncing at the pinned release
 - Removes unmodified config files identical to bundled defaults and cleans up excluded or stale files (disabled opt-in workflows, auto-excluded skills)
@@ -253,7 +253,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 - PR body includes a table of updated packages with version ranges linked to GitHub comparison diffs, plus collapsible release notes for all intermediate versions
 - Reviews the [PEP 740](https://peps.python.org/pep-0740/) provenance of every file of each PyPI release it moves to. A release is held back at the previous version, and listed in a `Held back for missing provenance` table, in two cases: it has a file with none while every file of the release it replaces carries provenance, or it has no attested file while the release it replaces has some. An upload that bypassed the project's own workflow, like one with a stolen API token, looks exactly like that, whether it published a whole release or added one file to it. The diff table gains a `Provenance` column naming each release's trusted publisher. It flags a publisher whose repository or workflow changed, and a release where only some files carry provenance. A lookup PyPI does not answer holds nothing
 - PR body then tracks the [`exclude-newer-package`](https://docs.astral.sh/uv/reference/settings/#exclude-newer-package) cooldown bypasses in a single `Cooldown bypasses` table: one row per freeze with its held version and a `Held until` expiry, `📌 frozen:` and `🧹 cleared:` labels on the entries the run rewrote or removed, a `🚧 unreleased:` label with a *needs release* expiry for freezes holding git or path sources, and *not locked* in place of a version for a package the lockfile does not hold. A warning under the table names each cleared entry that the comment above `exclude-newer-package` still mentions, since only a human can rewrite that comment
-- PR body closes on the releases held back by the `exclude-newer` cooldown, including those blocked by an `exclude-newer-package` freeze: newer versions already published but still too young to lock, with the date each ages out of the window. It comes last because it is the only section reporting what the run left alone rather than what it changed
+- PR body closes on the releases held back by the `exclude-newer` cooldown, including those blocked by an `exclude-newer-package` freeze: newer versions already published but not lockable yet, with the date each becomes lockable. That date is the day the release leaves the window, or the day a package that caps it does. It comes last because it is the only section reporting what the run left alone rather than what it changed
 - **Requires**:
   - Python package with a `pyproject.toml` file
 - **Skipped if**:
@@ -827,7 +827,7 @@ This workflow maintains repomatic's own package source and is the one file in `.
 - **Upstream-only**: rewrites `repomatic/tooling/registry.py`, which exists only in this repository; downstream repos receive updated tool versions when they sync against a new repomatic release
 - Bumps every tool in the `repomatic run` registry to its latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown: GitHub Releases for binary tools (actionlint, Biome, gh, gitleaks, labelmaker, lychee, oxipng, ShellCheck, shfmt, typos), the npm registry for npm tools (awesome-lint, npm, Wrangler), PyPI for the rest (autopep8, bump-my-version, mdformat, mypy, Nuitka, pyproject-fmt, ruff, yamllint, zizmor)
 - Bumps the packages pinned *alongside* a tool in its `uvx` environment too (mdformat's plugin set), which no other updater sees
-- Reviews the PEP 740 provenance of every PyPI tool and package it bumps, like `sync-uv-lock` does: a release that lost the provenance of its predecessor keeps the previous pin
+- Reviews the PEP 740 provenance of every file of each PyPI release it bumps a tool or package to, like `sync-uv-lock` does: a release with an unattested file, after a release attested on every file, keeps the previous pin. So does a release with no attested file, after one with some
 - Recomputes the SHA-256 checksums of the binary tools it bumps in the same pass, and downloads only their artifacts, so version bump and checksum land in one PR branch
 - Verifies each download against its upstream attestation before recording its checksum, with the pinned `gh`: SLSA build provenance for actionlint, Biome and gh, the immutable release attestation for shfmt and typos. A download that does not verify fails the job, and no pull request opens
 - Refreshes the bundled actionlint problem matcher from the tag of the actionlint it pins

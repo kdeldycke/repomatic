@@ -8,23 +8,26 @@
 - Add the `gitleaks-default-rules` check to `lint-repo`, which warns when `[tool.gitleaks]` leaves gitleaks with no rule to scan with.
 - Add the `issue` command, which opens, updates or closes one issue from a title and a body file, for a job outside repomatic.
 - A `repomatic init` that moves the upstream pin now records its run in `.git/repomatic/upgrade.json`, which the `repomatic-upgrade` skill reads.
-- `repomatic init` now ends a pin move on the `repomatic-upgrade` launcher alone, and prints its first-push step only on a first adoption.
+- `repomatic init` no longer prints its commit-and-push step after a pin move, and prints its first-push step only on a first adoption.
+- The `sync-repomatic` pull request now asks to run `/repomatic-upgrade` once it is merged and pulled.
 - `docs.yaml` now runs on a push that touches only a Markdown file at the root of `.github/`, like the contribution guide of an awesome list.
-- The awesome-template contribution guide now replaces a `40x` link only when browsers get the error too, and asks to check a capture before linking it.
+- The awesome-template contribution guide now asks to replace a `40x` link only when a browser gets the error too, and to open a capture before linking it.
 - `sync-uv-lock` and `sync-tool-versions` now hold back a release with a file that carries no provenance, after a release attested on every file.
 - The `Provenance` column of `sync-uv-lock` and `sync-tool-versions` now flags a release where only some files carry provenance, and a trusted publisher whose workflow changed.
+- The octicon registry of the `title-octicons` check and of the bundled `sphinx-docs` agent now gives the `inbox` icon to a `formats.md` page.
 - The bundled `babysit-ci` skill now names a required job that no runner picked up, or that ran past its timeout, as a failure to re-run.
 - The bundled `file-bug-report` skill now checks the code at the tip of `main` for a fix, and matches the depth of the reports its maintainer accepted.
 - The bundled `file-bug-report` skill now names the posting order of two drafts that link each other, and diffs a posted body against its draft.
 - The bundled `probe-workflow` skill now tries a local VM before a probe, and runs one on the runner label of the job it stands in for.
+- The bundled `repomatic-ship` skill now reads the warnings of the cycle's merged automation pull requests, for an edit their job left to a human.
 - The bundled `repomatic-upgrade` skill now commits the upgrade, then its own changes, and pushes nothing.
 - The bundled `typos` template now says that the sync drops a reason written beside `extend-words` or `extend-identifiers`, and where to keep it instead.
 - The bundled `upstream-audit` skill now keeps a closed issue under "Open upstream" until a release ships its fix.
+- Bump the `repomatic run` pins of Biome to `2.6.6`, npm to `12.2.2`, Nuitka to `4.3.5`, pyproject-fmt to `2.30.6`, Ruff to `0.17.4` and Wrangler to `4.158.0`.
 - Fix `repomatic apply-labels`, which failed the labels job on a pull request from a fork instead of skipping the labels with a warning.
 - Fix `repomatic ci-status`, which reported a required job that no runner picked up as a workflow-level error, and one past its timeout as a superseded run.
 - Fix `repomatic ci-status`, which failed with an HTTP `404` on the branch of a pull request from a fork.
-- Fix `repomatic init`, which still rewrote the skills, subagents and tool configs when the cooldown held its pin below the running release.
-- Fix `repomatic init`, which said it pinned the newest cleared release while the cooldown kept every file at an older pin.
+- Fix `repomatic init`, which rewrote or deleted managed files while the cooldown held its pin, and named a pin it never wrote.
 - Fix `repomatic sync-uv-lock`, which gave a held-back release capped by another held-back package an `Eligible` date already past.
 
 ## [`8.2.0` (2026-11-12)](https://github.com/kdeldycke/repomatic/compare/v8.1.0...v8.2.0)

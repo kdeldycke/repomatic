@@ -146,7 +146,7 @@ sequenceDiagram
 
     Note over Ship,BCI: Phase 6 wait on CI, babysit on red (first run mostly green)
     Ship->>CI: ci-status --wait (foreground, or a background task past 10 minutes)
-    CI-->>Ship: first failed required job, or every run green
+    CI-->>Ship: first run that blocks a merge, or every run green
     opt a required job is red
         Ship->>BCI: spawn /babysit-ci (Sonnet)
         loop until main green
@@ -185,7 +185,7 @@ flowchart TD
 
 Two rules govern the loop. A run-level conclusion hides an already-failed fast job for as long as the slowest cell keeps running, so the babysitter reads individual jobs and fixes the first stable red it sees. And each push is timed by what its diff rebuilds: a source fix pushes immediately, since the run it cancels was validating an obsolete tree anyway, while a changelog- or docs-only commit waits for the heavy matrices to drain, because `release.yaml` runs on every push and a prose diff cancels the in-flight binary build without triggering a rebuild. Projects without binaries can push freely: everything a prose push cancels there is cheap to re-run.
 
-The wait itself needs no delegation. The orchestrator runs `repomatic ci-status --wait` and spawns the babysitter only when a required job turns red. When the slowest run of the previous `main` HEAD took under 10 minutes, that is one foreground command. A longer cycle runs it as a background task, which has no such cap and wakes the orchestrator when it returns. Either way, the command returns on the first failed required job, or when every run settled. The orchestrator runs it again after each fix push.
+The wait itself needs no delegation. The orchestrator runs `repomatic ci-status --wait` and spawns the babysitter only when a required job turns red. When the slowest run of the previous `main` HEAD took under 10 minutes, that is one foreground command. A longer cycle runs it as a background task, which has no such cap and wakes the orchestrator when it returns. Either way, the command returns on the first run that blocks a merge, or when every run settled. The orchestrator runs it again after each fix push.
 
 A release is also when test debt gets paid. Once no stable job is red, the loop turns to the failures that never gate a merge: chronic platform flakes and allowed-failure `⁉️` probes that crash outright get fixed at the source (a tolerated exit set, an availability-gated skip, a real code fix) rather than catalogued as known reds.
 

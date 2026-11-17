@@ -455,13 +455,13 @@ def prune_caches_cmd(
 @option(
     "--fatal/--no-fatal",
     default=True,
-    help="Exit non-zero when a required job failed.",
+    help="Exit non-zero when a run blocks a merge.",
 )
 @option(
     "--wait/--no-wait",
     default=False,
     help=(
-        "Poll until a required job fails, or until every run settled and the tip"
+        "Poll until a run blocks a merge, or until every run settled and the tip"
         " has a run of its own. Each poll prints the runs whose verdict changed."
         " A GitHub server error or rate limit skips the poll it hits, and"
         f" {FAILED_POLL_LIMIT} failed polls in a row end the wait."
@@ -551,9 +551,13 @@ def ci_status(
     as green: it has no result for its commit. A workflow that ran no job on
     the tip is read on the last commit whose run of it was not skipped.
 
-    --wait polls in-process, at --interval, and ends on the first failed
-    required job rather than at the end of the slowest matrix: that is the
-    moment to act. --until-change and --state-file turn it into a watch that
+    A run blocks a merge when a required job failed, when GitHub cancelled a
+    required job in a run no newer run replaces, or when the run failed outside
+    its jobs.
+
+    --wait polls in-process, at --interval, and ends on the first poll where a
+    run blocks a merge rather than at the end of the slowest matrix: that is
+    the moment to act. --until-change and --state-file turn it into a watch that
     a scheduler re-arms, waking once per event. --failed-logs then fetches
     the logs to read, one file per failed job.
     """

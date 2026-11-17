@@ -39,6 +39,7 @@ from .versions import safe_version
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from datetime import datetime
     from pathlib import Path
     from typing import Any
@@ -557,7 +558,36 @@ class ReleaseProvenance:
         return self.attested and self.attested_files == self.files
 
 
-def release_provenance(package: str, version: str) -> ReleaseProvenance:
+def file_provenance(package: str) -> dict[str, str | None]:
+    """Read which files of *package* carry PEP 740 provenance.
+
+    One read of the Simple API answers for every file of every release, so a
+    caller that looks up several releases of a package reads it once, and
+    hands it to each {func}`release_provenance` call.
+
+    :param package: The PyPI package name.
+    :return: Each file name to its {data}`PYPI_PROVENANCE_URL`, or to `None`
+        for a file uploaded without provenance. Empty when PyPI could not be
+        read.
+    """
+    index = get_json_soft(
+        PYPI_SIMPLE_URL.format(package=package),
+        f"PyPI index lookup failed for {package}",
+        headers={"Accept": PYPI_SIMPLE_JSON},
+    )
+    return {
+        file["filename"]: file["provenance"]
+        for file in (index.get("files") or [] if isinstance(index, dict) else [])
+        if isinstance(file, dict) and file.get("filename") and "provenance" in file
+    }
+
+
+def release_provenance(
+    package: str,
+    version: str,
+    *,
+    provenance_urls: Mapping[str, str | None] | None = None,
+) -> ReleaseProvenance:
     """Look up the PEP 740 provenance of every file of one release of *package*.
 
     Every file counts: a token thief can add a file to a release that trusted
@@ -572,6 +602,8 @@ def release_provenance(package: str, version: str) -> ReleaseProvenance:
 
     :param package: The PyPI package name.
     :param version: The release version.
+    :param provenance_urls: The {func}`file_provenance` of *package*, when the
+        caller already read it. Read here otherwise.
     :return: The provenance, or an unknown one when PyPI could not be read.
     """
     data = get_json_soft(
@@ -585,16 +617,8 @@ def release_provenance(package: str, version: str) -> ReleaseProvenance:
     ]
     if not filenames:
         return ReleaseProvenance(known=False)
-    index = get_json_soft(
-        PYPI_SIMPLE_URL.format(package=package),
-        f"PyPI index lookup failed for {package}",
-        headers={"Accept": PYPI_SIMPLE_JSON},
-    )
-    provenance_urls = {
-        file["filename"]: file["provenance"]
-        for file in (index.get("files") or [] if isinstance(index, dict) else [])
-        if isinstance(file, dict) and file.get("filename") and "provenance" in file
-    }
+    if provenance_urls is None:
+        provenance_urls = file_provenance(package)
     if any(filename not in provenance_urls for filename in filenames):
         return ReleaseProvenance(known=False)
     attested = [filename for filename in filenames if provenance_urls[filename]]

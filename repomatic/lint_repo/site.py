@@ -326,12 +326,13 @@ class OcticonRegistry:
     renders.
 
     ```{todo}
-    Review the octicon of each page once a sphinx-design release carries
+    Review the octicon of each page against the 81 icons that sphinx-design
+    `0.8.0` adds to the 328 of `0.7.0`, through
     [executablebooks/sphinx-design#309](https://github.com/executablebooks/sphinx-design/pull/309),
-    which adds 81 icons to the 328 of `0.7.0`, like `agent`, `ai-model` and
-    `flowchart`. Adopt a new icon only once the `docs` dependencies of every
-    site that takes it require that release: `0.7.0` reports an error on an
-    icon it does not know, and renders the role as plain text.
+    like `agent`, `ai-model` and `flowchart`. Adopt a new icon only once the
+    `docs` dependencies of every site that takes it require
+    `sphinx-design>=0.8`: `0.7.0` reports an error on an icon it does not
+    know, and renders the role as plain text.
     ```
     """
 

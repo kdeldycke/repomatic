@@ -862,10 +862,12 @@ def run_init(
     :param config: The resolved `[tool.repomatic]` configuration of the target.
     :param version: Version pin for upstream workflows (like `v5.10.0`). When
         `None`, derived from the running package version, gated by *cooldown*.
-    :param cooldown: When `True` (and *version* is unset), hold the derived pin
-        back to the newest release past the `[tool.repomatic]
-        minimum-release-age` window instead of pinning a fresh running version
-        (see {func}`~repomatic.init.upgrade.resolve_default_pin`). Ignored when
+    :param cooldown: When `True` (and *version* is unset), honor the
+        `[tool.repomatic] minimum-release-age` window while the running version
+        is inside it. A first adoption then pins the newest release past the
+        window, and a tree that already pins an older release gets no file
+        written or deleted (see
+        {func}`~repomatic.init.upgrade.resolve_workflow_pin`). Ignored when
         *version* is explicit.
     :param repo: Upstream repository containing reusable workflows.
     :param repo_slug: Repository `owner/name` slug, for the awesome-template URL
@@ -923,11 +925,15 @@ def run_init(
             floor=floor,
             warnings=result.warnings,
         )
-        # A declined pin declines every component, not the workflows alone: see
-        # `resolve_workflow_pin`.
+        # A declined pin declines every component, not the workflows alone, and
+        # every deletion: the running release decides what each section of the
+        # report lists, and the pinned release can still ship any of those
+        # files. See `resolve_workflow_pin`.
         if not run.pin.adopts_content:
-            selection.names.clear()
-        elif floor is not None:
+            for section in ReportSection:
+                result.entries(section).clear()
+            return result
+        if floor is not None:
             # Read before any write, for the record of a pin move: see
             # `InitResult.write_record`.
             state = read_work_tree(output_dir)
