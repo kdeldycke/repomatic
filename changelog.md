@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- The bundled `repomatic-ship` skill now fetches the tags first, and stops when nothing since the last tag is left to ship.
+
 ## [`8.3.0` (2026-11-17)](https://github.com/kdeldycke/repomatic/compare/v8.2.0...v8.3.0)
 
 - Add the `gitleaks-default-rules` check to `lint-repo`, which warns when `[tool.gitleaks]` leaves gitleaks with no rule to scan with.
