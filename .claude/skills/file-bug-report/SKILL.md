@@ -173,9 +173,10 @@ If a matching open issue exists, report it to the user and stop. Do not offer a 
 
 A matching issue closed for lack of a reproducer is not a dead end: cite it, because that closure is part of the record, and supply what it lacked.
 
-A keyword search over issues is not enough. Run these four checks too before you report the result to the user:
+A keyword search over issues is not enough. Run these five checks too before you report the result to the user:
 
 - **Pull requests.** Run the same keywords through `gh search prs`: a fix under review answers the report before it is filed.
+- **The code at the default branch.** Blame the lines the bug runs through at the tip of `main`, and read every commit that changed them after the release you measured: a fix can sit there behind an issue whose title shares no word with your symptom. Then check the stable branches for a backport.
 - **Everything since the behavior appeared.** List the issues and pull requests created since the commit that introduced it, and read every title. A body search is noisy, because pasted logs hold the tool's own vocabulary.
 - **Branches and release notes.** Read the development branches and the release notes for a fix in progress, and for the maintainer's own words on the topic.
 - **Overlap.** Name the threads that share the theme without being duplicates. Cross-reference in the report the ones a reader can confuse with it.
@@ -277,7 +278,10 @@ What happens instead, with exact error output in code blocks.
 - Include exact error messages in code blocks, not paraphrases.
 - If multiple distinct failures exist, group them under numbered sub-sections but keep them in one report if they share a root cause. File separate issues if root causes differ.
 - File a second finding as its own issue, cross-referenced, never by broadening the first one's title. The title must still name the fix that closes it.
+- When two new drafts link each other, put the link only in the draft to post second, and name the posting order in the hand-off: a placeholder for the other number gets posted as is when the order flips.
+- When the user sends a posted URL, diff the posted body against the draft before deleting the draft. A hand edit made before posting can break a code span or a link: name the line to fix.
 - Keep reproduction steps minimal: strip everything not needed to trigger the bug.
+- Match the depth of the reports the maintainer already accepted: read two or three closed reports of the same kind with their replies, and leave out the checks the maintainer runs themselves. Evidence they would redo only lengthens the report.
 - Link to CI runs or logs when available.
 - Do not speculate about fixes unless the root cause is clear from the evidence.
 - Do not use em dashes; use colons for inline elaboration.
