@@ -605,6 +605,7 @@ Every top-level page heading uses an `{octicon}` icon for visual scanning: `` # 
 | {octicon}`globe` `globe`                               | `infrastructure.md`                                        |
 | {octicon}`history` `history`                           | `changelog-archive.md`, `cooldown.md`                      |
 | {octicon}`image` `image`                               | `snippets.md`                                              |
+| {octicon}`inbox` `inbox`                               | `formats.md`                                               |
 | {octicon}`iterations` `iterations`                     | `version.md`                                               |
 | {octicon}`key` `key`                                   | `sudo.md`                                                  |
 | {octicon}`law` `law`                                   | `license.md`                                               |
