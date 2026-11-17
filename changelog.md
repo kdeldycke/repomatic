@@ -9,6 +9,8 @@
 - Add the `issue` command, which opens, updates or closes one issue from a title and a body file, for a job outside repomatic.
 - `docs.yaml` now runs on a push that touches only a Markdown file at the root of `.github/`, like the contribution guide of an awesome list.
 - The awesome-template contribution guide now replaces a `40x` link only when browsers get the error too, and asks to check a capture before linking it.
+- `sync-uv-lock` and `sync-tool-versions` now hold back a release with a file that carries no provenance, after a release attested on every file.
+- The `Provenance` column of `sync-uv-lock` and `sync-tool-versions` now flags a release where only some files carry provenance, and a trusted publisher whose workflow changed.
 - The bundled `babysit-ci` skill now names a required job that no runner picked up, or that ran past its timeout, as a failure to re-run.
 - Fix `repomatic apply-labels`, which failed the labels job on a pull request from a fork instead of skipping the labels with a warning.
 - Fix `repomatic ci-status`, which reported a required job that no runner picked up as a workflow-level error, and one past its timeout as a superseded run.

@@ -459,7 +459,8 @@ class ProvenanceHold:
     """A release withheld because it lost the provenance its predecessor had.
 
     Built by {func}`repomatic.deps.provenance.review_bumps`: the kept release
-    was uploaded through trusted publishing, and the withheld one was not.
+    carries provenance from trusted publishing, and the withheld one has a file
+    that carries none.
     """
 
     name: str
@@ -469,7 +470,7 @@ class ProvenanceHold:
     """Version left in place, which carries provenance."""
 
     withheld: str
-    """Version the run would have adopted, which carries none."""
+    """Version the run would have adopted, which has a file with no provenance."""
 
     publisher: str
     """Trusted publisher of {attr}`kept`, like `pypa/packaging`, or empty when
@@ -492,11 +493,13 @@ Shared with {func}`repomatic.cli.deps.print_plan_tables`, for the reason
 """
 
 PROVENANCE_HOLD_NOTE = (
-    "Each withheld release carries no [PEP 740](https://peps.python.org/pep-0740/)"
-    " provenance, while the release it would replace was uploaded by the trusted"
-    " publisher named here. A publishing token used outside that workflow uploads"
-    " exactly this. Confirm the release with its maintainers before adopting it by"
-    " hand: this check holds the automated bump only."
+    "Each withheld release has one or more files with no"
+    " [PEP 740](https://peps.python.org/pep-0740/) provenance, while the release"
+    " it would replace carried provenance from the trusted publisher named here."
+    " A publishing token used outside that workflow uploads exactly this: a whole"
+    " release, or one file added to a release. Confirm the release with its"
+    " maintainers before adopting it by hand: this check holds the automated bump"
+    " only."
 )
 """Intro paragraph of the provenance-hold section."""
 

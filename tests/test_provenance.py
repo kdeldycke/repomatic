@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from email.message import Message
+from io import BytesIO
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -47,14 +50,52 @@ from repomatic.deps.sync import (
     _review_lock_provenance,
 )
 from repomatic.github.releases import ReleaseNotesRequest
-from repomatic.http import FetchError, Response
-from repomatic.pypi import PYPI_PACKAGE_URL, ReleaseProvenance, release_provenance
+from repomatic.pypi import (
+    PYPI_PACKAGE_URL,
+    PYPI_PROVENANCE_URL,
+    PYPI_SIMPLE_JSON,
+    PYPI_SIMPLE_URL,
+    PYPI_VERSION_API_URL,
+    ReleaseProvenance,
+    release_provenance,
+)
 from repomatic.tooling.registry import TOOL_REGISTRY
+from tests.conftest import FakeResponse
 
-ATTESTED = ReleaseProvenance(known=True, attested=True, publisher="orchard/fig")
-MOVED = ReleaseProvenance(known=True, attested=True, publisher="grove/fig")
-BARE = ReleaseProvenance(known=True, attested=True)
-NONE = ReleaseProvenance(known=True)
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from urllib.request import Request
+
+ATTESTED = ReleaseProvenance(
+    known=True,
+    files=2,
+    attested_files=2,
+    publisher="orchard/fig",
+    workflow="release.yaml",
+)
+MOVED = ReleaseProvenance(
+    known=True,
+    files=2,
+    attested_files=2,
+    publisher="grove/fig",
+    workflow="release.yaml",
+)
+RENAMED = ReleaseProvenance(
+    known=True,
+    files=2,
+    attested_files=2,
+    publisher="orchard/fig",
+    workflow="publish.yaml",
+)
+PARTIAL = ReleaseProvenance(
+    known=True,
+    files=3,
+    attested_files=2,
+    publisher="orchard/fig",
+    workflow="release.yaml",
+)
+BARE = ReleaseProvenance(known=True, files=2, attested_files=2)
+NONE = ReleaseProvenance(known=True, files=2)
 UNKNOWN = ReleaseProvenance(known=False)
 
 PYPI = "https://pypi.org/simple"
@@ -65,17 +106,16 @@ PYPI = "https://pypi.org/simple"
 # ---------------------------------------------------------------------------
 
 
-RELEASE_FILES = {
-    "urls": [
-        {"filename": "fig-1.0.tar.gz"},
-        {"filename": "fig-1.0-py3-none-any.whl"},
-    ]
-}
+RELEASE = {"fig-1.0-py3-none-any.whl": True, "fig-1.0.tar.gz": True}
+"""The files of `fig 1.0`, each to whether it carries provenance."""
+
+RELEASE_URL = PYPI_VERSION_API_URL.format(package="fig", version="1.0")
+INDEX_URL = PYPI_SIMPLE_URL.format(package="fig")
 
 
-def _provenance_body(repository: str) -> bytes:
+def _provenance_body(repository: str) -> dict:
     """A provenance object naming one GitHub trusted publisher."""
-    return json.dumps({
+    return {
         "version": 1,
         "attestation_bundles": [
             {
@@ -88,62 +128,144 @@ def _provenance_body(repository: str) -> bytes:
                 "attestations": [],
             }
         ],
-    }).encode()
+    }
 
 
-@patch("repomatic.pypi.get_json_soft", return_value=RELEASE_FILES)
-def test_release_provenance_reads_the_publisher_of_the_wheel(mock_files):
-    with patch(
-        "repomatic.pypi.request",
-        return_value=Response(200, {}, _provenance_body("orchard/fig")),
-    ) as mock_request:
-        provenance = release_provenance("fig", "1.0")
+def _integrity_url(version: str, filename: str) -> str:
+    """The integrity API URL of one file of `fig`."""
+    return PYPI_PROVENANCE_URL.format(package="fig", version=version, filename=filename)
 
-    assert provenance == ATTESTED
-    assert mock_request.call_args[0][0].endswith(
-        "/integrity/fig/1.0/fig-1.0-py3-none-any.whl/provenance"
-    )
+
+def _http_error(code: int) -> HTTPError:
+    """An `HTTPError` with an empty body, as `urlopen` raises it."""
+    return HTTPError("https://pypi.org", code, "Error", Message(), BytesIO())
+
+
+def _pypi(releases, routes=None, calls=None):
+    """A `urlopen` stand-in serving the releases of `fig` from PyPI.
+
+    *releases* maps each version to its files, and each file to whether it
+    carries provenance. The JSON API lists the files of each release, the
+    Simple API gives each attested file its integrity URL, and the integrity
+    API names `orchard/fig` as the publisher. *routes* replaces the answer to a
+    URL with a JSON value, raw bytes, or an exception to raise. Any other URL
+    answers 404. Each request is appended to *calls*, when given.
+    """
+    answers: dict[str, object] = {}
+    index = []
+    for version, files in releases.items():
+        api_url = PYPI_VERSION_API_URL.format(package="fig", version=version)
+        answers[api_url] = {"urls": [{"filename": name} for name in files]}
+        for name, attested in files.items():
+            url = _integrity_url(version, name)
+            index.append({"filename": name, "provenance": url if attested else None})
+            if attested:
+                answers[url] = _provenance_body("orchard/fig")
+    answers[INDEX_URL] = {"files": index}
+    answers.update(routes or {})
+
+    def urlopen(prepared, timeout):
+        if calls is not None:
+            calls.append(prepared)
+        answer = answers.get(prepared.full_url, _http_error(404))
+        if isinstance(answer, Exception):
+            raise answer
+        return FakeResponse(
+            answer if isinstance(answer, bytes) else json.dumps(answer).encode()
+        )
+
+    return urlopen
 
 
 @pytest.mark.parametrize(
-    ("error", "expected"),
+    ("files", "expected"),
     [
-        pytest.param(FetchError("Not Found", status=404), NONE, id="none"),
-        pytest.param(FetchError("Bad Gateway", status=502), UNKNOWN, id="outage"),
-        pytest.param(FetchError("Connection reset"), UNKNOWN, id="network"),
+        pytest.param(RELEASE, ATTESTED, id="full"),
+        pytest.param(dict.fromkeys(RELEASE, False), NONE, id="none"),
+        pytest.param(
+            {**RELEASE, "fig-1.0-py313-none-any.whl": False}, PARTIAL, id="file-added"
+        ),
     ],
 )
-@patch("repomatic.pypi.get_json_soft", return_value=RELEASE_FILES)
-def test_release_provenance_tells_an_absence_from_a_failure(
-    mock_files, error, expected
-):
-    """Only a 404 of the integrity API says the release carries no provenance."""
-    with patch("repomatic.pypi.request", side_effect=error):
+def test_release_provenance_counts_every_file(files, expected):
+    with patch("repomatic.http.urlopen", side_effect=_pypi({"1.0": files})):
         assert release_provenance("fig", "1.0") == expected
 
 
+def test_release_provenance_asks_the_simple_api_for_json():
+    """Without the JSON media type, PyPI answers HTML and every lookup is unknown."""
+    calls: list[Request] = []
+    with patch(
+        "repomatic.http.urlopen", side_effect=_pypi({"1.0": RELEASE}, None, calls)
+    ):
+        release_provenance("fig", "1.0")
+
+    (index,) = [call for call in calls if call.full_url == INDEX_URL]
+    assert index.get_header("Accept") == PYPI_SIMPLE_JSON
+
+
+def test_release_provenance_reads_the_publisher_of_an_attested_wheel():
+    """The publisher comes from an attested file, a wheel before the sdist."""
+    files = {
+        "fig-1.0-py3-none-any.whl": False,
+        "fig-1.0-py313-none-any.whl": True,
+        "fig-1.0.tar.gz": True,
+    }
+    routes = {
+        _integrity_url("1.0", "fig-1.0-py313-none-any.whl"): _provenance_body(
+            "grove/fig"
+        )
+    }
+    with patch("repomatic.http.urlopen", side_effect=_pypi({"1.0": files}, routes)):
+        provenance = release_provenance("fig", "1.0")
+
+    assert provenance.publisher == "grove/fig"
+
+
 @pytest.mark.parametrize(
-    "body",
+    "answer",
     [
+        pytest.param(_http_error(404), id="missing"),
+        pytest.param(_http_error(502), id="outage"),
+        pytest.param(URLError("Connection reset"), id="network"),
         pytest.param(b"<html>", id="not-json"),
         pytest.param(b"[]", id="not-an-object"),
     ],
 )
-@patch("repomatic.pypi.get_json_soft", return_value=RELEASE_FILES)
-def test_release_provenance_of_an_unreadable_body_is_unknown(mock_files, body):
-    """A body that is no JSON object proves no presence and no absence either."""
-    with patch("repomatic.pypi.request", return_value=Response(200, {}, body)):
-        assert release_provenance("fig", "1.0") == UNKNOWN
+def test_release_provenance_keeps_the_counts_without_a_publisher(answer):
+    """A publisher PyPI does not name leaves the counts of the Simple API."""
+    routes = {_integrity_url("1.0", name): answer for name in RELEASE}
+    with patch("repomatic.http.urlopen", side_effect=_pypi({"1.0": RELEASE}, routes)):
+        assert release_provenance("fig", "1.0") == BARE
 
 
-@pytest.mark.parametrize("files", [None, {}, {"urls": []}])
-def test_release_provenance_without_files_is_unknown(files):
-    with (
-        patch("repomatic.pypi.get_json_soft", return_value=files),
-        patch("repomatic.pypi.request") as mock_request,
-    ):
+@pytest.mark.parametrize(
+    "routes",
+    [
+        pytest.param({RELEASE_URL: _http_error(502)}, id="release-outage"),
+        pytest.param({RELEASE_URL: None}, id="release-null"),
+        pytest.param({RELEASE_URL: {}}, id="release-without-urls"),
+        pytest.param({RELEASE_URL: {"urls": []}}, id="release-without-files"),
+        pytest.param({INDEX_URL: _http_error(502)}, id="index-outage"),
+        pytest.param({INDEX_URL: b"<html>"}, id="index-not-json"),
+        pytest.param(
+            {
+                INDEX_URL: {
+                    "files": [{"filename": "fig-1.0.tar.gz", "provenance": None}]
+                }
+            },
+            id="index-misses-a-file",
+        ),
+        pytest.param(
+            {INDEX_URL: {"files": [{"filename": name} for name in RELEASE]}},
+            id="index-without-provenance",
+        ),
+    ],
+)
+def test_release_provenance_is_unknown_when_pypi_does_not_answer(routes):
+    """A failed lookup, or one that cannot place every file, proves nothing."""
+    with patch("repomatic.http.urlopen", side_effect=_pypi({"1.0": RELEASE}, routes)):
         assert release_provenance("fig", "1.0") == UNKNOWN
-    mock_request.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -156,12 +278,18 @@ def test_release_provenance_without_files_is_unknown(files):
     [
         pytest.param(NONE, ATTESTED, True, id="lost"),
         pytest.param(NONE, BARE, True, id="lost-unnamed"),
+        pytest.param(PARTIAL, ATTESTED, True, id="file-added"),
+        pytest.param(NONE, PARTIAL, True, id="lost-the-rest"),
         pytest.param(NONE, NONE, False, id="never-had-it"),
         pytest.param(ATTESTED, ATTESTED, False, id="kept"),
+        pytest.param(PARTIAL, PARTIAL, False, id="partial-kept"),
+        pytest.param(ATTESTED, PARTIAL, False, id="completed"),
         pytest.param(MOVED, ATTESTED, False, id="publisher-moved"),
+        pytest.param(RENAMED, ATTESTED, False, id="workflow-renamed"),
         pytest.param(UNKNOWN, ATTESTED, False, id="new-unknown"),
         pytest.param(NONE, UNKNOWN, False, id="old-unknown"),
         pytest.param(NONE, None, False, id="added"),
+        pytest.param(PARTIAL, None, False, id="added-partial"),
     ],
 )
 def test_is_regression(new, old, expected):
@@ -175,6 +303,16 @@ def test_is_regression(new, old, expected):
         pytest.param(ATTESTED, None, "✅ `orchard/fig`", id="added"),
         pytest.param(BARE, ATTESTED, "✅ attested", id="unnamed"),
         pytest.param(MOVED, ATTESTED, "⚠️ `grove/fig`, was `orchard/fig`", id="moved"),
+        pytest.param(
+            RENAMED,
+            ATTESTED,
+            "⚠️ `orchard/fig` via `publish.yaml`, was `release.yaml`",
+            id="renamed",
+        ),
+        pytest.param(
+            MOVED, RENAMED, "⚠️ `grove/fig`, was `orchard/fig`", id="moved-and-renamed"
+        ),
+        pytest.param(PARTIAL, PARTIAL, "⚠️ 2 of 3 files attested", id="partial"),
         pytest.param(NONE, NONE, "none", id="none"),
         pytest.param(UNKNOWN, ATTESTED, "_unknown_", id="unknown"),
     ],
@@ -194,6 +332,10 @@ def test_review_holds_the_bumps_that_lost_provenance():
         ("fig", "1.1"): NONE,
         ("kiwi", "2.0"): ATTESTED,
         ("kiwi", "2.1"): ATTESTED,
+        ("lime", "5.0"): ATTESTED,
+        ("lime", "5.1"): PARTIAL,
+        ("date", "6.0"): PARTIAL,
+        ("date", "6.1"): PARTIAL,
         ("plum", "3.0"): NONE,
         ("plum", "3.1"): NONE,
         ("pear", "4.0"): NONE,
@@ -201,6 +343,8 @@ def test_review_holds_the_bumps_that_lost_provenance():
     bumps = [
         PypiBump("fig", "fig", "1.0", "1.1"),
         PypiBump("kiwi", "kiwi", "2.0", "2.1"),
+        PypiBump("lime", "lime", "5.0", "5.1"),
+        PypiBump("date", "date", "6.0", "6.1"),
         PypiBump("plum", "plum", "3.0", "3.1"),
         PypiBump("pear", "pear", "", "4.0"),
     ]
@@ -209,13 +353,39 @@ def test_review_holds_the_bumps_that_lost_provenance():
     ):
         review = review_bumps(bumps)
 
-    assert review.holds == [ProvenanceHold("fig", "1.0", "1.1", "orchard/fig")]
-    assert review.held == {"fig"}
+    assert review.holds == [
+        ProvenanceHold("fig", "1.0", "1.1", "orchard/fig"),
+        ProvenanceHold("lime", "5.0", "5.1", "orchard/fig"),
+    ]
+    assert review.held == {"fig", "lime"}
     assert review.cells == {
         "kiwi": "✅ `orchard/fig`",
+        "date": "⚠️ 2 of 3 files attested",
         "plum": "none",
         "pear": "none",
     }
+
+
+def test_review_holds_a_release_with_a_file_added_without_provenance():
+    """A wheel uploaded beside the attested files of a release holds the bump.
+
+    The other files of `fig 1.1` came through trusted publishing, and the JSON
+    API lists one of them first: only a look at every file finds the wheel
+    that a token added.
+    """
+    releases = {
+        "1.0": {"fig-1.0-py3-none-any.whl": True, "fig-1.0.tar.gz": True},
+        "1.1": {
+            "fig-1.1-py3-none-any.whl": True,
+            "fig-1.1-py313-none-any.whl": False,
+            "fig-1.1.tar.gz": True,
+        },
+    }
+    with patch("repomatic.http.urlopen", side_effect=_pypi(releases)):
+        review = review_bumps([PypiBump("fig", "fig", "1.0", "1.1")])
+
+    assert review.holds == [ProvenanceHold("fig", "1.0", "1.1", "orchard/fig")]
+    assert review.cells == {}
 
 
 # ---------------------------------------------------------------------------

@@ -26,8 +26,6 @@ Also the home of what counts as the public index at all
 
 from __future__ import annotations
 
-import json
-import logging
 from dataclasses import dataclass
 from time import sleep
 from typing import NamedTuple
@@ -35,7 +33,7 @@ from urllib.parse import urlencode, urlsplit
 
 from .config import load_repomatic_config
 from .github.urls import parse_github_repo
-from .http import FetchError, get_cached_json, get_json_soft, request
+from .http import get_cached_json, get_json_soft
 from .humanize import parse_iso_datetime
 from .versions import safe_version
 
@@ -90,6 +88,20 @@ PROPAGATION_DELAY = 15
 
 With {data}`PROPAGATION_ATTEMPTS`, the wait lasts about five minutes, which
 covers the propagation delay of PyPI's index and CDN.
+"""
+
+PYPI_SIMPLE_URL = "https://pypi.org/simple/{package}/"
+"""PyPI Simple API page of a package, which lists every file of every release."""
+
+PYPI_SIMPLE_JSON = "application/vnd.pypi.simple.v1+json"
+"""Media type of the JSON form of the Simple API, from
+[PEP 691](https://peps.python.org/pep-0691/).
+
+In that form, each file carries a `provenance` key, from
+[PEP 740](https://peps.python.org/pep-0740/): the {data}`PYPI_PROVENANCE_URL`
+of its attestations, or `null` for a file uploaded without any. The JSON API
+has no such key, so this is the one request that answers for every file of a
+release.
 """
 
 PYPI_PROVENANCE_URL = (
@@ -504,34 +516,59 @@ def get_trusted_publishers(
 
 @dataclass(frozen=True)
 class ReleaseProvenance:
-    """What PyPI records about how one release was published.
+    """What PyPI records about how the files of one release were published.
 
-    A release uploaded through trusted publishing carries PEP 740 provenance:
+    A file uploaded through trusted publishing carries PEP 740 provenance:
     attestations, signed through Sigstore, naming the repository and the
-    workflow that uploaded each file. A release uploaded with an API token, by
-    hand or by a token thief, carries none.
+    workflow that uploaded it. A file uploaded with an API token, by hand or by
+    a token thief, carries none, even beside attested files of the same release.
     """
 
     known: bool
     """Whether PyPI answered. `False` when a lookup failed: the release may or
     may not carry provenance."""
 
-    attested: bool = False
-    """Whether the release carries provenance."""
+    files: int = 0
+    """Number of files in the release."""
+
+    attested_files: int = 0
+    """Number of those files that carry provenance."""
 
     publisher: str = ""
-    """Repository of the trusted publisher, like `pypa/packaging`. Empty when the
-    release carries no provenance, or one naming no publisher."""
+    """Repository of the trusted publisher, like `pypa/packaging`. Empty when no
+    file carries provenance, or when its provenance names no publisher."""
+
+    workflow: str = ""
+    """Workflow filename of the trusted publisher, like `release.yaml`. Empty
+    when {attr}`publisher` is."""
+
+    @property
+    def attested(self) -> bool:
+        """Whether at least one file of the release carries provenance."""
+        return self.attested_files > 0
+
+    @property
+    def fully_attested(self) -> bool:
+        """Whether every file of the release carries provenance.
+
+        PyPI's Security tab warns about the other attested case, a release
+        with some files that carry none, as "Incomplete Provenance".
+        """
+        return self.attested and self.attested_files == self.files
 
 
 def release_provenance(package: str, version: str) -> ReleaseProvenance:
-    """Look up the PEP 740 provenance of one release of *package*.
+    """Look up the PEP 740 provenance of every file of one release of *package*.
 
-    Reads the first file of the release, preferring a wheel: trusted
-    publishing uploads every file of a release from one workflow run, so one
-    file speaks for all of them. Tells a release with no provenance (the
-    integrity API answers 404) from a failed lookup, which a caller must not
-    read as an absence.
+    Every file counts: a token thief can add a file to a release that trusted
+    publishing uploaded, and the files already there keep their provenance.
+    The JSON API lists the files of the release, and the Simple API says which
+    of them carry provenance. The publisher comes from one attested file,
+    preferring a wheel.
+
+    A failed lookup, or a Simple API page that misses a file of the release,
+    gives an unknown provenance, which a caller must not read as an absence. A
+    failed publisher lookup leaves the publisher empty and keeps the counts.
 
     :param package: The PyPI package name.
     :param version: The release version.
@@ -541,36 +578,37 @@ def release_provenance(package: str, version: str) -> ReleaseProvenance:
         PYPI_VERSION_API_URL.format(package=package, version=version),
         f"PyPI release lookup failed for {package} {version}",
     )
-    files = [
-        file
+    filenames = [
+        file["filename"]
         for file in (data.get("urls") or [] if isinstance(data, dict) else [])
         if isinstance(file, dict) and file.get("filename")
     ]
-    if not files:
+    if not filenames:
         return ReleaseProvenance(known=False)
-    wheels = [file for file in files if file["filename"].endswith(".whl")]
-    filename = (wheels or files)[0]["filename"]
-    url = PYPI_PROVENANCE_URL.format(
-        package=package, version=version, filename=filename
+    index = get_json_soft(
+        PYPI_SIMPLE_URL.format(package=package),
+        f"PyPI index lookup failed for {package}",
+        headers={"Accept": PYPI_SIMPLE_JSON},
     )
-    try:
-        response = request(url, headers={"Accept": "application/json"})
-        provenance = json.loads(response.body)
-    except FetchError as error:
-        if error.status == 404:
-            return ReleaseProvenance(known=True)
-        logging.debug(f"PyPI provenance lookup failed for {filename}: {error}")
+    provenance_urls = {
+        file["filename"]: file["provenance"]
+        for file in (index.get("files") or [] if isinstance(index, dict) else [])
+        if isinstance(file, dict) and file.get("filename") and "provenance" in file
+    }
+    if any(filename not in provenance_urls for filename in filenames):
         return ReleaseProvenance(known=False)
-    except ValueError as error:
-        logging.debug(f"PyPI provenance of {filename} is not JSON: {error}")
-        return ReleaseProvenance(known=False)
-    if not isinstance(provenance, dict):
-        return ReleaseProvenance(known=False)
-    publishers = _parse_publishers(provenance)
+    attested = [filename for filename in filenames if provenance_urls[filename]]
+    if not attested:
+        return ReleaseProvenance(known=True, files=len(filenames))
+    wheels = [filename for filename in attested if filename.endswith(".whl")]
+    publishers = get_trusted_publishers(package, version, (wheels or attested)[0])
+    publisher = publishers[0] if publishers else None
     return ReleaseProvenance(
         known=True,
-        attested=True,
-        publisher=publishers[0].repository if publishers else "",
+        files=len(filenames),
+        attested_files=len(attested),
+        publisher=publisher.repository if publisher else "",
+        workflow=publisher.workflow if publisher else "",
     )
 
 
