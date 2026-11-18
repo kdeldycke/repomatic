@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CompletedProcess, run
 from unittest.mock import patch
 
 import pytest
@@ -368,6 +369,15 @@ def test_command_error_tells_a_transient_failure(stderr, transient):
     assert GhCommandError(stderr).transient is transient
 
 
+def test_timed_out_command_error_is_transient():
+    """A call stopped at its timeout may succeed on a new connection."""
+    error = GhCommandError(
+        "`gh run view` did not finish in 300 seconds.", timed_out=True
+    )
+    assert error.status is None
+    assert error.transient is True
+
+
 def test_failure_message_omits_status_when_no_incident():
     """The healthy status annotation (empty string) leaves the error untouched."""
     with (
@@ -378,6 +388,44 @@ def test_failure_message_omits_status_when_no_incident():
         with pytest.raises(RuntimeError) as excinfo:
             run_gh_command(["issue", "list"])
         assert str(excinfo.value) == "some error\n"
+
+
+# -- Timeouts ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("transfer", "constant"),
+    (
+        pytest.param(False, "_CALL_TIMEOUT_SECONDS", id="call"),
+        pytest.param(True, "_TRANSFER_TIMEOUT_SECONDS", id="transfer"),
+    ),
+)
+def test_each_call_gets_its_timeout(transfer, constant):
+    """A transfer of release assets runs under the longer timeout."""
+    with (
+        patch(f"repomatic.github.gh.{constant}", 42),
+        patch("repomatic.github.gh.run") as mock_run,
+    ):
+        mock_run.return_value = _make_result(stdout="ok\n")
+        run_gh_command(["release", "view", "v1.2.3"], transfer=transfer)
+    assert mock_run.call_args.kwargs["timeout"] == 42
+
+
+def test_stalled_call_is_stopped_at_its_timeout():
+    """A call past its timeout is killed, and fails as a transient error.
+
+    A Python process that sleeps stands in for a stalled `gh`, so the real
+    `subprocess.run` replaces the suite's refusal stub.
+    """
+    with (
+        patch("repomatic.github.gh.run", run),
+        patch("repomatic.github.gh.gh_executable", return_value=sys.executable),
+        patch("repomatic.github.gh._CALL_TIMEOUT_SECONDS", 0.5),
+        pytest.raises(GhCommandError, match=r"did not finish in 0\.5 seconds") as exc,
+    ):
+        run_gh_command(["-c", "import time; time.sleep(10)"])
+    assert exc.value.timed_out
+    assert exc.value.transient
 
 
 # -- Transient same-token retry on 401 ----------------------------------------

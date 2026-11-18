@@ -44,7 +44,7 @@ import logging
 import os
 import re
 from functools import cache
-from subprocess import run
+from subprocess import TimeoutExpired, run
 from time import sleep
 
 from ..tooling.binaries import ensure_binary
@@ -117,6 +117,21 @@ Unlike the auth schedule this one never feeds the cross-token fallback: a
 throttled token is not a wrong one, and swapping credentials against an
 abuse-detection refusal would only spread the burst across two identities."""
 
+_CALL_TIMEOUT_SECONDS = 300
+"""Seconds one `gh` call may run before it is stopped.
+
+A `gh` call whose connection stalls can block for hours, and the command that
+made it blocks with it: a `ci-status --wait` watch, or a CI job until its
+`timeout-minutes`. An API read takes seconds, so five minutes still lets a slow
+one finish. The stopped call fails with a transient {class}`GhCommandError`, and
+`ci-status --wait` then polls again."""
+
+_TRANSFER_TIMEOUT_SECONDS = 1800
+"""Seconds a `gh` call that moves release assets may run before it is stopped.
+
+Its duration grows with the size of the assets. Thirty minutes moves the 218 MiB
+of the `8.3.0` assets at 124 KiB/s."""
+
 
 class GhCommandError(RuntimeError):
     """A `gh` command that still failed after every retry.
@@ -128,7 +143,12 @@ class GhCommandError(RuntimeError):
     """
 
     def __init__(
-        self, message: str, *, stdout: str = "", stderr: str | None = None
+        self,
+        message: str,
+        *,
+        stdout: str = "",
+        stderr: str | None = None,
+        timed_out: bool = False,
     ) -> None:
         super().__init__(message)
         self.stdout = stdout
@@ -150,19 +170,24 @@ class GhCommandError(RuntimeError):
         `None` when the error output names none: a network error, a `gh`
         usage error.
         """
+        self.timed_out = timed_out
+        """Whether the command ran past its timeout, and was stopped."""
 
     @property
     def transient(self) -> bool:
         """Whether the same command may succeed when run again later.
 
-        True for a server error (`5xx`) and for a rate limit. GitHub refuses a
-        spent quota with a `429`, or with a `403` whose message names the limit,
-        and `gh api graphql` reports its secondary limit with no HTTP status
-        (see `_TRANSIENT_THROTTLE_MARKERS`). Any other client error (`4xx`) is
-        not transient: the same request gets the same answer. Nor is any other
-        failure with no HTTP status: a network error then reads the same as a
-        `gh` that cannot start.
+        True for a server error (`5xx`), for a rate limit, and for a command
+        stopped at its timeout, since the next call opens a new connection.
+        GitHub refuses a spent quota with a `429`, or with a `403` whose message
+        names the limit, and `gh api graphql` reports its secondary limit with no
+        HTTP status (see `_TRANSIENT_THROTTLE_MARKERS`). Any other client error
+        (`4xx`) is not transient: the same request gets the same answer. Nor is
+        any other failure with no HTTP status: a network error then reads the
+        same as a `gh` that cannot start.
         """
+        if self.timed_out:
+            return True
         if self.status is None:
             return bool(_matched_marker(self.stderr, _TRANSIENT_THROTTLE_MARKERS))
         if self.status >= 500 or self.status == 429:
@@ -282,20 +307,34 @@ def gh_env(token: str | None = None) -> dict[str, str] | None:
     return {**os.environ, "GH_TOKEN": token} if token else None
 
 
-def _run_gh(cmd: list[str], env: dict[str, str] | None) -> CompletedProcess[str]:
+def _run_gh(
+    cmd: list[str], env: dict[str, str] | None, timeout: float
+) -> CompletedProcess[str]:
     """Run one `gh` command line, capturing its output.
 
+    :param timeout: Seconds after which the command is stopped.
     :raises GhCommandError: The binary could not start, as in a container job
-        that ships no `gh` once the pinned build failed to download.
+        that ships no `gh` once the pinned build failed to download, or the
+        command ran past *timeout*.
     """
     try:
-        return run(cmd, capture_output=True, encoding="UTF-8", check=False, env=env)
+        return run(
+            cmd,
+            capture_output=True,
+            encoding="UTF-8",
+            check=False,
+            env=env,
+            timeout=timeout,
+        )
+    except TimeoutExpired as error:
+        msg = f"`gh {' '.join(cmd[1:3])}` did not finish in {timeout:g} seconds."
+        raise GhCommandError(msg, timed_out=True) from error
     except OSError as error:
         msg = f"Cannot run {cmd[0]}: {error}"
         raise GhCommandError(msg) from error
 
 
-def run_gh_command(args: list[str]) -> str:
+def run_gh_command(args: list[str], *, transfer: bool = False) -> str:
     """Run a `gh` CLI command and return stdout.
 
     Token priority: `REPOMATIC_PAT` > `GH_TOKEN` > `GITHUB_TOKEN`.
@@ -316,7 +355,13 @@ def run_gh_command(args: list[str]) -> str:
     [githubstatus.com](https://www.githubstatus.com) annotation when an
     incident is active.
 
+    Each attempt is stopped after `_CALL_TIMEOUT_SECONDS`, or
+    `_TRANSFER_TIMEOUT_SECONDS` for a *transfer*. A stopped attempt raises a
+    transient {class}`GhCommandError` at once, without the retries above.
+
     :param args: Command arguments to pass to `gh`.
+    :param transfer: The command moves release assets, so its duration grows
+        with their size.
     :return: The stdout output from the command.
     :raises GhCommandError: If the command fails (after retries and fallback,
         if attempted).
@@ -327,7 +372,8 @@ def run_gh_command(args: list[str]) -> str:
     github_token = os.environ.get("GITHUB_TOKEN")
     primary = resolve_gh_token()
     env = gh_env(primary)
-    process = _run_gh(cmd, env)
+    timeout = _TRANSFER_TIMEOUT_SECONDS if transfer else _CALL_TIMEOUT_SECONDS
+    process = _run_gh(cmd, env, timeout)
 
     # Bounded same-token retry, before the cross-token fallback. Catches
     # transient GitHub failures a re-run with the same credential clears:
@@ -351,7 +397,7 @@ def run_gh_command(args: list[str]) -> str:
             f"gh command {failure}, retrying in {delay}s with the same token."
         )
         sleep(delay)
-        process = _run_gh(cmd, env)
+        process = _run_gh(cmd, env, timeout)
 
     if process.returncode:
         stderr = process.stderr
@@ -365,7 +411,7 @@ def run_gh_command(args: list[str]) -> str:
                 f"Primary token returned 401 ({auth_marker}), retrying with "
                 "GITHUB_TOKEN."
             )
-            retry = _run_gh(cmd, gh_env(github_token))
+            retry = _run_gh(cmd, gh_env(github_token), timeout)
             if not retry.returncode:
                 return retry.stdout
             logging.warning("GITHUB_TOKEN fallback also failed.")

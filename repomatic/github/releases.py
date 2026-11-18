@@ -571,21 +571,24 @@ def create_release(
     if release_exists(tag, repository):
         logging.info(f"Release {tag} already exists, skipping creation.")
         return False
-    run_gh_command([
-        "release",
-        "create",
-        tag,
-        "--draft",
-        "--target",
-        target,
-        "--title",
-        tag,
-        "--repo",
-        repository,
-        "--notes",
-        notes,
-        *(str(path) for path in files),
-    ])
+    run_gh_command(
+        [
+            "release",
+            "create",
+            tag,
+            "--draft",
+            "--target",
+            target,
+            "--title",
+            tag,
+            "--repo",
+            repository,
+            "--notes",
+            notes,
+            *(str(path) for path in files),
+        ],
+        transfer=bool(files),
+    )
     logging.info(f"Created release draft {tag}.")
     return True
 
@@ -606,15 +609,18 @@ def upload_release_files(tag: str, repository: str, files: Sequence[Path]) -> No
     if not files:
         logging.info(f"Nothing to upload to {tag}.")
         return
-    run_gh_command([
-        "release",
-        "upload",
-        tag,
-        *(str(path) for path in files),
-        "--repo",
-        repository,
-        "--clobber",
-    ])
+    run_gh_command(
+        [
+            "release",
+            "upload",
+            tag,
+            *(str(path) for path in files),
+            "--repo",
+            repository,
+            "--clobber",
+        ],
+        transfer=True,
+    )
     logging.info(f"Uploaded {len(files)} file(s) to {tag}.")
 
 

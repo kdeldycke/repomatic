@@ -297,7 +297,8 @@ def download_release_binaries(repository: str, tag: str, dest: Path) -> None:
     ]
     run_gh_command(
         ["release", "download", tag, "--repo", repository, "--dir", str(dest)]
-        + patterns
+        + patterns,
+        transfer=True,
     )
 
 

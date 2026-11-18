@@ -527,6 +527,7 @@ def test_create_release_creates_a_draft_with_its_assets(tmp_path):
         "Notes.",
         str(wheel),
     ]
+    assert mock_gh.call_args.kwargs == {"transfer": True}
 
 
 def test_create_release_leaves_an_existing_release_alone():
@@ -543,15 +544,18 @@ def test_upload_release_files_replaces_same_named_assets(tmp_path):
     files = [tmp_path / "papaya-linux-x64.bin", tmp_path / "papaya.zip"]
     with patch("repomatic.github.releases.run_gh_command") as mock_gh:
         upload_release_files("v1.2.3", "user/repo", files)
-    mock_gh.assert_called_once_with([
-        "release",
-        "upload",
-        "v1.2.3",
-        *map(str, files),
-        "--repo",
-        "user/repo",
-        "--clobber",
-    ])
+    mock_gh.assert_called_once_with(
+        [
+            "release",
+            "upload",
+            "v1.2.3",
+            *map(str, files),
+            "--repo",
+            "user/repo",
+            "--clobber",
+        ],
+        transfer=True,
+    )
 
 
 def test_upload_release_files_without_files_calls_nothing():

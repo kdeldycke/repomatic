@@ -502,6 +502,7 @@ def test_download_release_binaries_waits_for_the_asset_list(mock_sleep, tmp_path
         "--pattern",
         "*-1.2.3-*.exe",
     ]
+    assert mock_gh.call_args_list[-1].kwargs == {"transfer": True}
     assert dest.is_dir()
 
 
