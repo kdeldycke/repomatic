@@ -571,6 +571,7 @@ Every top-level page heading uses an `{octicon}` icon for visual scanning: `` # 
 | {octicon}`beaker` `beaker`                             | `test-suite.md`                                            |
 | {octicon}`book` `book`                                 | `man.md`, `sphinx.md`                                      |
 | {octicon}`broadcast` `broadcast`                       | `telemetry.md`                                             |
+| {octicon}`bug` `bug`                                   | `bug-report.md`                                            |
 | {octicon}`checklist` `checklist`                       | `operation-contracts.md`                                   |
 | {octicon}`chevron-right` `chevron-right`               | `carapace.md`, `shells.md`                                 |
 | {octicon}`circle-slash` `circle-slash`                 | `unsupported.md`                                           |
