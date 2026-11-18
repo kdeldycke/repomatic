@@ -7,6 +7,7 @@
 
 - The bundled `file-bug-report` skill now names a third party's account by its role, not its address, in a vendor's support email too.
 - The bundled `repomatic-ship` skill now fetches the tags first, and stops when nothing since the last tag is left to ship.
+- Fix `ci-status` reporting a job as still running when GitHub left its status at `in_progress` after the job concluded.
 
 ## [`8.3.0` (2026-11-17)](https://github.com/kdeldycke/repomatic/compare/v8.2.0...v8.3.0)
 

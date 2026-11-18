@@ -338,6 +338,18 @@ def test_a_run_still_going_is_not_inconclusive_yet():
     assert status.inconclusive is False
 
 
+def test_a_concluded_job_with_a_stale_status_has_settled():
+    """A job GitHub left at `in_progress` after its conclusion is not running.
+
+    Counted as running, it would hold a watch open until the watch times out,
+    on a run that is already green.
+    """
+    status = run(job("🧬 Project metadata", "success", "in_progress"))
+    assert status.running_jobs == ()
+    assert status.verdict == "green"
+    assert CIStatus(branch="main", tip_sha="abc1234def", runs=[status]).settled is True
+
+
 @pytest.mark.parametrize("run_status", ("queued", "pending", "waiting", "in_progress"))
 def test_a_run_with_no_job_yet_is_neither_green_nor_settled(run_status):
     """A run GitHub has yet to give a job says nothing about its commit yet.

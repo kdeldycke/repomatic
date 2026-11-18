@@ -176,8 +176,14 @@ class JobStatus:
 
     @property
     def running(self) -> bool:
-        """Whether this job has yet to reach a terminal state."""
-        return self.status not in TERMINAL_STATUSES
+        """Whether this job has yet to reach a terminal state.
+
+        A conclusion settles it, whatever the status says. GitHub can leave a
+        finished job's `status` at `in_progress` after setting its `conclusion`
+        and its completion time, and never update it. Read off the status
+        alone, that job would hold a watch open until the watch times out.
+        """
+        return self.status not in TERMINAL_STATUSES and not self.conclusion
 
     @property
     def skipped(self) -> bool:
