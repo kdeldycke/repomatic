@@ -410,10 +410,10 @@ class FileInventory:
         ShellCheck lints the same list: it does not support Zsh either.
 
         ```{todo}
-        Stop excluding Zsh once `shfmt` formats those constructs:
-        [mvdan/sh#1203](https://github.com/mvdan/sh/issues/1203). Give the
-        `shellcheck` registry entry a file list of its own in the same change,
-        which keeps the Zsh files out.
+        Once the `shfmt` pin moves to a release carrying
+        [mvdan/sh@8a8b554](https://github.com/mvdan/sh/commit/8a8b5541f3fba8dcc4a2e11ca859ef3c16ba85cd),
+        stop excluding Zsh. Give the `shellcheck` registry entry a file list of
+        its own in the same change, which keeps the Zsh files out.
         ```
         """
         candidates = self.glob_files(
