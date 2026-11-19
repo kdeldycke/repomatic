@@ -1,5 +1,10 @@
 # Changelog
 
+## [`8.3.2.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v8.3.1...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`8.3.1` (2026-11-19)](https://github.com/kdeldycke/repomatic/compare/v8.3.0...v8.3.1)
 
 - The bundled `file-bug-report` skill now names a third party's account by its role, not its address, in a vendor's support email too.
