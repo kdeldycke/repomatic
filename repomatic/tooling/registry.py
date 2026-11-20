@@ -1364,53 +1364,53 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "bd0c5860a6220b68ceb82d7a00b7a4ed97fbaf3904eb41bcb897f9ec74af4148",
+        ): "9fb030ad316bbbf9a7379e52c0a1d2ad44d6b97cc7fec91745f4901961804732",
         (
             LINUX,
             X86_64,
-        ): "69ca8e9ff548091b2bfbd178d6f73142b483a5257b07854de702c68fb7f8c06b",
+        ): "d924b8407471748465121f0a2dc1a0bc277038b0b89142e77583e3ce0dda3746",
         (
             MACOS,
             AARCH64,
-        ): "dec6124a5e3ea475e8625a7a85b5a2ec939c1077624f95b78cfc1cb96199fab1",
+        ): "5ea2cd7d212b10132ee960ce480fc33aab761d0d6b658a1112c36c2657ed0957",
         (
             MACOS,
             X86_64,
-        ): "b92f74faad4521cff6bc45b54fc3806562d9aa136f8655222f1266e9819526e1",
+        ): "eecc983ea441eb10fc6045ed99bd2c113f7a05703fedbe4566970eff88cd19ef",
         (
             WINDOWS,
             AARCH64,
-        ): "bafa8941638d2347d8fb9243ca5b7ee7d7e3e6bc96ca8c3de99a24be51274cae",
+        ): "d016fdc0beeb265c8d9068584501334ee8e45a0480d8093e66abf6198f3e729b",
         (
             WINDOWS,
             X86_64,
-        ): "d3aac0b55e1b52ce586892b7c64de6bd2fc3774fe5b71129426af92c8a3c0571",
+        ): "36725369c94245889e9b40ee12e7740563dd2e98fd9b95a62cd986deb9ec132e",
     },
     "gh": {
         (
             LINUX,
             AARCH64,
-        ): "ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63",
+        ): "cb34cefc6f4e77b90731374a2b737516bb8f3033c6ca46aa949e5344f68069e3",
         (
             LINUX,
             X86_64,
-        ): "4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d",
+        ): "98cb101ad87dbbd3f6b2f2bfcbd43197ccd07643140121d8a9cfaa91eadbc24e",
         (
             MACOS,
             AARCH64,
-        ): "d700207eae9ae98fe2b89535c2c087c07823d4628c56364695a5a07ef311c062",
+        ): "23b12706219b9892e44236f988444a24adcf29284e16b35e03ba5b863fb6eb8e",
         (
             MACOS,
             X86_64,
-        ): "a2f86418f4350ae6e9ec60d5000bdf7665728436946a97fc27fe50e6ae752682",
+        ): "a8c2a708dbae89dc7c05ba7b0beafc95bd8d09ab4a3505467b77d32ebf364dc6",
         (
             WINDOWS,
             AARCH64,
-        ): "197211c98687d7770ac331fe8a3b6c198c389108c1536cdbedf659fe4703e484",
+        ): "d56fbf5b9ad32e5985e3e7e1d8f4d28ae2994618986cd2cba9b50ac710dffe01",
         (
             WINDOWS,
             X86_64,
-        ): "98d0cfa794721665d7973dd728c78aff7bd836d58f10f6d7a03568eccb0a22e0",
+        ): "08c06d10482f12c478018cd259f64acbd5f625712cadf331aad19ba973c879e5",
     },
     "gitleaks": {
         (
@@ -1552,27 +1552,27 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "63b7d4478d467a61fe47cdb3162f720c6797856e61a04f7e125d1cdc282488b8",
+        ): "f2f54b567f5f4688f000f1bf85c585ee22cce3b55befc9418bcdd4c5adc16595",
         (
             LINUX,
             X86_64,
-        ): "6155d4114f9a0f5b8f6d4fda96266c9d5f6add71df80da7f684ee5e72eb14588",
+        ): "3b13d1291281d39d01822e54035636487a7a0f228e70097899b1e33aeb0e7e93",
         (
             MACOS,
             AARCH64,
-        ): "90724dd2905cb1ce033343c71ed60e52fe898674f882803e3110cd228e09e1c5",
+        ): "b8e7b8b81f28cc808fd763b6d935536e15ba1ef72613bbb6d628b58a891da7ef",
         (
             MACOS,
             X86_64,
-        ): "8de057f425909b02c0184892539755d70ecc3244c4b214ae9382cedd691127e0",
+        ): "2c1e5cd3be644005d27543d7d83a32dbba36eb285bc12678818709938a63a988",
         (
             WINDOWS,
             AARCH64,
-        ): "bbee0a3b8826ae6fcf9b5424c6af6637b8c32899c8d679b1d851624a688c497d",
+        ): "02e5999a19d090eeb48b6b4b74cba939e38de1e56507c48d4ce9b61ab976bc9f",
         (
             WINDOWS,
             X86_64,
-        ): "7da6eb1932ad86921420a7198dbc9e62a10bcd995144704dc19b81d3fb802182",
+        ): "ab79036832cea0f2a21aa947731d39512250cc0f7a6a2f6add26262738a8cc11",
     },
 }
 """Tool name to platform-keyed SHA-256 hex digest mapping.
@@ -1585,15 +1585,15 @@ the registry, and so `VERSIONS` can anchor the offline staleness test.
 
 VERSIONS: dict[str, str] = {
     "actionlint": "1.7.12",
-    "biome": "2.6.6",
-    "gh": "2.103.3",
+    "biome": "2.6.7",
+    "gh": "2.104.0",
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.5",
     "lychee": "0.24.2",
     "oxipng": "10.2.1",
     "shellcheck": "0.11.0",
     "shfmt": "3.14.1",
-    "typos": "1.52.0",
+    "typos": "1.52.2",
 }
 """Tool name to the version each checksum set was computed for.
 
@@ -1759,7 +1759,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         ),
         default_paths="json_files",
         display_name="Biome",
-        version="2.6.6",
+        version="2.6.7",
         source_url="https://github.com/biomejs/biome",
         tag_pattern=r"^@biomejs/biome@(?P<version>.+)$",
         config_docs_url="https://biomejs.dev/reference/configuration/",
@@ -1864,7 +1864,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "gh": ToolSpec(
         name="gh",
         display_name="GitHub CLI",
-        version="2.103.3",
+        version="2.104.0",
         source_url="https://github.com/cli/cli",
         cli_docs_url="https://cli.github.com/manual/",
         binary=BinarySpec(
@@ -2392,7 +2392,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.17.4",
+        version="0.17.5",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
@@ -2540,7 +2540,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "typos": ToolSpec(
         name="typos",
-        version="1.52.0",
+        version="1.52.2",
         source_url="https://github.com/crate-ci/typos",
         config_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
         cli_docs_url="https://github.com/crate-ci/typos/blob/master/docs/reference.md",
@@ -2637,7 +2637,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "wrangler": ToolSpec(
         name="wrangler",
         display_name="Wrangler",
-        version="4.158.0",
+        version="4.161.0",
         npm=NpmSpec(),
         source_url="https://github.com/cloudflare/workers-sdk",
         # The monorepo tags each package of it, like `wrangler@4.150.0`: the
