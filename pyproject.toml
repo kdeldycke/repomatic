@@ -200,10 +200,8 @@ docs = [
   # tests package fails to import and each of its pages renders empty.
   { include-group = "test" },
 ]
-# types-docutils: covers the docutils.nodes imports in docs/conf.py.
 # types-pyyaml: stub release covering PyYAML 6.0 (safe_load, safe_dump, full_load).
 typing = [
-  "types-docutils>=0.22.3.20251115",
   "types-pyyaml>=6.0.12.9",
 ]
 
