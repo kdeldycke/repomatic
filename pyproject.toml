@@ -159,9 +159,9 @@ docs = [
   # furo 2025.12.19 is the first release that accepts Sphinx 9 (`sphinx<10`);
   # 2025.09.25 caps it below 9, which the lock cannot satisfy.
   "furo>=2025.12.19",
-  # myst-parser 5.1 ships the native "alert" extension (enabled in docs/conf.py)
-  # that renders GitHub-style alerts as admonitions; earlier 5.x reject "alert".
-  "myst-parser>=5.1",
+  # myst-parser 5.2 added the "docutils" heading slug preset that docs/conf.py
+  # sets: 5.1 reads it as an import path and fails the build.
+  "myst-parser>=5.2",
   # Sphinx 9.1.0 reads `show-inheritance` from `autodoc_default_options` on an
   # `automodule` page again (sphinx-doc/sphinx#14198): 9.0 dropped it, and
   # every class page lost its Bases line.

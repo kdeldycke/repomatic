@@ -97,15 +97,15 @@ myst_fence_as_directive = ["mermaid"]
 
 # Register every heading as a resolvable cross-reference target, so the build
 # resolves each authored `[text](#anchor)` and `[text](page.md#anchor)` link.
-# The slug function is pinned to docutils' `make_id`, so an authored anchor is
-# the same string as the section ID the page publishes (`cache-dir` for
-# `cache.dir`). GitHub, `lychee` and myst-parser's own default slug function
-# write `cachedir` instead: `[tool.lychee]` says why it skips these links.
-# `make_id` leaves nothing of a changelog release heading:
-# `click_extra_release_anchors` below gives each one an anchor made from its
-# version.
+# The slug function is myst-parser's `docutils` preset, which returns the IDs of
+# docutils' `make_id`, so an authored anchor is the same string as the section ID
+# the page publishes (`cache-dir` for `cache.dir`). GitHub, `lychee` and
+# myst-parser's own default slug function write `cachedir` instead:
+# `[tool.lychee]` says why it skips these links. `make_id` leaves nothing of a
+# changelog release heading: `click_extra_release_anchors` below gives each one
+# an anchor made from its version.
 myst_heading_anchors = 6
-myst_heading_slug_func = "docutils.nodes.make_id"
+myst_heading_slug_func = "docutils"
 
 # Fail the build on a fragment link that lands nowhere. myst-parser resolves
 # each one against what the build produced: heading slugs, `(target)=` labels,
