@@ -294,6 +294,27 @@ def test_cache_info_empty(cache_env):
     assert BinaryCacheEntry.entries() == []
 
 
+def test_entries_skip_a_file_gone_before_its_read(cache_env):
+    """A file another process renames away after the listing is not an entry."""
+    folder = ConfigCacheEntry.root() / "papaya" / "0123abcd"
+    folder.mkdir(parents=True)
+    kept = folder / "papaya.toml"
+    gone = folder / ".papaya.toml.x1y2z3.tmp"
+    for path in (kept, gone):
+        path.write_text("ripe = true\n", encoding="UTF-8")
+    read_entry = ConfigCacheEntry.from_path
+
+    def rename_away_then_read(path, root):
+        if path == gone:
+            path.unlink()
+        return read_entry(path, root)
+
+    with patch.object(ConfigCacheEntry, "from_path", rename_away_then_read):
+        entries = ConfigCacheEntry.entries()
+
+    assert [entry.path for entry in entries] == [kept]
+
+
 def test_cache_info_lists_entries(tmp_path, cache_env):
     """Returns all cached entries with correct metadata."""
     source = tmp_path / "staging" / "ruff"

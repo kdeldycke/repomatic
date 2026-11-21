@@ -177,13 +177,25 @@ class CachedFile:
 
     @classmethod
     def entries(cls) -> list[Self]:
-        """List the entries of this cache, sorted by path."""
+        """List the entries of this cache, sorted by path.
+
+        A file that is gone by the time {meth}`from_path` reads it is skipped.
+        Another process can rename or delete it after the listing: a concurrent
+        `repomatic run` renames the temporary file of each atomic write into
+        place.
+        """
         root = cls.root()
         if not root.is_dir():
             return []
         found: list[Self] = []
         for path in sorted(root.rglob("*")):
-            if path.is_file() and (entry := cls.from_path(path, root)) is not None:
+            if not path.is_file():
+                continue
+            try:
+                entry = cls.from_path(path, root)
+            except FileNotFoundError:
+                continue
+            if entry is not None:
                 found.append(entry)
         return found
 
