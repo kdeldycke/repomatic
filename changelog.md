@@ -16,6 +16,7 @@
 - Fix `ci-status` reporting a job as still running when GitHub left its status at `in_progress` after the job concluded.
 - Fix `ci-status --wait` hanging forever on a stalled `gh` call: each `gh` call now stops after five minutes, or thirty for a release asset transfer.
 - Fix `ci-status --wait` ending on an HTTP/2 stream the server cancelled, like `stream error: stream ID 5; CANCEL`: it now polls again.
+- Fix a job that opens or refreshes a pull request failing on GitHub's `Something went wrong while executing your query` error, which it now retries twice.
 - Fix `show-metadata` warning about a `test-matrix.exclude` entry that only the pull request matrix drops, as its axes are narrower than the full matrix's.
 - Fix `sync-workflow-pins` skipping a PyPI pin that follows another quoted argument on its line, like `--with 'apricot<2' --from 'papaya==1.2'`.
 

@@ -582,18 +582,23 @@ def _publish_pr(
     if fitted != body:
         logging.warning("PR body exceeds GitHub's size limit, trimming.")
 
+    # Both calls are safe to send twice: an edit sets the same fields again, and
+    # GitHub refuses a second open pull request for the same head and base.
     with temp_body_file(fitted) as body_path:
         if open_prs:
             number = open_prs[0]["number"]
-            run_gh_command([
-                "pr",
-                "edit",
-                str(number),
-                "--title",
-                title,
-                "--body-file",
-                str(body_path),
-            ])
+            run_gh_command(
+                [
+                    "pr",
+                    "edit",
+                    str(number),
+                    "--title",
+                    title,
+                    "--body-file",
+                    str(body_path),
+                ],
+                idempotent=True,
+            )
             logging.info(f"Updated PR #{number}")
             add_labels(number, labels, kind=ThreadKind.PR, assignees=assignees)
             if draft and not open_prs[0].get("isDraft"):
@@ -614,7 +619,7 @@ def _publish_pr(
         ]
         if draft:
             args.append("--draft")
-        output = run_gh_command(args)
+        output = run_gh_command(args, idempotent=True)
 
     number, url = parse_create_output(output, "pr")
     logging.info(f"Created PR #{number}: {url}")

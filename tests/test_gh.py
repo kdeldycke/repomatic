@@ -54,6 +54,7 @@ def _no_transient_retry():
     with (
         patch("repomatic.github.gh._TRANSIENT_AUTH_BACKOFF_SECONDS", ()),
         patch("repomatic.github.gh._TRANSIENT_THROTTLE_BACKOFF_SECONDS", ()),
+        patch("repomatic.github.gh._TRANSIENT_SERVER_BACKOFF_SECONDS", ()),
         patch("repomatic.github.gh.sleep"),
     ):
         yield
@@ -71,6 +72,13 @@ def _make_result(
 
 # Minimal env: no token vars at all.  Tests that need specific vars add them.
 _CLEAN_ENV = {"PATH": "/usr/bin", "HOME": "/tmp"}
+
+# The error `gh pr edit` printed when GitHub's GraphQL API failed on its side.
+_SERVER_ERROR_STDERR = (
+    "GraphQL: Something went wrong while executing your query on"
+    " 2026-11-21T13:40:02Z. Please include `E423:2D2DE5:555D920:1123E637:6B019F31`"
+    " when reporting this issue."
+)
 
 
 # -- api_headers -------------------------------------------------------------
@@ -367,6 +375,7 @@ def test_command_error_defaults_its_stderr_to_the_message():
             True,
             id="stream-cancelled",
         ),
+        pytest.param(_SERVER_ERROR_STDERR, True, id="graphql-server-error"),
         # GitHub's answer to a raw emoji in a query string, on every attempt.
         pytest.param(
             "stream error: stream ID 1; PROTOCOL_ERROR; received from peer",
@@ -591,6 +600,39 @@ def test_secondary_limit_retry_exhausts_then_raises():
         assert [c.args[0] for c in mock_sleep.call_args_list] == [15, 30]
         for call in mock_run.call_args_list:
             assert call.kwargs["env"]["GH_TOKEN"] == "pat-value"
+
+
+def test_server_error_clears_on_retry_of_an_idempotent_command():
+    """An idempotent command sends the query again after a GraphQL server error."""
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh._TRANSIENT_SERVER_BACKOFF_SECONDS", (5, 15)),
+        patch("repomatic.github.gh.sleep") as mock_sleep,
+        patch.dict("os.environ", _CLEAN_ENV, clear=True),
+    ):
+        mock_run.side_effect = [
+            _make_result(returncode=1, stderr=_SERVER_ERROR_STDERR),
+            _make_result(stdout="retry ok\n"),
+        ]
+        assert run_gh_command(["pr", "edit", "7"], idempotent=True) == "retry ok\n"
+        assert mock_run.call_count == 2
+        mock_sleep.assert_called_once_with(5)
+
+
+def test_server_error_is_not_retried_by_default():
+    """A command not marked idempotent may have run, so it is not sent again."""
+    with (
+        patch("repomatic.github.gh.run") as mock_run,
+        patch("repomatic.github.gh._TRANSIENT_SERVER_BACKOFF_SECONDS", (5, 15)),
+        patch("repomatic.github.gh.sleep") as mock_sleep,
+        patch.dict("os.environ", _CLEAN_ENV, clear=True),
+    ):
+        mock_run.return_value = _make_result(returncode=1, stderr=_SERVER_ERROR_STDERR)
+        with pytest.raises(GhCommandError, match="Something went wrong") as excinfo:
+            run_gh_command(["issue", "create"])
+        assert excinfo.value.transient is True
+        assert mock_run.call_count == 1
+        mock_sleep.assert_not_called()
 
 
 def test_bad_credentials_raises_without_waiting():

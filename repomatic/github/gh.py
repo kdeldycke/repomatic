@@ -117,6 +117,16 @@ start never does, and the next call opens a new stream. The other reset codes
 stay final: a query string holding a raw emoji gets `PROTOCOL_ERROR` from GitHub
 on every attempt."""
 
+_TRANSIENT_SERVER_MARKERS = ("Something went wrong while executing your query",)
+"""GitHub's GraphQL answer to a query that failed on the server side.
+
+`gh` prints `GraphQL: Something went wrong while executing your query on
+{timestamp}. Please include `{id}` when reporting this issue.`, with no HTTP
+status, when the API failed internally or timed out. The same query can succeed
+when it is sent again. A mutation can also have run before the failure, so only
+an idempotent command retries it: see the *idempotent* parameter of
+{func}`run_gh_command`."""
+
 _TRANSIENT_THROTTLE_BACKOFF_SECONDS = (15, 30, 60)
 """Sleep durations between bounded same-token retries on a secondary limit.
 
@@ -126,6 +136,12 @@ of 105 seconds stays cheaper than the re-run a failed sampling pass costs.
 Unlike the auth schedule this one never feeds the cross-token fallback: a
 throttled token is not a wrong one, and swapping credentials against an
 abuse-detection refusal would only spread the burst across two identities."""
+
+_TRANSIENT_SERVER_BACKOFF_SECONDS = (5, 15)
+"""Sleep durations between bounded same-token retries on a GraphQL server error.
+
+Shorter than the throttle schedule: a server error names no window to wait out.
+Only an idempotent command uses this schedule. An empty tuple disables it."""
 
 _CALL_TIMEOUT_SECONDS = 300
 """Seconds one `gh` call may run before it is stopped.
@@ -193,10 +209,11 @@ class GhCommandError(RuntimeError):
         names the limit, and `gh api graphql` reports its secondary limit with no
         HTTP status (see `_TRANSIENT_THROTTLE_MARKERS`). An HTTP/2 stream the
         server cancelled has no HTTP status either, and is transient too (see
-        `_TRANSIENT_STREAM_MARKERS`). Any other client error (`4xx`) is not
-        transient: the same request gets the same answer. Nor is any other
-        failure with no HTTP status: a network error then reads the same as a
-        `gh` that cannot start.
+        `_TRANSIENT_STREAM_MARKERS`), like a GraphQL query that failed on the
+        server side (see `_TRANSIENT_SERVER_MARKERS`). Any other client error
+        (`4xx`) is not transient: the same request gets the same answer. Nor is
+        any other failure with no HTTP status: a network error then reads the
+        same as a `gh` that cannot start.
         """
         if self.timed_out:
             return True
@@ -204,6 +221,7 @@ class GhCommandError(RuntimeError):
             return bool(
                 _matched_marker(self.stderr, _TRANSIENT_THROTTLE_MARKERS)
                 or _matched_marker(self.stderr, _TRANSIENT_STREAM_MARKERS)
+                or _matched_marker(self.stderr, _TRANSIENT_SERVER_MARKERS)
             )
         if self.status >= 500 or self.status == 429:
             return True
@@ -349,7 +367,9 @@ def _run_gh(
         raise GhCommandError(msg) from error
 
 
-def run_gh_command(args: list[str], *, transfer: bool = False) -> str:
+def run_gh_command(
+    args: list[str], *, transfer: bool = False, idempotent: bool = False
+) -> str:
     """Run a `gh` CLI command and return stdout.
 
     Token priority: `REPOMATIC_PAT` > `GH_TOKEN` > `GITHUB_TOKEN`.
@@ -362,7 +382,9 @@ def run_gh_command(args: list[str], *, transfer: bool = False) -> str:
     token cannot clear on a retry. A secondary rate-limit refusal gets the
     same treatment on its own, longer schedule (see
     `_TRANSIENT_THROTTLE_BACKOFF_SECONDS`), since it lifts on its own
-    within the minute. If 401s persist, the command is
+    within the minute. A GraphQL server error is retried on a third schedule
+    (see `_TRANSIENT_SERVER_BACKOFF_SECONDS`), for an *idempotent* command
+    only. If 401s persist, the command is
     then retried with `GITHUB_TOKEN` if available and different, letting
     CI jobs degrade gracefully to the standard Actions token instead of
     failing outright on a stale PAT.  When every retry path is exhausted,
@@ -377,6 +399,9 @@ def run_gh_command(args: list[str], *, transfer: bool = False) -> str:
     :param args: Command arguments to pass to `gh`.
     :param transfer: The command moves release assets, so its duration grows
         with their size.
+    :param idempotent: The command has the same effect when it runs twice, like
+        `gh pr edit`. Only such a command retries a GraphQL server error, since
+        the failed attempt may have changed something before it failed.
     :return: The stdout output from the command.
     :raises GhCommandError: If the command fails (after retries and fallback,
         if attempted).
@@ -392,11 +417,13 @@ def run_gh_command(args: list[str], *, transfer: bool = False) -> str:
 
     # Bounded same-token retry, before the cross-token fallback. Catches
     # transient GitHub failures a re-run with the same credential clears:
-    # auth flaps, within seconds, and secondary rate limits, within the
-    # minute, each paying its own schedule. Scoped to those two marker
-    # families: anything else must not pay the wait.
+    # auth flaps, within seconds, secondary rate limits, within the minute,
+    # and, for an idempotent command, GraphQL server errors, each paying its
+    # own schedule. Scoped to those marker families: anything else must not
+    # pay the wait.
     auth_delays = iter(_TRANSIENT_AUTH_BACKOFF_SECONDS)
     throttle_delays = iter(_TRANSIENT_THROTTLE_BACKOFF_SECONDS)
+    server_delays = iter(_TRANSIENT_SERVER_BACKOFF_SECONDS if idempotent else ())
     while process.returncode:
         if marker := _matched_marker(process.stderr, _TRANSIENT_AUTH_MARKERS):
             delay = next(auth_delays, None)
@@ -404,6 +431,9 @@ def run_gh_command(args: list[str], *, transfer: bool = False) -> str:
         elif marker := _matched_marker(process.stderr, _TRANSIENT_THROTTLE_MARKERS):
             delay = next(throttle_delays, None)
             failure = f"hit a secondary rate limit ({marker})"
+        elif marker := _matched_marker(process.stderr, _TRANSIENT_SERVER_MARKERS):
+            delay = next(server_delays, None)
+            failure = f"hit a GraphQL server error ({marker})"
         else:
             break
         if delay is None:

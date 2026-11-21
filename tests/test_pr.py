@@ -326,6 +326,7 @@ def test_upsert_pr_creates_branch_and_pr(git, gh):
     git.delete_branch.assert_called_once()
     create_args = gh.call_args_list[1].args[0]
     assert create_args[:2] == ["pr", "create"]
+    assert gh.call_args_list[1].kwargs == {"idempotent": True}
     assert create_args[create_args.index("--base") + 1] == "main"
     assert create_args[create_args.index("--head") + 1] == BRANCH
     assert "--draft" not in create_args
@@ -343,6 +344,7 @@ def test_upsert_pr_updates_an_existing_pr_and_leases_the_push(git, gh):
     assert result.number == 88
     assert git.force_push_branch.call_args.kwargs["expected_sha"] == REMOTE_SHA
     assert gh.call_args_list[1].args[0][:3] == ["pr", "edit", "88"]
+    assert gh.call_args_list[1].kwargs == {"idempotent": True}
 
 
 def test_upsert_pr_skips_the_push_when_the_branch_already_matches(git, gh):
