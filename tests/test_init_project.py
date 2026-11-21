@@ -1879,7 +1879,10 @@ def _upgraded_tree(tmp_path: Path, previous: str | None, adopted: str) -> Upgrad
 
 
 def test_upgrade_report(tmp_path, monkeypatch):
-    """The report reads top-down: the move, what breaks, the run, the notes."""
+    """The report reads top-down: the move and its notes, what breaks, the review.
+
+    The output of the run follows the review launcher, under no heading of its own.
+    """
     target = _upgraded_tree(tmp_path, "7.11.0", "7.15.0")
     monkeypatch.setattr(
         init_upgrade, "fetch_github_release_notes", lambda _items: _UPGRADE_NOTES
@@ -1897,17 +1900,20 @@ def test_upgrade_report(tmp_path, monkeypatch):
     assert report is not None
     adopted, body = report
     assert adopted == "7.15.0"
-    headings = [
+    markers = [
         "## 🆙 Upgraded release",
-        "## 💥 Breaking changes and deprecations",
-        "## 📋 `repomatic init` output",
         "### Release notes",
+        "## 💥 Breaking changes and deprecations",
         "## 🧭 Upgrade review",
+        "/repomatic-upgrade v7.11.0 v7.15.0",
+        "printed these warnings:",
+        "<summary>Full output of <code>repomatic init</code>",
         "## ⏸️ Held back by cooldown",
     ]
-    assert [body.index(heading) for heading in headings] == sorted(
-        body.index(heading) for heading in headings
+    assert [body.index(marker) for marker in markers] == sorted(
+        body.index(marker) for marker in markers
     )
+    assert "## 📋" not in body
     assert "(https://github.com/kdeldycke/repomatic/compare/v7.11.0...v7.15.0)" in body
     assert (
         "- [`v7.13.0`](https://github.com/kdeldycke/repomatic/releases/tag/v7.13.0):"
@@ -1923,7 +1929,6 @@ def test_upgrade_report(tmp_path, monkeypatch):
     # the full output keeps every line.
     assert "```text\nwarning: Unknown configuration option(s): mango.\n```" in body
     assert body.count("Valid options: kiwi, lime") == 2
-    assert "/repomatic-upgrade v7.11.0 v7.15.0" in body
     assert "`7.16.0`" in body
 
 
@@ -1986,7 +1991,7 @@ def test_emit_upgrade_report_writes_nothing(tmp_path, monkeypatch, output, build
 
 
 @pytest.mark.parametrize(
-    ("notes", "expected"),
+    ("notes", "notes_read"),
     [
         pytest.param(
             {
@@ -1995,16 +2000,19 @@ def test_emit_upgrade_report_writes_nothing(tmp_path, monkeypatch, output, build
                     [("v7.15.0", "- Faster `banana` sorting.")],
                 )
             },
-            "No release between `v7.11.0` and `v7.15.0` has a `**Breaking:**`",
+            True,
             id="none-listed",
         ),
-        # Unreadable notes must not read as a claim that nothing breaks.
-        pytest.param({}, None, id="notes-unavailable"),
+        pytest.param({}, False, id="notes-unavailable"),
     ],
 )
 def test_upgrade_report_without_breaking_entries(
-    tmp_path, monkeypatch, notes, expected
+    tmp_path, monkeypatch, notes, notes_read
 ):
+    """No entry to list renders no section, whether the notes were read or not.
+
+    The release notes section tells the two cases apart.
+    """
     target = _upgraded_tree(tmp_path, "7.11.0", "7.15.0")
     monkeypatch.setattr(
         init_upgrade, "fetch_github_release_notes", lambda _items: notes
@@ -2014,10 +2022,8 @@ def test_upgrade_report_without_breaking_entries(
 
     assert report is not None
     _adopted, body = report
-    if expected is None:
-        assert "Breaking changes" not in body
-    else:
-        assert expected in body
+    assert "Breaking changes" not in body
+    assert ("### Release notes" in body) is notes_read
 
 
 def _upgrade_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2184,7 +2190,7 @@ def test_init_upgrade_runs_in_process_on_the_target(tmp_path, monkeypatch, pin_b
     report = report_path.read_text(encoding="UTF-8")
     assert "`7.11.0` → `7.15.0`" in report
     # Nothing ran as a child, so there is no output to quote.
-    assert "`repomatic init` output" not in report
+    assert "Full output of" not in report
 
 
 _PACKER_JOB = """

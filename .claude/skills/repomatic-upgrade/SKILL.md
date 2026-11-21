@@ -60,7 +60,7 @@ A `repomatic init` run that moves the upstream pin records itself in `.git/repom
 
 - **Use the record only when its `adopted_pin` is the `ADOPTED_PIN`.** The record writes each pin as a bare version, with no `v` prefix. Any other record describes an earlier move.
 - **Take its findings as rows.** Each line of its `warnings` and each pair of its `removed_review` is one. Its `warnings` are the only record of the local edits `init` overwrote: no later run warns about them again.
-- **Without a record, take the findings from the move itself.** Read the `repomatic init` output section of the `sync-repomatic` pull request that made it. Otherwise, find them as the sections below describe.
+- **Without a record, take the findings from the move itself.** Read the `repomatic init` output quoted in the `sync-repomatic` pull request that made it. Otherwise, find them as the sections below describe.
 
 ### Read upstream at the adopted tag
 

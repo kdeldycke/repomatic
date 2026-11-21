@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- The `sync-repomatic` pull request now shows the release notes under its upgraded release table, and the `repomatic init` output under its upgrade review.
+- The `sync-repomatic` pull request now omits its breaking changes section when no release it crosses has a `**Breaking:**` or `**Deprecated:**` entry.
 - The bundled `file-bug-report` skill now names a third party's account by its role, not its address, in a vendor's support email too.
 - The bundled `repomatic-ship` skill now fetches the tags first, and stops when nothing since the last tag is left to ship.
 - The bundled `repomatic-changelog` and `repomatic-ship` skills no longer write a changelog warning about one release asset, like a missing binary.

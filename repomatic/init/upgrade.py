@@ -647,17 +647,13 @@ def hand_off_upgrade(
 
 def _breaking_section(
     notes: Mapping[str, tuple[str, list[tuple[str, str]]]],
-    previous: str,
-    adopted: str,
 ) -> str:
     """List the breaking and deprecation bullets of the fetched release notes.
 
-    Empty when no notes were fetched. Silence there means the notes could not
-    be read, which must not render as a claim that nothing breaks.
+    Empty when no bullet matches, which also covers notes that could not be
+    fetched. The release notes section tells the two cases apart: it renders
+    only when notes were fetched.
     """
-    if not notes:
-        return ""
-    heading = "## 💥 Breaking changes and deprecations"
     bullets = [
         f"- [`{tag}`]({repo_url}/releases/tag/{tag}): "
         f"{sanitize_markdown_mentions(match['bullet'].rstrip())}"
@@ -666,11 +662,8 @@ def _breaking_section(
         for match in BREAKING_BULLET_RE.finditer(body)
     ]
     if not bullets:
-        return (
-            f"{heading}\n\nNo release between `v{previous}` and `v{adopted}` has"
-            " a `**Breaking:**` or `**Deprecated:**` entry."
-        )
-    return "\n".join((heading, "", *bullets))
+        return ""
+    return "\n".join(("## 💥 Breaking changes and deprecations", "", *bullets))
 
 
 def _first_sentence(line: str) -> str:
@@ -679,8 +672,12 @@ def _first_sentence(line: str) -> str:
     return f"{head}." if separator else line
 
 
-def _init_output_section(output: str, adopted: str) -> str:
-    """Show the warnings of a hand-off run, then its whole output, collapsed."""
+def _init_output_block(output: str, adopted: str) -> str:
+    """Show the warnings of a hand-off run, then its whole output, collapsed.
+
+    It has no heading: the report puts it in the review section, after the
+    launcher of the skill that acts on those warnings.
+    """
     if not output.strip():
         return ""
     warnings = list(
@@ -689,10 +686,16 @@ def _init_output_section(output: str, adopted: str) -> str:
             for match in INIT_WARNING_RE.finditer(output)
         )
     )
-    lines = ["## 📋 `repomatic init` output", ""]
+    lines: list[str] = []
     if warnings:
-        lines += ["The run printed these warnings:", "", "```text", *warnings, "```"]
-        lines.append("")
+        lines += [
+            "`repomatic init` printed these warnings:",
+            "",
+            "```text",
+            *warnings,
+            "```",
+            "",
+        ]
     lines += [
         "<details>",
         (
@@ -742,12 +745,12 @@ def upgrade_report(
     Reads the pin back from disk rather than trusting *target*, since what the
     run wrote is what the pull request carries. The sections, in reading order:
 
-    - The version move, with its compare link and release date.
+    - The version move, with its compare link and release date, then the
+      release notes, one collapsed block per release.
     - Every `**Breaking:**` and `**Deprecated:**` bullet of the releases in
-      between.
-    - The warnings the run printed, then its whole output, collapsed.
-    - The release notes, one collapsed block per release.
-    - The invitation to run the `repomatic-upgrade` review.
+      between, if any.
+    - The invitation to run the `repomatic-upgrade` review, then the warnings
+      the run printed and its whole output, collapsed.
     - The newer release the window still holds back, if any.
 
     :param target: The target {func}`resolve_upgrade_target` picked.
@@ -805,10 +808,10 @@ def upgrade_report(
         )
     sections = (
         diff_table,
-        _breaking_section(notes, previous, adopted),
-        _init_output_section(init_output, adopted),
         format_release_notes(notes),
+        _breaking_section(notes),
         upgrade_invite(previous, adopted),
+        _init_output_block(init_output, adopted),
         held_back,
     )
     return adopted, "\n\n".join(section for section in sections if section)
