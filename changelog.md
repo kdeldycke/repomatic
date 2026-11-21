@@ -21,6 +21,9 @@
 
 ## [`8.3.0` (2026-11-17)](https://github.com/kdeldycke/repomatic/compare/v8.2.0...v8.3.0)
 
+> [!NOTE]
+> `8.3.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/8.3.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v8.3.0).
+
 - Add the `gitleaks-default-rules` check to `lint-repo`, which warns when `[tool.gitleaks]` leaves gitleaks with no rule to scan with.
 - Add the `issue` command, which opens, updates or closes one issue from a title and a body file, for a job outside repomatic.
 - A `repomatic init` that moves the upstream pin now records its run in `.git/repomatic/upgrade.json`, which the `repomatic-upgrade` skill reads.
