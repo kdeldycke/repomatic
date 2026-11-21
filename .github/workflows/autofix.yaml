@@ -30,11 +30,21 @@ name: 🪄 Autofix
 
 permissions: {}
 
-# A newer run always supersedes an older one: every job skips a release push
-# anyway, through the `[changelog] ` gate of the metadata job and its own copy
-# on the jobs that run without it.
+# A release push gets a group of its own, keyed on its SHA. Every job skips that
+# push, through the `[changelog] ` gate of the metadata job and its own copy on
+# the jobs that run without it. In the branch group, the push would cancel the
+# run of the commit before it, and run nothing in its place. Its head commit is
+# the post-release bump, which follows the release commit in the same push.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: >-
+    ${{ github.workflow }}-${{
+      (
+        (startsWith(github.event.head_commit.message, '[changelog] Release')
+        || startsWith(github.event.head_commit.message, '[changelog] Post-release'))
+        && github.sha
+      )
+      || github.ref
+    }}
   cancel-in-progress: true
 
 # Supply-chain cooldown: no package published within the window can be resolved by

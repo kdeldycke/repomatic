@@ -86,6 +86,9 @@ RELEASE_PUSH_PREFIXES: Final[tuple[str, ...]] = (
 
 The concurrency groups of `release.yaml` and `tests.yaml` test them, so the
 run of a release push lands in a group of its own that no later push cancels.
+`autofix.yaml` and `lint.yaml` test them for the opposite reason: every job of
+theirs skips a release push, which in the branch group would cancel their run of
+the commit before it.
 {func}`repomatic.github.runs.cancel_superseded_runs` applies the same test
 from the API side, which is the half GitHub's own concurrency mechanism
 cannot cover: a manual sweep of a branch's live runs enters no concurrency

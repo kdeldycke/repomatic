@@ -1152,7 +1152,9 @@ Every workflow cancels with `cancel-in-progress: true`, and its group decides wh
 
 **`tests.yaml`: SHA-based unique groups for a release push.** The run of a release push is the one post-merge test of the release tree, so it gets a group of its own the same way, and no later push cancels it.
 
-**Every other workflow: one group per branch.** A newer run supersedes an older one, which is the right outcome there: `autofix.yaml` and `lint.yaml` skip a release push in every job anyway, `labels.yaml` runs only `sync-labels` on it, which the next push runs again, and a later `docs.yaml` run publishes a newer tree. Sparing the docs run of a release push would let its deploy finish last and put the older site back live.
+**`autofix.yaml` and `lint.yaml`: SHA-based unique groups for a release push.** Every job of these two workflows skips a release push. In the branch group, that push would cancel the run of the commit before it and run nothing in its place, so the last commit of a release would get no lint and no autofix pass. In a group of its own, the push leaves that run to finish.
+
+**Every other workflow: one group per branch.** A newer run supersedes an older one, which is the right outcome there: `labels.yaml` runs only `sync-labels` on a release push, which the next push runs again, and a later `docs.yaml` run publishes a newer tree. Sparing the docs run of a release push would let its deploy finish last and put the older site back live.
 
 **`changelog.yaml`: event-scoped groups.** `changelog.yaml` includes `github.event_name` in its concurrency group to prevent cross-event cancellation. Without `event_name`, the `workflow_run` event (which fires when "🚀 Build & release" completes) would cancel the `push` event's `prepare-release` job, then skip `prepare-release` itself (due to `if: github.event_name != 'workflow_run'`), so `prepare-release` would never run.
 

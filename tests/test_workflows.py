@@ -90,6 +90,11 @@ METADATA_INDEX_RE = re.compile(
 )
 """A workflow expression that indexes into one key of the metadata output."""
 
+HEAD_COMMIT_PREFIX_RE = re.compile(
+    r"startsWith\(github\.event\.head_commit\.message[^,]*,\s*'([^']+)'\)"
+)
+"""A workflow expression testing the head commit message for one prefix."""
+
 # Workflows that are exempt from concurrency requirements.
 WORKFLOWS_WITHOUT_CONCURRENCY = frozenset((
     "autolock.yaml",  # Scheduled only, no concurrent execution possible.
@@ -103,13 +108,17 @@ WORKFLOWS_WITHOUT_CONCURRENCY = frozenset((
     "unsubscribe.yaml",  # Scheduled only, no concurrent execution possible.
 ))
 
-# Workflows that protect the run of a release push with a group of its own,
-# keyed on github.sha. A conditional cancel-in-progress cannot: GitHub reads it
-# from the newer run, so it would let any later push cancel the release run.
-# The group lives on the push-triggered entry workflow, not the reusable engine
-# lane it calls (a block on a `needs:`-gated lane joins its group too late to
-# cancel queued runs).
+# Workflows that give the run of a release push a group of its own, keyed on
+# github.sha. A conditional cancel-in-progress cannot: GitHub reads it from the
+# newer run, so it would let any later push cancel the release run. The group
+# lives on the push-triggered entry workflow, not the reusable engine lane it
+# calls (a block on a `needs:`-gated lane joins its group too late to cancel
+# queued runs).
 WORKFLOWS_WITH_UNIQUE_GROUPS = frozenset((
+    # Every job skips a release push, which in the branch group would cancel the
+    # run of the commit before it: see test_gated_workflows_isolate_release_pushes.
+    "autofix.yaml",
+    "lint.yaml",
     # The release lanes: tagging, publishing and the GitHub release.
     "release.yaml",
     # The one post-merge run of the release tree.
@@ -260,12 +269,34 @@ def test_unique_group_protects_releases(workflow_name: str) -> None:
 
     # A rebase-merged release push ends on its post-release bump commit, the
     # head commit GitHub exposes: the group must recognize that one too.
-    prefixes = re.findall(
-        r"startsWith\(github\.event\.head_commit\.message,\s*'([^']+)'\)", group
-    )
+    prefixes = HEAD_COMMIT_PREFIX_RE.findall(group)
     assert any(POST_RELEASE_COMMIT_PREFIX.startswith(p) for p in prefixes), (
         f"{workflow_name}: concurrency group tests {prefixes!r}, none of which"
         f" matches the {POST_RELEASE_COMMIT_PREFIX!r} head commit of a release push"
+    )
+
+
+def test_gated_workflows_isolate_release_pushes() -> None:
+    """A workflow that skips a release push gives it a group of its own.
+
+    Every job of a workflow gated on the changelog prefix skips a release push.
+    In the branch group, that push would cancel the run of the commit before it
+    and run nothing in its place, so the last commit of a release would get no
+    result from the workflow.
+    """
+    gated = {
+        path.name
+        for path in WORKFLOWS_DIR.glob("*.yaml")
+        if CHANGELOG_COMMIT_PREFIX
+        in HEAD_COMMIT_PREFIX_RE.findall(
+            load_workflow(path.name).get("jobs", {}).get("metadata", {}).get("if", "")
+        )
+    }
+    assert gated, "No workflow gates its metadata job on the changelog prefix."
+    assert gated <= WORKFLOWS_WITH_UNIQUE_GROUPS, (
+        f"{sorted(gated - WORKFLOWS_WITH_UNIQUE_GROUPS)} skip a release push in"
+        " the branch group, where it cancels the run of the commit before it:"
+        " give the release push a group of its own."
     )
 
 
@@ -684,10 +715,7 @@ def test_tests_metadata_gate_skips_manual_bumps() -> None:
     """
     jobs = load_workflow("tests.yaml").get("jobs", {})
     if_expr = jobs.get("metadata", {}).get("if", "")
-    pattern = re.compile(
-        r"startsWith\(github\.event\.head_commit\.message[^,]*,\s*'([^']+)'\)"
-    )
-    gated_prefixes = set(pattern.findall(if_expr))
+    gated_prefixes = set(HEAD_COMMIT_PREFIX_RE.findall(if_expr))
     assert gated_prefixes == set(MANUAL_VERSION_BUMP_COMMIT_PREFIXES), (
         f"tests.yaml: metadata.if gates commit prefixes {sorted(gated_prefixes)!r} "
         f"but MANUAL_VERSION_BUMP_COMMIT_PREFIXES is "
@@ -711,10 +739,7 @@ def test_metadata_gate_skips_version_bump_commits(workflow_name: str) -> None:
     """
     jobs = load_workflow(workflow_name).get("jobs", {})
     if_expr = jobs.get("metadata", {}).get("if", "")
-    pattern = re.compile(
-        r"startsWith\(github\.event\.head_commit\.message[^,]*,\s*'([^']+)'\)"
-    )
-    gated_prefixes = set(pattern.findall(if_expr))
+    gated_prefixes = set(HEAD_COMMIT_PREFIX_RE.findall(if_expr))
     assert gated_prefixes == {CHANGELOG_COMMIT_PREFIX}, (
         f"{workflow_name}: metadata.if must gate on the single "
         f"{CHANGELOG_COMMIT_PREFIX!r} clause, got {sorted(gated_prefixes)!r}"

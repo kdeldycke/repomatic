@@ -146,7 +146,7 @@ Workflows are grouped by:
 - **Pull requests**: `{workflow-name}-{pr-number}` — Multiple commits to the same PR cancel previous runs
 - **Branch pushes**: `{workflow-name}-{branch-ref}` — Multiple pushes to the same branch cancel previous runs
 
-`release.yaml` uses a stronger protection: release commits get a **unique concurrency group** based on the commit SHA, so they can never be cancelled. This ensures tagging, PyPI publishing, and GitHub release creation complete successfully. `tests.yaml` gives a release push the same group of its own, so the one post-merge test of the release tree runs to completion.
+`release.yaml` uses a stronger protection: release commits get a **unique concurrency group** based on the commit SHA, so they can never be cancelled. This ensures tagging, PyPI publishing, and GitHub release creation complete successfully. `tests.yaml` gives a release push the same group of its own, so the one post-merge test of the release tree runs to completion. `autofix.yaml` and `lint.yaml` do the same for the opposite reason: they skip a release push, which must then not cancel their run of the commit before it.
 
 Additionally, [`cancel-runs.yaml`](workflows.md#github-workflows-cancel-runs-yaml-jobs) actively cancels in-progress and queued runs when a PR is closed. This complements passive concurrency groups, which only trigger cancellation when a *new* run enters the same group — closing a PR doesn't produce such an event.
 

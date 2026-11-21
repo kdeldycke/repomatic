@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Fix a release push cancelling the `autofix.yaml` and `lint.yaml` runs of the commit before it, which then got no result from either workflow.
+
 ## [`8.3.1` (2026-11-21)](https://github.com/kdeldycke/repomatic/compare/v8.3.0...v8.3.1)
 
 - Add the `gitignore-default-rules` check to `lint-repo`, which warns when `gitignore.extra-content` leaves out a rule of its default value.
