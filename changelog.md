@@ -10,6 +10,7 @@
 - The `sync-repomatic` pull request now omits its breaking changes section when no release it crosses has a `**Breaking:**` or `**Deprecated:**` entry.
 - The bundled `file-bug-report` skill now names a third party's account by its role, not its address, in a vendor's support email too.
 - The bundled `repomatic-ship` skill now fetches the tags first, and stops when nothing since the last tag is left to ship.
+- The bundled `repomatic-ship` skill now builds the docs with the configured `sphinx.builder`, and refreshes a `<!-- matrix -->` block that a dependency release made stale.
 - The bundled `repomatic-changelog` and `repomatic-ship` skills no longer write a changelog warning about one release asset, like a missing binary.
 - The bundled `sphinx-docs` agent now counts the text a generator writes at build time as a use of a MyST extension.
 - Fix `ci-status` reporting a job as still running when GitHub left its status at `in_progress` after the job concluded.
