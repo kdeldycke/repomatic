@@ -196,11 +196,7 @@ repomatic post-processes the output of `mdformat` to undo two `mdformat-myst` re
 
 ### Shell formatting
 
-- [`sh#1203` - zsh: support inline loop syntax](https://github.com/mvdan/sh/issues/1203): `shfmt` cannot parse some Zsh constructs, so repomatic keeps Zsh files away from it. The fix, [mvdan/sh@8a8b554](https://github.com/mvdan/sh/commit/8a8b5541f3fba8dcc4a2e11ca859ef3c16ba85cd), is on `master`.
-
-  ```{todo}
-  Once the `shfmt` pin moves to a release carrying that commit, move this entry to [](#upstreamed-from-repomatic). {attr}`~repomatic.file_inventory.FileInventory.shfmt_files` holds the code side of the same change.
-  ```
+- [`sh#1203` - zsh: support inline loop syntax](https://github.com/mvdan/sh/issues/1203): `shfmt` cannot parse some Zsh constructs, so repomatic keeps Zsh files away from it. The fix, [mvdan/sh@8a8b554](https://github.com/mvdan/sh/commit/8a8b5541f3fba8dcc4a2e11ca859ef3c16ba85cd), is on `master`, and no release carries it yet.
 
 ### Workflow linting
 
