@@ -227,7 +227,7 @@ class Matrix:
         """Add one or more `exclude` special directives to the matrix."""
         self.exclude = self._add_and_dedup_dicts(*self.exclude, *new_excludes)
 
-    def prune(self) -> None:
+    def prune(self, *, warn: bool = True) -> None:
         """Remove no-op exclude directives and log about them.
 
         An exclude is a no-op when it references a key that is not a
@@ -235,6 +235,9 @@ class Matrix:
         not present in that axis. Either way the exclude can never match
         any combination produced by {meth}`product`, and GitHub Actions
         rejects excludes that reference non-existent matrix keys.
+
+        :param warn: log each dropped exclude as a warning, or else at the debug
+            level.
         """
         effective: list[dict[str, str]] = []
         noops: list[tuple[dict[str, str], str]] = []
@@ -244,8 +247,9 @@ class Matrix:
                 noops.append((exclude, next(iter(stale))))
             else:
                 effective.append(exclude)
+        log = logging.warning if warn else logging.debug
         for exclude, noop_key in noops:
-            logging.warning(
+            log(
                 f"Dropping no-op exclude {exclude}: {exclude[noop_key]!r} is not "
                 f"in the {noop_key!r} axis."
             )

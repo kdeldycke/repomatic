@@ -183,6 +183,20 @@ def test_prune(caplog):
     assert "'state'" in caplog.text
 
 
+def test_prune_without_warning(caplog):
+    """`warn=False` drops the same excludes and logs them at the debug level."""
+    matrix = Matrix()
+    matrix.add_variation("os", ["ubuntu-24.04", "macos-26"])
+    matrix.add_excludes({"os": "macos-26"}, {"os": "windows-11-arm"})
+
+    with caplog.at_level("DEBUG"):
+        matrix.prune(warn=False)
+
+    assert matrix.exclude == ({"os": "macos-26"},)
+    assert [record.levelname for record in caplog.records] == ["DEBUG"]
+    assert "'windows-11-arm'" in caplog.text
+
+
 def test_remove_variation_value_solve():
     """Exclude prevents resurrection; removal also strips the axis value."""
     matrix = Matrix()

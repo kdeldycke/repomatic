@@ -2237,8 +2237,12 @@ click-version = ["released", "stable", "main"]
     }
 
 
-def test_test_matrix_config_exclude(tmp_path, monkeypatch):
-    """Test that test-matrix.exclude removes combos from both matrices."""
+def test_test_matrix_config_exclude(tmp_path, monkeypatch, caplog):
+    """Test that test-matrix.exclude removes combos from both matrices.
+
+    The PR matrix drops an exclude its narrower axes make a no-op without a
+    warning: the exclude still applies to the full matrix.
+    """
     pyproject_content = """\
 [project]
 name = "test-project"
@@ -2257,8 +2261,10 @@ exclude = [
 
     # PR matrix: windows-11-arm is not in the PR runner list, so the exclude
     # is pruned as a no-op.
+    caplog.clear()
     pr = metadata.test_matrix_pr.matrix()
     assert "exclude" not in pr or {"os": "windows-11-arm"} not in pr.get("exclude", ())
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 def test_test_matrix_config_variations(tmp_path, monkeypatch):

@@ -392,8 +392,10 @@ class MatrixMetadata:
         # Drop excludes that became no-ops after replace/remove changed the
         # axes, so GitHub Actions does not reject the matrix. No-op user
         # excludes that are likely typos are surfaced separately by the
-        # lint-repo check (see Metadata.stale_test_matrix_excludes).
-        matrix.prune()
+        # lint-repo check (see Metadata.stale_test_matrix_excludes). Only the
+        # full matrix warns: the PR matrix has narrower axes, so an exclude
+        # written for the full matrix is often a no-op there by design.
+        matrix.prune(warn=full)
 
     @cached_property
     def _test_matrix_base(self) -> Matrix:
