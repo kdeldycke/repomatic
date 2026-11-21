@@ -505,6 +505,27 @@ def _reset_binary_memo():
     ensure_binary.cache_clear()
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_cache_dir(tmp_path_factory):
+    """Point the repomatic cache at a directory of this test session alone.
+
+    The default cache root is the user cache, like `~/.cache/repomatic` on Linux.
+    All xdist workers of a run share it, and so does any `repomatic` the
+    developer runs meanwhile. Each store also purges the old entries of the
+    cache. A suite left on that root races the other workers on the same files,
+    and can purge the developer's own downloads.
+
+    Each worker gets its own directory for the whole session, so a registry tool
+    downloads once per worker rather than once per test. The `cache_env` fixture
+    narrows one test further, to its own `tmp_path`.
+    """
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setenv(
+            "REPOMATIC_CACHE_DIR", str(tmp_path_factory.mktemp("repomatic-cache"))
+        )
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _isolate_user_config(isolated_app_dir):
     """Hide the developer's real `repomatic` configuration from the suite.
