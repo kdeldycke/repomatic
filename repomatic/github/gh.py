@@ -107,6 +107,16 @@ call of the run alike. The refusal lifts on its own within the minute, so the
 same-token retry spends its schedule sleeping rather than failing the tail of
 the run."""
 
+_TRANSIENT_STREAM_MARKERS = ("; CANCEL; received from peer",)
+"""An HTTP/2 stream the server end cancelled, as `gh` reports it.
+
+`gh` prints `stream error: stream ID 5; CANCEL; received from peer` when the
+other end drops one request of its connection. The error names no HTTP status,
+but it comes from a call that reached the server, which a `gh` that cannot
+start never does, and the next call opens a new stream. The other reset codes
+stay final: a query string holding a raw emoji gets `PROTOCOL_ERROR` from GitHub
+on every attempt."""
+
 _TRANSIENT_THROTTLE_BACKOFF_SECONDS = (15, 30, 60)
 """Sleep durations between bounded same-token retries on a secondary limit.
 
@@ -181,15 +191,20 @@ class GhCommandError(RuntimeError):
         stopped at its timeout, since the next call opens a new connection.
         GitHub refuses a spent quota with a `429`, or with a `403` whose message
         names the limit, and `gh api graphql` reports its secondary limit with no
-        HTTP status (see `_TRANSIENT_THROTTLE_MARKERS`). Any other client error
-        (`4xx`) is not transient: the same request gets the same answer. Nor is
-        any other failure with no HTTP status: a network error then reads the
-        same as a `gh` that cannot start.
+        HTTP status (see `_TRANSIENT_THROTTLE_MARKERS`). An HTTP/2 stream the
+        server cancelled has no HTTP status either, and is transient too (see
+        `_TRANSIENT_STREAM_MARKERS`). Any other client error (`4xx`) is not
+        transient: the same request gets the same answer. Nor is any other
+        failure with no HTTP status: a network error then reads the same as a
+        `gh` that cannot start.
         """
         if self.timed_out:
             return True
         if self.status is None:
-            return bool(_matched_marker(self.stderr, _TRANSIENT_THROTTLE_MARKERS))
+            return bool(
+                _matched_marker(self.stderr, _TRANSIENT_THROTTLE_MARKERS)
+                or _matched_marker(self.stderr, _TRANSIENT_STREAM_MARKERS)
+            )
         if self.status >= 500 or self.status == 429:
             return True
         return self.status == 403 and _RATE_LIMIT_MARKER in self.stderr.casefold()

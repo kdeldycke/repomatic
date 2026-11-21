@@ -362,10 +362,21 @@ def test_command_error_defaults_its_stderr_to_the_message():
         pytest.param(
             "dial tcp: lookup api.github.com: no such host", False, id="no-status"
         ),
+        pytest.param(
+            "stream error: stream ID 5; CANCEL; received from peer",
+            True,
+            id="stream-cancelled",
+        ),
+        # GitHub's answer to a raw emoji in a query string, on every attempt.
+        pytest.param(
+            "stream error: stream ID 1; PROTOCOL_ERROR; received from peer",
+            False,
+            id="stream-protocol-error",
+        ),
     ),
 )
 def test_command_error_tells_a_transient_failure(stderr, transient):
-    """Only a server error or a rate limit may clear when the call is sent again."""
+    """Only a server error, a rate limit or a cancelled stream may clear on resend."""
     assert GhCommandError(stderr).transient is transient
 
 

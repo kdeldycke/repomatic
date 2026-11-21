@@ -1327,6 +1327,10 @@ GATEWAY_TIMEOUT = (
             " (https://api.github.com/repos/kiwi/orchard/actions/runs/1)",
             id="rate-limit",
         ),
+        pytest.param(
+            "stream error: stream ID 5; CANCEL; received from peer",
+            id="stream-cancelled",
+        ),
     ),
 )
 def test_watch_skips_a_poll_that_fails_transiently(stderr, caplog):
