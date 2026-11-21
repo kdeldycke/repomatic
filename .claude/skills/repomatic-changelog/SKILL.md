@@ -59,6 +59,7 @@ Entries accumulate during development as features are built incrementally. Befor
 - **One bullet per user-facing change**, one sentence of ~10-25 words, saying what changed rather than how it was built or why. A second sentence only flags a breaking change or a migration step.
 - **Cut what the user cannot act on.** Mechanism goes to the commit or PR; rationale goes to a code comment or `docs/`.
 - **Mark a change breaking when a surface the reader uses is gone**, so their code, invocation, config or workflow must change to keep working.
+- **Warn about the version, never about one of its assets.** A section takes no admonition about a missing binary or another release file: the release page lists the assets that shipped.
 
 ### Next steps
 

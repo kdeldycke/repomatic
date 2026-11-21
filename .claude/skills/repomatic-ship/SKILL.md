@@ -319,7 +319,7 @@ Do not merge the PR, and do not mark it ready yourself. That final human action 
 
 #### Repairing a short ship
 
-When the binary matrix came up short, read `references/short-ship.md` before the report. It says what to report, lists the three follow-ups to name, and holds the upstream-only note on `Failed to spawn: repomatic`.
+When the binary matrix came up short, read `references/short-ship.md` before the report. It says what to report, names the one follow-up, and holds the upstream-only note on `Failed to spawn: repomatic`.
 
 ### 8. Reflect and contribute back
 

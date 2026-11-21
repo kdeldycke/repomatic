@@ -7,6 +7,7 @@
 
 - The bundled `file-bug-report` skill now names a third party's account by its role, not its address, in a vendor's support email too.
 - The bundled `repomatic-ship` skill now fetches the tags first, and stops when nothing since the last tag is left to ship.
+- The bundled `repomatic-changelog` and `repomatic-ship` skills no longer write a changelog warning about one release asset, like a missing binary.
 - Fix `ci-status` reporting a job as still running when GitHub left its status at `in_progress` after the job concluded.
 - Fix `ci-status --wait` hanging forever on a stalled `gh` call: each `gh` call now stops after five minutes, or thirty for a release asset transfer.
 
