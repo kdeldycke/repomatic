@@ -399,6 +399,48 @@ def test_find_workflow_literals_pin_after_a_quoted_argument(command):
 
 
 @pytest.mark.parametrize(
+    ("command", "expected"),
+    (
+        pytest.param(
+            "uvx --with 'apricot==1.0' --from 'papaya-cli==11.2.8' papaya",
+            {("pypi", "apricot", "1.0"), ("pypi", "papaya-cli", "11.2.8")},
+            id="from-after-with",
+        ),
+        pytest.param(
+            "uv pip install 'apricot==1.0' 'banana[ripe]==2.0'",
+            {("pypi", "apricot", "1.0"), ("pypi", "banana", "2.0")},
+            id="two-positional-pins",
+        ),
+        pytest.param(
+            "uvx --with 'apricot==1.0' --with 'banana<3'"
+            " --from 'papaya-cli==11.2.8' papaya",
+            {("pypi", "apricot", "1.0"), ("pypi", "papaya-cli", "11.2.8")},
+            id="range-between-pins",
+        ),
+    ),
+)
+def test_find_workflow_literals_pin_after_a_pin(command, expected):
+    """Every pin of a command line is found, not only the first one."""
+    literals = {
+        (lit.ecosystem, lit.package, lit.version)
+        for lit in vs.find_workflow_literals(f"          {command}\n")
+    }
+    assert literals == expected
+
+
+def test_find_workflow_literals_next_pin_stays_on_its_line():
+    """A quoted pin on the line after a command is no pin of that command."""
+    content = (
+        "          uvx 'papaya-cli==11.2.8' check\n          echo 'apricot==1.0'\n"
+    )
+    literals = {
+        (lit.ecosystem, lit.package, lit.version)
+        for lit in vs.find_workflow_literals(content)
+    }
+    assert literals == {("pypi", "papaya-cli", "11.2.8")}
+
+
+@pytest.mark.parametrize(
     ("command", "package", "version"),
     (
         pytest.param(
@@ -560,6 +602,21 @@ def test_apply_workflow_literals_pin_after_a_quoted_argument():
     assert changes == [("papaya-cli", "11.2.8", "12.0.0")]
     assert new_content == content.replace(
         "'papaya-cli==11.2.8'", "'papaya-cli==12.0.0'"
+    )
+
+
+def test_apply_workflow_literals_pin_after_a_pin():
+    """Every pin of a command line moves, not only the first one."""
+    content = "          uvx --with 'apricot==1.0' --from 'papaya-cli==11.2.8' papaya\n"
+    new_content, changes = vs.apply_workflow_literals(
+        content, {("pypi", "apricot"): "1.1", ("pypi", "papaya-cli"): "12.0.0"}
+    )
+    assert changes == [
+        ("apricot", "1.0", "1.1"),
+        ("papaya-cli", "11.2.8", "12.0.0"),
+    ]
+    assert new_content == (
+        "          uvx --with 'apricot==1.1' --from 'papaya-cli==12.0.0' papaya\n"
     )
 
 

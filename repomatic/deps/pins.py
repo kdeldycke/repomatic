@@ -118,13 +118,19 @@ _NPM_LITERAL_RE = re.compile(
 #
 # The text between the command and the pin can hold whole quoted arguments, so a
 # pin that follows one is found too: `--with 'apricot<2' --from 'papaya==1.2'`.
-# The match stops at the first pin. A quote in that text always opens a string
-# that the next quote closes, so the closing quote of one argument never pairs
-# with the opening quote of the next.
-_PYPI_LITERAL_RE = re.compile(
-    r"(?:uvx?|--with)(?:[^'\n]|'[^'\n]*')*?"
+# A quote in that text always opens a string that the next quote closes, so the
+# closing quote of one argument never pairs with the opening quote of the next.
+_PYPI_ARGUMENTS = r"(?:[^'\n]|'[^'\n]*')*?"
+_PYPI_PIN = (
     r"'(?P<package>[a-z][a-z0-9._-]*)(?:\[[^\]]+\])?==(?P<version>[0-9][0-9.]*)'"
 )
+_PYPI_LITERAL_RE = re.compile(r"(?:uvx?|--with)" + _PYPI_ARGUMENTS + _PYPI_PIN)
+
+# The next pin on the line of a `_PYPI_LITERAL_RE` match, matched from where the
+# previous pin ends. A `_PYPI_LITERAL_RE` match stops at the first pin after its
+# `uv`, `uvx` or `--with`, so this one reads the pins after it on the same line:
+# `--with 'apricot==1.0' --from 'papaya==1.2'`.
+_PYPI_NEXT_LITERAL_RE = re.compile(_PYPI_ARGUMENTS + _PYPI_PIN)
 
 # Release assets fetched by tag: `gh release download v0.3.2 --repo owner/repo`.
 #
@@ -755,6 +761,51 @@ def apply_action_pins(
     return ACTION_PIN_RE.sub(replace, content), changes
 
 
+def _pypi_literal_matches(content: str) -> list[re.Match[str]]:
+    """Return the match of each quoted PyPI pin of a `uv` or `uvx` command.
+
+    A `_PYPI_LITERAL_RE` match stops at the first pin of its command. Each pin
+    after it on the same line is matched with `_PYPI_NEXT_LITERAL_RE`, from where
+    the pin before it ends.
+
+    :param content: The workflow file text.
+    :return: The matches in the order of the text. No two of them overlap.
+    """
+    matches: list[re.Match[str]] = []
+    position = 0
+    while match := _PYPI_LITERAL_RE.search(content, position):
+        while match:
+            matches.append(match)
+            position = match.end()
+            match = _PYPI_NEXT_LITERAL_RE.match(content, position)
+    return matches
+
+
+def _substitute(
+    content: str,
+    matches: Iterable[re.Match[str]],
+    replacement: Callable[[re.Match[str]], str],
+) -> str:
+    """Return *content* with each of *matches* set to its *replacement*.
+
+    `re.sub` for a list of matches that no single pattern finds, like the
+    output of {func}`_pypi_literal_matches`.
+
+    :param content: The text the matches come from.
+    :param matches: Matches of *content* in the order of the text, with no two
+        of them overlapping.
+    :param replacement: The text that takes the place of each match.
+    :return: The new text.
+    """
+    pieces: list[str] = []
+    position = 0
+    for match in matches:
+        pieces.extend((content[position : match.start()], replacement(match)))
+        position = match.end()
+    pieces.append(content[position:])
+    return "".join(pieces)
+
+
 def find_workflow_literals(
     content: str, self_pin: str | None = None
 ) -> list[WorkflowLiteral]:
@@ -779,7 +830,7 @@ def find_workflow_literals(
     )
     literals.extend(
         WorkflowLiteral(Ecosystem.PYPI, m.group("package"), m.group("version"))
-        for m in _PYPI_LITERAL_RE.finditer(content)
+        for m in _pypi_literal_matches(content)
         if m.group("package") != self_pin
     )
     if self_pin:
@@ -881,7 +932,9 @@ def apply_workflow_literals(
 
     content = _GH_RELEASE_LITERAL_RE.sub(replace_release_tag, content)
     content = _NPM_LITERAL_RE.sub(replace(Ecosystem.NPM), content)
-    content = _PYPI_LITERAL_RE.sub(replace(Ecosystem.PYPI), content)
+    content = _substitute(
+        content, _pypi_literal_matches(content), replace(Ecosystem.PYPI)
+    )
     content = _SETUP_UV_VERSION_RE.sub(replace_setup_uv, content)
     if self_pin:
         version = resolved.get((Ecosystem.PYPI, self_pin))

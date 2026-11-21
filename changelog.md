@@ -22,7 +22,7 @@
 - Fix `ci-status --wait` ending on an HTTP/2 stream the server cancelled, like `stream error: stream ID 5; CANCEL; received from peer`: it now polls again.
 - Fix a job that opens or refreshes a pull request failing on GitHub's `Something went wrong while executing your query` error, which it now retries twice.
 - Fix `show-metadata` warning about a `test-matrix.exclude` entry that only the narrower pull request matrix drops.
-- Fix `sync-workflow-pins` skipping a PyPI pin that follows a quoted argument other than a pin, like `--with 'apricot<2' --from 'papaya==1.2'`.
+- Fix `sync-workflow-pins` skipping a PyPI pin that follows another quoted argument on its line, like `--with 'apricot==1.0' --from 'papaya==1.2'`.
 - Fix the purge of old cache entries failing with `FileNotFoundError` when a concurrent `repomatic` command renames a cache file.
 
 ## [`8.3.0` (2026-11-17)](https://github.com/kdeldycke/repomatic/compare/v8.2.0...v8.3.0)
