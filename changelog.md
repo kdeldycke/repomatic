@@ -769,9 +769,6 @@
 
 ## [`7.9.0` (2026-08-10)](https://github.com/kdeldycke/repomatic/compare/v7.8.0...v7.9.0)
 
-> [!WARNING]
-> The `windows-x64` binary shipped without its `.attestation.json` sidecar: a transient TLS failure on the runner skipped the upload, and immutable releases lock the asset list. The attestation itself is registered, so `gh attestation verify repomatic-7.9.0-windows-x64.exe --repo kdeldycke/repomatic` still verifies against GitHub's attestation service.
-
 > [!NOTE]
 > `7.9.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/7.9.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v7.9.0).
 
