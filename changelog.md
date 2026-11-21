@@ -1,5 +1,10 @@
 # Changelog
 
+## [`8.3.2.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v8.3.1...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`8.3.1` (2026-11-21)](https://github.com/kdeldycke/repomatic/compare/v8.3.0...v8.3.1)
 
 - Add the `gitignore-default-rules` check to `lint-repo`, which warns when `gitignore.extra-content` leaves out a rule of its default value.
