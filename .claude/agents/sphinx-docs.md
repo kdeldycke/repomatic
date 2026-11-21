@@ -713,7 +713,7 @@ Extensions list:
 
 MyST and theme config:
 
-- `myst_enable_extensions` stays alphabetized. Only enable what the docs actually use; each extension changes parsing rules and can mask MyST/reST mistakes.
+- `myst_enable_extensions` stays alphabetized. Only enable what the docs actually use; each extension changes parsing rules and can mask MyST/reST mistakes. Text a generator writes at build time counts as use, so prove a removal with a diff of two builds, not a grep of the sources.
 - `myst_heading_anchors = 6` paired with `myst_heading_slug_func = "docutils.nodes.make_id"` registers every heading as a resolvable cross-reference target, so in-page `[text](#anchor)` links resolve (and broken ones warn) at build time. Pinning the slug function to docutils' `make_id` keeps MyST anchors identical to the section IDs docutils already emits (`cache.dir` → `cache-dir`), so existing anchor URLs stay stable.
 - `html_theme_options` overrides only the values that differ from the theme default. When the theme upgrades and renames or removes an option, the warning appears under `-W`; remove the entry.
 - Hard-coded HTML strings (announcement banners, footer text) belong in `html_theme_options` only when the theme requires it. If they're long, build them up with f-strings using `project_id`/`github_user` constants defined at the top of `conf.py` so renames stay in one place.
