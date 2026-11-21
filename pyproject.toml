@@ -241,9 +241,6 @@ exclude-newer = "1 week"
 # `repomatic run` cannot resolve that pin, and every job that needs the tool
 # fails. `sync-uv-lock` prunes such an entry once the window has passed its
 # cutoff.
-# XXX The `sphinx-design` entry lets the `sphinx-design>=0.8` floor of the docs
-# group resolve inside its cooldown: drop this comment once `sync-uv-lock`
-# prunes the entry.
 exclude-newer-package = { repomatic = "0 day" }
 # Package is at root level, not in "./src/".
 build-backend.module-root = ""
@@ -648,10 +645,6 @@ changelog.archive-location = "./docs/changelog-archive.md"
 # unreadable as the package does. The guide pages carry the prose and link here.
 docs.apidoc-extra-args = [ "--separate" ]
 exclude = [ "workflows" ]
-# XXX Drop once `lint-deps` reports that this entry exempts nothing.
-lint-deps.allow.sphinx-design = """\
-  sphinx-design 0.8.0 is on PyPI: only a docs install under a cooldown fails, until 2026-11-17.\
-  """
 # No checked module imports Sphinx, so mypy would report the bundled override
 # as an unused section.
 lint-repo.declined.mypy.overrides.'{ module = ["sphinx.*"], ignore_missing_imports = true, follow_imports = "skip" }' = "No checked module imports Sphinx."

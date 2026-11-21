@@ -476,12 +476,10 @@ def _released_changelog(body: str) -> str:
             None,
             id="empty-unreleased-section",
         ),
-        # An availability caveat is not a statement of what changed.
+        # An editorial note is not a statement of what changed.
         pytest.param(
             warn_on_empty_sections,
-            _released_changelog(
-                "> [!WARNING]\n> This version ships without `windows-arm64` binaries."
-            ),
+            _released_changelog("> [!NOTE]\n> First release under the `papaya` name."),
             "1.2.2: released section holds no entry",
             id="admonition-only-section",
         ),

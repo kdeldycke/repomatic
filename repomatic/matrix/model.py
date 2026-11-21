@@ -236,7 +236,7 @@ class Matrix:
         any combination produced by {meth}`product`, and GitHub Actions
         rejects excludes that reference non-existent matrix keys.
 
-        :param warn: log each dropped exclude as a warning, or else at the debug
+        :param warn: Log each dropped exclude as a warning, or else at the debug
             level.
         """
         effective: list[dict[str, str]] = []

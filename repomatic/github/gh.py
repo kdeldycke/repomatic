@@ -120,12 +120,12 @@ on every attempt."""
 _TRANSIENT_SERVER_MARKERS = ("Something went wrong while executing your query",)
 """GitHub's GraphQL answer to a query that failed on the server side.
 
-`gh` prints `GraphQL: Something went wrong while executing your query on
-{timestamp}. Please include `{id}` when reporting this issue.`, with no HTTP
-status, when the API failed internally or timed out. The same query can succeed
-when it is sent again. A mutation can also have run before the failure, so only
-an idempotent command retries it: see the *idempotent* parameter of
-{func}`run_gh_command`."""
+`gh` prints `GraphQL: Something went wrong while executing your query`, with no
+HTTP status, when the API failed internally or timed out. The rest of the message
+gives the time of the query, and an ID to include when reporting the issue. The
+same query can succeed when it is sent again. A mutation can also have run before
+the failure, so only an idempotent command retries it: see the *idempotent*
+parameter of {func}`run_gh_command`."""
 
 _TRANSIENT_THROTTLE_BACKOFF_SECONDS = (15, 30, 60)
 """Sleep durations between bounded same-token retries on a secondary limit.

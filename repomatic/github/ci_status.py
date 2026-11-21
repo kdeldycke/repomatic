@@ -885,9 +885,10 @@ def watch_ci_status(
     Every poll pays the REST quota of {func}`read_ci_status`, a handful of
     calls, and *interval* is what keeps a long watch inside it.
 
-    A poll that fails with a transient error, a GitHub server error or a rate
-    limit (see {attr}`~repomatic.github.gh.GhCommandError.transient`), yields
-    nothing: the watch logs a warning and polls again after *interval*.
+    A poll that fails with a transient error yields nothing: the watch logs a
+    warning and polls again after *interval*. A GitHub server error, a rate
+    limit, an HTTP/2 stream the server cancelled and a `gh` call stopped at its
+    timeout are transient: see {attr}`~repomatic.github.gh.GhCommandError.transient`.
     {data}`FAILED_POLL_LIMIT` failed polls in a row end it with the error of the
     last one, and any other error ends it at once. A *timeout* that passes after
     a failed poll ends the watch on the last status it yielded, or with the

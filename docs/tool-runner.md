@@ -311,25 +311,15 @@ becomes:
 ![A pear's  stage in a crate](pear.svg)
 ```
 
-It deletes a backslash escape and an entity from the alt-text in the same way:
-
-```text
-![A 3 \* 4 crate of pears &amp; plums](pear.svg)
-```
-
-becomes:
-
-```text
-![A 3  4 crate of pears  plums](pear.svg)
-```
-
 The same text in an ordinary link keeps its characters, so the defect belongs to the image-alt path alone.
 
-This is mdformat itself, not a plugin that repomatic bundles: it occurs with a bare `mdformat` and no plugins loaded. `repomatic run mdformat` therefore cannot prevent it, and the `format-markdown` job carries it into every consuming repository. The loss is silent, it applies to prose that is already committed, and no check reports it.
+This is mdformat itself, not a plugin that repomatic bundles: it occurs with a bare `mdformat` and no plugins loaded. `repomatic run mdformat` therefore cannot prevent it, and the `format-markdown` job carries it into every consuming repository. The loss is silent, it applies to prose that is already committed, and no check reports it. It is silent because the bundled configuration turns validation off. A configuration of your own that keeps validation on makes mdformat stop on `Could not format` instead, and write nothing.
 
-mdformat tracks the code span as [hukkin/mdformat#414](https://github.com/hukkin/mdformat/issues/414), where the maintainer records that a proper fix needs `markdown-it-py` synced with markdown-it `14.0.0`. It tracks the escape and the entity as [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599), and [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445) reports their cause in `markdown-it-py`. Both losses are present in mdformat `1.0.0` run on `markdown-it-py` `4.2.0` or older. `markdown-it-py` `4.3.0` carries the fix of that cause, and `repomatic run mdformat` resolves it once the [cooldown](configuration.md#minimum-release-age) admits that release. The [upstream page](upstream.md#open-upstream) tracks the result.
+mdformat tracks the defect as [hukkin/mdformat#414](https://github.com/hukkin/mdformat/issues/414), where the maintainer records that a proper fix needs `markdown-it-py` synced with markdown-it `14.0.0`. `markdown-it-py` `4.3.0` keeps the code span in the alt-text, but the renderer of mdformat still drops it.
 
-Write image alt-text without code spans, backslashes or entities until mdformat corrects this. Rewording the alt-text is the stable repair: with `markdown-it-py` `4.2.0` or older, a restored code span, escape or entity is deleted again by the next `format-markdown` run.
+`markdown-it-py` `4.2.0` and older made mdformat delete a backslash escape and an entity from the alt-text too, so `![A 3 \* 4 crate of pears &amp; plums](pear.svg)` lost both characters. [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599) tracks that loss, and [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445) reports its cause. `markdown-it-py` `4.3.0` carries the fix of that cause. `repomatic run mdformat` resolves that release once the [cooldown](configuration.md#minimum-release-age) admits it, and then writes the two as it writes them in link text: `\*` becomes `*`, and `&amp;` becomes `&`. The [upstream page](upstream.md#open-upstream) tracks the result.
+
+Write image alt-text without code spans until mdformat corrects this. Rewording the alt-text is the stable repair: the next `format-markdown` run deletes a restored code span again. With `markdown-it-py` `4.2.0` or older, it deletes a restored backslash escape or entity again too.
 
 ## Tool details
 

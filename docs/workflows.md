@@ -17,7 +17,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v8.2.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v8.3.0
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
@@ -207,8 +207,8 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 ### 🔄 Sync repomatic (`sync-repomatic`)
 
 - Runs [`repomatic init --upgrade --delete-unmodified --delete-excluded`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/init/run.py) to sync all repomatic-managed files: thin-caller workflows, configuration files, and skill definitions
-- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v8.2.0`
-- The upgrade pull request lists the `**Breaking:**` and `**Deprecated:**` entries of every release it crosses, the warnings the new release printed (like a `[tool.repomatic]` key it no longer knows, or a skill copy whose local edits it overwrote), the release notes, and the newer releases the cooldown still holds back
+- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v8.3.0`
+- The upgrade pull request opens on the version move and the release notes of every release it crosses, then lists their `**Breaking:**` and `**Deprecated:**` entries when there are any. The review command follows, then the warnings the new release printed (like a `[tool.repomatic]` key it no longer knows, or a skill copy whose local edits it overwrote) above the collapsed output of `repomatic init`. The newest release the cooldown still holds back comes last
 - Never moves the upstream pin back: a release pinned by hand inside the cooldown stays, and the job only regenerates its files. Set `upstream-pin.sync = false` in `[tool.repomatic]` to keep syncing at the pinned release
 - Removes unmodified config files identical to bundled defaults and cleans up excluded or stale files (disabled opt-in workflows, auto-excluded skills)
 - Prunes orphans of assets repomatic has dropped (renamed or removed skills, agents, or workflows), so an upstream rename propagates automatically instead of leaving a stale file behind. A skill or agent copy is deleted when its content matches any version repomatic shipped; a removed reusable workflow's thin-caller is deleted when its `uses:` line still points at the dropped upstream workflow. A locally modified copy (edited content, or a thin-caller with extra jobs) is reported for manual review, never deleted. Pass `--keep-removed` to report these without deleting, or `--delete-removed-modified` to also delete locally modified ones

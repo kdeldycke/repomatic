@@ -463,7 +463,8 @@ def prune_caches_cmd(
     help=(
         "Poll until a run blocks a merge, or until every run settled and the tip"
         " has a run of its own. Each poll prints the runs whose verdict changed."
-        " A GitHub server error or rate limit skips the poll it hits, and"
+        " A GitHub server error, a rate limit, a stream the server cancelled or a"
+        " gh call that timed out skips the poll it hits, and"
         f" {FAILED_POLL_LIMIT} failed polls in a row end the wait."
     ),
 )

@@ -794,6 +794,20 @@ def find_workflow_literals(
     return literals
 
 
+def _splice_group(match: re.Match[str], group: str, value: str) -> str:
+    """Return the text of *match*, with the span of its *group* set to *value*.
+
+    Only that span changes: another part of the match can hold the same text.
+
+    :param match: A match of one of the literal patterns of this module.
+    :param group: The name of the group to replace.
+    :param value: The new text of the group.
+    :return: The text of the whole match, with the group replaced.
+    """
+    start, end = (index - match.start() for index in match.span(group))
+    return match.group(0)[:start] + value + match.group(0)[end:]
+
+
 def apply_workflow_literals(
     content: str,
     resolved: Mapping[tuple[str, str], str],
@@ -824,7 +838,7 @@ def apply_workflow_literals(
     """
     changes: list[tuple[str, str, str]] = []
 
-    def replace(ecosystem: Ecosystem, sep: str):
+    def replace(ecosystem: Ecosystem):
         def inner(match: re.Match[str]) -> str:
             package = match.group("package")
             new_version = resolved.get((ecosystem, package))
@@ -834,8 +848,7 @@ def apply_workflow_literals(
             changes.append((package, old_version, new_version))
             # Spliced at the version's own span: a quoted argument before the
             # pin can hold the same `==` and version, like a marker.
-            start, end = (index - match.start() for index in match.span("version"))
-            return match.group(0)[:start] + new_version + match.group(0)[end:]
+            return _splice_group(match, "version", new_version)
 
         return inner
 
@@ -864,12 +877,11 @@ def apply_workflow_literals(
         if not new_tag or new_tag == old_tag:
             return match.group(0)
         changes.append((repo, old_tag, new_tag))
-        start, end = (index - match.start() for index in match.span("tag"))
-        return match.group(0)[:start] + new_tag + match.group(0)[end:]
+        return _splice_group(match, "tag", new_tag)
 
     content = _GH_RELEASE_LITERAL_RE.sub(replace_release_tag, content)
-    content = _NPM_LITERAL_RE.sub(replace(Ecosystem.NPM, "@"), content)
-    content = _PYPI_LITERAL_RE.sub(replace(Ecosystem.PYPI, "=="), content)
+    content = _NPM_LITERAL_RE.sub(replace(Ecosystem.NPM), content)
+    content = _PYPI_LITERAL_RE.sub(replace(Ecosystem.PYPI), content)
     content = _SETUP_UV_VERSION_RE.sub(replace_setup_uv, content)
     if self_pin:
         version = resolved.get((Ecosystem.PYPI, self_pin))

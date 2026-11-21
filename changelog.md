@@ -8,17 +8,21 @@
 - Add the `gitignore-default-rules` check to `lint-repo`, which warns when `gitignore.extra-content` leaves out a rule of its default value.
 - The `sync-repomatic` pull request now shows the release notes under its upgraded release table, and the `repomatic init` output under its upgrade review.
 - The `sync-repomatic` pull request now omits its breaking changes section when no release it crosses has a `**Breaking:**` or `**Deprecated:**` entry.
+- The octicon registry of the `title-octicons` check and of the bundled `sphinx-docs` agent now gives the `bug` icon to a `bug-report.md` page.
+- The bundled `babysit-ci`, `repomatic-changelog` and `repomatic-ship` skills now keep a warning about one release asset, like a missing binary, out of the changelog.
 - The bundled `file-bug-report` skill now names a third party's account by its role, not its address, in a vendor's support email too.
-- The bundled `repomatic-ship` skill now fetches the tags first, and stops when nothing since the last tag is left to ship.
-- The bundled `repomatic-ship` skill now builds the docs with the configured `sphinx.builder`, and refreshes a `<!-- matrix -->` block that a dependency release made stale.
-- The bundled `repomatic-changelog` and `repomatic-ship` skills no longer write a changelog warning about one release asset, like a missing binary.
-- The bundled `sphinx-docs` agent now counts the text a generator writes at build time as a use of a MyST extension.
+- The bundled `repomatic-changelog` and `repomatic-ship` skills now stop when nothing since the last tag is left to ship, and `repomatic-ship` fetches the tags first.
+- The bundled `repomatic-ship` skill and `sphinx-docs` agent now build the docs with the configured `sphinx.builder`, and the skill refreshes a stale `<!-- matrix -->` block.
+- The bundled `repomatic-ship` skill now checks a moved name for a warning at its old address, and a released named tuple for an inserted field.
+- The bundled `sphinx-docs` agent and `sphinx-docs-sync` skill now keep a MyST extension only when the docs use it, in generated text too.
+- The bundled `sphinx-docs` agent now recommends the `docutils` heading slug preset of myst-parser `5.2`, in place of the `make_id` import path.
+- Bump the `repomatic run` pins of Biome to `2.6.7`, gh to `2.104.0`, Ruff to `0.17.5`, typos to `1.52.2` and Wrangler to `4.162.0`.
 - Fix `ci-status` reporting a job as still running when GitHub left its status at `in_progress` after the job concluded.
-- Fix `ci-status --wait` hanging forever on a stalled `gh` call: each `gh` call now stops after five minutes, or thirty for a release asset transfer.
-- Fix `ci-status --wait` ending on an HTTP/2 stream the server cancelled, like `stream error: stream ID 5; CANCEL`: it now polls again.
+- Fix `ci-status --wait` hanging on a stalled `gh` call: each `gh` call now stops after five minutes, or thirty for a release asset transfer.
+- Fix `ci-status --wait` ending on an HTTP/2 stream the server cancelled, like `stream error: stream ID 5; CANCEL; received from peer`: it now polls again.
 - Fix a job that opens or refreshes a pull request failing on GitHub's `Something went wrong while executing your query` error, which it now retries twice.
-- Fix `show-metadata` warning about a `test-matrix.exclude` entry that only the pull request matrix drops, as its axes are narrower than the full matrix's.
-- Fix `sync-workflow-pins` skipping a PyPI pin that follows another quoted argument on its line, like `--with 'apricot<2' --from 'papaya==1.2'`.
+- Fix `show-metadata` warning about a `test-matrix.exclude` entry that only the narrower pull request matrix drops.
+- Fix `sync-workflow-pins` skipping a PyPI pin that follows a quoted argument other than a pin, like `--with 'apricot<2' --from 'papaya==1.2'`.
 
 ## [`8.3.0` (2026-11-17)](https://github.com/kdeldycke/repomatic/compare/v8.2.0...v8.3.0)
 

@@ -127,7 +127,7 @@ weather-samples/
 '''
 ```
 
-Everything above the last entry there is the shipped default, quoted back verbatim; only `weather-samples/` is this repository's own. Drop one of the repeated lines and the pattern it carried stops being emitted.
+Everything above the last entry there is the shipped default, quoted back verbatim; only `weather-samples/` is this repository's own. Drop one of the repeated lines and the pattern it carried stops being emitted. The `gitignore-default-rules` check of `lint-repo` names each rule of the default that the value leaves out. It only warns, since a rule left out on purpose is a legitimate choice.
 
 When no knob covers the change, reach for `exclude` only if you understand what it means, because it is not an opt-out from syncing: it declares that the repository has no such file. The `sync-repomatic` job runs `repomatic init --upgrade --delete-unmodified --delete-excluded`, so the first sync after the entry lands opens a pull request **deleting** the file rather than leaving the local version alone. Excluding a workflow to protect your edits to it removes your CI instead.
 

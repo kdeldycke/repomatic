@@ -196,7 +196,11 @@ repomatic post-processes the output of `mdformat` to undo two `mdformat-myst` re
 
 ### Shell formatting
 
-- [`sh#1203` - zsh: support inline loop syntax](https://github.com/mvdan/sh/issues/1203): `shfmt` cannot parse some Zsh constructs, so repomatic keeps Zsh files away from it. The fix, [mvdan/sh@8a8b554](https://github.com/mvdan/sh/commit/8a8b5541f3fba8dcc4a2e11ca859ef3c16ba85cd), is on `master`, and no release carries it yet.
+- [`sh#1203` - zsh: support inline loop syntax](https://github.com/mvdan/sh/issues/1203): `shfmt` cannot parse some Zsh constructs, so repomatic keeps Zsh files away from it. The fix, [mvdan/sh@8a8b554](https://github.com/mvdan/sh/commit/8a8b5541f3fba8dcc4a2e11ca859ef3c16ba85cd), is on `master`.
+
+  ```{todo}
+  Once the `shfmt` pin moves to a release carrying that commit, move this entry to [](#upstreamed-from-repomatic). {attr}`~repomatic.file_inventory.FileInventory.shfmt_files` holds the code side of the same change.
+  ```
 
 ### Workflow linting
 
@@ -270,10 +274,12 @@ Pull requests and issues still pending upstream.
 
 - [`lychee#1772` - Suggest alternative frontend services from LibRedirect](https://github.com/lycheeverse/lychee/issues/1772)
 
-- [`mdformat#599` - Backslash escapes and entities are deleted from image `alt` text](https://github.com/hukkin/mdformat/issues/599): the `format-markdown` job applies that loss to every image it formats. See [A known mdformat defect](tool-runner.md#a-known-mdformat-defect).
+- [`mdformat#599` - Backslash escapes and entities are deleted from image `alt` text](https://github.com/hukkin/mdformat/issues/599): `markdown-it-py` `4.3.0` fixed the cause, so `repomatic run mdformat` keeps both characters once the cooldown admits that release. See [A known mdformat defect](tool-runner.md#a-known-mdformat-defect).
+
+- [`mdformat#414` - Alt text wrapped in grave marks is deleted](https://github.com/hukkin/mdformat/issues/414): the `format-markdown` job deletes the code span from the alt text of every image it formats. `markdown-it-py` `4.3.0` keeps the span, but the renderer of mdformat still drops it. See [A known mdformat defect](tool-runner.md#a-known-mdformat-defect).
 
   ```{todo}
-  Once the `minimum-release-age` cooldown lets `repomatic run mdformat` resolve `markdown-it-py` `4.3.0`, which carries the fix for [executablebooks/markdown-it-py#445](https://github.com/executablebooks/markdown-it-py/issues/445), run the reproducer from [hukkin/mdformat#599](https://github.com/hukkin/mdformat/issues/599) through it. Then update this entry and [A known mdformat defect](tool-runner.md#a-known-mdformat-defect) to match the result. With markdown-it-py `main` at `9aa1aae`, which differs from `4.3.0` by its release commit alone, a bare mdformat `1.0.0` keeps every character of that reproducer: it writes `\*` as `*` and `&amp;` as `&`, as it does in link text. A code span in the alt text makes it stop on `Could not format` instead: markdown-it-py now keeps the span, while mdformat's own renderer still drops it, as [hukkin/mdformat#414](https://github.com/hukkin/mdformat/issues/414) tracks.
+  When `sync-tool-versions` moves the `mdformat` pin to a release that keeps a code span in image alt text, run the reproducer from [A known mdformat defect](tool-runner.md#a-known-mdformat-defect) through `repomatic run mdformat`. Then delete that section and move this entry to [](#upstreamed-from-repomatic).
   ```
 
 - [`mdformat-myst#25` - Block attributes formatting introduce extra empty line](https://github.com/executablebooks/mdformat-myst/issues/25)

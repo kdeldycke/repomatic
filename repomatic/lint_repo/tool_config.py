@@ -34,7 +34,7 @@ from ..bundle import get_data_content
 from ..checks import CheckResult
 from ..components import SyncMode
 from ..config import GitignoreConfig
-from ..gitignore import parse_rules
+from ..gitignore import orphaned_rules
 from ..tooling.registry import TOOL_REGISTRY
 
 TYPE_CHECKING = False
@@ -512,24 +512,20 @@ def check_gitignore_default_rules(ctx: LintContext) -> CheckResult:
 
     Setting {attr}`~repomatic.config.GitignoreConfig.extra_content` replaces the
     default value wholesale, so a rule the default gains later never reaches a
-    repository that set the key. {func}`~repomatic.gitignore.orphaned_rules`
-    cannot name that rule: it compares the generated file with the file on
-    disk, and a rule that no sync ever wrote is in neither. This check compares
-    the configured value with the default instead, rule by rule, through
-    {func}`~repomatic.gitignore.parse_rules`: comments and blank lines do not
-    count.
+    repository that set the key. `sync-gitignore` cannot name that rule: its
+    {func}`~repomatic.gitignore.orphaned_rules` call compares the generated file
+    with the file on disk, and a rule that no sync ever wrote is in neither. This
+    check makes the same comparison between the default value and the configured
+    one: comments and blank lines do not count.
 
     Advisory, and deliberately so. A repository may leave a default rule out on
     purpose, and only its maintainer can tell that from a rule it never got.
 
     :return: A `CheckResult`.
     """
-    configured = set(parse_rules(ctx.config.gitignore.extra_content))
-    missing = [
-        rule
-        for rule in parse_rules(GitignoreConfig().extra_content)
-        if rule not in configured
-    ]
+    missing = orphaned_rules(
+        GitignoreConfig().extra_content, ctx.config.gitignore.extra_content
+    )
     if not missing:
         return CheckResult(
             True, "[tool.repomatic] gitignore.extra-content keeps every default rule."
@@ -537,8 +533,8 @@ def check_gitignore_default_rules(ctx: LintContext) -> CheckResult:
     listed = ", ".join(f"`{rule}`" for rule in missing)
     return CheckResult(
         False,
-        f"[tool.repomatic] gitignore.extra-content replaces its default and"
+        "[tool.repomatic] gitignore.extra-content replaces its default and"
         f" leaves out {listed}, so `sync-gitignore` never writes"
         f" {'it' if len(missing) == 1 else 'them'}. Copy what applies into the"
-        f" value.",
+        " value.",
     )

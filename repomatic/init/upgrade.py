@@ -645,9 +645,7 @@ def hand_off_upgrade(
     return run_upgrade(command, output_dir)
 
 
-def _breaking_section(
-    notes: Mapping[str, tuple[str, list[tuple[str, str]]]],
-) -> str:
+def _breaking_section(notes: Mapping[str, tuple[str, list[tuple[str, str]]]]) -> str:
     """List the breaking and deprecation bullets of the fetched release notes.
 
     Empty when no bullet matches, which also covers notes that could not be

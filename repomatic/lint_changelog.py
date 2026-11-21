@@ -328,8 +328,8 @@ def warn_on_empty_sections(changelog: Changelog) -> None:
 
     Availability, editorial and yanked admonitions live in their own
     {class}`~repomatic.changelog.VersionElements` fields, so a section
-    carrying nothing but a `[!WARNING]` about missing binaries still counts as
-    empty: an admonition explains a caveat, it does not say what changed.
+    carrying nothing but a `[!NOTE]` about a project rename still counts as
+    empty: an admonition gives context, it does not say what changed.
 
     :param changelog: The parsed changelog to inspect.
     """
