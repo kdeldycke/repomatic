@@ -115,8 +115,14 @@ _NPM_LITERAL_RE = re.compile(
 
 # Python pins in uv/uvx commands: `uvx 'papaya-cli==11.2.8'`,
 # `--with 'pkg[extra]==1.2.3'`.
+#
+# The text between the command and the pin can hold whole quoted arguments, so a
+# pin that follows one is found too: `--with 'apricot<2' --from 'papaya==1.2'`.
+# The match stops at the first pin. A quote in that text always opens a string
+# that the next quote closes, so the closing quote of one argument never pairs
+# with the opening quote of the next.
 _PYPI_LITERAL_RE = re.compile(
-    r"(?:uvx?|--with)[^'\n]*"
+    r"(?:uvx?|--with)(?:[^'\n]|'[^'\n]*')*?"
     r"'(?P<package>[a-z][a-z0-9._-]*)(?:\[[^\]]+\])?==(?P<version>[0-9][0-9.]*)'"
 )
 
@@ -826,7 +832,10 @@ def apply_workflow_literals(
             if package == self_pin or not new_version or new_version == old_version:
                 return match.group(0)
             changes.append((package, old_version, new_version))
-            return match.group(0).replace(f"{sep}{old_version}", f"{sep}{new_version}")
+            # Spliced at the version's own span: a quoted argument before the
+            # pin can hold the same `==` and version, like a marker.
+            start, end = (index - match.start() for index in match.span("version"))
+            return match.group(0)[:start] + new_version + match.group(0)[end:]
 
         return inner
 

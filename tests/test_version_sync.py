@@ -377,6 +377,28 @@ def test_find_workflow_literals():
 
 
 @pytest.mark.parametrize(
+    "command",
+    (
+        pytest.param(
+            "uvx --with 'apricot<2' --from 'papaya-cli==11.2.8' papaya",
+            id="after-a-range",
+        ),
+        pytest.param(
+            "uvx --exclude-newer '1 week' 'papaya-cli==11.2.8' upload",
+            id="after-an-option-value",
+        ),
+    ),
+)
+def test_find_workflow_literals_pin_after_a_quoted_argument(command):
+    """A pin that follows another quoted argument on its line is found alone."""
+    literals = {
+        (lit.ecosystem, lit.package, lit.version)
+        for lit in vs.find_workflow_literals(f"          {command}\n")
+    }
+    assert literals == {("pypi", "papaya-cli", "11.2.8")}
+
+
+@pytest.mark.parametrize(
     ("command", "package", "version"),
     (
         pytest.param(
@@ -524,6 +546,21 @@ def test_apply_workflow_literals():
     )
     assert ("papaya-cli", "11.2.8", "12.0.0") in changes
     assert "papaya-cli==12.0.0" in new_content
+
+
+def test_apply_workflow_literals_pin_after_a_quoted_argument():
+    """Only the pin moves, even when an argument before it holds its version."""
+    content = (
+        "          uvx --with 'apricot==11.2.8; python_version < \"3.12\"'"
+        " --from 'papaya-cli==11.2.8' papaya\n"
+    )
+    new_content, changes = vs.apply_workflow_literals(
+        content, {("pypi", "papaya-cli"): "12.0.0"}
+    )
+    assert changes == [("papaya-cli", "11.2.8", "12.0.0")]
+    assert new_content == content.replace(
+        "'papaya-cli==11.2.8'", "'papaya-cli==12.0.0'"
+    )
 
 
 EXEMPTION = cooldown_exemption("repomatic")
