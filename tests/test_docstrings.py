@@ -49,9 +49,9 @@ what decides the outcome. Calling upstream also means this test follows it
 instead of drifting from it.
 
 ```{caution}
-That converter arrives with `click-extra[sphinx]`, which only the `docs`
-dependency group pulls in, so the module skips wherever Sphinx is absent. Add
-Sphinx to the `test` group to turn this from a local check into a CI gate.
+That converter arrives with `click-extra[sphinx]`, which the `test` dependency
+group pulls in. The module skips only in an environment synced without that
+group, or on a Python that Sphinx cannot import on.
 ```
 """
 
@@ -75,7 +75,7 @@ if TYPE_CHECKING:
 
 myst_to_rst = pytest.importorskip(
     "click_extra.sphinx.myst_docstrings",
-    reason="needs click-extra[sphinx], pulled in by the docs dependency group",
+    reason="needs click-extra[sphinx], pulled in by the test dependency group",
     exc_type=ImportError,
 ).myst_to_rst
 """Convert a list of docstring lines from MyST to reST, in place.

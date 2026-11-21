@@ -124,6 +124,10 @@ scripts.repomatic = "repomatic.__main__:main"
 # Non-runtime development dependency groups.
 [dependency-groups]
 test = [
+  # The [sphinx] extra makes `click_extra.sphinx.myst_docstrings` importable:
+  # without it, tests/test_docstrings.py skips. The version floor stays on the
+  # `click-extra` runtime dependency.
+  "click-extra[sphinx]",
   # coverage 7.16.2 fixes two branch misreports of the sys.monitoring core, the
   # default on Python 3.14 and later, which move the `report.fail_under`
   # ratchet on the 3.14 and 3.15 cells.
