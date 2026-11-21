@@ -78,6 +78,7 @@ from .site import (
 )
 from .tool_config import (
     check_bootstrap_config_drift,
+    check_gitignore_default_rules,
     check_gitleaks_default_rules,
     check_superseded_local_excludes,
 )
@@ -755,6 +756,21 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             " over the section, and the check then skips it"
         ),
         applies=lambda ctx: bool(ctx.tool_table.get("gitleaks")),
+    ),
+    RepoCheck(
+        "gitignore-default-rules",
+        check_gitignore_default_rules,
+        summary="[tool.repomatic] gitignore.extra-content keeps every default rule",
+        description=(
+            "Warns when `[tool.repomatic] gitignore.extra-content` leaves out a rule"
+            " of its default value. Setting the key replaces that default wholesale,"
+            " so a rule the default gains later never reaches the repository, and"
+            " `sync-gitignore` cannot name it: that job only reports the rules a sync"
+            " would remove from the file on disk. Comments and blank lines do not"
+            " count. Advisory, since only the maintainer can tell a rule left out on"
+            " purpose from one the repository never got"
+        ),
+        applies=lambda ctx: ctx.config.gitignore.sync,
     ),
     RepoCheck(
         "inline-pins-match-upstream",

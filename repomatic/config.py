@@ -269,7 +269,10 @@ class GitignoreConfig:
     unless the override repeats them. {func}`repomatic.gitignore.orphaned_rules`
     catches that for any rule an earlier sync already wrote to disk, but not for
     one this repository never materialized, so copy the default and extend it
-    rather than writing only the new lines. Reach for
+    rather than writing only the new lines. A rule the default gains after that
+    copy is named by
+    {func}`~repomatic.lint_repo.tool_config.check_gitignore_default_rules`, the
+    `gitignore-default-rules` check of `lint-repo`. Reach for
     {attr}`~repomatic.config.GitignoreConfig.extra_categories` instead when adding
     whole gitignore.io templates: that one is additive.
 

@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Add the `gitignore-default-rules` check to `lint-repo`, which warns when `gitignore.extra-content` leaves out a rule of its default value.
 - The `sync-repomatic` pull request now shows the release notes under its upgraded release table, and the `repomatic init` output under its upgrade review.
 - The `sync-repomatic` pull request now omits its breaking changes section when no release it crosses has a `**Breaking:**` or `**Deprecated:**` entry.
 - The bundled `file-bug-report` skill now names a third party's account by its role, not its address, in a vendor's support email too.

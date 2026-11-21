@@ -41,6 +41,7 @@ from repomatic.cloudflare.r2 import PAGES_MAX_FILE_SIZE
 from repomatic.components import COMPONENTS, SyncMode, ToolConfigComponent
 from repomatic.config import (
     Config,
+    GitignoreConfig,
     LabelsConfig,
     LintRepoConfig,
     SyncRunnerImagesConfig,
@@ -56,6 +57,7 @@ from repomatic.github.labels import (
 )
 from repomatic.github.token import PAT_PERMISSION_PROBES
 from repomatic.github.workflow_sync import generate_thin_caller
+from repomatic.gitignore import parse_rules
 from repomatic.http import FetchError, get_bytes
 from repomatic.lint_repo.context import (
     LintContext,
@@ -117,6 +119,7 @@ from repomatic.lint_repo.tool_config import (
     RETIRED_TEMPLATE_EXCLUDES,
     anchored_exclude_core,
     check_bootstrap_config_drift,
+    check_gitignore_default_rules,
     check_gitleaks_default_rules,
     check_superseded_local_excludes,
     missing_template_entries,
@@ -1522,6 +1525,59 @@ def test_gitleaks_default_rules_skips_a_section_a_native_config_outranks(
     (tmp_path / ".gitleaks.toml").write_text("", encoding="UTF-8")
     ctx = _tools({"gitleaks": {"allowlist": {"paths": ["fruit"]}}})
     assert check_gitleaks_default_rules(ctx).passed is None
+
+
+DEFAULT_GITIGNORE_RULES = parse_rules(GitignoreConfig().extra_content)
+"""The rules of the default `gitignore.extra-content`, comments left out."""
+
+
+def _gitignore(extra_content: str) -> LintContext:
+    """A context whose `gitignore.extra-content` is *extra_content*."""
+    return LintContext(
+        config=Config(gitignore=GitignoreConfig(extra_content=extra_content))
+    )
+
+
+@pytest.mark.parametrize(
+    ("extra_content", "passed"),
+    (
+        pytest.param(GitignoreConfig().extra_content, True, id="default"),
+        pytest.param(
+            GitignoreConfig().extra_content + "\n\n# Orchard notes.\nharvest/\n",
+            True,
+            id="default-extended",
+        ),
+        # A rewritten comment changes no rule.
+        pytest.param(
+            "\n".join(f"# Kept.\n{rule}" for rule in DEFAULT_GITIGNORE_RULES),
+            True,
+            id="comments-rewritten",
+        ),
+        pytest.param("# Orchard notes.\nharvest/\n", False, id="default-replaced"),
+    ),
+)
+def test_gitignore_default_rules(extra_content, passed):
+    """Only a value that keeps every rule of the default passes."""
+    result = check_gitignore_default_rules(_gitignore(extra_content))
+    assert result.passed is passed
+
+
+def test_gitignore_default_rules_names_each_rule_left_out():
+    """The finding names the rules left out, and no rule the value keeps."""
+    *kept, dropped = DEFAULT_GITIGNORE_RULES
+    result = check_gitignore_default_rules(_gitignore("\n".join(kept)))
+    assert result.passed is False
+    assert f"`{dropped}`" in result.message
+    assert not [rule for rule in kept if f"`{rule}`" in result.message]
+
+
+def test_gitignore_default_rules_applies_only_while_the_sync_runs():
+    """With the sync off, the value reaches no file, so nothing is checked."""
+    check = _roster_check("gitignore-default-rules")
+    synced = LintContext(config=Config(gitignore=GitignoreConfig()))
+    unsynced = LintContext(config=Config(gitignore=GitignoreConfig(sync=False)))
+    assert check.applies(synced)
+    assert not check.applies(unsynced)
 
 
 def _lint_context_in(tmp_path, monkeypatch, **fields) -> LintContext:
