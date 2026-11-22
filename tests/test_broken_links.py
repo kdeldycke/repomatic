@@ -31,6 +31,7 @@ from repomatic.broken_links import (
     LYCHEE_INSTALL_FAILURE_EXIT,
     LYCHEE_REPORT_FORMAT,
     NO_BROKEN_LINKS,
+    SPHINX_FIRST_LOCATION_NOTE,
     LinkcheckResult,
     LinkVerdict,
     LycheeRun,
@@ -414,6 +415,26 @@ def test_sphinx_section_reads_the_statuses(tmp_path, status, verdict):
     section, found = sphinx_section(output)
     assert found is verdict
     assert section.startswith("## Sphinx linkcheck\n\n")
+
+
+@pytest.mark.parametrize(("status", "warns"), (("working", False), ("broken", True)))
+def test_sphinx_section_warns_of_one_location_per_url(tmp_path, status, warns):
+    """Only a section with broken links warns that it lists a URL at one location.
+
+    Sphinx linkcheck checks a URL once, so a URL used in two files shows under
+    one of them: the warning sends the reader to search for the other.
+    """
+    output = tmp_path / "output.json"
+    entry = {
+        "filename": "index.rst",
+        "lineno": 3,
+        "status": status,
+        "uri": "https://example.com/kiwi",
+    }
+    output.write_text(json.dumps(entry) + "\n", encoding="UTF-8")
+    section, _ = sphinx_section(output)
+    warning = f"## Sphinx linkcheck\n\n{SPHINX_FIRST_LOCATION_NOTE}\n\n"
+    assert section.startswith(warning) is warns
 
 
 def _manage(tmp_path, monkeypatch, exit_code, sphinx_status=None):

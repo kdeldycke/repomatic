@@ -91,6 +91,19 @@ SPHINX_DEFAULT_OUTPUT = Path("./docs/_linkcheck/output.json")
 NO_BROKEN_LINKS = "No broken links found."
 """The section body of a checker that completed and found nothing broken."""
 
+SPHINX_FIRST_LOCATION_NOTE = (
+    "Sphinx linkcheck checks each URL once and lists only its first location."
+    " Search the repository for a URL before you fix it, to find its other"
+    " locations."
+)
+"""Warning above the broken links of the Sphinx section.
+
+Sphinx linkcheck collects each URI once: `HyperlinkCollector._add_uri` skips a
+URI it already holds (Sphinx `9.2.0`), so `output.json` records only the first
+place the URI appears. A URL used in a page and in a docstring shows under one
+of them, and a fix made from the section alone misses the other.
+"""
+
 
 class LinkVerdict(StrEnum):
     """What one checker's run says about the links it covers."""
@@ -323,7 +336,10 @@ def sphinx_section(
     report = sanitize_markdown_mentions(
         generate_markdown_report(broken, source_url=source_url)
     )
-    return f"## Sphinx linkcheck\n\n{report.strip()}", LinkVerdict.BROKEN
+    return (
+        f"## Sphinx linkcheck\n\n{SPHINX_FIRST_LOCATION_NOTE}\n\n{report.strip()}",
+        LinkVerdict.BROKEN,
+    )
 
 
 def manage_combined_broken_links_issue(

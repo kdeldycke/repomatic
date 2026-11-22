@@ -6,6 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** Stop deploying the `publish-pypi` composite action to downstream repositories, whose `release.yaml` calls the upstream copy. `repomatic init` deletes an unmodified copy, and fails on an `exclude` or `include` entry naming `publish-pypi-action` until the entry is dropped.
+- The `broken-links` issue now warns that its Sphinx linkcheck section lists each URL at its first location only.
 - Fix a release push cancelling the `autofix.yaml` and `lint.yaml` runs of the commit before it, which then got no result from either workflow.
 
 ## [`8.3.1` (2026-11-21)](https://github.com/kdeldycke/repomatic/compare/v8.3.0...v8.3.1)
