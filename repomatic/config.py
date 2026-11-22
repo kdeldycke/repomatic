@@ -1035,8 +1035,8 @@ class Config:
     like `labels`, stays out: the commands that read its files regenerate them
     on demand. Each entry is subtracted from the effective exclude set
     (defaults + user `exclude`) and bypasses `RepoScope` filtering, so
-    scope-restricted components (like awesome-only skills or Python-only
-    `publish-pypi-action`) are included regardless of repository type.
+    scope-restricted components (like awesome-only skills or the package-only
+    `changelog`) are included regardless of repository type.
     Qualified entries (`component/file`) implicitly select the parent
     component. Same syntax as `exclude`.
     """

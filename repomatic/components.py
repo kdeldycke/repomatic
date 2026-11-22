@@ -742,20 +742,6 @@ COMPONENTS: tuple[Component, ...] = (
         files=(FileEntry("labels.toml"),),
     ),
     BundledComponent(
-        name="publish-pypi-action",
-        description=(
-            "Composite action that publishes to PyPI via Trusted Publishing"
-            " (.github/actions/publish-pypi/)"
-        ),
-        scope=RepoScope.PACKAGE_ONLY,
-        files=(
-            FileEntry(
-                "action-publish-pypi.yaml",
-                ".github/actions/publish-pypi/action.yaml",
-            ),
-        ),
-    ),
-    BundledComponent(
         name="subagents",
         description="Agent subagent definitions (.claude/agents/)",
         init_default=InitDefault.EXCLUDE,
@@ -998,6 +984,33 @@ REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
             "9a4feeb49c37ee7eba1d13957d26aaaa867c791ec12be8cd4197e7526bfbf963",
         ),
         successor="rules now live in repomatic.github.labels.DEFAULT_FILE_RULES",
+    ),
+    RemovedAsset(
+        "publish-pypi-action",
+        ".github/actions/publish-pypi/action.yaml",
+        "8.3.2",
+        (
+            "ea9785adff820d8c3c716b892a1e5ce4cae394b760a4dbde1b5b3d1452aea1df",
+            "96c07890038649838fcb4251df424407c5bf5af8ead7015d97554c353567e6ca",
+            "a5aa3af65e1d12a182d6614fda2eb66ed025a2850f530c7a898be16c07a84f99",
+            "41138539ce5c6e329b441ed69048d9051bc39eed6e4a44d79e62f3e6b90b7d4c",
+            "5c66a3613d1b9b6d2c34e7e1fa0c6cce1c60c20154574dfa6070bdeb03d3af33",
+            "0b4262d0a8fa57faea6f39d89c9f0e192b2da90bb0d78fffdd0caecca65a2c32",
+            "6f6f71a2675508a1506bf6585dd0f7afb85d9631dc1336412689f737bd79c710",
+            "95a19bc413e105b1af707bf4329e8f328a14fef642428f64b20df4ee3179224d",
+            "03fcbe04c3d7d2d2d8c7628805dcaf9feed3d24d53acad17a9d4bb866269fa26",
+            "56924939412abc64ea9c478c2c6708296c5567c0d05832ce3899daa53f6bdb89",
+            "61b62c10ead394bb5887e75e6476de9f75fc8a9d1c5ad566da0ba9cca05e5607",
+            "e012195f4e3d48cd18a5f320c1fbc4c5533f3ef154ee9dc9fd34e06c03749635",
+            "9a814822e6e507ab707e7de527aca5ecb3cd9bf787c9f4f80aa054531e3eaa1b",
+            "a5ca9e4bdde0b89559ffb749f08427e3a0ead8494c4f8a6d357cacf9adb84ff3",
+            "0fee935486a03e62811202eed8ff54a4b17083a949170833017390d2e10d6ffa",
+            "e59478b19dc8a61674c777fced33691602e8dbc129a9434776a3db65d39179b6",
+            "eb4e394c163573c9ca92199cbd49ee9d15223b1d817a8340c07ff344fb26320d",
+            "d6b82ba7c14a5e787672930c89e12ce398ceaa51f6e11860d5e575e875c3cc27",
+            "8fba26a5f692d9842980864f16cee43ecab0623b7d9be45172013a689670fd5a",
+        ),
+        successor="release.yaml calls the upstream copy by its cross-repo ref",
     ),
     RemovedAsset(
         "skills",

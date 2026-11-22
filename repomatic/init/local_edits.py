@@ -46,10 +46,9 @@ from .upgrade import pins_running_release
 CHECKED_COMPONENTS = frozenset(("skills", "subagents"))
 """Components whose copies `init` checks for local edits before it overwrites them.
 
-Skills and agents are prose a repository edits by hand. The other bundled files
-differ from the shipped ones for other reasons: `labels` is staged for one
-command, and the sync jobs bump the pins of `publish-pypi-action` between two
-releases.
+Skills and agents are prose a repository edits by hand. The bundled file of
+`labels` differs from the shipped one for another reason: it is staged for one
+command.
 """
 
 

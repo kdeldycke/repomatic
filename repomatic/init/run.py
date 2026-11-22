@@ -853,7 +853,7 @@ def run_init(
     during bare `repomatic init`. When components are explicitly named
     on the CLI, scope is bypassed: the caller knows what they asked for.
     This allows workflows to materialize out-of-scope configs at runtime
-    (like `repomatic init publish-pypi-action` in a non-Python repo).
+    (like `repomatic init lychee` in a repository that is no awesome list).
     ```
 
     :param output_dir: Root directory of the target repository.

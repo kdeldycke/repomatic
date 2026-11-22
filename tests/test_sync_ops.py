@@ -42,7 +42,6 @@ from click_extra import Context
 
 from repomatic.bundle import get_data_content
 from repomatic.cli.main import repomatic
-from repomatic.components import BUNDLED_VERBATIM_TARGETS, COMPONENTS, BundledComponent
 from repomatic.config import Config, config_key_paths
 from repomatic.deps import sources as dep_sources
 from repomatic.deps.cooldown import UvSettings
@@ -1331,17 +1330,21 @@ def test_resolve_action_pins_and_init_owned_files(
 ) -> None:
     """`sync-action-pins` skips init-owned files downstream, bumps them upstream.
 
-    The `publish-pypi` composite action is copied byte-for-byte from a bundled
-    template, so downstream its `setup-uv` pin is owned by `repomatic init` and a
-    bump would ping-pong with the next `sync-repomatic`. In the source repo the
-    bundled template is a symlink to this very file, so the pin is a normal
-    source-of-truth ref and stays bumpable. A downstream-authored workflow pinning
-    the same action always bumps.
+    A file `repomatic init` copies byte-for-byte from a bundled template has its
+    pins owned by that template downstream, so a bump would ping-pong with the next
+    `sync-repomatic`. In the source repo the bundled template is a symlink to this
+    very file, so the pin is a normal source-of-truth ref and stays bumpable. A
+    downstream-authored workflow pinning the same action always bumps. No bundled
+    template ships a `.github/` file today, so the test registers one.
     """
     old_sha, new_sha = "1" * 40, "2" * 40
     pin = f"astral-sh/setup-uv@{old_sha} # v8.2.0"
 
-    action = tmp_path / ".github/actions/publish-pypi/action.yaml"
+    action_key = ".github/actions/orchard/action.yaml"
+    monkeypatch.setattr(
+        "repomatic.deps.sync.BUNDLED_VERBATIM_TARGETS", frozenset({action_key})
+    )
+    action = tmp_path / action_key
     action.parent.mkdir(parents=True)
     action.write_text(
         f"runs:\n  using: composite\n  steps:\n    - uses: {pin}\n", encoding="UTF-8"
@@ -1373,7 +1376,6 @@ def test_resolve_action_pins_and_init_owned_files(
     # The downstream-authored workflow always bumps.
     assert new_sha in writes[".github/workflows/ci.yaml"]
     # The init-owned action bumps only in the source repo (no ping-pong there).
-    action_key = ".github/actions/publish-pypi/action.yaml"
     if in_source_repo:
         assert new_sha in writes[action_key]
     else:
@@ -1457,31 +1459,6 @@ def test_resolve_action_pins_skip_an_upstream_pin(slug) -> None:
     assert lookups == ["https://github.com/orchard/fig"]
     assert plan.changes == [("orchard/fig", "v1.0.0", "v9.9.9")]
     assert upstream_pin in plan.file_writes[Path("tests.yaml")]
-
-
-def test_bundled_pin_bearing_files_are_excluded_from_pin_scan() -> None:
-    """Every init-owned file carrying a `uses:` SHA pin is excluded from bumping.
-
-    Generic guard for the ping-pong fix: any `BundledComponent` `.github/` target
-    that ships a pinned `uses:` ref (today only the `publish-pypi` action) must be
-    listed in `BUNDLED_VERBATIM_TARGETS`, so `_pinnable_files` drops it and neither
-    `sync-action-pins` nor `sync-workflow-pins` fights the verbatim init deploy.
-    """
-    pin_re = re.compile(r"uses:.*@[0-9a-f]{40}")
-    pinned = [
-        entry.target
-        for component in COMPONENTS
-        if isinstance(component, BundledComponent)
-        for entry in component.files
-        if entry.target.startswith(".github/")
-        and entry.target.endswith((".yaml", ".yml"))
-        and pin_re.search(get_data_content(entry.source))
-    ]
-
-    # Guard the test against silently scanning nothing.
-    assert ".github/actions/publish-pypi/action.yaml" in pinned
-    for target in pinned:
-        assert target in BUNDLED_VERBATIM_TARGETS
 
 
 def test_apply_file_writes_rebases_on_current_text(tmp_path):

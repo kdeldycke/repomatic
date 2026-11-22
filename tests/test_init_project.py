@@ -4335,20 +4335,6 @@ def test_init_flags_a_scope_excluded_changelog_at_its_configured_location(
     assert "changelog.md" not in result.excluded_existing
 
 
-def test_init_scoped_component_excluded_existing_for_awesome_repo(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """An existing out-of-scope component file is flagged as excluded, not created."""
-    action = tmp_path / ".github" / "actions" / "publish-pypi" / "action.yaml"
-    action.parent.mkdir(parents=True, exist_ok=True)
-    action.write_text("name: Publish\nruns:\n  using: composite\n", encoding="UTF-8")
-    monkeypatch.chdir(tmp_path)
-
-    result = run_init_here(tmp_path, repo_slug="user/awesome-billing")
-
-    assert ".github/actions/publish-pypi/action.yaml" in result.excluded_existing
-
-
 @pytest.mark.parametrize(
     "repo_slug",
     [
@@ -4375,20 +4361,18 @@ def test_explicit_component_bypasses_scope_exclusion(
 ):
     """Explicit component request overrides scope exclusion.
 
-    ``repomatic init publish-pypi-action`` in an awesome repo should produce
-    ``.github/actions/publish-pypi/action.yaml`` even though the component has
-    ``scope=PACKAGE_ONLY`` and awesome repos build no distributable. Scope
-    exclusions only apply during bare ``repomatic init`` (no explicit
-    components).
+    ``repomatic init changelog`` in an awesome repo should produce
+    ``changelog.md`` even though the component has ``scope=PACKAGE_ONLY`` and
+    awesome repos build no distributable. Scope exclusions only apply during
+    bare ``repomatic init`` (no explicit components).
     """
     monkeypatch.chdir(tmp_path)
 
     result = run_init_here(
-        tmp_path, components=["publish-pypi-action"], repo_slug="user/awesome-billing"
+        tmp_path, components=["changelog"], repo_slug="user/awesome-billing"
     )
 
-    created_set = set(result.created)
-    assert ".github/actions/publish-pypi/action.yaml" in created_set
+    assert "changelog.md" in set(result.created)
 
 
 def test_include_config_bypasses_scope_exclusion(
@@ -4396,22 +4380,20 @@ def test_include_config_bypasses_scope_exclusion(
 ):
     """Config ``include`` bypasses scope exclusions, like CLI explicit naming.
 
-    ``publish-pypi-action`` is a ``BundledComponent`` with files, scoped
-    ``PACKAGE_ONLY`` and ``init_default=INCLUDE``. In an awesome repo, which
-    builds no distributable, it would normally be scope-excluded. With
-    ``include``, the scope bypass falls through to file-level checks (the file
-    has ``scope=ALL``, so nothing is excluded).
+    ``changelog`` is scoped ``PACKAGE_ONLY``. In an awesome repo, which builds
+    no distributable, it would normally be scope-excluded. ``include`` brings it
+    back.
     """
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[tool.repomatic]\ninclude = ["publish-pypi-action"]\n',
+        '[tool.repomatic]\ninclude = ["changelog"]\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
 
     result = run_init_here(tmp_path, repo_slug="user/awesome-billing")
 
-    assert ".github/actions/publish-pypi/action.yaml" in set(result.created)
+    assert "changelog.md" in set(result.created)
 
 
 def test_include_bypasses_scope_for_tool_config(
@@ -4443,7 +4425,7 @@ def test_bare_init_applies_scope_exclusion(
 
     created_set = set(result.created)
     # Scoped component and workflow files are scope-excluded in awesome repos.
-    assert ".github/actions/publish-pypi/action.yaml" not in created_set
+    assert "changelog.md" not in created_set
     assert ".github/workflows/changelog.yaml" not in created_set
     assert ".github/workflows/debug.yaml" not in created_set
     assert ".github/workflows/release.yaml" not in created_set
@@ -4572,14 +4554,14 @@ def test_exclude_overrides_include_scope_bypass(
     assert ".claude/skills/repomatic-init/SKILL.md" in created_set
 
 
-def test_publish_pypi_action_excluded_in_non_python_repo(
+def test_package_scoped_component_excluded_in_non_python_repo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """`publish-pypi-action` is skipped when the repo is not a Python project.
+    """A `PACKAGE_ONLY` component is skipped when the repo is not a Python project.
 
-    Reproduces the scenario where a non-Python repository (e.g., a dotfiles
+    Reproduces the scenario where a non-Python repository (like a dotfiles
     project) carries a `pyproject.toml` solely for `[tool.*]` configuration.
-    The composite action targets PyPI publishing, so it has no purpose there.
+    It publishes no release, so it gets no `changelog.md`.
     """
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text("[tool.repomatic]\n", encoding="UTF-8")
@@ -4587,34 +4569,16 @@ def test_publish_pypi_action_excluded_in_non_python_repo(
 
     result = run_init_here(tmp_path, repo_slug="user/dotfiles")
 
-    created_set = set(result.created)
-    assert ".github/actions/publish-pypi/action.yaml" not in created_set
+    assert "changelog.md" not in set(result.created)
 
 
-def test_publish_pypi_action_included_in_python_repo(
+def test_explicit_component_bypasses_package_only_scope(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """`publish-pypi-action` is installed when the repo is a Python project."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "fruitbasket"\nversion = "0.1.0"\n',
-        encoding="UTF-8",
-    )
-    monkeypatch.chdir(tmp_path)
+    """Explicit CLI naming bypasses `RepoScope.PACKAGE_ONLY`.
 
-    result = run_init_here(tmp_path, repo_slug="user/fruitbasket")
-
-    created_set = set(result.created)
-    assert ".github/actions/publish-pypi/action.yaml" in created_set
-
-
-def test_explicit_component_bypasses_python_only_scope(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Explicit CLI naming bypasses `RepoScope.PYTHON_ONLY`.
-
-    When the caller explicitly asks for `publish-pypi-action`, the component
-    is materialized regardless of repo type, matching the existing scope-bypass
+    When the caller explicitly asks for `changelog`, the component is
+    materialized regardless of repo type, matching the existing scope-bypass
     semantics for awesome-only components.
     """
     pyproject = tmp_path / "pyproject.toml"
@@ -4622,28 +4586,26 @@ def test_explicit_component_bypasses_python_only_scope(
     monkeypatch.chdir(tmp_path)
 
     result = run_init_here(
-        tmp_path, components=["publish-pypi-action"], repo_slug="user/dotfiles"
+        tmp_path, components=["changelog"], repo_slug="user/dotfiles"
     )
 
-    created_set = set(result.created)
-    assert ".github/actions/publish-pypi/action.yaml" in created_set
+    assert "changelog.md" in set(result.created)
 
 
-def test_include_config_bypasses_python_only_scope(
+def test_include_config_bypasses_package_only_scope(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """`[tool.repomatic] include` bypasses `RepoScope.PYTHON_ONLY`."""
+    """`[tool.repomatic] include` bypasses `RepoScope.PACKAGE_ONLY`."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[tool.repomatic]\ninclude = ["publish-pypi-action"]\n',
+        '[tool.repomatic]\ninclude = ["changelog"]\n',
         encoding="UTF-8",
     )
     monkeypatch.chdir(tmp_path)
 
     result = run_init_here(tmp_path, repo_slug="user/dotfiles")
 
-    created_set = set(result.created)
-    assert ".github/actions/publish-pypi/action.yaml" in created_set
+    assert "changelog.md" in set(result.created)
 
 
 def test_init_respects_exclude_label_files(
