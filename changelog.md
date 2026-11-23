@@ -16,6 +16,9 @@
 
 ## [`8.3.1` (2026-11-21)](https://github.com/kdeldycke/repomatic/compare/v8.3.0...v8.3.1)
 
+> [!NOTE]
+> `8.3.1` is available on [🐍 PyPI](https://pypi.org/project/repomatic/8.3.1/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v8.3.1).
+
 - Add the `gitignore-default-rules` check to `lint-repo`, which warns when `gitignore.extra-content` leaves out a rule of its default value.
 - The `sync-repomatic` pull request now shows the release notes under its upgraded release table, and the `repomatic init` output under its upgrade review.
 - The `sync-repomatic` pull request now omits its breaking changes section when no release it crosses has a `**Breaking:**` or `**Deprecated:**` entry.
