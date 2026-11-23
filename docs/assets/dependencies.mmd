@@ -56,7 +56,7 @@ flowchart LR
     subgraph grp_docs [--group docs]
         sphinx{{"`sphinx >=9.1`"}}
         pytest{{"`pytest >=9.0.3`"}}
-        myst_parser{{"`myst-parser >=5.1`"}}
+        myst_parser{{"`myst-parser >=5.2`"}}
         furo{{"`furo >=2025.12.19`"}}
         pytest_cov{{"`pytest-cov >=7.1`"}}
         pytest_xdist{{"`pytest-xdist >=3.7`"}}
@@ -83,7 +83,6 @@ flowchart LR
     end
 
     subgraph grp_typing [--group typing]
-        types_docutils{{"`types-docutils >=0.22.3.20251115`"}}
         types_pyyaml{{"`types-pyyaml >=6.0.12.9`"}}
     end
 
@@ -251,7 +250,6 @@ flowchart LR
     click sphinxext_opengraph "https://pypi.org/project/sphinxext-opengraph/" _blank
     click tabulate "https://pypi.org/project/tabulate/" _blank
     click tomlrt "https://pypi.org/project/tomlrt/" _blank
-    click types_docutils "https://pypi.org/project/types-docutils/" _blank
     click types_pyyaml "https://pypi.org/project/types-pyyaml/" _blank
     click typing_extensions "https://pypi.org/project/typing-extensions/" _blank
     click urllib3 "https://pypi.org/project/urllib3/" _blank
@@ -289,7 +287,6 @@ flowchart LR
     style sphinxcontrib_mermaid stroke-width:3px
     style sphinxext_opengraph stroke-width:3px
     style tomlrt stroke-width:3px
-    style types_docutils stroke-width:3px
     style types_pyyaml stroke-width:3px
     style wcmatch stroke-width:3px
     style grp_test_pytest stroke-width:3px,stroke-dasharray:5 5
