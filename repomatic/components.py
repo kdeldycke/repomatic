@@ -557,8 +557,10 @@ class RemovedAsset:
     targets are literal (`.github/workflows/` is fixed by GitHub)."""
 
     removed_in: str
-    """Bare package version that first stopped shipping the asset
-    (like `7.11.0`). Surfaced in the prune report."""
+    """Bare package version that first stopped shipping the asset (like
+    `7.11.0`). The test suite ties it to a section of the changelog, released or
+    in preparation, and fails on a tombstone older than the previous major
+    release, which is due for removal."""
 
     hashes: tuple[str, ...] = ()
     """Content gate for skills, agents and config files: the {meth}`digest` of
