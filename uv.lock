@@ -1371,14 +1371,14 @@ wheels = [
 
 [[package]]
 name = "wcmatch"
-version = "12.0.2"
+version = "12.0.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bracex" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/22/cc/f3637836d3cc36cc31e155d419f5943a8a23eb0264161a6f679c6dfafb01/wcmatch-12.0.2.tar.gz", hash = "sha256:bf111865b4251d31d710fa2cad29d92769bea3bcc5bc59c2198fb13494b9270a", size = 167681, upload-time = "2026-11-14T17:22:25.169Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/db/c5/fb0e01e995d104af32ce83a4ada70476d647c116dc8897887949c9886204/wcmatch-12.0.3.tar.gz", hash = "sha256:ccf83affafadc4286ffb335bc827ca2bffb0547fa5d5587600b585151bce4359", size = 167761, upload-time = "2026-11-14T21:47:55.702Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/87/25c38887aa764999af61086bc8a483d617c6c04d33c87282abc165aa42bc/wcmatch-12.0.2-py3-none-any.whl", hash = "sha256:421209e3c220a3b3c7d6c6503277ef6cd3a0b28b35fc350539e4c088ac083b57", size = 52481, upload-time = "2026-11-14T17:22:23.611Z" },
+    { url = "https://files.pythonhosted.org/packages/82/e1/1be8aa2cc624821fc17c195da4a467fc5dfa5073345b08c784dd76977ebc/wcmatch-12.0.3-py3-none-any.whl", hash = "sha256:7255aeae27423a2dfe5bbce9bab7e97369ecad16f0d0a5244f85239123daeaa5", size = 52483, upload-time = "2026-11-14T21:47:54.32Z" },
 ]
 
 [[package]]
