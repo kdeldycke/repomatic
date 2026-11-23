@@ -85,9 +85,11 @@ jobs:
     # which actionlint rejects: https://github.com/rhysd/actionlint/issues/711
     uses: ./.github/workflows/_release-build.yaml # zizmor: ignore[self-repository]
     # The top-level `{}` grants a reusable-call job nothing, so name the union of
-    # the scopes its nested jobs request: squashed-release needs issues:write,
-    # build-package needs id-token:write (OIDC build provenance).
+    # the scopes its nested jobs request: each one checks out the repository
+    # (contents:read), squashed-release needs issues:write, build-package needs
+    # id-token:write (OIDC build provenance).
     permissions:
+      contents: read
       id-token: write
       issues: write
 
@@ -110,9 +112,11 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
-      # OIDC only: the PyPI Trusted Publishing token. The GitHub release notes
-      # (with their PyPI admonition) are owned end to end by the engine lane's
-      # create-release job, so this lane needs no write access to the repo.
+      # Read only: the GitHub release notes (with their PyPI admonition) are owned
+      # end to end by the engine lane's create-release job, so this lane needs no
+      # write access to the repo.
+      contents: read
+      # The PyPI Trusted Publishing token.
       id-token: write
     steps:
       # Local composite action, checked out at the release commit, so repomatic
@@ -176,6 +180,8 @@ jobs:
     needs: build
     runs-on: ubuntu-26.04
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: fromJSON(needs.build.outputs.metadata).is_release_push

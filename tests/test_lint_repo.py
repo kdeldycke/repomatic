@@ -254,6 +254,79 @@ def test_rulesets_are_read_once():
     api.assert_called_once()
 
 
+PLAN_WITHOUT_RULESETS_403 = (
+    "gh: Upgrade to GitHub Pro or make this repository public to enable this"
+    " feature. (HTTP 403)"
+)
+"""What `gh api` prints when the plan gives a private repository no rulesets."""
+
+
+@pytest.mark.parametrize(
+    ("answer", "rulesets", "need_upgrade"),
+    (
+        pytest.param([{"name": "main"}], [{"name": "main"}], False, id="read"),
+        pytest.param(
+            GhCommandError(PLAN_WITHOUT_RULESETS_403),
+            None,
+            True,
+            id="plan-without-rulesets",
+        ),
+        pytest.param(
+            GhCommandError(
+                "gh: Resource not accessible by personal access token (HTTP 403)"
+            ),
+            None,
+            False,
+            id="missing-permission",
+        ),
+    ),
+)
+def test_rulesets_need_upgrade(answer, rulesets, need_upgrade):
+    """Only the plan's own `403` reads as a plan without rulesets."""
+    effect = (
+        {"side_effect": answer}
+        if isinstance(answer, Exception)
+        else {"return_value": answer}
+    )
+    for first in ("rulesets", "rulesets_need_upgrade"):
+        ctx = LintContext(repo="owner/repo")
+        with patch("repomatic.lint_repo.context.gh_json", **effect) as api:
+            getattr(ctx, first)
+            assert ctx.rulesets == rulesets
+            assert ctx.rulesets_need_upgrade is need_upgrade
+        api.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("repo_object", "is_private"),
+    (
+        pytest.param({"private": True}, True, id="private"),
+        pytest.param({"private": False}, False, id="public"),
+        pytest.param(None, False, id="unreadable"),
+    ),
+)
+def test_is_private(repo_object, is_private):
+    """Read the visibility off the repository object; unknown reads as public."""
+    assert _offline(repo="owner/repo", repo_object=repo_object).is_private is is_private
+
+
+@pytest.mark.parametrize(
+    ("repo_object", "applies"),
+    (
+        pytest.param({"private": True}, False, id="private"),
+        pytest.param({"private": False}, True, id="public"),
+    ),
+)
+def test_fork_pr_approval_policy_skips_a_private_repository(repo_object, applies):
+    """GitHub has no fork PR approval policy for a private repository.
+
+    Its endpoint answers `422 Fork PR approval is not allowed for private
+    repositories`, which the check would report as a token problem.
+    """
+    ctx = _offline(repo="owner/repo", repo_object=repo_object)
+    assert _roster_check("fork-pr-approval-policy").applies(ctx) is applies
+
+
 def test_names_match():
     """No warning when names match."""
     result = check_package_name_vs_repo(
@@ -2363,6 +2436,46 @@ def test_instructions_file_name_warns_without_a_repository():
             "top-level `permissions`",
             id="custom-steps-missing-key",
         ),
+        pytest.param(
+            "on: push\n"
+            "permissions: {}\n"
+            "jobs:\n"
+            "  build:\n"
+            "    runs-on: ubuntu-24.04\n"
+            "    steps:\n"
+            "      - uses: actions/checkout@v7\n",
+            True,
+            "no `contents` scope",
+            id="starved-checkout",
+        ),
+        pytest.param(
+            "on: push\n"
+            "permissions: {}\n"
+            "jobs:\n"
+            "  build:\n"
+            "    runs-on: ubuntu-24.04\n"
+            "    permissions:\n"
+            "      contents: read\n"
+            "    steps:\n"
+            "      - uses: actions/checkout@v7\n",
+            False,
+            None,
+            id="granted-checkout",
+        ),
+        pytest.param(
+            "on: push\n"
+            "permissions: {}\n"
+            "jobs:\n"
+            "  build:\n"
+            "    runs-on: ubuntu-24.04\n"
+            "    steps:\n"
+            "      - uses: actions/checkout@v7\n"
+            "        with:\n"
+            "          token: ${{ secrets.APRICOT_TOKEN }}\n",
+            False,
+            None,
+            id="checkout-with-own-token",
+        ),
     ],
 )
 def test_workflow_permissions(tmp_path, monkeypatch, workflow, expect_fail, needle):
@@ -3984,6 +4097,26 @@ def test_check_tag_protection_rules(rulesets, passed):
     """Only an active ruleset aimed at tags can block the release tag push."""
     result = check_tag_protection_rules(_rulesets_context(rulesets))
     assert result.passed is passed
+
+
+def test_ruleset_checks_on_a_plan_without_rulesets():
+    """Warn that the branch is open, and skip what the plan cannot hold.
+
+    The plan gives the private repository neither rulesets nor branch
+    protection rules, so no tag ruleset can block a release, and the GraphQL
+    list of rules is not read.
+    """
+    ctx = _rulesets_context(None)
+    ctx.__dict__["rulesets_need_upgrade"] = True
+    passed, msg = check_branch_ruleset_on_default(ctx)
+    assert passed is False
+    assert "deletion and force pushes" in msg
+    assert check_tag_protection_rules(ctx).passed is True
+    with patch("repomatic.lint_repo.settings.gh_graphql") as graphql:
+        passed, msg = check_classic_branch_protection(ctx)
+    graphql.assert_not_called()
+    assert passed is None
+    assert "skipped" in msg
 
 
 def _graphql_rules(*patterns: str) -> dict:

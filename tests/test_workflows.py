@@ -2031,9 +2031,9 @@ def test_publish_pypi_does_not_touch_the_github_release() -> None:
         "is owned by the engine's create-release job, and editing it here races "
         "its creation"
     )
-    assert publish["permissions"] == {"id-token": "write"}, (
-        "publish-pypi needs only the OIDC token; dropping the release edit drops "
-        "its `contents: write` grant too"
+    assert publish["permissions"] == {"contents": "read", "id-token": "write"}, (
+        "publish-pypi needs only the checkout and the OIDC token; dropping the "
+        "release edit drops its `contents: write` grant too"
     )
 
 

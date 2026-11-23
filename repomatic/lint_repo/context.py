@@ -67,6 +67,15 @@ same convention `_SOURCE_URL_KEYS` in {mod}`repomatic.pypi` applies to the PyPI
 copy of the same mapping.
 """
 
+PLAN_WITHOUT_RULESETS = "make this repository public to enable this feature"
+"""The end of the `403` the rulesets API answers when the plan withholds them.
+
+GitHub Free gives a private repository neither rulesets nor branch protection
+rules, and answers `Upgrade to GitHub Pro or make this repository public to
+enable this feature.` The plan it names first depends on the owner, so the
+match is on the end of the message.
+"""
+
 WRANGLER_TOML = Path("wrangler.toml")
 """The root-level Wrangler configuration a Cloudflare Pages project may commit."""
 
@@ -248,6 +257,15 @@ class LintContext:
         data = gh_json(["api", f"repos/{self.repo}"], soft=True)
         return data if isinstance(data, dict) else None
 
+    @property
+    def is_private(self) -> bool:
+        """Whether GitHub reports the repository as private.
+
+        Read off {attr}`repo_object`, so an unreadable object answers `False`
+        and every check keeps its behavior for a public repository.
+        """
+        return bool((self.repo_object or {}).get("private"))
+
     @cached_property
     def rulesets(self) -> list[dict[str, Any]] | None:
         """The repository's rulesets, the ones inherited from a parent included.
@@ -255,23 +273,39 @@ class LintContext:
         One endpoint serves the two ruleset checks, which filter the same
         payload on different `target` values. A failed read is kept too: both
         checks then report the same unreadable API instead of asking twice.
+        The read also sets {attr}`rulesets_need_upgrade` from the error.
 
         :return: The ruleset list, or `None` when the API could not be read.
         """
         if not self.repo:
             return None
-        data = gh_json(
-            [
+        try:
+            data = gh_json([
                 "api",
                 f"repos/{self.repo}/rulesets",
                 "--method",
                 "GET",
                 "--field",
                 "includes_parents=true",
-            ],
-            soft=True,
-        )
+            ])
+        except RuntimeError as error:
+            logging.debug(f"Could not read the rulesets of {self.repo}: {error}")
+            answer = f"{error} {getattr(error, 'stdout', '')}"
+            self.__dict__["rulesets_need_upgrade"] = PLAN_WITHOUT_RULESETS in answer
+            return None
         return data if isinstance(data, list) else None
+
+    @cached_property
+    def rulesets_need_upgrade(self) -> bool:
+        """Whether the plan gives this private repository no rulesets.
+
+        On such a repository GitHub enforces no ruleset and no branch
+        protection rule, so the default branch is open to deletion and force
+        pushes. Known from the `403` of {attr}`rulesets`, per
+        {data}`PLAN_WITHOUT_RULESETS`.
+        """
+        _ = self.rulesets
+        return bool(self.__dict__.get("rulesets_need_upgrade", False))
 
     @cached_property
     def declared_labels(self) -> frozenset[str] | None:

@@ -498,7 +498,8 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         summary="At least one active branch ruleset",
         description=(
             "Warns when the repository has no active branch ruleset, which the check"
-            " reads as a default branch open to deletion and force pushes. It does not"
+            " reads as a default branch open to deletion and force pushes. Also warns"
+            " when the plan gives a private repository no rulesets. It does not"
             " verify that a ruleset targets the default branch itself"
             " ([details](security.md#supply-chain-security))"
         ),
@@ -536,9 +537,9 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         summary="Fork PR workflow approval policy strict enough",
         description=(
             "Warns when the fork PR workflow approval policy is weaker than"
-            " `first_time_contributors`"
+            " `first_time_contributors`. A private repository has no such policy"
         ),
-        applies=lambda ctx: bool(ctx.repo),
+        applies=lambda ctx: bool(ctx.repo) and not ctx.is_private,
     ),
     RepoCheck(
         "sha-pinning-required",
@@ -581,7 +582,8 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             " `permissions` key. Also warns when a job calling a reusable workflow"
             " under `permissions: {}` declares no `permissions:` of its own: GitHub"
             " then aborts the run at startup once a nested job requests a scope the"
-            " caller never granted"
+            " caller never granted. Also warns when a job checks out the repository"
+            " with no `contents` scope, which a private repository refuses"
         ),
     ),
     RepoCheck(

@@ -86,6 +86,8 @@ jobs:
     timeout-minutes: 15
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -116,6 +118,7 @@ jobs:
     # Wider than the default: this job provisions a toolchain, so its runtime tracks how much it has to install.
     timeout-minutes: 30
     permissions:
+      contents: read
       id-token: write
       pages: write
     environment:
@@ -201,7 +204,8 @@ jobs:
     # No `id-token`, no `pages`, and no environment: this path authenticates to
     # Cloudflare with a stored token and never touches the repository's own
     # deployment surface.
-    permissions: {}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -277,7 +281,8 @@ jobs:
     # A couple of API calls and a TOML parse. Ten minutes covers an API that
     # is answering slowly rather than not at all.
     timeout-minutes: 10
-    permissions: {}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -295,6 +300,7 @@ jobs:
     needs:
       - metadata
     permissions:
+      contents: read
       issues: write
     # Skip the prepare-release branch as it contains URLs pointing to tags that don't exist yet.
     # Skip any push containing a post-release bump commit as a precautionary measure.

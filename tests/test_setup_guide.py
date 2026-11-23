@@ -35,6 +35,7 @@ from click.testing import CliRunner
 
 from repomatic.checks import CheckResult
 from repomatic.cli.main import repomatic as repomatic_cli
+from repomatic.github.gh import GhCommandError
 from repomatic.setup_guide import CANNOT_VERIFY, SETUP_STEPS
 from repomatic.templating import PrTemplate
 from tests.conftest import pat_results
@@ -50,6 +51,12 @@ if TYPE_CHECKING:
 # from the environment (no `gh repo view` call) while the body still renders
 # real repository links.
 REPO_SLUG = "orchard/papaya"
+
+PLAN_WITHOUT_RULESETS_403 = (
+    "gh: Upgrade to GitHub Pro or make this repository public to enable this"
+    " feature. (HTTP 403)"
+)
+"""What `gh api` prints when the plan gives a private repository no rulesets."""
 
 MISSING_ALERTS_PAT = pat_results(
     vulnerability_alerts=(
@@ -75,6 +82,8 @@ def _offline_setup_guide(
     pypi_ok: CheckResult | None = None,
     pages_ok: CheckResult | None = None,
     owner_type: str = "User",
+    private: bool = False,
+    plan_without_rulesets: bool = False,
 ) -> Generator[tuple[MagicMock, list[str]], None, None]:
     """Patch every network seam `manage_setup_guide` reaches.
 
@@ -94,6 +103,9 @@ def _offline_setup_guide(
     :param pypi_ok: Return of the PyPI Trusted Publisher check.
     :param pages_ok: Return of the Pages deployment-source check.
     :param owner_type: Owner `type` of the repository object the context reads.
+    :param private: Whether the repository object reads as private.
+    :param plan_without_rulesets: Answer the rulesets read with the `403` of a
+        plan that gives a private repository no rulesets.
     """
     if pat is None:
         pat = pat_results()
@@ -165,14 +177,16 @@ def _offline_setup_guide(
                 return_value=pages_ok,
             )
         )
-        # The one remote read the guide makes itself: the repository object,
-        # whose owner type decides the organization tip.
-        enter(
-            patch(
-                "repomatic.lint_repo.context.gh_json",
-                return_value={"owner": {"type": owner_type}},
-            )
-        )
+
+        # The remote reads the guide makes itself. The repository object: its
+        # owner type decides the organization tip, and its visibility the
+        # steps a private repository cannot do. And the rulesets.
+        def answer(args: list[str], **_kwargs: object) -> dict[str, object]:
+            if plan_without_rulesets and f"repos/{REPO_SLUG}/rulesets" in args:
+                raise GhCommandError(PLAN_WITHOUT_RULESETS_403)
+            return {"owner": {"type": owner_type}, "private": private}
+
+        enter(patch("repomatic.lint_repo.context.gh_json", side_effect=answer))
         lifecycle = enter(patch("repomatic.setup_guide.manage_issue_lifecycle"))
         lifecycle.side_effect = lambda **kw: bodies.append(kw["body"])
         yield lifecycle, bodies
@@ -415,6 +429,44 @@ def test_setup_guide_unverifiable_step_does_not_block_closing():
             env=FULLY_CONFIGURED,
         )
     assert lifecycle.call_args_list[0][1]["has_issues"] is False
+
+
+@pytest.mark.parametrize(
+    ("private", "plan_without_rulesets", "has_issues"),
+    (
+        pytest.param(True, True, False, id="private-on-a-plan-without-rulesets"),
+        pytest.param(False, False, True, id="public-control"),
+    ),
+)
+def test_setup_guide_leaves_out_what_a_private_repository_cannot_do(
+    private, plan_without_rulesets, has_issues
+):
+    """Drop the ruleset and fork PR steps a private Free repository cannot do.
+
+    Its plan holds no ruleset, and GitHub has no fork PR approval policy for a
+    private repository: kept, the two steps would hold the issue open forever.
+    The public control fails the same probes and stays open.
+    """
+    with _offline_setup_guide(
+        branch_ok=CheckResult(False, "No active branch rulesets found."),
+        fork_pr_ok=UNREADABLE,
+        private=private,
+        plan_without_rulesets=plan_without_rulesets,
+    ) as (lifecycle, bodies):
+        _invoke(
+            [
+                "setup-guide",
+                "--has-pat",
+                "--repo",
+                REPO_SLUG,
+                "--has-virustotal-key",
+            ],
+            env=FULLY_CONFIGURED,
+        )
+    assert lifecycle.call_args_list[0][1]["has_issues"] is has_issues
+    (body,) = bodies
+    assert ("Protect the main branch" in body) is has_issues
+    assert ("Require approval for fork PR workflows" in body) is not private
 
 
 @pytest.mark.parametrize(

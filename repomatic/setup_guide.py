@@ -346,6 +346,9 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
         # incomplete: the step is the only place a maintainer is told to
         # protect the branch, so an indeterminate probe must keep prompting.
         probe=lambda ctx: _probe_setting(ctx, check_branch_ruleset_on_default),
+        # A private repository whose plan has no rulesets cannot do the step.
+        # The `branch-ruleset-on-default` check of `lint-repo` still warns.
+        applies=lambda ctx: not ctx.rulesets_need_upgrade,
         args=lambda ctx: {"repo_url": ctx.md.repo_url},
     ),
     SetupStep(
@@ -353,6 +356,9 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
         title="Require approval for fork PR workflows",
         template="setup-guide-fork-pr-approval",
         probe=lambda ctx: _probe_setting(ctx, check_fork_pr_approval_policy),
+        # GitHub has no such policy for a private repository: the endpoint
+        # answers `422 Fork PR approval is not allowed for private repositories`.
+        applies=lambda ctx: not ctx.is_private,
         tolerates_unknown=True,
         explains_unverifiable=True,
     ),

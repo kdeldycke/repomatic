@@ -248,6 +248,12 @@ def check_tag_protection_rules(ctx: LintContext) -> CheckResult:
     `REPOMATIC_PAT` (or `GITHUB_TOKEN`) from pushing release tags. The check
     warns about any active ruleset that targets tags.
     """
+    if ctx.rulesets_need_upgrade:
+        return CheckResult(
+            True,
+            "No tag ruleset can block a release tag: the plan gives this private"
+            " repository no rulesets.",
+        )
     if ctx.rulesets is None:
         return CheckResult(
             None, "Tag protection check: skipped (could not query rulesets API)."
@@ -281,10 +287,21 @@ def check_branch_ruleset_on_default(ctx: LintContext) -> CheckResult:
     ``GET /repos/{repo}/rulesets/{id}``, adding N+1 API calls.
     ```
 
+    A private repository whose plan has no rulesets fails: nothing then
+    protects its default branch, and only a plan upgrade or a public
+    repository can change that.
+
     :return: A `CheckResult`. `passed` is `None` when the rulesets API could
         not be read, matching {func}`check_tag_protection_rules`, which reads
         the same payload.
     """
+    if ctx.rulesets_need_upgrade:
+        return CheckResult(
+            False,
+            "The plan gives this private repository no rulesets and no branch"
+            " protection rules, so its default branch is open to deletion and"
+            " force pushes. Upgrade the plan, or make the repository public.",
+        )
     if ctx.rulesets is None:
         return CheckResult(
             None, "Branch ruleset check: skipped (could not query rulesets API)."
@@ -323,8 +340,16 @@ def check_classic_branch_protection(ctx: LintContext) -> CheckResult:
 
     :return: A `CheckResult`. `passed` is `None` when the API could not be
         read, matching the ruleset checks. Reading the rules needs admin on
-        the repository, so a token without it skips rather than passes.
+        the repository, so a token without it skips rather than passes. A
+        private repository whose plan has no rulesets skips too: it has no
+        branch protection rules either, and the API lists none.
     """
+    if ctx.rulesets_need_upgrade:
+        return CheckResult(
+            None,
+            "Branch protection rule check: skipped (the plan gives this private"
+            " repository no branch protection rules).",
+        )
     owner, name = split_slug(ctx.slug)
     try:
         data = gh_graphql(BRANCH_PROTECTION_RULES_QUERY, owner=owner, name=name)

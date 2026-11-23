@@ -70,6 +70,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
+      contents: read
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,6 +88,8 @@ jobs:
     timeout-minutes: 15
     outputs:
       metadata: ${{ steps.metadata.outputs.metadata }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -118,6 +121,8 @@ jobs:
     if: fromJSON(needs.metadata.outputs.metadata).is_python_project
     runs-on: ubuntu-26.04
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -151,6 +156,7 @@ jobs:
     # Wider than the default: this job provisions a toolchain, so its runtime tracks how much it has to install.
     timeout-minutes: 30
     permissions:
+      contents: read
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

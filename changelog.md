@@ -7,7 +7,12 @@
 
 - **Breaking:** Stop deploying the `publish-pypi` composite action to downstream repositories, whose `release.yaml` calls the upstream copy. `repomatic init` deletes an unmodified copy, and fails on an `exclude` or `include` entry naming `publish-pypi-action` until the entry is dropped.
 - The `broken-links` issue now warns that its Sphinx linkcheck section lists each URL at its first location only.
+- The `workflow-permissions` check of `lint-repo` now warns about a job that checks out the repository with no `contents` scope, which a private repository refuses.
 - Fix a release push cancelling the `autofix.yaml` and `lint.yaml` runs of the commit before it, which then got no result from either workflow.
+- Fix the reusable workflows on a private repository: each job that checks out the code now holds `contents: read`, without which GitHub answers `Repository not found`.
+- Fix `branch-ruleset-on-default` skipping a private repository whose plan has no rulesets: it now warns that the default branch is open to force pushes.
+- Fix `classic-branch-protection` passing on a private repository whose plan has no rulesets, with a message naming rulesets as its protection: it now skips.
+- Fix the setup guide of a private repository on GitHub Free never closing: it leaves out the branch ruleset and fork pull request approval steps.
 
 ## [`8.3.1` (2026-11-21)](https://github.com/kdeldycke/repomatic/compare/v8.3.0...v8.3.1)
 

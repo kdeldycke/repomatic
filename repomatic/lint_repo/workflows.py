@@ -101,11 +101,38 @@ reads to tell a thin caller apart.
 FLOATING_UPSTREAM_REF = "main"
 """The upstream branch a thin caller must not track instead of a release."""
 
+CHECKOUT_ACTION = "actions/checkout@"
+"""The start of a `uses:` that checks out a repository, whatever its pinned ref."""
+
+
+def _checks_out_without_contents(
+    data: Mapping[str, Any], job: Mapping[str, Any]
+) -> bool:
+    """Whether *job* checks out its repository with a token holding no `contents`.
+
+    A job-level `permissions:` replaces the top-level one, and a mapping
+    without `contents` is the case to flag. An absent key at both levels takes
+    the repository default, and `read-all` or `write-all` grant `contents`.
+    A checkout given its own `token` or another `repository` does not use the
+    scopes of the job.
+    """
+    scopes = job.get("permissions", data.get("permissions"))
+    if not isinstance(scopes, dict) or "contents" in scopes:
+        return False
+    for step in steps_of(job):
+        options = step.get("with")
+        keys = set(options) if isinstance(options, dict) else set()
+        if str(step.get("uses", "")).startswith(CHECKOUT_ACTION) and not (
+            keys & {"token", "repository"}
+        ):
+            return True
+    return False
+
 
 def check_workflow_permissions(ctx: LintContext) -> list[CheckResult]:
     """Check workflow `permissions` declarations for least privilege.
 
-    Two failure modes are flagged:
+    Three failure modes are flagged:
 
     1. A workflow that defines its own `steps:` should carry a top-level
        `permissions` key (`permissions: {}` for least privilege) so its
@@ -119,6 +146,10 @@ def check_workflow_permissions(ctx: LintContext) -> list[CheckResult]:
        scope the caller never granted. Such a job must name the union of the
        scopes its reusable workflow needs (mirror the reusable workflow's own
        top-level `{}` plus per-job grants).
+    3. A job that checks out its repository with a token holding no
+       `contents` scope. Any token reads a public repository, so the checkout
+       works until the repository goes private, and then fails with
+       `Repository not found`.
 
     A thin caller with *no* top-level `permissions` key is fine: its jobs
     inherit the repository default, which the reusable workflow's own
@@ -147,8 +178,14 @@ def check_workflow_permissions(ctx: LintContext) -> list[CheckResult]:
             if data.get("permissions") == {}
             else []
         )
+        starved_checkouts = sorted(
+            name
+            for name, job in jobs_of(data)
+            if _checks_out_without_contents(data, job)
+        )
 
-        # Only workflows subject to one of the two checks are reported on.
+        # Only workflows subject to one of the checks are reported on. A
+        # starved checkout is a step, so `has_custom_steps` covers it.
         if not has_custom_steps and not starved_calls:
             continue
 
@@ -168,6 +205,14 @@ def check_workflow_permissions(ctx: LintContext) -> list[CheckResult]:
                 f" once a nested job requests a scope the caller never granted."
                 f" Grant each job the union of the scopes its reusable workflow"
                 f" needs."
+            )
+        if starved_checkouts:
+            joined = ", ".join(f"`{name}`" for name in starved_checkouts)
+            failures.append(
+                f"Workflow {wf_path.name}: {joined} check out the repository with"
+                f" no `contents` scope, which a private repository refuses with"
+                f" `Repository not found`. Add `contents: read` to the"
+                f" `permissions:` of each job."
             )
 
         if failures:

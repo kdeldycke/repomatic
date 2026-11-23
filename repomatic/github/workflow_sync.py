@@ -315,9 +315,11 @@ def canonical_caller_permissions(filename: str) -> dict[str, str]:
     A caller job hands its own permissions down to the reusable workflow it
     calls, and the called workflow's jobs are capped by them: they cannot
     escalate beyond what the caller granted. The canonical workflows pin a
-    top-level `permissions: {}`, so a job without its own block needs nothing
+    top-level `permissions: {}`, so a job without its own block gets no scope
     and the union of the job-level blocks is the complete set the caller has
-    to forward.
+    to forward. A job that checks out the repository declares `contents: read`
+    in its own block: a private repository refuses the checkout to a token
+    without it.
 
     A scope appearing at different levels across jobs resolves to the most
     permissive one, so no job is starved by another's narrower grant.

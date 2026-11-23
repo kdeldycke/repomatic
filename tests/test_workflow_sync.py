@@ -35,7 +35,12 @@ from repomatic.components import (
 )
 from repomatic.config import Config, WorkflowConfig
 from repomatic.github import workflow_sync as ws
-from repomatic.github.workflow_files import load_workflow, workflow_triggers
+from repomatic.github.workflow_files import (
+    jobs_of,
+    load_workflow,
+    steps_of,
+    workflow_triggers,
+)
 from repomatic.github.workflow_sync import (
     PathsSpec,
     WorkflowTriggerInfo,
@@ -66,6 +71,7 @@ from repomatic.upstream import (
 )
 from tests.conftest import (
     PROJECT_ROOT,
+    WORKFLOWS_DIR,
     WORKFLOWS_WITH_CONCURRENCY_BLOCK,
     WORKFLOWS_WITHOUT_CONCURRENCY_BLOCK,
     skip_unless_tool_runs,
@@ -1907,9 +1913,9 @@ def test_header_preserves_canonical_quote_style() -> None:
             "labels.yaml",
             {"contents": "read", "issues": "write", "pull-requests": "write"},
         ),
-        # Every lint job inherits the canonical top-level `permissions: {}`, so
-        # a caller has nothing to forward.
-        ("lint.yaml", {}),
+        # Every lint job checks out the repository, which a private repository
+        # answers only to a token holding `contents: read`.
+        ("lint.yaml", {"contents": "read"}),
     ),
 )
 def test_canonical_caller_permissions(filename: str, expected: dict[str, str]) -> None:
@@ -1948,6 +1954,35 @@ def test_canonical_caller_permissions_keeps_most_permissive(
     assert canonical_caller_permissions("stub.yaml") == {"contents": expected}
 
 
+@pytest.mark.parametrize(
+    "filename", sorted(path.name for path in WORKFLOWS_DIR.glob("*.yaml"))
+)
+def test_every_checkout_holds_a_contents_scope(filename: str) -> None:
+    """Grant `contents` to each job that checks out its own repository.
+
+    Under the top-level `permissions: {}`, a job with no `contents` scope still
+    checks out a public repository, which any token reads. A private repository
+    answers the same checkout with `Repository not found`.
+    """
+    data = load_workflow((WORKFLOWS_DIR / filename).read_text(encoding="UTF-8"))
+    assert data is not None
+    starved = []
+    for job_id, job in jobs_of(data):
+        scopes = job.get("permissions", data.get("permissions"))
+        if not isinstance(scopes, dict) or "contents" in scopes:
+            continue
+        for step in steps_of(job):
+            options = step.get("with") or {}
+            if (
+                str(step.get("uses", "")).startswith("actions/checkout@")
+                and "token" not in options
+                and "repository" not in options
+            ):
+                starved.append(job_id)
+                break
+    assert not starved, f"{filename}: {', '.join(starved)} lack `contents: read`."
+
+
 def test_generate_thin_caller_omits_permissions_by_default() -> None:
     """Leave a caller with no extra jobs exactly as before.
 
@@ -1981,12 +2016,15 @@ def test_generate_thin_caller_emits_both_permission_halves() -> None:
 
 def test_generate_thin_caller_spells_out_an_empty_forward() -> None:
     """Emit `permissions: {}` on the job when no upstream job asks for a scope."""
+    # Its one job works with a token of its own, so it asks for no scope.
+    assert canonical_caller_permissions("unsubscribe.yaml") == {}
     content = generate_thin_caller(
-        "lint.yaml", DEFAULT_REPO, "v1.2.3", with_permissions=True
+        "unsubscribe.yaml", DEFAULT_REPO, "v1.2.3", with_permissions=True
     )
     data = yaml.safe_load(content)
     assert data["permissions"] == {}
-    assert data["jobs"]["lint"]["permissions"] == {}
+    (job,) = data["jobs"].values()
+    assert job["permissions"] == {}
 
 
 def test_thin_caller_permissions_track_extra_jobs(tmp_path: Path) -> None:

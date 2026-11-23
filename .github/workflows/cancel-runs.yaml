@@ -35,6 +35,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       actions: write
+      contents: read
     steps:
       # Only needed on the upstream repo, which runs the CLI from the lockfile
       # of its own checkout. Downstream thin callers point to a tagged release
