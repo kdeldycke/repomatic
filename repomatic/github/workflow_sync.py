@@ -188,10 +188,11 @@ def _pin_ref(version: str, commit_sha: str | None) -> str:
     """Build the `@`-suffix of a pinned `uses:` reference.
 
     Returns ``{sha} # {version}`` (the SHA-pin-with-comment format) when
-    *commit_sha* is provided, otherwise the bare *version*. `sync-action-pins`
-    keeps these pins current. Shared by every `uses:` renderer
-    (thin callers, the `publish-pypi` action, the release lanes) so the pin
-    format lives in one place.
+    *commit_sha* is provided, otherwise the bare *version*. Each of these pins
+    names the upstream repository, so `sync-action-pins` skips it: the
+    `sync-repomatic` job moves it, through `repomatic init`. Shared by every
+    `uses:` renderer (thin callers, the `publish-pypi` action, the release
+    lanes) so the pin format lives in one place.
 
     :param version: Version reference (e.g., `v5.11.0` or `main`).
     :param commit_sha: Full 40-character commit SHA, or `None` for an unpinned

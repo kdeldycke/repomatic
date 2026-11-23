@@ -113,8 +113,9 @@ def _checks_out_without_contents(
     A job-level `permissions:` replaces the top-level one, and a mapping
     without `contents` is the case to flag. An absent key at both levels takes
     the repository default, and `read-all` or `write-all` grant `contents`.
-    A checkout given its own `token` or another `repository` does not use the
-    scopes of the job.
+    A checkout given its own `token` does not use the token of the job. One of
+    another `repository` gains nothing from a `contents` scope, which covers
+    only the repository the workflow runs in.
     """
     scopes = job.get("permissions", data.get("permissions"))
     if not isinstance(scopes, dict) or "contents" in scopes:

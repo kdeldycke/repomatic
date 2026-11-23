@@ -19,6 +19,8 @@
 from __future__ import annotations
 
 import json
+import re
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -28,9 +30,11 @@ from click.testing import CliRunner
 
 from repomatic.broken_links import (
     FIX_LINK_LABEL,
+    GITHUB_TOKEN_ENV,
     LYCHEE_INSTALL_FAILURE_EXIT,
     LYCHEE_REPORT_FORMAT,
     NO_BROKEN_LINKS,
+    RELEASE_DOWNLOAD_PATTERN,
     SPHINX_FIRST_LOCATION_NOTE,
     LinkcheckResult,
     LinkVerdict,
@@ -38,6 +42,7 @@ from repomatic.broken_links import (
     filter_broken,
     generate_markdown_report,
     get_label,
+    lychee_github_auth,
     lychee_section,
     manage_combined_broken_links_issue,
     parse_output_json,
@@ -47,6 +52,8 @@ from repomatic.broken_links import (
 from repomatic.cli.main import repomatic
 from repomatic.markdown import sanitize_markdown_mentions
 from repomatic.tooling.registry import TOOL_REGISTRY, ToolInstallError
+from repomatic.tooling.runner import run_tool
+from tests.conftest import skip_unless_tool_runs
 
 # ---------------------------------------------------------------------------
 # Label selection tests
@@ -606,6 +613,7 @@ def test_run_lychee_reads_back_the_report_it_asked_for(tmp_path, monkeypatch):
     with a workflow step.
     """
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(GITHUB_TOKEN_ENV, raising=False)
     Path("readme.md").write_text("# Orchard\n", encoding="UTF-8")
     calls = []
 
@@ -645,6 +653,137 @@ def test_run_lychee_that_cannot_install_did_not_complete(tmp_path, monkeypatch):
     assert run == LycheeRun(LYCHEE_INSTALL_FAILURE_EXIT)
     _section, verdict = lychee_section(run)
     assert verdict is LinkVerdict.UNKNOWN
+
+
+@pytest.mark.parametrize("token", ("", "  "))
+def test_lychee_github_auth_needs_a_token(tmp_path, monkeypatch, token):
+    """With no token, the crawl stays anonymous and no file is written."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(GITHUB_TOKEN_ENV, token)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    assert lychee_github_auth(scratch) == []
+    assert not list(scratch.iterdir())
+
+
+@pytest.mark.parametrize(
+    ("files", "project_config"),
+    (
+        pytest.param({}, [], id="no-config"),
+        pytest.param(
+            {"lychee.toml": 'exclude = ["kiwi"]\n'},
+            ["--config", "lychee.toml"],
+            id="lychee-toml",
+        ),
+        pytest.param(
+            {"pyproject.toml": '[tool.lychee]\nexclude = ["kiwi"]\n'},
+            ["--config", "pyproject.toml"],
+            id="pyproject-table",
+        ),
+        pytest.param(
+            {"pyproject.toml": '[project]\nname = "orchard"\n'},
+            [],
+            id="pyproject-without-table",
+        ),
+        pytest.param(
+            {
+                "lychee.toml": 'exclude = ["kiwi"]\n',
+                "pyproject.toml": '[tool.lychee]\nexclude = ["mango"]\n',
+            },
+            ["--config", "lychee.toml"],
+            id="lychee-toml-first",
+        ),
+    ),
+)
+def test_lychee_github_auth_keeps_the_project_config(
+    tmp_path, monkeypatch, files, project_config
+):
+    """Name the config lychee would find, then the file that signs github.com.
+
+    Any `--config` stops lychee from finding the project's own config, so the
+    arguments name that file first. The token is in the file, never in them.
+    """
+    monkeypatch.chdir(tmp_path)
+    for name, content in files.items():
+        Path(name).write_text(content, encoding="UTF-8")
+    monkeypatch.setenv(GITHUB_TOKEN_ENV, "papaya-token")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    args = lychee_github_auth(scratch)
+    auth = scratch / "github-auth.toml"
+    assert args == [*project_config, "--config", str(auth)]
+    assert not any("papaya-token" in arg for arg in args)
+    assert tomllib.loads(auth.read_text(encoding="UTF-8")) == {
+        "exclude": [RELEASE_DOWNLOAD_PATTERN],
+        "hosts": {"github.com": {"headers": {"Authorization": "Bearer papaya-token"}}},
+    }
+
+
+@pytest.mark.parametrize(
+    ("url", "excluded"),
+    (
+        ("https://github.com/orchard/papaya/releases/download/v1.0/papaya.bin", True),
+        ("https://github.com/orchard/papaya/releases/latest/download/papaya.bin", True),
+        ("https://github.com/orchard/papaya/releases/tag/v1.0", False),
+        ("https://github.com/orchard/papaya/blob/main/readme.md", False),
+    ),
+)
+def test_release_download_pattern(url, excluded):
+    """A signed crawl skips the release downloads only."""
+    assert bool(re.search(RELEASE_DOWNLOAD_PATTERN, url)) is excluded
+
+
+def test_run_lychee_signs_github_requests(tmp_path, monkeypatch):
+    """With a token, the crawl reads it from a file that ends with the crawl."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(GITHUB_TOKEN_ENV, "papaya-token")
+    Path("readme.md").write_text("# Orchard\n", encoding="UTF-8")
+    seen = {}
+
+    def crawl(name, extra_args):
+        seen["args"] = extra_args
+        seen["auth"] = Path(extra_args[extra_args.index("--config") + 1])
+        seen["content"] = seen["auth"].read_text(encoding="UTF-8")
+        return 0
+
+    with patch("repomatic.broken_links.run_tool", side_effect=crawl):
+        assert run_lychee() == LycheeRun(0)
+    assert "Bearer papaya-token" in seen["content"]
+    assert not any("papaya-token" in arg for arg in seen["args"])
+    assert seen["args"][-1] == "readme.md"
+    assert not seen["auth"].exists()
+
+
+@pytest.mark.once
+@pytest.mark.real_http
+def test_signed_crawl_keeps_the_project_excludes(tmp_path, monkeypatch, capfd):
+    """The pinned lychee applies the excludes of both config files.
+
+    Lists the links lychee would check: the `[tool.lychee]` exclude and the
+    release download exclude both apply. Marked `once`: it downloads the pinned
+    lychee binary, so one runner suffices.
+    """
+    monkeypatch.chdir(tmp_path)
+    # Installed before the token is set, which the GitHub API would refuse.
+    skip_unless_tool_runs("lychee")
+    # Lychee never checks an example domain, so the excluded link names a real one.
+    Path("pyproject.toml").write_text(
+        '[tool.lychee]\nexclude = ["kiwi\\\\.org"]\n', encoding="UTF-8"
+    )
+    Path("page.md").write_text(
+        "[blob](https://github.com/orchard/papaya/blob/main/readme.md)\n"
+        "[download](https://github.com/orchard/papaya/releases/download/v1.0/fig.bin)\n"
+        "[kiwi](https://kiwi.org/)\n",
+        encoding="UTF-8",
+    )
+    monkeypatch.setenv(GITHUB_TOKEN_ENV, "papaya-token")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    capfd.readouterr()
+    args = ["--dump", *lychee_github_auth(scratch), "page.md"]
+    assert run_tool("lychee", extra_args=args) == 0
+    listed = capfd.readouterr().out.split()
+    assert listed == ["https://github.com/orchard/papaya/blob/main/readme.md"]
 
 
 @pytest.mark.parametrize(

@@ -4968,6 +4968,27 @@ def test_removed_asset_metadata_valid(asset: RemovedAsset) -> None:
         assert not asset.owned_dir, f"{asset.target} is not shipped as a folder"
 
 
+@pytest.mark.parametrize("asset", REMOVED_ASSETS, ids=lambda a: a.target)
+def test_removed_asset_names_a_release_of_the_changelog(asset: RemovedAsset) -> None:
+    """Each tombstone names a released version, or the release in preparation.
+
+    A tombstone added during a cycle names the release the cycle prepares. A
+    minor or major bump renames that release, and a version the tombstone
+    still names then never ships. The archive holds the oldest releases.
+    """
+    releases = {
+        version
+        for source in ("changelog.md", "docs/changelog-archive.md")
+        for version, _date in Changelog(
+            (PROJECT_ROOT / source).read_text(encoding="UTF-8")
+        ).extract_all_releases()
+    }
+    releases.add(Version(__version__).base_version)
+    assert asset.removed_in in releases, (
+        f"{asset.target} names {asset.removed_in}, which no changelog section releases."
+    )
+
+
 def test_detect_removed_assets_classifies_by_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

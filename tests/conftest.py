@@ -606,6 +606,13 @@ class CutShortBody(BytesIO):
         raise IncompleteRead(b"<Error>")
 
 
+PLAN_WITHOUT_RULESETS_403 = (
+    "gh: Upgrade to GitHub Pro or make this repository public to enable this"
+    " feature. (HTTP 403)"
+)
+"""What `gh api` prints when the plan gives a private repository no rulesets."""
+
+
 def pat_results(**overrides: tuple[bool, str]) -> PatPermissionResults:
     """Build a `PatPermissionResults` where every check passes by default.
 

@@ -153,6 +153,7 @@ from repomatic.tooling.registry import (
 )
 from repomatic.upstream import DEFAULT_REPO, INSTALL_GUIDE_PATH
 from tests.conftest import (
+    PLAN_WITHOUT_RULESETS_403,
     PROJECT_ROOT,
     metadata_from_pyproject,
     pat_results,
@@ -252,13 +253,6 @@ def test_rulesets_are_read_once():
         check_tag_protection_rules(ctx)
         check_branch_ruleset_on_default(ctx)
     api.assert_called_once()
-
-
-PLAN_WITHOUT_RULESETS_403 = (
-    "gh: Upgrade to GitHub Pro or make this repository public to enable this"
-    " feature. (HTTP 403)"
-)
-"""What `gh api` prints when the plan gives a private repository no rulesets."""
 
 
 @pytest.mark.parametrize(

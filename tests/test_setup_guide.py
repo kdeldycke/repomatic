@@ -38,7 +38,7 @@ from repomatic.cli.main import repomatic as repomatic_cli
 from repomatic.github.gh import GhCommandError
 from repomatic.setup_guide import CANNOT_VERIFY, SETUP_STEPS
 from repomatic.templating import PrTemplate
-from tests.conftest import pat_results
+from tests.conftest import PLAN_WITHOUT_RULESETS_403, pat_results
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -51,12 +51,6 @@ if TYPE_CHECKING:
 # from the environment (no `gh repo view` call) while the body still renders
 # real repository links.
 REPO_SLUG = "orchard/papaya"
-
-PLAN_WITHOUT_RULESETS_403 = (
-    "gh: Upgrade to GitHub Pro or make this repository public to enable this"
-    " feature. (HTTP 403)"
-)
-"""What `gh api` prints when the plan gives a private repository no rulesets."""
 
 MISSING_ALERTS_PAT = pat_results(
     vulnerability_alerts=(

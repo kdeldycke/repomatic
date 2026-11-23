@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import tempfile
 from dataclasses import dataclass
 from enum import StrEnum
@@ -48,7 +49,7 @@ from .metadata.core import Metadata
 from .tabular import render_markdown_table
 from .templating import render_template
 from .tooling.registry import ToolInstallError, lookup_tool
-from .tooling.runner import resolve_default_args, run_tool
+from .tooling.runner import ConfigLevel, ConfigSource, resolve_default_args, run_tool
 from .upstream import is_awesome_repo
 
 TYPE_CHECKING = False
@@ -83,6 +84,21 @@ LYCHEE_INSTALL_FAILURE_EXIT = 1
 
 The one lychee itself returns on an unexpected failure: like a crash, a missing
 tool checks no link, so the issue is left as it is.
+"""
+
+GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
+"""Environment variable holding the token that signs lychee's github.com requests.
+
+The `check-broken-links` job of `docs.yaml` sets it. See
+{func}`lychee_github_auth`.
+"""
+
+RELEASE_DOWNLOAD_PATTERN = (
+    r"^https://github\.com/[^/]+/[^/]+/releases/(?:latest/)?download/"
+)
+"""The lychee `exclude` pattern of a release download, which a signed request breaks.
+
+See {func}`lychee_github_auth`.
 """
 
 SPHINX_DEFAULT_OUTPUT = Path("./docs/_linkcheck/output.json")
@@ -129,13 +145,74 @@ class LycheeRun:
     """The markdown report lychee wrote, `None` when it wrote none."""
 
 
+def lychee_github_auth(scratch: Path) -> list[str]:
+    """Return the lychee arguments that sign its github.com requests.
+
+    A CI runner gets `503` from github.com for an anonymous request to a
+    `/blob/` page, which passes from a workstation. Lychee `0.24.2` uses
+    {data}`GITHUB_TOKEN_ENV` only in its GitHub API fallback, which reports a
+    URL with a path after the repository as invalid. So the token signs the
+    request itself, as `click_extra.sphinx` does for Sphinx linkcheck.
+
+    Lychee reads the headers of one host only from the `[hosts."github.com"]`
+    table of a config file: no flag sets them. So the table goes to a file in
+    *scratch*, and the token stays out of the command line, which the tool
+    runner logs.
+
+    ```{caution}
+    A `--config` flag stops lychee from finding the project's own config, in
+    `lychee.toml` or in the `[tool.lychee]` table of `pyproject.toml`. That
+    file comes first, in its own `--config`. Lychee merges the files: the last
+    one wins a setting that two of them set, and their `exclude` lists add up.
+    Lychee also finds a config in `Cargo.toml` or `package.json`, which
+    {class}`~repomatic.tooling.runner.ConfigSource` does not know: such a
+    config does not apply to a signed crawl.
+    ```
+
+    The file also excludes {data}`RELEASE_DOWNLOAD_PATTERN`. With an
+    `Authorization` header, github.com redirects a release download to a host
+    whose signed URL answers `401`, and a lychee config sets headers per host,
+    not per URL. Sphinx linkcheck still checks the release downloads of its
+    pages, without the token.
+
+    :param scratch: Directory that keeps the file for the length of the crawl.
+    :return: The `--config` arguments, or an empty list when no token is set.
+    """
+    token = os.environ.get(GITHUB_TOKEN_ENV, "").strip()
+    if not token:
+        return []
+    spec = lookup_tool("lychee")
+    assert spec.config_flag is not None
+    # The levels lychee reads with no flag. The tool runner passes the others.
+    source = ConfigSource.find(spec)
+    project_config: list[str] = []
+    if source.native_file is not None:
+        project_config = [spec.config_flag, str(source.native_file)]
+    elif source.level is ConfigLevel.PYPROJECT and spec.reads_pyproject:
+        project_config = [spec.config_flag, "pyproject.toml"]
+    auth = scratch / "github-auth.toml"
+    auth.write_text(
+        spec.native_format.serialize({
+            "exclude": [RELEASE_DOWNLOAD_PATTERN],
+            "hosts": {"github.com": {"headers": {"Authorization": f"Bearer {token}"}}},
+        }),
+        encoding="UTF-8",
+    )
+    logging.info(
+        f"Lychee signs its github.com requests with ${GITHUB_TOKEN_ENV}, and skips"
+        " release downloads."
+    )
+    return [*project_config, spec.config_flag, str(auth)]
+
+
 def run_lychee() -> LycheeRun | None:
     """Crawl the documentation files with lychee, and keep its report.
 
     Runs the invocation of a bare `repomatic run lychee`: the default arguments
     of the registry, over the `doc_files` inventory. The markdown report goes
     to a scratch file this function reads back, so no workflow step has to
-    agree on a path with it.
+    agree on a path with it. With {data}`GITHUB_TOKEN_ENV` set, the crawl also
+    signs its github.com requests, per {func}`lychee_github_auth`.
 
     A lychee that cannot be installed checked no link, so it counts as a run
     that did not complete: {data}`LYCHEE_INSTALL_FAILURE_EXIT`.
@@ -150,7 +227,13 @@ def run_lychee() -> LycheeRun | None:
     (crawl,) = batches
     with tempfile.TemporaryDirectory(prefix="repomatic-lychee-") as scratch:
         report_path = Path(scratch) / "report.md"
-        args = [*LYCHEE_REPORT_FORMAT, "--output", str(report_path), *crawl]
+        args = [
+            *LYCHEE_REPORT_FORMAT,
+            "--output",
+            str(report_path),
+            *lychee_github_auth(Path(scratch)),
+            *crawl,
+        ]
         try:
             exit_code = run_tool("lychee", extra_args=args)
         except ToolInstallError as error:

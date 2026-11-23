@@ -230,7 +230,7 @@ def test_solve_matches_github_include_example():
     """solve() reproduces GitHub's documented matrix include expansion.
 
     The canonical example from [GitHub's
-    docs](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations#example-expanding-configurations):
+    docs](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations#expanding-or-adding-matrix-configurations):
     later includes augment base combinations only, never combinations a previous
     include created, and an include that matches no combination is appended.
     """

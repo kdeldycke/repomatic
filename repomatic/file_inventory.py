@@ -28,12 +28,12 @@ context, git history and `pyproject.toml`: none of that is needed to answer
 "what is on disk here".
 
 ```{todo}
-Drop the py-walk dependency and parse `.gitignore` with wcmatch, already
-imported here for globbing, once it reads gitignore files natively:
-[facelessuser/wcmatch#226](https://github.com/facelessuser/wcmatch/issues/226).
-Pick another parser first if
+Replace py-walk with another `.gitignore` parser if
 [pacha/py-walk#11](https://github.com/pacha/py-walk/issues/11) ends with
-py-walk retired: `sly`, its only dependency, already is.
+py-walk retired: `sly`, its only dependency, already is. wcmatch, already
+imported here for globbing, is not a candidate: its maintainer closed
+[facelessuser/wcmatch#226](https://github.com/facelessuser/wcmatch/issues/226),
+the request for a gitignore parser, as `wontfix`.
 ```
 """
 

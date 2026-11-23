@@ -35,12 +35,7 @@ from repomatic.components import (
 )
 from repomatic.config import Config, WorkflowConfig
 from repomatic.github import workflow_sync as ws
-from repomatic.github.workflow_files import (
-    jobs_of,
-    load_workflow,
-    steps_of,
-    workflow_triggers,
-)
+from repomatic.github.workflow_files import jobs_of, load_workflow, workflow_triggers
 from repomatic.github.workflow_sync import (
     PathsSpec,
     WorkflowTriggerInfo,
@@ -59,7 +54,10 @@ from repomatic.github.workflow_sync import (
     render_thin_caller_for_target,
 )
 from repomatic.lint_repo.context import LintContext
-from repomatic.lint_repo.workflows import check_workflow_permissions
+from repomatic.lint_repo.workflows import (
+    _checks_out_without_contents,
+    check_workflow_permissions,
+)
 from repomatic.pyproject import derive_source_paths, resolve_source_paths
 from repomatic.tooling.runner import run_tool
 from repomatic.upstream import (
@@ -1966,20 +1964,11 @@ def test_every_checkout_holds_a_contents_scope(filename: str) -> None:
     """
     data = load_workflow((WORKFLOWS_DIR / filename).read_text(encoding="UTF-8"))
     assert data is not None
-    starved = []
-    for job_id, job in jobs_of(data):
-        scopes = job.get("permissions", data.get("permissions"))
-        if not isinstance(scopes, dict) or "contents" in scopes:
-            continue
-        for step in steps_of(job):
-            options = step.get("with") or {}
-            if (
-                str(step.get("uses", "")).startswith("actions/checkout@")
-                and "token" not in options
-                and "repository" not in options
-            ):
-                starved.append(job_id)
-                break
+    starved = [
+        job_id
+        for job_id, job in jobs_of(data)
+        if _checks_out_without_contents(data, job)
+    ]
     assert not starved, f"{filename}: {', '.join(starved)} lack `contents: read`."
 
 

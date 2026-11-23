@@ -396,8 +396,8 @@ def broken_links(
     leaves the issue as it is. So does a run where no checker ran. The
     repository name selects the labels the issue carries.
 
-    Requires the gh CLI to be authenticated. lychee reads $GITHUB_TOKEN to lift
-    GitHub's rate limit on the links it checks there.
+    Requires the gh CLI to be authenticated. With $GITHUB_TOKEN set, lychee
+    signs its github.com requests with it, and skips release downloads.
 
     \b
     In GitHub Actions, most options are auto-detected:

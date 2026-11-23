@@ -73,7 +73,7 @@ If you have difficulties to use `pip`, see [`pip`'s own installation instruction
 ````
 
 ````{tab-item} pipx
-[`pipx`](https://pipx.pypa.io/stable/how-to/install-pipx/) is a great way to install Python applications globally:
+[`pipx`](https://pipx.pypa.io/stable/how-to/install-pipx.html) is a great way to install Python applications globally:
 
 ```{code-block} shell-session
 $ pipx install repomatic

@@ -10,7 +10,8 @@
 exclude = [
   # GitHub issue comment fragments are dynamically loaded and can't be verified.
   "^https://github.com/.+/issues/[0-9]+#issuecomment-.*$",
-  # Release binary download URLs redirect to the GitHub CDN (objects.githubusercontent.com).
+  # Evergreen release links (`releases/latest/download/`), which redirect to the
+  # asset of the newest release. A link to the asset of one tag stays checked.
   "^https://github.com/.+/releases/.+/download/.*$",
   # Allow redirects of generic DOI URLs to their specific Zenodo release page.
   "^https://doi.org/.+/zenodo.*$",

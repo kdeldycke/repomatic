@@ -337,10 +337,16 @@ linkcheck_ignore = [
     # These sites return 403 to bots but are valid.
     r"https://docutils\.sourceforge\.io",
     r"https://www\.bitdefender\.com/submit/",
+    r"https://stackoverflow\.com/",
     # npmjs.com returns 403 to bots.
     r"https://www\.npmjs\.com/package/",
     # githubstatus.com returns 405 to HEAD requests from bots.
     r"https://www\.githubstatus\.com",
+    # The Cloudflare dashboard returns 403 to a visitor who is not signed in.
+    r"https://dash\.cloudflare\.com/",
+    # VirusTotal returns 429 to bots, so each linkcheck build waits about 5
+    # minutes for it. The binaries page links one analysis per released binary.
+    r"https://www\.virustotal\.com/gui/",
 ]
 
 # OpenGraph / social previews.

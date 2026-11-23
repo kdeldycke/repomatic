@@ -18,6 +18,8 @@ One prefix family is load-bearing in a repomatic-managed repository: every machi
 | `[changelog] Post-release bump …`        | The unfreeze commit             | {data}`repomatic.release.protocol.VERSION_BUMP_COMMIT_PREFIXES`, gating whether workflows run for a version-bump push |
 | `[changelog] Bump major/minor version …` | The `bump-version` job's merges | {data}`repomatic.release.protocol.MANUAL_VERSION_BUMP_COMMIT_PREFIXES`, the subset `tests.yaml` also skips on         |
 
+The concurrency groups of `autofix.yaml`, `lint.yaml`, `release.yaml` and `tests.yaml` also read the first two prefixes, from the head commit of a push. A push that carries a release then gets a group of its own: see {data}`repomatic.release.protocol.RELEASE_PUSH_PREFIXES` and [§ Concurrency strategies](workflows.md#concurrency-strategies).
+
 Everything else repomatic commits carries no prefix. Each `sync-*`, `format-*` and `fix-*` job takes its subject from its pull request template's `title:` field, giving `Sync action pins`, `` Sync `uv.lock` ``, `Format Markdown`, `Fix vulnerable dependencies`: imperative, capitalized, no trailing period, identifiers backticked, no prefix.
 
 ## Who else reads or writes commit messages

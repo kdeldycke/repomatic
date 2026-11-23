@@ -988,7 +988,7 @@ REMOVED_ASSETS: tuple[RemovedAsset, ...] = (
     RemovedAsset(
         "publish-pypi-action",
         ".github/actions/publish-pypi/action.yaml",
-        "8.3.2",
+        "8.4.0",
         (
             "ea9785adff820d8c3c716b892a1e5ce4cae394b760a4dbde1b5b3d1452aea1df",
             "96c07890038649838fcb4251df424407c5bf5af8ead7015d97554c353567e6ca",

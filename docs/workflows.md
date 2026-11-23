@@ -17,7 +17,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v8.3.0
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v8.3.1
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
@@ -91,6 +91,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 - Includes the setup step of whichever host `site.deploy` names, and only that one: the GitHub Pages deployment source (Sphinx projects, the only ones repomatic publishes there), or the Cloudflare Pages project and its deploy token (any repository declaring the target, since a site built by its own workflow needs the same secret). A site that also declares `site.cloudflare-r2-bucket` gets one more step, for the R2 bucket and its upload key pair, and the issue stays open until both keys are set
 - When Nuitka binary compilation is active, includes a VirusTotal API key setup step and keeps the issue open until the key is configured
 - When the unsubscribe workflow is enabled (`notification.unsubscribe = true`), includes a notifications token setup step and keeps the issue open until `REPOMATIC_NOTIFICATIONS_PAT` is configured
+- Leaves out the fork PR approval step on a private repository, which has no such policy. On a private repository whose plan has no rulesets, like GitHub Free, it also leaves out the branch protection step: the `branch-ruleset-on-default` check of `lint-repo` still warns that the branch is open to deletion and force pushes
 - Automatically closes the issue once the secret is configured and all permissions are verified
 - **Skipped if**:
   - upstream `kdeldycke/repomatic` repo, `workflow_call` events
@@ -207,11 +208,11 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 ### 🔄 Sync repomatic (`sync-repomatic`)
 
 - Runs [`repomatic init --upgrade --delete-unmodified --delete-excluded`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/init/run.py) to sync all repomatic-managed files: thin-caller workflows, configuration files, and skill definitions
-- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v8.3.0`
+- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v8.3.1`
 - The upgrade pull request opens on the version move and the release notes of every release it crosses, then lists their `**Breaking:**` and `**Deprecated:**` entries when there are any. The review command follows, then the warnings the new release printed (like a `[tool.repomatic]` key it no longer knows, or a skill copy whose local edits it overwrote) above the collapsed output of `repomatic init`. The newest release the cooldown still holds back comes last
 - Never moves the upstream pin back: a release pinned by hand inside the cooldown stays, and the job only regenerates its files. Set `upstream-pin.sync = false` in `[tool.repomatic]` to keep syncing at the pinned release
 - Removes unmodified config files identical to bundled defaults and cleans up excluded or stale files (disabled opt-in workflows, auto-excluded skills)
-- Prunes orphans of assets repomatic has dropped (renamed or removed skills, agents, or workflows), so an upstream rename propagates automatically instead of leaving a stale file behind. A skill or agent copy is deleted when its content matches any version repomatic shipped; a removed reusable workflow's thin-caller is deleted when its `uses:` line still points at the dropped upstream workflow. A locally modified copy (edited content, or a thin-caller with extra jobs) is reported for manual review, never deleted. Pass `--keep-removed` to report these without deleting, or `--delete-removed-modified` to also delete locally modified ones
+- Prunes orphans of assets repomatic has dropped (renamed or removed skills, agents, workflows or other bundled files, like the `publish-pypi` composite action), so an upstream rename propagates automatically instead of leaving a stale file behind. A copy of a skill, an agent or another bundled file is deleted when its content matches any version repomatic shipped; a removed reusable workflow's thin-caller is deleted when its `uses:` line still points at the dropped upstream workflow. A locally modified copy (edited content, or a thin-caller with extra jobs) is reported for manual review, never deleted. Pass `--keep-removed` to report these without deleting, or `--delete-removed-modified` to also delete locally modified ones
 - In the upstream repository, regenerates bundled data files from the project's own config (workflows are excluded via `[tool.repomatic]`)
 - The upgrade pull request gives the command launching the [`/repomatic-upgrade`](agent-skills.md) skill with both versions filled in, to run once the pull request is merged. The skill applies what the new release lets the repository adopt, reuse or drop, then audits the drift against the adopted tag. It commits the upgrade, then its own changes, and pushes nothing. A manual `repomatic init` that moves the upstream pin prints the same command as its last next step, in place of the commit-and-push step, and records the run in `.git/repomatic/upgrade.json` for the skill to read. When the new release pins a tool that the cooldown still holds back, its first next step names that pin, and the `exclude-newer-package` entry to add when one can admit it
 
@@ -263,7 +264,7 @@ To run all enabled updaters locally, or a named subset, use [`repomatic sync-dep
 
 - Bumps SHA-pinned GitHub Actions (`uses: owner/repo@<sha> # vX.Y.Z`) to the latest release past the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown using [`repomatic sync-action-pins`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/cli/deps.py)
 - Handles the SHA-to-semver mapping automatically: reads the trailing `# vX.Y.Z` comment, fetches the latest release, resolves it to a commit SHA, and rewrites the `uses:` line
-- Leaves pins owned by `sync-repomatic` untouched: upstream `kdeldycke/repomatic` refs and any `uses:` line inside a file `repomatic init` deploys verbatim (like the `publish-pypi` composite action). Bumping those here would be reset on the next init sync, ping-ponging the two pull requests
+- Leaves pins owned by `sync-repomatic` untouched: upstream `kdeldycke/repomatic` refs and any `uses:` line inside a file `repomatic init` deploys verbatim. Bumping those here would be reset on the next init sync, ping-ponging the two pull requests
 - PR body lists each updated action with old and new versions
 - **Requires**:
   - Workflow files (`.github/workflows/**/*.yaml`) in the repository
@@ -434,7 +435,7 @@ docs = [
 ### 📖 Deploy Sphinx doc to Cloudflare Pages (`deploy-docs-cloudflare`)
 
 - Same build as the job above, uploaded to a [Cloudflare Pages](https://developers.cloudflare.com/pages/) project with `wrangler pages deploy` instead of the Pages artifact pair. Wrangler comes from the [tool runner](tool-runner.md) at its pinned version, installed with install scripts blocked and its registry signatures verified. Cloudflare never builds anything and needs no access to the repository; see the [Cloudflare Pages guide](cloudflare.md) for how this hosting model works
-- Runs only when `site.deploy` is `cloudflare-pages`. The job holds no `id-token`, no `pages` scope and no environment, since it authenticates against Cloudflare rather than the repository's own deployment surface
+- Runs only when `site.deploy` is `cloudflare-pages`. The job holds `contents: read` alone, for its checkout: no `id-token`, no `pages` scope and no environment, since it authenticates against Cloudflare rather than the repository's own deployment surface
 - Files over Direct Upload's 25 MiB per-file limit leave the tree before the upload, through [`repomatic cloudflare-r2 --offload`](cloudflare.md#files-over-25-mib): `wrangler` would otherwise fail the whole deploy on the first one it meets. With `site.cloudflare-r2-bucket` declared, each moves to that R2 bucket and its old path redirects there. A file that cannot move, or any file without a bucket, is dropped with an error annotation, and the job fails once everything else is published
 - Choose it for what the edge can do rather than for speed: a Cloudflare Pages custom domain carries its own certificate, so a zone's apex can be proxied, which is what a `_redirects` file, a real `404.html` and any apex edge rule all depend on
 - **Requires**:
@@ -456,8 +457,8 @@ docs = [
 ### 💔 Check broken links (`check-broken-links`)
 
 - Checks for broken links in documentation with two complementary scanners, then files a single combined issue via [`repomatic broken-links`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/broken_links.py):
-  - [`lychee`](https://github.com/lycheeverse/lychee) scans every documentation file for dead external URLs. `repomatic broken-links` runs it itself, as a bare `repomatic run lychee` does, and reads its report and its exit code back
-  - Sphinx's built-in [`linkcheck`](https://www.sphinx-doc.org/en/master/usage/builders/index.html#sphinx.builders.linkcheck.CheckExternalLinksBuilder) builder additionally catches broken auto-generated links (intersphinx, autodoc, type annotations) that Lychee cannot see; this step only runs for Sphinx projects
+  - [`lychee`](https://github.com/lycheeverse/lychee) scans every documentation file for dead external URLs. `repomatic broken-links` runs it itself, as a bare `repomatic run lychee` does, and reads its report and its exit code back. With `GITHUB_TOKEN` set, as this job sets it, lychee signs its github.com requests with the token. It then skips release downloads, which a signed request breaks. Sphinx linkcheck still checks the release downloads of the pages it builds, without the token
+  - Sphinx's built-in [`linkcheck`](https://www.sphinx-doc.org/en/master/usage/builders/index.html#sphinx.builders.linkcheck.CheckExternalLinksBuilder) builder additionally catches broken auto-generated links (intersphinx, autodoc, type annotations) that Lychee cannot see; this step only runs for Sphinx projects. Sphinx checks each URL once and reports only its first location. The Sphinx section of the issue says so, and asks for a search of the repository for the other locations before a fix
 - Creates/updates one issue covering the findings of both scanners
 - **Requires**:
   - Documentation files (`**/*.{markdown,mdown,mkdn,mdwn,mkd,md,mdtxt,mdtext,mdx,rst,tex}`) in the repository
@@ -598,7 +599,7 @@ The `publish-pypi` job lives here rather than inside a reusable lane so each rep
 
 `repomatic init` regenerates this file on every sync, and unlike a single-job thin caller it has jobs of its own, so two properties are worth knowing:
 
-- It carries the same deny-by-default top-level `permissions: {}` as every other generated workflow, with each managed lane declaring only the scopes its reusable workflow needs. Without it, a consumer job appended below the managed lanes would run with the repository's default token scopes.
+- It always carries a deny-by-default top-level `permissions: {}`, like a thin caller that holds a downstream job, with each managed lane declaring only the scopes its reusable workflow needs. Without it, a consumer job appended below the managed lanes would run with the repository's default token scopes.
 - Extra `needs:` edges a consumer declares on the `release` lane survive the sync. That is what lets a caller-side asset build job gate the engine, as [§ Extra release assets](#extra-release-assets-extra-assets) instructs. An edge naming a managed lane (already in the canonical set), a job that no longer exists, or a job that exists only in the upstream workflow is dropped: the last would make GitHub reject the workflow at startup.
 
 ### 🐍 Publish to PyPI (`publish-pypi`)

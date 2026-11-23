@@ -488,7 +488,8 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         description=(
             "Warns when an active ruleset targets tags, including one inherited from"
             " a parent level. Such a ruleset can stop the `create-tag` job from"
-            " pushing release tags unless `REPOMATIC_PAT` is in its bypass list"
+            " pushing release tags unless `REPOMATIC_PAT` is in its bypass list."
+            " Passes when the plan gives a private repository no rulesets"
         ),
         applies=lambda ctx: bool(ctx.repo),
     ),
@@ -512,7 +513,9 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         description=(
             "Warns when a classic branch protection rule survives beside the"
             " rulesets. GitHub applies both together, so the branch policy splits"
-            " across two settings pages ([details](security.md#supply-chain-security))"
+            " across two settings pages ([details](security.md#supply-chain-security))."
+            " Skips when the plan gives a private repository no rulesets, as it then"
+            " gives no branch protection rules either"
         ),
         applies=lambda ctx: bool(ctx.repo),
     ),

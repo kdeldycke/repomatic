@@ -10,9 +10,9 @@
 - The `workflow-permissions` check of `lint-repo` now warns about a job that checks out the repository with no `contents` scope, which a private repository refuses.
 - Fix a release push cancelling the `autofix.yaml` and `lint.yaml` runs of the commit before it, which then got no result from either workflow.
 - Fix the reusable workflows on a private repository: each job that checks out the code now holds `contents: read`, without which GitHub answers `Repository not found`.
-- Fix `branch-ruleset-on-default` skipping a private repository whose plan has no rulesets: it now warns that the default branch is open to force pushes.
-- Fix `classic-branch-protection` passing on a private repository whose plan has no rulesets, with a message naming rulesets as its protection: it now skips.
-- Fix the setup guide of a private repository on GitHub Free never closing: it leaves out the branch ruleset and fork pull request approval steps.
+- Fix the ruleset checks of `lint-repo` on a private repository whose plan has no rulesets: `branch-ruleset-on-default` now warns, `classic-branch-protection` skips and `tag-protection-rules` passes.
+- Fix the setup guide never closing on a private repository: it leaves out fork pull request approval, and branch rulesets on a plan without them.
+- Fix the `broken-links` issue listing every github.com `/blob/` link as broken in CI: lychee now signs its github.com requests with `GITHUB_TOKEN`.
 
 ## [`8.3.1` (2026-11-21)](https://github.com/kdeldycke/repomatic/compare/v8.3.0...v8.3.1)
 
