@@ -115,8 +115,9 @@ WORKFLOWS_WITHOUT_CONCURRENCY = frozenset((
 # calls (a block on a `needs:`-gated lane joins its group too late to cancel
 # queued runs).
 WORKFLOWS_WITH_UNIQUE_GROUPS = frozenset((
-    # Every job skips a release push, which in the branch group would cancel the
-    # run of the commit before it: see test_gated_workflows_isolate_release_pushes.
+    # Every job skips a version-machinery push, which in the branch group would
+    # cancel the run of the commit before it: see
+    # test_gated_workflows_isolate_machinery_pushes.
     "autofix.yaml",
     "lint.yaml",
     # The release lanes: tagging, publishing and the GitHub release.
@@ -261,27 +262,28 @@ def test_unique_group_protects_releases(workflow_name: str) -> None:
         "to create unique groups for release commits"
     )
 
-    # Must check for release commit prefix to conditionally use github.sha.
-    assert RELEASE_COMMIT_PREFIX in group, (
-        f"{workflow_name}: concurrency group must check for "
-        f"'{RELEASE_COMMIT_PREFIX}' to identify release commits"
+    # Must test a prefix of the release commit to conditionally use github.sha.
+    prefixes = HEAD_COMMIT_PREFIX_RE.findall(group)
+    assert any(RELEASE_COMMIT_PREFIX.startswith(p) for p in prefixes), (
+        f"{workflow_name}: concurrency group tests {prefixes!r}, none of which"
+        f" matches the {RELEASE_COMMIT_PREFIX!r} release commit"
     )
 
     # A rebase-merged release push ends on its post-release bump commit, the
     # head commit GitHub exposes: the group must recognize that one too.
-    prefixes = HEAD_COMMIT_PREFIX_RE.findall(group)
     assert any(POST_RELEASE_COMMIT_PREFIX.startswith(p) for p in prefixes), (
         f"{workflow_name}: concurrency group tests {prefixes!r}, none of which"
         f" matches the {POST_RELEASE_COMMIT_PREFIX!r} head commit of a release push"
     )
 
 
-def test_gated_workflows_isolate_release_pushes() -> None:
-    """A workflow that skips a release push gives it a group of its own.
+def test_gated_workflows_isolate_machinery_pushes() -> None:
+    """A workflow that skips a version-machinery push gives it a group of its own.
 
-    Every job of a workflow gated on the changelog prefix skips a release push.
-    In the branch group, that push would cancel the run of the commit before it
-    and run nothing in its place, so the last commit of a release would get no
+    Every job of a workflow gated on the changelog prefix skips a push whose head
+    commit carries it: a version bump, or a release push, which ends on its
+    post-release bump. In the branch group, that push would cancel the run of the
+    commit before it and run nothing in its place, so that commit would get no
     result from the workflow.
     """
     gated = {
@@ -294,10 +296,23 @@ def test_gated_workflows_isolate_release_pushes() -> None:
     }
     assert gated, "No workflow gates its metadata job on the changelog prefix."
     assert gated <= WORKFLOWS_WITH_UNIQUE_GROUPS, (
-        f"{sorted(gated - WORKFLOWS_WITH_UNIQUE_GROUPS)} skip a release push in"
-        " the branch group, where it cancels the run of the commit before it:"
-        " give the release push a group of its own."
+        f"{sorted(gated - WORKFLOWS_WITH_UNIQUE_GROUPS)} skip a version-machinery"
+        " push in the branch group, where it cancels the run of the commit before"
+        " it: give that push a group of its own."
     )
+    for name in sorted(gated):
+        group = load_workflow(name).get("concurrency", {}).get("group", "")
+        prefixes = HEAD_COMMIT_PREFIX_RE.findall(group)
+        missed = sorted(
+            prefix
+            for prefix in VERSION_BUMP_COMMIT_PREFIXES
+            if not any(prefix.startswith(p) for p in prefixes)
+        )
+        assert not missed, (
+            f"{name} skips the pushes of {missed!r} in the branch group, where"
+            " each cancels the run of the commit before it: give them a group of"
+            " their own."
+        )
 
 
 @pytest.mark.parametrize("workflow_name", sorted(WORKFLOWS_WITHOUT_CONCURRENCY))

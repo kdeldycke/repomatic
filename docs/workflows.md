@@ -1153,7 +1153,7 @@ Every workflow cancels with `cancel-in-progress: true`, and its group decides wh
 
 **`tests.yaml`: SHA-based unique groups for a release push.** The run of a release push is the one post-merge test of the release tree, so it gets a group of its own the same way, and no later push cancels it.
 
-**`autofix.yaml` and `lint.yaml`: SHA-based unique groups for a release push.** Every job of these two workflows skips a release push. In the branch group, that push would cancel the run of the commit before it and run nothing in its place, so the last commit of a release would get no lint and no autofix pass. In a group of its own, the push leaves that run to finish.
+**`autofix.yaml` and `lint.yaml`: SHA-based unique groups for a version-machinery push.** Every job of these two workflows skips a push whose head commit carries the `[changelog] ` prefix: a version bump, or a release push, which ends on its post-release bump. In the branch group, that push would cancel the run of the commit before it and run nothing in its place, so that commit would get no lint and no autofix pass. In a group of its own, the push leaves that run to finish.
 
 **Every other workflow: one group per branch.** A newer run supersedes an older one, which is the right outcome there: `labels.yaml` runs only `sync-labels` on a release push, which the next push runs again, and a later `docs.yaml` run publishes a newer tree. Sparing the docs run of a release push would let its deploy finish last and put the older site back live.
 

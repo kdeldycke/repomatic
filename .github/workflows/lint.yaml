@@ -48,20 +48,16 @@ name: 🧹 Lint
 
 permissions: {}
 
-# A release push gets a group of its own, keyed on its SHA. Every job skips that
-# push, through the `[changelog] ` gate of the metadata job. In the branch group,
-# the push would cancel the run of the commit before it, and run nothing in its
-# place. Its head commit is the post-release bump, which follows the release
-# commit in the same push.
+# A push whose head commit carries the `[changelog] ` prefix gets a group of its
+# own, keyed on its SHA: a version bump, or a release push, which ends on its
+# post-release bump. Every job skips that push, through the `[changelog] ` gate
+# of the metadata job. In the branch group, the push would cancel the run of the
+# commit before it, and run nothing in its place.
 concurrency:
   group: >-
     ${{ github.workflow }}-${{
       github.event.pull_request.number
-      || (
-        (startsWith(github.event.head_commit.message, '[changelog] Release')
-        || startsWith(github.event.head_commit.message, '[changelog] Post-release'))
-        && github.sha
-      )
+      || (startsWith(github.event.head_commit.message, '[changelog] ') && github.sha)
       || github.ref
     }}
   cancel-in-progress: true
