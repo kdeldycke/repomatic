@@ -1,5 +1,10 @@
 # Changelog
 
+## [`8.4.1.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v8.4.0...main)
+
+> [!WARNING]
+> This version is **not released yet** and is under active development.
+
 ## [`8.4.0` (2026-11-24)](https://github.com/kdeldycke/repomatic/compare/v8.3.1...v8.4.0)
 
 - **Breaking:** Stop deploying the `publish-pypi` composite action to downstream repositories, whose `release.yaml` calls the upstream copy. `repomatic init` deletes an unmodified copy, and fails on an `exclude` or `include` entry naming `publish-pypi-action` until the entry is dropped.
