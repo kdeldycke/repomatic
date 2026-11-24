@@ -58,7 +58,7 @@ Determine the GitHub username from `gh api /user --jq '.login'` or `git config u
 Extract dependencies from `pyproject.toml` (both `[project.dependencies]` and `[project.optional-dependencies]`/`[dependency-groups]`). For each dependency, find its GitHub repository:
 
 - Read the `Project-URL` metadata of the installed package: `uv run --frozen python -c "from importlib.metadata import metadata; print(metadata('<pkg>').get_all('Project-URL'))"`. Or read `https://pypi.org/pypi/<pkg>/json`.
-- Check `uv.lock` for source URLs
+- For a git source, read the URL in its `source` table of `uv.lock`. A package from an index records only that index there.
 
 Also include significant build/test/docs dependencies (Sphinx themes, pytest plugins, linters) that the project interacts with.
 

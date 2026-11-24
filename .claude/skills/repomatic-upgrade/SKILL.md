@@ -211,7 +211,7 @@ Scan the downstream repo for patterns, workarounds, or configurations that are *
 
 - **Documentation improvements**: bundled skill or subagent guidance, issue templates, or repo metadata patterns that would benefit all downstream repos. Upstream no longer syncs instructions-file content into a consuming repo, so a convention worth spreading belongs in a skill or a subagent, never in a proposed `AGENTS.md` section.
 
-For each candidate, suggest an issue or a pull request at `kdeldycke/repomatic`, with a draft title and description.
+Handle each candidate as § Apply, step 4 says: edit the sibling checkout when the context shows `SIBLING_CHECKOUT`, or describe the change in the report, with a draft title and description.
 
 ### Report
 

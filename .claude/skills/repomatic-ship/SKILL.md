@@ -138,7 +138,7 @@ A clean cycle, where every change since the last tag is already at its net end-s
 
 - **Step 2** becomes redundant: CI already ran on this exact commit (it is `HEAD` of `main`), so read its result with `<cmd> ci-status --branch main` instead of paying for a fresh gate. Still quick-run the time-dependent external smoke checks (`<cmd> run typos`, `<cmd> audit --fix`): re-published binaries and new CVEs drift independently of code.
 - **Step 5** is a no-op: never force an empty commit.
-- **Step 6** reduces to verifying the existing run. When `gh pr list --head prepare-release` shows a PR whose freeze commit sits on the current `HEAD`, confirm every stable job on `HEAD` is green and go to step 7, spawning `/babysit-ci` only on a real failure. When no current PR exists (the last push missed `changelog.yaml`'s `paths:` filter), trigger one with `gh workflow run changelog.yaml --ref main`, still with no commit.
+- **Step 6** reduces to verifying the existing run. When `<cmd> ci-status --release-pr` reports an open release PR that lags `main` by `0` commits, confirm every stable job on `HEAD` is green and go to step 7, spawning `/babysit-ci` only on a real failure. When no current PR exists (the last push missed `changelog.yaml`'s `paths:` filter), trigger one with `gh workflow run changelog.yaml --ref main`, still with no commit.
 
 Steps 3, 4, and 7 are unchanged: the version advisory and the (empty) changelog diff still inform the maintainer.
 
@@ -234,9 +234,9 @@ Commit the reconciled tree with a message describing the net reconciliation (plu
 
 **Time each push by what its diff rebuilds.** The immediate push above is for source-affecting fixes (`repomatic/**`, `tests/**`, `pyproject.toml`, `uv.lock`): the matrix they cancel was verifying an obsolete tree, and their own run rebuilds everything. A matrix-skipping commit (changelog-only, docs-only: paths outside `Metadata.binary_affecting_paths`) inverts the economics on a binaries-enabled project, because `release.yaml` runs on *every* push in a per-branch cancel-in-progress group: pushed mid-drain, it cancels an in-flight binary matrix that its own run then skips rebuilding (`skip_binary_build`), and the lost verification is only re-buyable with a full re-dispatch. That cost scales with what is in flight: an ordinary push builds only the `[tool.repomatic] nuitka.dev-targets` canary subset, and no push cancels a full fleet, since release commits, `schedule` and `workflow_dispatch` runs each sit in their own concurrency group. Hold such commits (the post-babysit changelog reconciliation below included) until the heavy matrices on the current tree are terminal, or bundle them into the next source-affecting push; with binaries off, or only a canary build in flight, push freely: a cancelled `release.yaml` re-runs in minutes, and a prose push does not even cancel `tests.yaml` (paths-filtered, so no new run enters its concurrency group).
 
-**Wait for CI yourself, and spawn the babysitter only when a required job turns red.** The Bash tool caps a foreground command at about 10 minutes. So run `<cmd> ci-status --branch main --wait` as a background Bash task (`run_in_background: true`), which has no such cap and wakes you when it returns (Claude Code `2.1.284`). The command returns on the first run that blocks a merge, like one with a failed or cancelled required job, or once every run settled and the tip has a run of its own. Run it again after each fix push.
+**Wait for CI yourself, and spawn the babysitter only when a required job turns red.** The Bash tool caps a foreground command at about 10 minutes. So run `<cmd> ci-status --branch main --wait` as a background Bash task (`run_in_background: true`), which has no such cap and wakes you when it returns (Claude Code `2.1.284`). The command returns on the first run that blocks a merge, like one with a failed or cancelled required job, or once every run settled and the tip has a run of its own. Run it again after each fix push you make yourself.
 
-**Spawn `Agent` on the `sonnet` model to run `/babysit-ci` to completion**, named so it stays addressable. The loop is mechanical: fetch logs, match patterns, fix, commit, push. If `/babysit-ci` is excluded here, the agent runs that same loop inline, and the sub-agent rules cover a failed spawn.
+**On the first red required job, spawn `Agent` on the `sonnet` model to run `/babysit-ci` to completion**, named so it stays addressable. It then owns the fix loop until every monitored workflow is green. The loop is mechanical: fetch logs, match patterns, fix, commit, push. If `/babysit-ci` is excluded here, the agent runs that same loop inline, and the sub-agent rules cover a failed spawn.
 
 - **Leave it on the default background mode**, never `run_in_background: false`. A literal foreground spawn would block the orchestrator's own turn for a wait that can span hours.
 - **It monitors `tests.yaml`, `lint.yaml`, `autofix.yaml`, `docs.yaml`, and `release.yaml`.** The last one's engine runs the per-platform Nuitka matrix when the project enables binaries.
@@ -290,7 +290,7 @@ Its prompt restates the sub-agent rules (the trailer and narrow staging especial
 
 ### 7. Confirm and stop
 
-Once `main` is green and the release PR exists (`gh pr list --head prepare-release`), report:
+Once `main` is green and the release PR exists (`<cmd> ci-status --release-pr`), report:
 
 - the release PR URL,
 - the version it will cut, plus the bump advisory from step 3,

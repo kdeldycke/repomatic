@@ -1,6 +1,6 @@
 ---
 name: qa-engineer
-description: Senior QA engineer. Handles deep analysis, new automation and architectural decisions. Questions verbose prose and deduplicates content across AGENTS.md and agent definitions.
+description: Senior QA engineer. Handles deep analysis, new automation and architectural decisions. Questions verbose prose in AGENTS.md and agent definitions, and removes the rules a file states twice.
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: opus
 ---
