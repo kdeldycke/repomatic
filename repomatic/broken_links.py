@@ -101,6 +101,20 @@ RELEASE_DOWNLOAD_PATTERN = (
 See {func}`lychee_github_auth`.
 """
 
+BLOB_URL_PATTERN = r"^https://github\.com/([^/]+)/([^/]+)/blob/([^?#]+)(?:[?#].*)?$"
+"""A github.com `/blob/` URL: owner, repository, then the ref and the path.
+
+The query and the fragment, like `?plain=1#L5`, match outside the groups, so
+{data}`RAW_URL_TEMPLATE` drops them.
+"""
+
+RAW_URL_TEMPLATE = "https://raw.githubusercontent.com/${1}/${2}/${3}"
+"""The raw.githubusercontent.com URL of the file a {data}`BLOB_URL_PATTERN` URL shows.
+
+The ``${N}`` references are the replacement syntax of the Rust `regex` crate,
+which lychee uses. See {func}`lychee_github_auth`.
+"""
+
 SPHINX_DEFAULT_OUTPUT = Path("./docs/_linkcheck/output.json")
 """Default Sphinx linkcheck output path produced by the `docs.yaml` workflow."""
 
@@ -148,25 +162,38 @@ class LycheeRun:
 def lychee_github_auth(scratch: Path) -> list[str]:
     """Return the lychee arguments that sign its github.com requests.
 
-    A CI runner gets `503` from github.com for an anonymous request to a
-    `/blob/` page, which passes from a workstation. Lychee `0.24.2` uses
+    A CI runner gets `503` from github.com for many anonymous requests to a
+    `/blob/` page, which pass from a workstation. Lychee `0.24.2` uses
     {data}`GITHUB_TOKEN_ENV` only in its GitHub API fallback, which reports a
     URL with a path after the repository as invalid. So the token signs the
     request itself, as `click_extra.sphinx` does for Sphinx linkcheck.
 
-    Lychee reads the headers of one host only from the `[hosts."github.com"]`
-    table of a config file: no flag sets them. So the table goes to a file in
-    *scratch*, and the token stays out of the command line, which the tool
-    runner logs.
+    A signed request to a `/blob/` page still gets `503` on a runner. So the
+    signed crawl remaps each {data}`BLOB_URL_PATTERN` URL to
+    {data}`RAW_URL_TEMPLATE` before it checks it: raw.githubusercontent.com
+    serves the same file, for programs. The token signs that host too, which
+    answers `404` to a token it does not accept: a bad token fails every
+    `/blob/` link. Without a token, the crawl keeps the `/blob/` URLs, which
+    pass from a workstation.
+
+    Lychee reads the headers of one host only from a `[hosts."github.com"]`
+    table of a config file: no flag sets them. So the tables and the remap go
+    to a file in *scratch*, and the token stays out of the command line, which
+    the tool runner logs.
 
     ```{caution}
     A `--config` flag stops lychee from finding the project's own config, in
     `lychee.toml` or in the `[tool.lychee]` table of `pyproject.toml`. That
     file comes first, in its own `--config`. Lychee merges the files: the last
-    one wins a setting that two of them set, and their `exclude` lists add up.
-    Lychee also finds a config in `Cargo.toml` or `package.json`, which
-    {class}`~repomatic.tooling.runner.ConfigSource` does not know: such a
-    config does not apply to a signed crawl.
+    one wins a setting that two of them set, and their `exclude` and `remap`
+    lists add up. Lychee also finds a config in `Cargo.toml` or
+    `package.json`, which {class}`~repomatic.tooling.runner.ConfigSource` does
+    not know: such a config does not apply to a signed crawl.
+
+    Lychee matches `exclude` against the remapped URL, so an `exclude` written
+    for a `/blob/` URL does not apply to a signed crawl. The report names the
+    remapped URL too: a broken `/blob/` link shows as its
+    raw.githubusercontent.com URL, at the line and column of the link.
     ```
 
     The file also excludes {data}`RELEASE_DOWNLOAD_PATTERN`. With an
@@ -190,17 +217,21 @@ def lychee_github_auth(scratch: Path) -> list[str]:
         project_config = [spec.config_flag, str(source.native_file)]
     elif source.level is ConfigLevel.PYPROJECT and spec.reads_pyproject:
         project_config = [spec.config_flag, "pyproject.toml"]
+    signed = {"headers": {"Authorization": f"Bearer {token}"}}
     auth = scratch / "github-auth.toml"
     auth.write_text(
         spec.native_format.serialize({
             "exclude": [RELEASE_DOWNLOAD_PATTERN],
-            "hosts": {"github.com": {"headers": {"Authorization": f"Bearer {token}"}}},
+            # Lychee splits a remap rule on whitespace: a pattern, then a URL.
+            "remap": [f"{BLOB_URL_PATTERN} {RAW_URL_TEMPLATE}"],
+            "hosts": {"github.com": signed, "raw.githubusercontent.com": signed},
         }),
         encoding="UTF-8",
     )
     logging.info(
-        f"Lychee signs its github.com requests with ${GITHUB_TOKEN_ENV}, and skips"
-        " release downloads."
+        f"Lychee signs its github.com requests with ${GITHUB_TOKEN_ENV}, checks"
+        " the /blob/ URLs on raw.githubusercontent.com, and skips release"
+        " downloads."
     )
     return [*project_config, spec.config_flag, str(auth)]
 
@@ -212,7 +243,8 @@ def run_lychee() -> LycheeRun | None:
     of the registry, over the `doc_files` inventory. The markdown report goes
     to a scratch file this function reads back, so no workflow step has to
     agree on a path with it. With {data}`GITHUB_TOKEN_ENV` set, the crawl also
-    signs its github.com requests, per {func}`lychee_github_auth`.
+    signs its github.com requests and checks its `/blob/` URLs on
+    raw.githubusercontent.com, per {func}`lychee_github_auth`.
 
     A lychee that cannot be installed checked no link, so it counts as a run
     that did not complete: {data}`LYCHEE_INSTALL_FAILURE_EXIT`.

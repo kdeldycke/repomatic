@@ -12,7 +12,7 @@
 - Fix the reusable workflows on a private repository: each job that checks out the code now holds `contents: read`, without which GitHub answers `Repository not found`.
 - Fix the ruleset checks of `lint-repo` on a private repository whose plan has no rulesets: `branch-ruleset-on-default` now warns, `classic-branch-protection` skips and `tag-protection-rules` passes.
 - Fix the setup guide never closing on a private repository: it leaves out fork pull request approval, and branch rulesets on a plan without them.
-- Fix the `broken-links` issue listing every github.com `/blob/` link as broken in CI: lychee now signs its github.com requests with `GITHUB_TOKEN`.
+- Fix the `broken-links` issue listing every github.com `/blob/` link as broken in CI: lychee now checks them on raw.githubusercontent.com, signed with `GITHUB_TOKEN`.
 
 ## [`8.3.1` (2026-11-21)](https://github.com/kdeldycke/repomatic/compare/v8.3.0...v8.3.1)
 

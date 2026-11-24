@@ -29,11 +29,13 @@ import pytest
 from click.testing import CliRunner
 
 from repomatic.broken_links import (
+    BLOB_URL_PATTERN,
     FIX_LINK_LABEL,
     GITHUB_TOKEN_ENV,
     LYCHEE_INSTALL_FAILURE_EXIT,
     LYCHEE_REPORT_FORMAT,
     NO_BROKEN_LINKS,
+    RAW_URL_TEMPLATE,
     RELEASE_DOWNLOAD_PATTERN,
     SPHINX_FIRST_LOCATION_NOTE,
     LinkcheckResult,
@@ -713,9 +715,11 @@ def test_lychee_github_auth_keeps_the_project_config(
     auth = scratch / "github-auth.toml"
     assert args == [*project_config, "--config", str(auth)]
     assert not any("papaya-token" in arg for arg in args)
+    signed = {"headers": {"Authorization": "Bearer papaya-token"}}
     assert tomllib.loads(auth.read_text(encoding="UTF-8")) == {
         "exclude": [RELEASE_DOWNLOAD_PATTERN],
-        "hosts": {"github.com": {"headers": {"Authorization": "Bearer papaya-token"}}},
+        "remap": [f"{BLOB_URL_PATTERN} {RAW_URL_TEMPLATE}"],
+        "hosts": {"github.com": signed, "raw.githubusercontent.com": signed},
     }
 
 
@@ -731,6 +735,54 @@ def test_lychee_github_auth_keeps_the_project_config(
 def test_release_download_pattern(url, excluded):
     """A signed crawl skips the release downloads only."""
     assert bool(re.search(RELEASE_DOWNLOAD_PATTERN, url)) is excluded
+
+
+RAW = "https://raw.githubusercontent.com/orchard/papaya"
+
+
+@pytest.mark.parametrize(
+    ("url", "remapped"),
+    (
+        pytest.param(
+            "https://github.com/orchard/papaya/blob/main/fig.py#L73",
+            f"{RAW}/main/fig.py",
+            id="line-anchor",
+        ),
+        pytest.param(
+            "https://github.com/orchard/papaya/blob/main/docs/fig.md?plain=1#L5",
+            f"{RAW}/main/docs/fig.md",
+            id="plain-view",
+        ),
+        pytest.param(
+            "https://github.com/orchard/papaya/blob/v1.0/changelog.md",
+            f"{RAW}/v1.0/changelog.md",
+            id="tag-ref",
+        ),
+        pytest.param(
+            "https://github.com/orchard/papaya/blob/0123abc/a/b/c/fig.toml",
+            f"{RAW}/0123abc/a/b/c/fig.toml",
+            id="nested-path",
+        ),
+        pytest.param(
+            "https://github.com/orchard/papaya/tree/main/docs", None, id="tree"
+        ),
+        pytest.param("https://github.com/orchard/papaya/issues/7", None, id="issue"),
+        pytest.param(
+            "https://github.com/orchard/papaya/releases/tag/v1.0", None, id="release"
+        ),
+    ),
+)
+def test_blob_url_remap(url, remapped):
+    """A `/blob/` URL becomes the raw URL of its file, query and fragment dropped.
+
+    Read with Python's `re`, translating the ``${N}`` references of the Rust
+    `regex` crate: the pattern itself uses only syntax both engines share.
+    """
+    template = re.sub(r"\$\{(\d+)\}", r"\\g<\1>", RAW_URL_TEMPLATE)
+    if remapped is None:
+        assert not re.search(BLOB_URL_PATTERN, url)
+    else:
+        assert re.sub(BLOB_URL_PATTERN, template, url) == remapped
 
 
 def test_run_lychee_signs_github_requests(tmp_path, monkeypatch):
@@ -757,11 +809,12 @@ def test_run_lychee_signs_github_requests(tmp_path, monkeypatch):
 @pytest.mark.once
 @pytest.mark.real_http
 def test_signed_crawl_keeps_the_project_excludes(tmp_path, monkeypatch, capfd):
-    """The pinned lychee applies the excludes of both config files.
+    """The pinned lychee applies the excludes of both config files, and the remap.
 
     Lists the links lychee would check: the `[tool.lychee]` exclude and the
-    release download exclude both apply. Marked `once`: it downloads the pinned
-    lychee binary, so one runner suffices.
+    release download exclude both apply, and the `/blob/` link shows as the
+    raw.githubusercontent.com URL lychee checks in its place. Marked `once`: it
+    downloads the pinned lychee binary, so one runner suffices.
     """
     monkeypatch.chdir(tmp_path)
     # Installed before the token is set, which the GitHub API would refuse.
@@ -783,7 +836,7 @@ def test_signed_crawl_keeps_the_project_excludes(tmp_path, monkeypatch, capfd):
     args = ["--dump", *lychee_github_auth(scratch), "page.md"]
     assert run_tool("lychee", extra_args=args) == 0
     listed = capfd.readouterr().out.split()
-    assert listed == ["https://github.com/orchard/papaya/blob/main/readme.md"]
+    assert listed == [f"{RAW}/main/readme.md"]
 
 
 @pytest.mark.parametrize(

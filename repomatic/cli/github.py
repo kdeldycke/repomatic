@@ -397,7 +397,8 @@ def broken_links(
     repository name selects the labels the issue carries.
 
     Requires the gh CLI to be authenticated. With $GITHUB_TOKEN set, lychee
-    signs its github.com requests with it, and skips release downloads.
+    signs its github.com requests with it, checks /blob/ URLs on
+    raw.githubusercontent.com, and skips release downloads.
 
     \b
     In GitHub Actions, most options are auto-detected:

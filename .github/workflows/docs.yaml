@@ -358,8 +358,9 @@ jobs:
       - name: Manage broken links issue
         # The command runs lychee itself over the documentation files, reads the
         # Sphinx linkcheck output above, and files, updates or closes the issue.
-        # GITHUB_TOKEN signs the github.com requests of lychee, release downloads excepted.
-        # See lychee_github_auth in repomatic/broken_links.py for rationale.
+        # GITHUB_TOKEN signs the github.com requests of lychee, which then checks /blob/ URLs on
+        # raw.githubusercontent.com and skips release downloads. See lychee_github_auth in
+        # repomatic/broken_links.py for rationale.
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
