@@ -483,6 +483,12 @@ TIP_SHA = "a" * 40
 PARENT_SHA = "b" * 40
 STALE_SHA = "c" * 40
 
+BAD_GATEWAY = (
+    "HTTP 502: Server Error"
+    " (https://api.github.com/repos/kiwi/orchard/actions/runs/42/jobs?per_page=100)"
+)
+"""What `gh run view` prints while GitHub cannot serve the jobs of one run."""
+
 GREEN_JOB = {
     "name": "✅ ubuntu-26.04 / py3.10",
     "status": "completed",
@@ -532,7 +538,7 @@ def _gh(history=(), runs_by_sha=None, listing=(), details=None, catalog=()):
     The commit list answers from *history*, a per-commit run listing from
     *runs_by_sha*, a workflow's run listing (the endpoint and `gh run list`
     alike) from *listing*, a `run view` from *details* by run ID, and a
-    workflow list from *catalog*.
+    workflow list from *catalog*. A detail that is an exception is raised.
     """
     runs_by_sha = runs_by_sha or {}
     details = details or {}
@@ -549,7 +555,10 @@ def _gh(history=(), runs_by_sha=None, listing=(), details=None, catalog=()):
             return json.dumps(list(catalog))
         if args[1] == "list":
             return json.dumps(list(listing))
-        return json.dumps(details[int(args[2])])
+        detail = details[int(args[2])]
+        if isinstance(detail, Exception):
+            raise detail
+        return json.dumps(detail)
 
     return dispatch
 
@@ -639,6 +648,37 @@ def test_read_ci_status_anchors_on_the_tip():
     assert mock.call_count == 4
     assert not _called(mock, PARENT_SHA)
     assert not _called(mock, "list")
+
+
+def test_read_ci_status_reads_on_past_a_run_it_cannot_read():
+    """A transient error on one run leaves the other workflows read."""
+    runs_by_sha = {TIP_SHA: [_run_entry(42, "tests.yaml"), _run_entry(40, "lint.yaml")]}
+    details = {42: GhCommandError(BAD_GATEWAY), 40: _detail(TIP_SHA, GREEN_JOB)}
+    with patch(
+        "repomatic.github.gh.run_gh_command",
+        side_effect=_gh([TIP_SHA], runs_by_sha, details=details),
+    ):
+        status = read_ci_status(["tests.yaml", "lint.yaml"], "main")
+    assert [run.run_id for run in status.runs] == [40]
+    assert status.unreadable == {"tests.yaml": BAD_GATEWAY}
+
+
+def test_read_ci_status_ends_on_a_run_error_that_lasts():
+    """An error that no new poll clears still ends the read."""
+    runs_by_sha = {TIP_SHA: [_run_entry(42, "tests.yaml")]}
+    not_found = (
+        "HTTP 404: Not Found"
+        " (https://api.github.com/repos/kiwi/orchard/actions/runs/42)"
+    )
+    details = {42: GhCommandError(not_found)}
+    with (
+        patch(
+            "repomatic.github.gh.run_gh_command",
+            side_effect=_gh([TIP_SHA], runs_by_sha, details=details),
+        ),
+        pytest.raises(GhCommandError, match="HTTP 404"),
+    ):
+        read_ci_status(["tests.yaml"], "main")
 
 
 def test_read_ci_status_walks_back_to_a_path_filtered_workflow():
@@ -1414,6 +1454,71 @@ def test_watch_counts_only_the_failed_polls_in_a_row():
     assert [status.settled for status, _changed in seen] == [False, True]
 
 
+def test_watch_stops_reading_a_run_it_keeps_failing_to_read(caplog):
+    """A run GitHub keeps failing to serve is dropped: the rest end the watch."""
+    calls: list[list[str]] = []
+
+    def poll(names, branch):
+        calls.append(list(names))
+        return CIStatus(
+            branch=branch,
+            tip_sha=TIP_SHA,
+            runs=[_tests_run("success")],
+            unreadable={"lint.yaml": BAD_GATEWAY} if "lint.yaml" in names else {},
+        )
+
+    with (
+        patch("repomatic.github.ci_status.read_ci_status", side_effect=poll),
+        caplog.at_level("WARNING"),
+    ):
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml", "lint.yaml"],
+                "main",
+                state=WatchState(),
+                interval=30,
+                sleep=lambda delay: None,
+            )
+        )
+    assert calls == [["tests.yaml", "lint.yaml"]] * FAILED_POLL_LIMIT
+    assert seen[-1][0].unreadable == {"lint.yaml": BAD_GATEWAY}
+    assert f"(1/{FAILED_POLL_LIMIT} failed polls in a row)" in caplog.text
+    assert (
+        "Stop reading lint.yaml: its run stayed unreadable for"
+        f" {FAILED_POLL_LIMIT} polls in a row: {BAD_GATEWAY}"
+    ) in caplog.text
+
+
+def test_watch_counts_only_the_failed_reads_of_a_run_in_a_row(caplog):
+    """A run that reads again resets its count, so scattered faults drop nothing."""
+
+    def unreadable_lint() -> CIStatus:
+        status = _status(_tests_run(""))
+        status.unreadable["lint.yaml"] = BAD_GATEWAY
+        return status
+
+    faults = [unreadable_lint() for _ in range(FAILED_POLL_LIMIT - 1)]
+    polls = [*faults, _status(_tests_run(""))]
+    polls += [unreadable_lint() for _ in range(FAILED_POLL_LIMIT - 1)]
+    polls.append(_status(_tests_run("success")))
+    with (
+        patch("repomatic.github.ci_status.read_ci_status", side_effect=polls) as mock,
+        caplog.at_level("WARNING"),
+    ):
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml", "lint.yaml"],
+                "main",
+                state=WatchState(),
+                interval=30,
+                sleep=lambda delay: None,
+            )
+        )
+    assert mock.call_count == len(polls)
+    assert seen[-1][0].unreadable == {}
+    assert "Stop reading" not in caplog.text
+
+
 @pytest.mark.parametrize(
     "stderr",
     (
@@ -1557,6 +1662,34 @@ def test_ci_status_command_waits_through_a_server_error():
     assert result.exit_code == 0, result.output
     assert f"⏱ 🔬 Tests ({TIP_SHA[:8]}): green" in result.output
     assert slept == [5]
+
+
+@pytest.mark.parametrize(
+    "runs",
+    (
+        pytest.param([_tests_run("success")], id="beside-a-run"),
+        pytest.param([], id="alone"),
+    ),
+)
+def test_ci_status_command_reports_a_run_it_cannot_read(runs):
+    """An unreadable run gets a warning line, and alone it is not fatal."""
+    status = CIStatus(
+        branch="main",
+        tip_sha=TIP_SHA,
+        runs=runs,
+        unreadable={"lint.yaml": BAD_GATEWAY},
+    )
+    with (
+        patch(
+            "repomatic.cli.ci.monitored_workflows",
+            return_value=["tests.yaml", "lint.yaml"],
+        ),
+        patch("repomatic.cli.ci.read_ci_status", return_value=status),
+    ):
+        result = CliRunner().invoke(repomatic, ["ci-status"])
+    assert result.exit_code == 0, result.output
+    assert f"⚠ lint.yaml: cannot read its run: {BAD_GATEWAY}" in result.output
+    assert "No run found" not in result.output
 
 
 def test_ci_status_command_writes_the_failed_logs(tmp_path):

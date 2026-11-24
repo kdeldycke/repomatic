@@ -465,7 +465,10 @@ def prune_caches_cmd(
         " has a run of its own. Each poll prints the runs whose verdict changed."
         " A GitHub server error, a rate limit, a stream the server cancelled or a"
         " gh call that timed out skips the poll it hits, and"
-        f" {FAILED_POLL_LIMIT} failed polls in a row end the wait."
+        f" {FAILED_POLL_LIMIT} failed polls in a row end the wait. A run that"
+        " fails to read that way while the others read is read again on each"
+        f" poll, and after {FAILED_POLL_LIMIT} failed polls in a row the wait"
+        " goes on without it."
     ),
 )
 @option(
@@ -586,11 +589,12 @@ def ci_status(
     except RuntimeError as error:
         msg = f"Cannot read the CI runs of {branch!r}: {error}"
         raise ClickException(msg) from error
-    if not status.runs:
+    if not status.runs and not status.unreadable:
         echo(f"No run found on {branch!r} for: {', '.join(names)}.")
         ctx.exit(0)
 
-    ctx.print_table([run.cells() for run in status.runs], CI_STATUS_HEADER_DEFS)
+    if status.runs:
+        ctx.print_table([run.cells() for run in status.runs], CI_STATUS_HEADER_DEFS)
 
     # Only what gates a merge becomes an annotation: a warning names a run
     # that holds nothing up.
@@ -600,6 +604,12 @@ def ci_status(
                 report_finding(level, message)
             else:
                 echo(f"{level.glyph} {message}")
+    # An unreadable run holds nothing up, and has no result either.
+    for workflow, message in status.unreadable.items():
+        echo(
+            f"{AnnotationLevel.WARNING.glyph} {workflow}: cannot read its run:"
+            f" {message}"
+        )
 
     if status.skipped_on_tip:
         echo(

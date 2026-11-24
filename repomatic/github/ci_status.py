@@ -114,12 +114,13 @@ RUN_FIELDS = ("conclusion", "headSha", "jobs", "status", "workflowName")
 """The `gh run view --json` fields a {class}`RunStatus` is built from."""
 
 FAILED_POLL_LIMIT = 3
-"""Failed polls in a row that end a watch.
+"""Failed polls in a row that end a watch, or that drop one workflow from it.
 
 {func}`watch_ci_status` skips a poll that meets a transient error, like the
 `HTTP 504` GitHub answers when it cannot respond in time: a fault that clears
 within a few intervals costs a few polls, not the watch. A fault that lasts this
-many polls in a row ends the watch with its error, as a persistent one must.
+many polls in a row ends the watch with its error, as a persistent one must. A
+fault on the run of one workflow alone drops that workflow instead.
 """
 
 
@@ -455,6 +456,15 @@ class CIStatus:
     verdict says the same.
     """
 
+    unreadable: dict[str, str] = field(default_factory=dict)
+    """Workflow filenames whose run could not be read, with the error.
+
+    {func}`read_ci_status` records a transient error on the run of one workflow
+    here, and reads the other workflows. {func}`watch_ci_status` reads such a
+    workflow again on each poll, and stops after {data}`FAILED_POLL_LIMIT`
+    failed polls of it in a row: its error then stays here for the report.
+    """
+
     @property
     def blocking(self) -> list[RunStatus]:
         """Runs holding up a merge."""
@@ -707,9 +717,15 @@ def read_ci_status(workflows: Iterable[str], branch: str) -> CIStatus:
     filter for the same reason.
     ```
 
+    A transient error on the run of one workflow, like a `502` that GitHub keeps
+    answering for the jobs of that run, puts the workflow in
+    {attr}`CIStatus.unreadable` and leaves the other workflows read.
+
     :param workflows: Workflow filenames to read.
     :param branch: Branch to read runs from.
     :return: The collected status.
+    :raises GhCommandError: When the branch history or a run listing cannot be
+        read, or when a run read fails with an error that is not transient.
     """
     status = CIStatus(branch=branch)
     names = list(workflows)
@@ -737,11 +753,17 @@ def read_ci_status(workflows: Iterable[str], branch: str) -> CIStatus:
     status.skipped_on_tip = sorted(idle_on_tip & found.keys())
     for workflow in names:
         chosen = found.get(workflow, skipped.get(workflow))
-        run = (
-            _run_status(chosen, workflow)
-            if chosen is not None
-            else latest_run(workflow, branch)
-        )
+        try:
+            run = (
+                _run_status(chosen, workflow)
+                if chosen is not None
+                else latest_run(workflow, branch)
+            )
+        except GhCommandError as error:
+            if not error.transient:
+                raise
+            status.unreadable[workflow] = str(error).strip()
+            continue
         if run is None:
             logging.info(f"No run found for {workflow} on {branch}.")
             continue
@@ -894,6 +916,13 @@ def watch_ci_status(
     a failed poll ends the watch on the last status it yielded, or with the
     error when it yielded none.
 
+    A workflow whose run alone fails that way, while the other reads work, is
+    read again on each poll and keeps the watch going. After
+    {data}`FAILED_POLL_LIMIT` failed polls of it in a row, the watch logs its
+    error, reads it no more, and keeps the error in the
+    {attr}`CIStatus.unreadable` of each later status: the watch then ends on
+    the other workflows.
+
     :param workflows: Workflow filenames to read.
     :param branch: Branch to read runs from.
     :param state: The verdicts already reported, updated on each poll.
@@ -916,6 +945,8 @@ def watch_ci_status(
     deadline = clock() + timeout if timeout else None
     status: CIStatus | None = None
     failures: list[GhCommandError] = []
+    unreadable_polls: dict[str, int] = {}
+    dropped: dict[str, str] = {}
     while True:
         try:
             status = read_ci_status(names, branch)
@@ -930,13 +961,38 @@ def watch_ci_status(
             )
         else:
             failures.clear()
+            for workflow in list(unreadable_polls):
+                if workflow not in status.unreadable:
+                    del unreadable_polls[workflow]
+            for workflow, message in status.unreadable.items():
+                count = unreadable_polls.get(workflow, 0) + 1
+                unreadable_polls[workflow] = count
+                if count < FAILED_POLL_LIMIT:
+                    logging.warning(
+                        f"Cannot read the run of {workflow}, polling it again"
+                        f" ({count}/{FAILED_POLL_LIMIT} failed polls in a row):"
+                        f" {message}"
+                    )
+                    continue
+                logging.warning(
+                    f"Stop reading {workflow}: its run stayed unreadable for"
+                    f" {count} polls in a row: {message}"
+                )
+                names.remove(workflow)
+                dropped[workflow] = message
+            retrying = status.unreadable.keys() - dropped.keys()
+            status.unreadable.update(dropped)
             changed = state.record(status)
             yield status, changed
             if until_change and changed:
                 return
             if status.blocking and not until_change:
                 return
-            if status.settled and (status.runs_on_tip or not status.tip_sha):
+            if (
+                status.settled
+                and not retrying
+                and (status.runs_on_tip or not status.tip_sha)
+            ):
                 return
         if deadline is None:
             sleep(interval)
