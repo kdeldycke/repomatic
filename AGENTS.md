@@ -98,12 +98,6 @@ The suite is hermetic against the host's own `repomatic` configuration, and not 
 Release-specific design rationale for `kdeldycke/repomatic` (the `workflow_run` checkout pitfall, immutable releases, concurrency, freeze/unfreeze structure) lives in `docs/upstream-development.md` § Release checklist. Downstream repos with their own release flow can borrow it but aren't bound by it.
 ```
 
-### Pin uv: enforcement internals
-
-`tests/test_workflows.py` fails on a `setup-uv` step without `with: version:`, or on two steps naming different versions. {func}`repomatic.deps.cooldown.sync_uv_lock` says why `uv.lock` stays stable across uv minors.
-
-`repomatic init uv` writes both policy pins (`required-version`, `exclude-newer`) from the bundled `uv.toml`, and `sync-uv-lock` re-applies them while leaving every other `[tool.uv]` key untouched.
-
 ### Naming conventions for automated operations
 
 CLI commands, workflow job IDs, PR branch names, and PR body template names must share the same verb prefix, keeping the conventions learnable and grepable.

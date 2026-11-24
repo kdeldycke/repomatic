@@ -18,7 +18,8 @@ report.precision = 2
 #
 # Set the floor here and nowhere else. A --cov-fail-under flag outranks this
 # value, so passing one from a CI workflow silently shadows whatever a project
-# configures. The two runs not meant to clear a full-suite floor opt out
-# explicitly instead: a partial CI slice with --cov-fail-under=0, and a focused
-# local run with --no-cov.
+# configures. No `[tool.repomatic]` key sets it either, for the same reason.
+# The two runs not meant to clear a full-suite floor opt out explicitly
+# instead: a partial CI slice with --cov-fail-under=0, and a focused local run
+# with --no-cov.
 report.fail_under = 0

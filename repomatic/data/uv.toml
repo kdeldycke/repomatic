@@ -10,10 +10,12 @@
 # Floor uv at the oldest release that writes uv.lock as it is committed, with
 # no upper bound. uv 0.12.22 is the first to write lockfile revision 5 and the
 # `[package.group-requires-python]` table a group's own requires-python adds:
-# an older uv relocks to revision 3 and drops the table. CI does not install
-# from this floor: each astral-sh/setup-uv step pins the exact uv it
-# downloads, and sync-workflow-pins moves that pin forward. sync-uv-lock
-# absorbs cross-minor marker churn.
+# an older uv relocks to revision 3 and drops the table. No upper cap: uv
+# self-updates on many machines, so a cap breaks every contributor and runner
+# the day the next minor lands. CI does not install from this floor: each
+# astral-sh/setup-uv step pins the exact uv it downloads, and
+# sync-workflow-pins moves that pin forward. sync-uv-lock absorbs cross-minor
+# marker churn.
 required-version = ">=0.12.22"
 # Cooldown buffer before adopting newly released packages. Must equal
 # `[tool.repomatic] minimum-release-age`, which gates the `uvx` installs CI

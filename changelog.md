@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- The `repomatic-upgrade` skill now gives the hand bump of the pin with `init --no-cooldown`, and `brand-assets` warns about stale `qlmanage` thumbnails.
+
 ## [`8.4.0` (2026-11-24)](https://github.com/kdeldycke/repomatic/compare/v8.3.1...v8.4.0)
 
 > [!NOTE]
