@@ -198,18 +198,18 @@ A file can match its reference and still fail. Read the latest runs on the defau
 
 The generator run covers the `[tool.X]` sections under ongoing sync, and `lint-repo` the seeded ones. Check what neither reads:
 
-| File                            | What to check                                                                                                     | Absence is OK when                                                                                                       |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `pyproject.toml` `[tool.typos]` | Present at all: a bare `init` never adds the section, it only re-syncs one already there                          | Never: typos has no bundled fallback, so the canonical proper-noun map stays inactive. Recommend `repomatic init typos`. |
-| `.github/ISSUE_TEMPLATE/`       | Filename conventions (hyphens, not underscores), missing labels                                                   | Personal/internal repo without external bug reporters.                                                                   |
-| `.github/code-of-conduct.md`    | Title-case headings vs upstream sentence case, plaintext email vs anti-scrape obfuscation, stale attribution URLs | Replace verbatim with upstream when divergence is detected.                                                              |
-| `.gitignore`                    | Must be a real file: git skips an in-tree `.gitignore` reached via symlink                                        | Never: the `sync-gitignore` job owns its content.                                                                        |
+| File                            | What to check                                                                            | Absence is OK when                                                                                                       |
+| ------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `pyproject.toml` `[tool.typos]` | Present at all: a bare `init` never adds the section, it only re-syncs one already there | Never: typos has no bundled fallback, so the canonical proper-noun map stays inactive. Recommend `repomatic init typos`. |
+| `.github/ISSUE_TEMPLATE/`       | Filename conventions (hyphens, not underscores), missing labels                          | Personal/internal repo without external bug reporters.                                                                   |
+| `.github/code-of-conduct.md`    | Any divergence from the upstream copy, like title-case headings                          | Replace verbatim with upstream when divergence is detected.                                                              |
+| `.gitignore`                    | Must be a real file: git skips an in-tree `.gitignore` reached via symlink               | Never: the `sync-gitignore` job owns its content.                                                                        |
 
 #### 3. Upstream contribution opportunities
 
 Scan the downstream repo for patterns, workarounds, or configurations that are **better** than or **missing from** the upstream reference. These are candidates for contributing back to `kdeldycke/repomatic`. Look for:
 
-- **Documentation improvements**: bundled skill or subagent guidance, issue templates, or repo metadata patterns that would benefit all downstream repos. Upstream no longer syncs instructions-file content into a consuming repo, so a convention worth spreading belongs in a skill or a subagent, never in a proposed `AGENTS.md` section.
+- **Documentation improvements**: bundled skill or subagent guidance, issue templates, or repo metadata patterns that would benefit all downstream repos. A convention worth spreading belongs in a skill or a subagent, never in a proposed `AGENTS.md` section: upstream syncs no instructions-file content into a consuming repo.
 
 Handle each candidate as § Apply, step 4 says: edit the sibling checkout when the context shows `SIBLING_CHECKOUT`, or describe the change in the report, with a draft title and description.
 
