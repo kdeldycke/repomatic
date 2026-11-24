@@ -3145,6 +3145,27 @@ def test_resolve_default_args_empty_inventory_means_skip(tmp_path, monkeypatch):
     assert resolve_default_args(TOOL_REGISTRY["mdformat"]) is None
 
 
+def test_resolve_default_args_leaves_out_excluded_paths(tmp_path, monkeypatch):
+    """A path that one of the expressions matches never reaches the tool."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "harvest.py").write_text("mango = 1\n", encoding="UTF-8")
+    (tmp_path / "orchard.py").write_text("papaya = 2\n", encoding="UTF-8")
+
+    exclude = [re.compile("^orchard")]
+    assert resolve_default_args(TOOL_REGISTRY["mypy"], exclude=exclude) == [
+        ["harvest.py"]
+    ]
+
+
+def test_resolve_default_args_excluding_every_path_means_skip(tmp_path, monkeypatch):
+    """An inventory that the expressions empty is skipped like an empty one."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "harvest.py").write_text("mango = 1\n", encoding="UTF-8")
+
+    exclude = [re.compile("[.]py$")]
+    assert resolve_default_args(TOOL_REGISTRY["mypy"], exclude=exclude) is None
+
+
 @patch("repomatic.tooling.binaries.install_binary")
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)

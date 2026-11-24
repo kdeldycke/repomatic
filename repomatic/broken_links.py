@@ -36,7 +36,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
+import tomllib
 from dataclasses import dataclass
 from enum import StrEnum
 from itertools import groupby
@@ -236,11 +238,45 @@ def lychee_github_auth(scratch: Path) -> list[str]:
     return [*project_config, spec.config_flag, str(auth)]
 
 
+def lychee_path_exclusions() -> list[re.Pattern[str]]:
+    """Compile the `exclude_path` expressions of the lychee configuration.
+
+    Reads the configuration that wins the walk of
+    {class}`~repomatic.tooling.runner.ConfigSource`. lychee searches each
+    expression in an input path exactly as it was passed, and warns
+    `No files found for this input source` for each input that one of them
+    excludes. {func}`run_lychee` leaves those inputs out, so the crawl log names
+    only the files lychee reads.
+
+    An expression that Python cannot compile stays out of the filter, with a
+    warning: lychee, whose `regex` crate reads it, still applies it.
+
+    :return: The compiled expressions, none when the configuration lists none.
+    """
+    source = ConfigSource.find(lookup_tool("lychee"))
+    if source.native_file is not None:
+        config = tomllib.loads(source.native_file.read_text(encoding="UTF-8"))
+    elif source.table is not None:
+        config = source.table
+    else:
+        return []
+    exclusions: list[re.Pattern[str]] = []
+    for expression in config.get("exclude_path", ()):
+        try:
+            exclusions.append(re.compile(str(expression)))
+        except re.error as error:
+            logging.warning(
+                f"Cannot read the lychee exclude_path {str(expression)!r}: {error}."
+            )
+    return exclusions
+
+
 def run_lychee() -> LycheeRun | None:
     """Crawl the documentation files with lychee, and keep its report.
 
     Runs the invocation of a bare `repomatic run lychee`: the default arguments
-    of the registry, over the `doc_files` inventory. The markdown report goes
+    of the registry, over the `doc_files` inventory, less the files that
+    {func}`lychee_path_exclusions` excludes. The markdown report goes
     to a scratch file this function reads back, so no workflow step has to
     agree on a path with it. With {data}`GITHUB_TOKEN_ENV` set, the crawl also
     signs its github.com requests and checks its `/blob/` URLs on
@@ -250,9 +286,12 @@ def run_lychee() -> LycheeRun | None:
     that did not complete: {data}`LYCHEE_INSTALL_FAILURE_EXIT`.
 
     :return: The run, or `None` when the repository holds no documentation
-        file: lychee has nothing to check, and its section is left out.
+        file that lychee reads: lychee has nothing to check, and its section is
+        left out.
     """
-    batches = resolve_default_args(lookup_tool("lychee"))
+    batches = resolve_default_args(
+        lookup_tool("lychee"), exclude=lychee_path_exclusions()
+    )
     if batches is None:
         return None
     # lychee takes its targets in one invocation, never one per file.

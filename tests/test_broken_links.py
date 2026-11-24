@@ -657,6 +657,64 @@ def test_run_lychee_that_cannot_install_did_not_complete(tmp_path, monkeypatch):
     assert verdict is LinkVerdict.UNKNOWN
 
 
+FIG_TEMPLATE = str(Path("templates", "fig.md"))
+"""A documentation file that the configurations below exclude."""
+
+
+@pytest.mark.parametrize(
+    ("config", "checked"),
+    (
+        pytest.param(
+            {"pyproject.toml": '[tool.lychee]\nexclude_path = ["fig"]\n'},
+            {"readme.md"},
+            id="pyproject-table",
+        ),
+        pytest.param(
+            {"lychee.toml": 'exclude_path = ["^templates"]\n'},
+            {"readme.md"},
+            id="lychee-toml",
+        ),
+        pytest.param({}, {"readme.md", FIG_TEMPLATE}, id="no-config"),
+    ),
+)
+def test_run_lychee_leaves_out_the_paths_lychee_excludes(
+    tmp_path, monkeypatch, config, checked
+):
+    """lychee warns on each input that its `exclude_path` excludes: none gets there.
+
+    lychee searches each expression in an input path as it was passed, which is
+    the string the inventory hands over.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(GITHUB_TOKEN_ENV, raising=False)
+    Path("readme.md").write_text("# Orchard\n", encoding="UTF-8")
+    Path("templates").mkdir()
+    Path(FIG_TEMPLATE).write_text("[Fig]($orchard_url)\n", encoding="UTF-8")
+    for name, content in config.items():
+        Path(name).write_text(content, encoding="UTF-8")
+    seen = {}
+
+    def crawl(name, extra_args):
+        seen["args"] = extra_args
+        return 0
+
+    with patch("repomatic.broken_links.run_tool", side_effect=crawl):
+        assert run_lychee() == LycheeRun(0)
+    assert {arg for arg in seen["args"] if arg in {"readme.md", FIG_TEMPLATE}} == (
+        checked
+    )
+
+
+def test_run_lychee_skips_when_lychee_excludes_every_file(tmp_path, monkeypatch):
+    """With every documentation file excluded, lychee has nothing to check."""
+    monkeypatch.chdir(tmp_path)
+    Path("readme.md").write_text("# Orchard\n", encoding="UTF-8")
+    Path("lychee.toml").write_text("exclude_path = ['[.]md$']\n", encoding="UTF-8")
+    with patch("repomatic.broken_links.run_tool") as run_tool:
+        assert run_lychee() is None
+    run_tool.assert_not_called()
+
+
 @pytest.mark.parametrize("token", ("", "  "))
 def test_lychee_github_auth_needs_a_token(tmp_path, monkeypatch, token):
     """With no token, the crawl stays anonymous and no file is written."""

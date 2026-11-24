@@ -89,6 +89,7 @@ else:
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
+    import re
     from collections.abc import Generator, Iterator, Sequence
     from typing import IO, Any
 
@@ -818,7 +819,9 @@ def _command_prefix(
 # ---------------------------------------------------------------------------
 
 
-def resolve_default_args(spec: ToolSpec) -> list[list[str]] | None:
+def resolve_default_args(
+    spec: ToolSpec, exclude: Sequence[re.Pattern[str]] = ()
+) -> list[list[str]] | None:
     """Build the argument batches for a bare `repomatic run <tool>`.
 
     Combines {attr}`~repomatic.tooling.registry.ToolSpec.default_args` with the
@@ -828,6 +831,8 @@ def resolve_default_args(spec: ToolSpec) -> list[list[str]] | None:
     {attr}`~repomatic.tooling.registry.ToolSpec.per_file` is set.
 
     :param spec: The tool to resolve defaults for.
+    :param exclude: Expressions of the paths to leave out of that file list,
+        each searched in a path as the tool receives it.
     :return: One argument list per invocation; a single empty-argument batch
         when the tool declares no defaults, so the caller runs it bare as
         before. `None` when the tool wants targets and the repository holds
@@ -840,10 +845,15 @@ def resolve_default_args(spec: ToolSpec) -> list[list[str]] | None:
     if not spec.default_paths:
         return [base]
 
-    paths = [str(path) for path in getattr(FileInventory(), spec.default_paths)]
+    paths = [
+        str(path)
+        for path in getattr(FileInventory(), spec.default_paths)
+        if not any(pattern.search(str(path)) for pattern in exclude)
+    ]
     if not paths:
         logging.info(
-            f"Skipping {spec.name}: the repository holds no {spec.default_paths}."
+            f"Skipping {spec.name}: the repository holds no {spec.default_paths}"
+            f"{' outside the excluded paths' if exclude else ''}."
         )
         return None
     if spec.per_file:
