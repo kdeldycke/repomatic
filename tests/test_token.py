@@ -266,6 +266,11 @@ def test_pat_probe_name_drops_the_access_level(probe, name):
     assert probe.name == name
 
 
+def test_no_probe_claims_the_workflows_permission():
+    """No read-only call tells whether a token holds Workflows."""
+    assert "Workflows" not in {probe.name for probe in PAT_PERMISSION_PROBES}
+
+
 def test_pat_permission_results_map_each_probe_field():
     """Every probe answers with the shared result type, under its own field."""
     with patch("repomatic.github.token.run_gh_command", return_value=""):
@@ -280,11 +285,11 @@ def test_pat_permission_results_name_the_failed_fields():
     results = PatPermissionResults(
         contents=CheckResult(True, "Contents: token has access"),
         issues=CheckResult(False, "Token lacks issues."),
-        workflows=CheckResult(False, "Token lacks workflows."),
+        pull_requests=CheckResult(False, "Token lacks pull requests."),
     )
     assert results.failed() == [
         ("issues", "Token lacks issues."),
-        ("workflows", "Token lacks workflows."),
+        ("pull_requests", "Token lacks pull requests."),
     ]
 
 
@@ -327,9 +332,9 @@ def _gh_api_stand_in(args: list[str], answers: Mapping[str, str | None]) -> str:
 def test_pat_repository_scope_probes_an_endpoint_only_its_token_reads():
     """The probe is the Administration row, and no other row can replace it.
 
-    A public repository answers the contents, issues, pull requests and
-    workflows endpoints to any caller, so a 2xx from one of them on another
-    repository says nothing about the token.
+    A public repository answers the contents, issues and pull requests
+    endpoints to any caller, so a 2xx from one of them on another repository
+    says nothing about the token.
     """
     assert PAT_SCOPE_PROBE.field == "administration"
     assert PAT_SCOPE_PROBE in PAT_PERMISSION_PROBES

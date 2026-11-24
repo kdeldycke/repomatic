@@ -2936,7 +2936,6 @@ def test_pat_checks_all_pass():
     assert "Issues: token has access" in messages
     assert "Pull requests: token has access" in messages
     assert "Dependabot alerts: token has access, alerts enabled" in messages
-    assert "Workflows: token has access" in messages
 
 
 def test_pat_checks_fail_on_missing_permission():

@@ -632,7 +632,6 @@ def pat_results(**overrides: tuple[bool, str]) -> PatPermissionResults:
             True,
             "Dependabot alerts: token has access, alerts enabled",
         ),
-        "workflows": (True, "Workflows: token has access"),
         **overrides,
     }
     return PatPermissionResults(**{

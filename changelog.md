@@ -8,6 +8,7 @@
 - The `repomatic-upgrade` skill now gives the hand bump of the pin with `init --no-cooldown`, and `brand-assets` warns about stale `qlmanage` thumbnails.
 - The bundled skills and agents drop the guidance that a check now enforces, repeated rules and incident stories, and their stale claims are fixed.
 - Fix `ci-status` and the `workflow-dispatch` and `thin-caller-triggers` checks of `lint-repo` ignoring an `on:` key that is a list or a single event.
+- Fix the `pat-permissions` check of `lint-repo` failing on a private repository with a `REPOMATIC_PAT` that holds Workflows: the check no longer probes that permission.
 
 ## [`8.4.0` (2026-11-24)](https://github.com/kdeldycke/repomatic/compare/v8.3.1...v8.4.0)
 

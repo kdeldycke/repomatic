@@ -209,16 +209,15 @@ PAT_PERMISSION_PROBES: tuple[PatProbe, ...] = (
             " --method PUT"
         ),
     ),
-    # Fine-grained PATs with the Workflows permission get `actions:read`
-    # access; without it this endpoint returns 403.
-    PatProbe(
-        "workflows",
-        "Workflows: Read and Write",
-        "repos/{repo}/actions/workflows?per_page=1",
-        "Workflows: token has access",
-    ),
 )
-"""The PAT permission probes, in report order."""
+"""The PAT permission probes, in report order.
+
+Workflows has no probe, though the setup guide asks for it. GitHub lists only
+write endpoints for that permission, so no read-only call can tell whether a
+token holds it. The workflow listing, `GET /repos/{repo}/actions/workflows`,
+answers any caller on a public repository and needs `Actions: read` on a
+private one.
+"""
 
 
 class PatPermissionResults(UserDict[str, CheckResult]):
@@ -264,9 +263,9 @@ only for a repository it covers with `Administration: Read-only`. An answer
 from another repository then proves the token covers it.
 
 No other row of {data}`PAT_PERMISSION_PROBES` can do that. A public repository
-answers the contents, issues, pull requests and workflows endpoints to any
-caller. The Dependabot alerts endpoint answers `404` wherever alerts are off,
-which says nothing about the token. Read on 2026-10-13: this endpoint answers
+answers the contents, issues and pull requests endpoints to any caller. The
+Dependabot alerts endpoint answers `404` wherever alerts are off, which says
+nothing about the token. Read on 2026-10-13: this endpoint answers
 `401` to a caller with no token, and `403` to an account that does not
 administer the repository.
 
