@@ -7,6 +7,9 @@
 
 ## [`8.4.0` (2026-11-24)](https://github.com/kdeldycke/repomatic/compare/v8.3.1...v8.4.0)
 
+> [!NOTE]
+> `8.4.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/8.4.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v8.4.0).
+
 - **Breaking:** Stop deploying the `publish-pypi` composite action to downstream repositories, whose `release.yaml` calls the upstream copy. `repomatic init` deletes an unmodified copy, and fails on an `exclude` or `include` entry naming `publish-pypi-action` until the entry is dropped.
 - The `broken-links` issue now warns that its Sphinx linkcheck section lists each URL at its first location only.
 - The `workflow-permissions` check of `lint-repo` now warns about a job that checks out the repository with no `contents` scope, which a private repository refuses.
