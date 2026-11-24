@@ -244,7 +244,7 @@ class ProjectMetadata:
     def pyproject(self) -> StandardMetadata | None:
         """Returns metadata stored in the `pyproject.toml` file.
 
-        Returns `None` if the `pyproject.toml` does not exists or does not respects
+        Returns `None` if the `pyproject.toml` does not exist or does not respect
         the PEP standards.
 
         ```{warning}

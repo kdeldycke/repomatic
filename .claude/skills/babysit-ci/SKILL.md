@@ -32,47 +32,13 @@ Keep the message itself short: an imperative subject naming the fix, under 72 ch
 ### Determine invocation method
 
 - If the context above shows `CANONICAL_REPO`, use `uv run --frozen repomatic`: without `--frozen`, an edit to `pyproject.toml` makes the local uv relock `uv.lock`.
-- Otherwise, use `uvx --exclude-newer '{window}' --exclude-newer-package repomatic=P0D --from 'repomatic==X.Y.Z' -- repomatic`, with `X.Y.Z` the `WORKFLOW_PIN` the context shows. Read `{window}` from the `UV_EXCLUDE_NEWER` value of any `.github/workflows/*.yaml`, which `repomatic init` renders from `[tool.repomatic] minimum-release-age`. `--exclude-newer-package` exempts repomatic itself, so a fresh release stays installable while its dependency tree stays gated. The pin keeps the tool registry (`ruff`, `mypy` versions) identical to what CI runs. Drop the `--from` clause only when the context shows no `WORKFLOW_PIN`.
+- Otherwise, use `uvx --exclude-newer '{window}' --exclude-newer-package repomatic=P0D --from 'repomatic==X.Y.Z' -- repomatic`, with `X.Y.Z` the `WORKFLOW_PIN` the context shows. Read `{window}` from the workflow-level `UV_EXCLUDE_NEWER` of `.github/workflows/tests.yaml` or `release.yaml`, which `repomatic init` renders from `[tool.repomatic] minimum-release-age`. `--exclude-newer-package` exempts repomatic itself, so a fresh release stays installable while its dependency tree stays gated. The pin keeps the tool registry (`ruff`, `mypy` versions) identical to what CI runs. Drop the `--from` clause only when the context shows no `WORKFLOW_PIN`.
 
 References to `<cmd>` below resolve to one or the other.
 
 ### Yield to the orchestrator that spawned you
 
 When `/repomatic-ship` or another orchestrator spawns this loop as a sub-agent, it may reach in to claim a specific fix, usually one touching a deliberately-kept structure that needs its own judgment. Honor that at once: a message telling you to **hold, stop, or stand down** on a fix (or on the whole loop) means stop editing the working tree immediately, reply to acknowledge, and neither commit nor push that fix. Mailbox messages are delivered between tool calls, so read yours before every edit and before every commit: a HOLD that landed while you were mid-edit still binds the moment you see it, and you must not race the orchestrator by finishing the edit first. Unless told to stand down entirely, keep polling and reporting the jobs it did not claim, and let it tell you which HEAD to resume on once its fix lands.
-
-## Timeline
-
-Three feedback channels run in parallel after every push, each at a different latency. Fix as soon as the **fastest** channel reports a failure: do not wait for slower channels.
-
-```
- time   LOCAL (free)              REMOTE (CI minutes)
- ────   ────────────              ───────────────────
- 0:00   push
-        ├─ pytest ─┐              ├─ lint.yaml ─────────────────────┐
-        ├─ mypy ───┤              │   (ruff, mypy on all files,     │
-        └─ ruff ───┘              │    YAML, secrets, zizmor)       │
-                                  │                                 │
-                                  └─ tests.yaml ─────────────────┐  │
-                                      (stable + unstable jobs)   │  │
-                                                                 │  │
- 0:30   GATE 1: local done                                       │  │
-        fail? ─── yes ──► step 5 (fix now, skip CI)              │  │
-                   no ──► poll CI                                │  │
-                                                                 │  │
- 3:30                     GATE 2: lint.yaml done ◄───────────────│──┘
-                          lint fail? ─── yes ──► step 4-5        │
-                                          no ──► continue        │
-                                                                 │
- 5:00                     GATE 3: tests.yaml fast jobs done ◄────┘
-                          stable fail? ── yes ──► step 4-5
-                                           no ──► early exit if only macOS left (human runs; orchestrator waits)
-
- 8:00                     tests.yaml macOS done (often skippable)
-
-                          all green? ──► DONE
-```
-
-After fixing (step 5-7), the loop restarts from the top: push, run all three channels again.
 
 ## Loop
 
@@ -85,15 +51,9 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    Use the detected branch for all `--branch=` flags below.
 
-2. **Get the latest runs** for the current branch:
+2. **Watch five workflows.** `docs.yaml` may have no run: its `paths:` filter skips pushes touching nothing docs-relevant. The `tests.yaml` run exercises the full test matrix; `lint.yaml` runs ruff and mypy over every tracked Python file and lints YAML; `autofix.yaml` runs the mechanical fix jobs (`format-*`, `sync-*`, `update-*`, `fix-typos`, `fix-vulnerable-deps`) and turns red when one *crashes* instead of committing a fix; `docs.yaml` builds and deploys the Sphinx site and runs the broken-links check (an externally cancelled or link-flaky run re-runs cleanly via `gh workflow run docs.yaml --ref <BRANCH>`, no commit needed); `release.yaml` runs the Nuitka binary matrix (dev binaries: an ordinary push rebuilds only the `[tool.repomatic] nuitka.dev-targets` canary subset, while release commits, the weekly `schedule` and `workflow_dispatch` build the full target fleet) — but only on projects with `[tool.repomatic] nuitka.enabled` and a CLI entry point; with Nuitka disabled the per-platform jobs skip on every push, release commits included, and a green `release.yaml` means package build plus dev pre-release sync only. Even with Nuitka enabled, a single push can still skip the matrix: `Metadata.skip_binary_build` (`repomatic/metadata/git.py`) is the authoritative signal, true when the head commit is on a non-code branch, is a user-initiated version-bump commit, or (the common case) its changed files fall entirely outside `Metadata.binary_affecting_paths` — a docs-only commit, say, or a workflow-only one that leaves `release.yaml` and `_release-engine.yaml` alone. `nuitka_matrix` is empty whenever `skip_binary_build` is true. An empty matrix in the logged `metadata=` output of `build / 🧬 Project metadata` does not say which condition fired. Check `skip_binary_build`'s three conditions before asserting why a matrix skipped, since any one of them is enough on its own. All five workflows must pass — see § Autofix job failures and § Nuitka binary build failures in `references/failure-patterns.md` for how to triage them without stalling the loop.
 
-   ```shell-session
-   $ gh api 'repos/<OWNER>/<REPO>/actions/runs?head_sha=<FULL_SHA>&per_page=20'
-   ```
-
-   One call returns every workflow triggered by that commit. Do not reach for `gh run list`: both its branch-wide form and its per-workflow form have put runs weeks old at the top of the list, on a repository whose workflows had in fact run on every recent commit, which reads as "this workflow has not run in a month". Give `head_sha` the **full** 40-character SHA, because an abbreviated one matches nothing and returns an empty list that looks identical to "nothing ran". Quote the whole path: zsh expands the `?` as a glob and kills the call with `no matches found` before `gh` runs. To list a single workflow across a branch instead, use `gh api 'repos/<OWNER>/<REPO>/actions/workflows/<file>/runs?branch=<BRANCH>&created=>=<DATE>'`, and keep the date filter: without it, that endpoint has returned a page twelve days stale while the branch ran every hour.
-
-   Track all five run IDs (`docs.yaml` may have none: its `paths:` filter skips pushes touching nothing docs-relevant). An empty run list for the *other* workflows is not paths-filtering: GitHub can sit on a push event for hours before materializing any run (a 4-hour lag has been observed), so when a freshly pushed SHA shows no runs, keep re-polling instead of concluding the push was filtered, and measure the wait from run creation, not from the push. The `tests.yaml` run exercises the full test matrix; `lint.yaml` runs ruff and mypy over every tracked Python file and lints YAML; `autofix.yaml` runs the mechanical fix jobs (`format-*`, `sync-*`, `update-*`, `fix-typos`, `fix-vulnerable-deps`) and turns red when one *crashes* instead of committing a fix; `docs.yaml` builds and deploys the Sphinx site and runs the broken-links check (an externally cancelled or link-flaky run re-runs cleanly via `gh workflow run docs.yaml --ref <BRANCH>`, no commit needed); `release.yaml` runs the Nuitka binary matrix (dev binaries: an ordinary push rebuilds only the `[tool.repomatic] nuitka.dev-targets` canary subset, while release commits, the weekly `schedule` and `workflow_dispatch` build the full target fleet) — but only on projects with `[tool.repomatic] nuitka.enabled` and a CLI entry point; with Nuitka disabled the per-platform jobs skip on every push, release commits included, and a green `release.yaml` means package build plus dev pre-release sync only. Even with Nuitka enabled, a single push can still skip the matrix: `Metadata.skip_binary_build` (`repomatic/metadata/git.py`) is the authoritative signal, true when the head commit is on a non-code branch, is a user-initiated version-bump commit, or (the common case) its changed files fall entirely outside `Metadata.binary_affecting_paths` — a docs-only commit, say, or a workflow-only one that leaves `release.yaml` and `_release-engine.yaml` alone. `nuitka_matrix` is empty whenever `skip_binary_build` is true. An empty matrix in the logged `metadata=` output of `build / 🧬 Project metadata` does not say which condition fired. Check `skip_binary_build`'s three conditions before asserting why a matrix skipped, since any one of them is enough on its own. All five workflows must pass — see § Autofix job failures and § Nuitka binary build failures in `references/failure-patterns.md` for how to triage them without stalling the loop.
+   When a later command needs a run ID that `ci-status` did not print, list the runs of the commit with `gh api 'repos/<OWNER>/<REPO>/actions/runs?head_sha=<FULL_SHA>'`. Give `head_sha` the full 40-character SHA, and quote the whole path. Never use `gh run list`: it can put weeks-old runs first.
 
 3. **Run local tests while waiting for CI.** Don't idle while polling. Start the full test suite and linters locally in the background immediately, each through the Bash tool's background mode (`run_in_background: true`):
 
@@ -107,7 +67,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    Never append `&` to one of them instead: a non-interactive shell starts a `&` job with `SIGINT` ignored, which fails every test that expects Python's `KeyboardInterrupt` handler.
 
-   Give `run mypy` and `run ruff` no paths: the tool runner then checks the same files CI's `lint.yaml` does, so the two cannot diverge. Naming directories instead is what used to make mypy pass locally and fail in CI.
+   Give `run mypy` and `run ruff` no paths: the tool runner then checks the same files CI's `lint.yaml` does, so the two cannot diverge.
 
    **Gate 1 (local, ~30s):** if any local check fails, you already have the diagnosis: skip straight to step 5 without waiting for CI.
 
@@ -117,11 +77,11 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
    $ <cmd> ci-status --branch=<BRANCH> --wait --no-fatal
    ```
 
-   It reads every workflow a push can start (derived from `.github/workflows/`, so its list is wider than the five above), polls in-process at `--interval` (60 seconds by default, which keeps the REST quota intact), and prints each run whose verdict changed. It returns on the first run that blocks a merge, like one with a failed or cancelled required job, or once every run settled and the tip has a run of its own. A matrix job whose name still holds its `${{` template never evaluated, and the report says so. Five traps it settles, so no hand-rolled `jq` has to: a run's own `status` lags its jobs (every monitored workflow can read `queued` while a dozen jobs have already finished, which is indistinguishable from the runner-cap saturation a busy account genuinely hits); a finished job can keep the `status` `in_progress` after GitHub set its `conclusion`, so the command reads the conclusion first; a `continue-on-error` probe that crashed hides inside a `success` run conclusion; a run whose `conclusion` is `failure` with *no* failed job is a workflow-level error (an invalid `strategy.matrix` expression, malformed YAML, a missing secret) with no job log to read, which the command flags rather than letting you write off a persistently-red workflow as a known artifact, unless a required job in it was cancelled, like one no runner picked up, which the command names instead; and a run that was cancelled, or that ran no job, has no failed job and still gives its commit no result, so its verdict reads `cancelled` or `skipped`, never `green`, while a cancelled required job in a run on the tip blocks, since no newer push stopped it.
+   It reads every workflow a push can start (derived from `.github/workflows/`, so its list is wider than the five above), polls in-process at `--interval` (60 seconds by default, which keeps the REST quota intact), and prints each run whose verdict changed. It returns on the first run that blocks a merge, like one with a failed or cancelled required job, or once every run settled and the tip has a run of its own.
 
-   `ci-status` reads runs through the same `head_sha` endpoint, commit by commit back from the branch tip, and says when the tip has no run yet. A workflow that ran no job on the tip, like `tests.yaml` on a version-bump commit, is read on an earlier commit, and the command names it. A `cancelled` or `skipped` verdict is not a pass: see [§ When supersession never lets a run conclude](#when-supersession-never-lets-a-run-conclude). A workflow with no run on the newest commits falls back to its own run listing, filtered by creation date. Re-read a surprising red or green once before acting on it.
+   A `cancelled` or `skipped` verdict is not a pass: see [§ When supersession never lets a run conclude](#when-supersession-never-lets-a-run-conclude). For a workflow with no run on the newest commits, `ci-status` falls back to that workflow's own run listing, filtered by creation date. Re-read a surprising red or green once before acting on it.
 
-   **A queue is not a hang, and elapsed time alone cannot tell them apart.** A long stall invites the theory that some run is stuck and that cancelling it would free the pool, which is a conclusion worth reaching only on evidence, because acting on it destroys work that was progressing fine. Two readings settle it, and neither is the elapsed clock. Get a **baseline** from that workflow's recent successful runs (`gh api 'repos/<OWNER>/<REPO>/actions/workflows/<wf>/runs?status=success&created=>=<DATE>' --jq '.workflow_runs[] | [.created_at, .updated_at] | @tsv'`): a suite whose normal duration is two hours is not hung at ninety minutes. Then read **per-job `completedAt` timestamps** (`gh run view <id> --json jobs`) rather than an aggregate: a flat count of `in_progress` jobs is not evidence of a stall, since jobs finish and others start into the freed slots, holding the count steady while real progress continues. Watch for the self-contradiction that exposes the mistake, a report that the count "dropped from 11 to 9" *and* that nothing has changed. Two smaller traps live here too: `gh` reports a pending job's `conclusion` as `""`, not `null`, so a `select(.conclusion == null)` filter silently matches nothing and reads as "no pending jobs"; and jobs queue against the runner pool their `runs-on` names, so a stall confined to macOS cells says nothing about Linux capacity. **Never cancel another repository's run to free slots without the maintainer's explicit go-ahead**, and never ask for that go-ahead on a diagnosis you have not backed with a baseline and timestamps.
+   **A queue is not a hang, and elapsed time alone cannot tell them apart.** Two readings settle it, and neither is the elapsed clock. Get a **baseline** from that workflow's recent successful runs (`gh api 'repos/<OWNER>/<REPO>/actions/workflows/<wf>/runs?status=success&created=>=<DATE>' --jq '.workflow_runs[] | [.created_at, .updated_at] | @tsv'`): a suite whose normal duration is two hours is not hung at ninety minutes. Then read **per-job `completedAt` timestamps** (`gh run view <id> --json jobs`) rather than an aggregate: a flat count of `in_progress` jobs is not evidence of a stall, since jobs finish and others start into the freed slots, holding the count steady while real progress continues. Two smaller traps live here too: `gh` reports a pending job's `conclusion` as `""`, not `null`, so a `select(.conclusion == null)` filter silently matches nothing and reads as "no pending jobs"; and jobs queue against the runner pool their `runs-on` names, so a stall confined to macOS cells says nothing about Linux capacity. **Never cancel another repository's run to free slots without the maintainer's explicit go-ahead**, and never ask for that go-ahead on a diagnosis you have not backed with a baseline and timestamps.
 
    **Gate 2 (lint.yaml, ~4 min):** `lint.yaml` finishes before `tests.yaml`. If "Lint Python" (ruff) or "Lint types" (mypy) fails, proceed to step 4 immediately.
 
@@ -129,7 +89,7 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    **Poll in-process; never detach a monitor.** `--wait` blocks inside your turn. A detached background monitor (a standalone process, a `run_in_background: true` Bash poller that re-invokes you when it exits, or a `Monitor`-tool stream that returns control on each tick) makes a parent-resumed run spawn *another* monitor per tick instead of driving to a terminal state; worse, a spawned sub-agent that detaches this way orphans the poll from its caller the moment it returns. Hold the turn until `--wait` returns: starting a poller and handing back "to be notified" is the early return this loop must never make.
 
-   **Never hand-roll a poll loop around `gh`.** A loop with no delay fires thousands of requests per minute and exhausts the REST quota (5,000/hour) within minutes. Exhaustion does not just blind your own polling: workflows authenticating with the same PAT start failing server-side with misleading errors (see [§ GitHub API rate-limit exhaustion](references/failure-patterns.md#github-api-rate-limit-exhaustion)).
+   **Never hand-roll a poll loop around `gh`.** A loop with no delay fires thousands of requests per minute and exhausts the REST quota (5,000/hour) within minutes.
 
 4. **On any CI failure**, fetch the logs of **all** failed required jobs across the workflows:
 
@@ -139,11 +99,9 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    One file per failed required job, control sequences stripped, readable the moment the job settled: a failed cell is diagnosed twenty minutes into its slowest sibling's build, since the job-scoped log endpoint answers at once where `gh run view --log-failed` waits for the whole run. Fix them as one batch: different sources surface different issues. Batch only what has *already failed*, never what might still fail. Once every harvested failure is root-caused and fixed, push immediately rather than waiting for undrained cells to surface more: the fresh run supersedes the stale one, and serially waiting out each full matrix is the slow path. Analyze following the [error triage discipline](#error-triage-discipline): stable-job `FAILED`/`AssertionError` lines only. Then match each failure against `references/failure-patterns.md` before fixing anything.
 
-   So the diagnosis is minutes away, not an hour: harvest every failed cell as it lands and keep the run alive for the cells still to report. Cancelling to read logs is never the reason: logs survive cancellation, but they never needed it. **Make the run terminal only when you have a fix**: step 7 cancels it right before the push, since the stale run has no verification value left once superseded.
+5. **Fix the root cause** using the combined picture from CI logs and local results. Fix the codebase, not the tests, unless the tests are genuinely wrong. Address mypy and ruff failures together.
 
-5. **Fix the root cause** using the combined picture from CI logs and local results. Fix the codebase, not the tests, unless the tests are genuinely wrong. Address mypy and ruff failures together (see [§ mypy/ruff fix oscillation](references/failure-patterns.md#mypy-ruff-fix-oscillation)).
-
-   If the root cause is in a third-party dependency, check whether a change *this cycle* exposed it before treating it as upstream: `git log <last-release-tag>..HEAD` for a runner/image swap, a dependency bump, or a config change that put the dependency in a context it cannot satisfy (a Rust-built package forced to compile from an sdist on an architecture with no published wheel, say). When a cycle change is the trigger, revert or adjust *that* change; only a failure independent of everything the cycle touched warrants `/file-bug-report` for an upstream report.
+   If the root cause is in a third-party dependency, check whether a change *this cycle* exposed it before treating it as upstream: `git log <last-release-tag>..HEAD` for a runner/image swap, a dependency bump, or a config change that put the dependency in a context it cannot satisfy (a Rust-built package forced to compile from an sdist on an architecture with no published wheel, say). Such a build fails with `Failed to build <pkg>`, or with a `maturin`, `cargo` or native-compiler error during install. When a cycle change is the trigger, revert or adjust *that* change; only a failure independent of everything the cycle touched warrants `/file-bug-report` for an upstream report.
 
    After applying fixes, re-run the full local validation:
 
@@ -161,11 +119,10 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 6. **Check autofix status before pushing:**
 
    ```shell-session
-   $ gh api 'repos/<OWNER>/<REPO>/actions/workflows/autofix.yaml/runs?branch=<BRANCH>&created=>=<DATE>&per_page=1'
-   $ gh pr list --state=open --json number,title,headRefName,url
+   $ <cmd> ci-status --branch=<BRANCH> --no-fatal --automation-prs
    ```
 
-   If any open autofix PR already contains your fix — a `format-python` branch (ruff's own autofixes), a `sync-repomatic`/`sync-workflow-pins` branch (a bumped workflow pin, or a spliced-in `--exclude-newer-package repomatic=P0D` cooldown exemption carrying no version bump at all — that one is the whole fix when the `metadata` job cannot resolve its own pin), or another `sync-*`/`fix-*` branch — prefer merging it over authoring your own commit: GitHub signs the merge commit server-side, so this sidesteps a local hardware-key signing prompt entirely. If it resolves the failure, merge it (`gh pr merge <n> --squash --delete-branch`), pull, and rebase your fix before pushing — or skip your own commit if the merge is the whole fix. If `gh pr merge` is denied outright (a standing `permissions.deny` on the verb, not a retryable prompt), see [§ PR-merge permission wall](references/failure-patterns.md#pr-merge-permission-wall).
+   If any open autofix PR already contains your fix — a `format-python` branch (ruff's own autofixes), a `sync-repomatic`/`sync-workflow-pins` branch (a bumped workflow pin, or a spliced-in `--exclude-newer-package repomatic=P0D` cooldown exemption carrying no version bump at all — that one is the whole fix when the `metadata` job cannot resolve its own pin), or another `sync-*`/`fix-*` branch — prefer merging it over authoring your own commit: GitHub signs the merge commit server-side, so this sidesteps a local hardware-key signing prompt entirely. If it resolves the failure, merge it (`gh pr merge <n> --squash --delete-branch`), pull, and rebase your fix before pushing — or skip your own commit if the merge is the whole fix. If `gh pr merge` is denied, see [§ PR-merge permission wall](references/failure-patterns.md#pr-merge-permission-wall).
 
 7. **Commit the fix** with a clear message describing what changed and why. Before a push that goes out at once, cancel the branch's remaining runs to free runners, then `git push`:
 
@@ -181,9 +138,9 @@ After fixing (step 5-7), the loop restarts from the top: push, run all three cha
 
    **Time each push by what its diff rebuilds.** A source-affecting fix (`repomatic/**`, `tests/**`, `pyproject.toml`, `uv.lock`: whatever the repo's test and binary `paths:` filters name) pushes the moment it clears step 5: the runs it supersedes were verifying an obsolete tree, and its own run rebuilds everything it cancels. A commit those filters skip (changelog-only, docs-only, cosmetic prose) is the opposite case on a binaries-enabled project: `release.yaml` runs on *every* push in a per-branch cancel-in-progress group, so pushed mid-drain such a commit cancels the in-flight binary matrix while its own run skips the rebuild (`Metadata.skip_binary_build`), and the lost verification costs a full re-dispatch. That cost scales with what is actually in flight: an ordinary push builds only the `[tool.repomatic] nuitka.dev-targets` canary subset, and no push cancels a full fleet at all, since release commits, `schedule` and `workflow_dispatch` runs each sit in their own concurrency group. Hold it until the heavy matrices on the current HEAD are terminal, or bundle it into the next source-affecting push; with binaries disabled, only a canary build in flight, or nothing heavy in flight, push freely.
 
-   **If commit signing fails, do not loop on it.** The sandbox can block the SSH key or socket under `~/.ssh/*` (`Operation not permitted`): fix with `dangerouslyDisableSandbox: true` for the `git commit` and `git push` calls only. A hardware-backed key (Secretive, YubiKey, TPM) then prompts the maintainer per signature, and a refused or missed prompt surfaces as `agent refused operation?`, indistinguishable from a real failure. Retry once at most after disabling the sandbox; if it still refuses, hand off cleanly: stage the specific files you fixed (never `git add -A`), return the exact commit message and `git push` command verbatim, and exit the loop. The fix is done — only the signature is missing. If the block is instead a structural permission deny on `gh pr merge` (not a signing refusal), the escalation differs — a maintainer's in-chat approval cannot clear a deny rule: see [§ PR-merge permission wall](references/failure-patterns.md#pr-merge-permission-wall).
+   **If commit signing fails, do not loop on it.** The sandbox can block the SSH key or socket under `~/.ssh/*` (`Operation not permitted`): fix with `dangerouslyDisableSandbox: true` for the `git commit` and `git push` calls only. A hardware-backed key (Secretive, YubiKey, TPM) then prompts the maintainer per signature, and a refused or missed prompt surfaces as `agent refused operation?`, indistinguishable from a real failure. Retry once at most after disabling the sandbox; if it still refuses, hand off cleanly: stage the specific files you fixed (never `git add -A`), return the exact commit message and `git push` command verbatim, and exit the loop. The fix is done — only the signature is missing. For a denied `gh pr merge`, see [§ PR-merge permission wall](references/failure-patterns.md#pr-merge-permission-wall).
 
-8. **Repeat from step 2** until the monitored workflows are green: `tests.yaml` with all stable (✅) jobs passing, `lint.yaml` with no ruff or mypy failures (test and docs files included). **Stop after 5 iterations without progress** (the set of distinct failing stable jobs did not shrink): report what was fixed and what remains, and ask for guidance rather than churning. Productive iterations never trip the cap: a release paying down a long test-debt tail legitimately takes more than five pushes.
+8. **Repeat from step 2** until the five monitored workflows are green: every required job of each one passes. That covers every stable (✅) job of `tests.yaml`, and the ruff and mypy jobs of `lint.yaml` (test and docs files included). **Stop after 5 iterations without progress** (the set of distinct failing stable jobs did not shrink): report what was fixed and what remains, and ask for guidance rather than churning. Productive iterations never trip the cap: a release paying down a long test-debt tail legitimately takes more than five pushes.
 
 ### Early exit (human-invoked runs only)
 
@@ -201,7 +158,7 @@ A dispatch does settle one case: a version-bump commit, whose subject starts wit
 
 ```shell-session
 $ gh run view {run-id} --json jobs \
-    --jq '[.jobs[] | .conclusion] | group_by(.) | map({(.[0] // "running"): length}) | add'
+    --jq '[.jobs[] | (.conclusion | select(. != "")) // "running"] | group_by(.) | map({(.[0]): length}) | add'
 {"cancelled":2,"success":25}
 ```
 
@@ -230,8 +187,6 @@ Report the union explicitly: which cells passed in CI, which you closed locally,
 
 The workflow uses `continue-on-error` for unstable jobs, so the run can succeed even when they fail.
 
-`repomatic ci-status` does this classification, and doing it by hand is where it goes wrong: job-name shapes differ across workflows — `tests.yaml` names carry no workflow prefix (`✅ ubuntu-26.04 / py3.11`) while the release engine's arrive through the reusable call (`release / ✅ ubuntu-26.04, abc1234 build`) — so a test anchored at the start of the name misfiles one shape and a split on `" / "` misfiles the other, either way masking a real failure as green. Containment is the one test both shapes satisfy. Only `✅`/`⁉️` carry stability: a job whose name opens on some other emoji (`🛡️ Lint types`, `1️⃣ Run-once tests`) is required, so test for the absence of `⁉️` rather than for the presence of any glyph. A name that still holds both glyphs is a matrix GitHub never expanded, on a run stopped before the matrix got its cells: `ci-status` reads it as required. If you reformat job names for display, keep the raw string for the test.
-
 ## Error triage discipline
 
 Read the exact error messages before forming a hypothesis. The most common diagnostic mistake is latching onto a warning or unstable-job failure instead of the actual stable-job error.
@@ -239,14 +194,13 @@ Read the exact error messages before forming a hypothesis. The most common diagn
 1. **Filter first.** Gating and loop cadence read stable (✅) jobs only: an unstable (⁉️) failure never blocks the loop, never sets its tempo, and never queue-jumps a stable red. When an orchestrator like `/repomatic-ship` spawned this loop for a release, ⁉️ reds are still work owed under its genuinely-green goal: once no stable red is outstanding, read their logs and fix what is repo-fixable (a crash converted to a clean availability-gated skip, a flaky live install folded into a tolerated-exit set), leaving only genuine dev-interpreter breakage unfixed and named in the final report. Human-invoked runs keep the strict filter: discard ⁉️ logs entirely unless asked.
 2. **Quote the error.** Before proposing a fix, quote the exact failing line(s) from the log. If you cannot quote a specific error, you have not diagnosed the problem.
 3. **One cause at a time.** Multiple failing jobs often share a root cause: identify the common thread before treating each job as independent.
-4. **Distinguish test failures from lint failures.** A pytest `AssertionError` and a mypy `error:` have different fixes, but always analyze mypy and ruff failures together before fixing either (see [§ mypy/ruff fix oscillation](references/failure-patterns.md#mypy-ruff-fix-oscillation)).
+4. **Distinguish test failures from lint failures.** A pytest `AssertionError` and a mypy `error:` have different fixes, but always analyze mypy and ruff failures together before fixing either.
 5. **Do not fix warnings.** Deprecation and informational messages are not failures; ignore them unless they cause a stable job to fail.
 
 ## Common failure patterns
 
 When a job fails, read `references/failure-patterns.md` before fixing anything. It names the failures that are not code bugs, and what each one needs:
 
-- mypy/ruff fix oscillation, and the mypy scope mismatch between a local run and CI.
 - Platform-specific test skips, and cross-platform divergence.
 - Workflow and infrastructure failures, and GitHub API rate-limit exhaustion.
 - The PR-merge permission wall.

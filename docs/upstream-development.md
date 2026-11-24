@@ -52,7 +52,7 @@ Build `lint-commits` on pull request and push ranges, with `--range` for the gat
 ```
 
 ```{todo}
-Build `lint-docs` for Sphinx repositories, as its own command or as `lint-repo` checks gated on `is_sphinx`: `html_logo` beside the logo pair, `ogp_image` outside `_static`, the exec-directives flag, a suppressed `myst.xref_missing`, the `html_baseurl` slash, uncommented suppress, nitpick and linkcheck entries, an extension missing from the docs group, a setting equal to its Sphinx default, an `automodule` on a guide page, bare markers, an orphan `.rst` and the toctree shape. It retires about 3,500 words of the `sphinx-docs` agent and half of `sphinx-docs-sync`; `title-octicons` is the first row built.
+Build `lint-docs` for Sphinx repositories, as its own command or as `lint-repo` checks gated on `is_sphinx`: `html_logo` beside the logo pair, `ogp_image` outside `_static`, the exec-directives flag, a suppressed `myst.xref_missing`, the `html_baseurl` slash, uncommented suppress, nitpick and linkcheck entries, an extension missing from the docs group, a setting equal to its Sphinx default, an `automodule` on a guide page, bare markers, an orphan API page and the toctree shape. It retires about 3,500 words of the `sphinx-docs` agent and half of `sphinx-docs-sync`; `title-octicons` is the first row built.
 ```
 
 ```{todo}

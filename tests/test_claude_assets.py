@@ -275,7 +275,7 @@ def test_cooldown_window_is_a_placeholder(asset_id: str, body: str) -> None:
     assert not windows, (
         f"{asset_id} sets the literal cooldown window {windows[0]!r}. Write a "
         "{window} placeholder instead, and say where to read it: the env: "
-        "block of any .github/workflows/*.yaml carries the repository's own."
+        "block of tests.yaml or release.yaml carries the repository's own."
     )
 
 

@@ -36,7 +36,7 @@ You bring a downstream repository in line with `kdeldycke/repomatic`, and you do
 
 ### Determine invocation method
 
-Use `uvx --exclude-newer '{window}' --exclude-newer-package repomatic=P0D --from 'repomatic==X.Y.Z' -- repomatic`, with `X.Y.Z` the `ADOPTED_PIN` the context shows. Read `{window}` from the `UV_EXCLUDE_NEWER` value of any `.github/workflows/*.yaml`, which `repomatic init` renders from `[tool.repomatic] minimum-release-age`. The pin keeps the tool registry (`ruff`, `typos`, `mypy` versions) identical to what CI runs, and the cooldown gates the dependency tree while keeping a fresh release installable. References to `<cmd>` below resolve to it.
+Use `uvx --exclude-newer '{window}' --exclude-newer-package repomatic=P0D --from 'repomatic==X.Y.Z' -- repomatic`, with `X.Y.Z` the `ADOPTED_PIN` the context shows. Read `{window}` from the workflow-level `UV_EXCLUDE_NEWER` of `.github/workflows/tests.yaml` or `release.yaml`, which `repomatic init` renders from `[tool.repomatic] minimum-release-age`. The pin keeps the tool registry (`ruff`, `typos`, `mypy` versions) identical to what CI runs, and the cooldown gates the dependency tree while keeping a fresh release installable. References to `<cmd>` below resolve to it.
 
 ### Move the pin by hand
 
@@ -135,9 +135,9 @@ The adopted release checks most of the integration on its own. Run it before any
 
    An empty diff with no untracked file means every thin caller, each header-only workflow header and each `[tool.X]` section already present under ongoing sync equals what that release generates. Any hunk is `DRIFT` that the `sync-repomatic` job would rewrite. An untracked file is a managed file the repository lacks, which `git diff` never lists: `MISSING`, unless § Distinguishing real drift from intended absence explains it. Keep `--directory`: `--output-dir` alone writes into the copy but reads `[tool.repomatic]` from the directory the command started in. A managed file that looks wrong but leaves no hunk is what the generator writes: fix it upstream (§ Apply, step 4), never by hand.
 
-   An `init` that fails with `Unknown exclude`, `Unknown include` or `Unknown component` found an entry that names a component the release dropped or renamed. Report that entry as a `breaking` row.
+   An `init` that fails with `Unknown exclude`, `Unknown include`, `Unknown component` or `Unknown file` found an entry that names a component or a file the release dropped or renamed. Report that entry as a `breaking` row.
 
-2. **Run `<cmd> lint-repo --repo {owner}/{repo}`.** Without `--repo`, a local run has no `$GITHUB_REPOSITORY`, so every API-backed check drops out. A local run cannot read the repository secrets either, so `lint-repo` reports each of them as missing. Pass the flag of each secret `gh secret list --repo {owner}/{repo}` names: `--has-cloudflare-api-token`, `--has-cloudflare-r2-keys` for the two R2 keys, `--has-notifications-pat` and `--has-virustotal-key`. Its checks already cover thin-caller triggers and pins, the `setup-uv` version pin, inline upstream pins and their cooldown exemption, seeded tool-config entries, the rule set of `[tool.gitleaks]`, the default rules a `[tool.repomatic] gitignore.extra-content` value leaves out, the funding file and runner images. Compare one of those by hand only when `lint-repo` reports it skipped.
+2. **Run `<cmd> lint-repo --repo {owner}/{repo}`.** Without `--repo`, a local run has no `$GITHUB_REPOSITORY`, so every API-backed check drops out. A local run cannot read the repository secrets either, so `lint-repo` reports each of them as missing. Pass the flag of each secret `gh secret list --repo {owner}/{repo}` names: `--has-cloudflare-api-token`, `--has-cloudflare-r2-keys` for the two R2 keys, `--has-notifications-pat` and `--has-virustotal-key`. `<cmd> lint-repo --help` lists its checks. Compare one of them by hand only when `lint-repo` reports it skipped.
 
 The generator does not read hand-owned jobs, the comment beside a synced key, or an entry only the local file carries. Pass 2 compares those.
 
@@ -171,7 +171,7 @@ Run the areas the scope names, and apply the rules in § Distinguishing real dri
 
 #### 1. Workflow audit
 
-Compare the hand-owned job bodies of header-only workflows like `tests.yaml` against the reference. The `sync-action-pins` and `sync-workflow-pins` jobs already bump the action and tool pins there. Look for:
+Compare the hand-owned job bodies of header-only workflows like `tests.yaml` against the reference. The `autofix.yaml` workflow's `sync-deps` job already bumps the action and tool pins there, through its `sync-action-pins` and `sync-workflow-pins` pull requests. Look for:
 
 - **Missing workarounds**, like the `PYTHONIOENCODING: utf8` job variable that keeps Windows output in UTF-8.
 - **Outdated integration patterns**, like a third-party action where upstream now calls a `repomatic run` tool.
@@ -209,18 +209,9 @@ The generator run covers the `[tool.X]` sections under ongoing sync, and `lint-r
 
 Scan the downstream repo for patterns, workarounds, or configurations that are **better** than or **missing from** the upstream reference. These are candidates for contributing back to `kdeldycke/repomatic`. Look for:
 
-- **Broader test matrices**: e.g., more OS variants, extra Python versions, additional architecture coverage that upstream could adopt as defaults.
-- **Workarounds for known issues**: Steps or configs that fix CI failures or edge cases that upstream hasn't addressed yet.
-- **Better tool configurations**: e.g., ruff `extend-include` patterns, pytest addopts, coverage settings that are more complete than upstream.
-- **Useful `pyproject.toml` patterns**: e.g., dependency group definitions, build config, or tool settings that could be generalized.
-- **Custom workflow steps**: Reusable patterns in header-only workflows (e.g., package install verification, environment variable passing) that could become part of the reference workflow.
 - **Documentation improvements**: bundled skill or subagent guidance, issue templates, or repo metadata patterns that would benefit all downstream repos. Upstream no longer syncs instructions-file content into a consuming repo, so a convention worth spreading belongs in a skill or a subagent, never in a proposed `AGENTS.md` section.
 
-For each candidate, assess:
-
-1. **Generalizability**: Would this benefit most downstream repos, or is it project-specific?
-2. **Complexity**: Is it a simple config change or a significant workflow redesign?
-3. **Action**: Suggest filing as a GitHub issue or PR at `kdeldycke/repomatic`, with a draft title and description.
+For each candidate, suggest an issue or a pull request at `kdeldycke/repomatic`, with a draft title and description.
 
 ### Report
 
@@ -242,7 +233,7 @@ Give every row and every list item an ID, so the user can answer "apply `F3`" or
 
 3. **Run the local checks after each row.** The project's tests, `mypy` and `ruff`, plus `<cmd> lint-repo --repo {owner}/{repo}` when the row touched `.github/` or `pyproject.toml`. After a row that touched a workflow, also run `<cmd> run actionlint`, which parses its `${{ }}` expressions. A failing check vetoes the row: revert it and note it in the report. Never loosen a test to pass.
 
-4. **Send generator problems upstream, as edits in the sibling checkout.** When a row needs a change in `repomatic` itself (a generator writing something unwanted, a missing knob, a docs gap, a lesson a synced copy carries) and the context shows `SIBLING_CHECKOUT`, implement it in `../repomatic`: the code, the tests it breaks, and a changelog bullet. Verify it there. `repomatic run typos` and `mdformat` rewrite files in place and print no findings, so judge them by `git diff`. Another session may share that checkout: edit only the files the row needs, and name them in the report so they can be committed by pathspec. Leave every change uncommitted. Without a sibling checkout, describe the change in the report instead.
+4. **Send generator problems upstream, as edits in the sibling checkout.** When a row needs a change in `repomatic` itself (a generator writing something unwanted, a missing knob, a docs gap, a lesson a synced copy carries) and the context shows `SIBLING_CHECKOUT`, implement it in `../repomatic`: the code, the tests it breaks, and a changelog bullet. Verify it there. For `typos` and `mdformat`, run `repomatic run {tool} --verify -- {paths}`. It prints the diff of each file that the tool would rewrite, and leaves the tree as it is. Another session may share that checkout: edit only the files the row needs, and name them in the report so they can be committed by pathspec. Leave every change uncommitted. Without a sibling checkout, describe the change in the report instead.
 
 5. **Commit the applied rows in one commit, after the upgrade commit.** Stage only the files the rows changed in this repository, as § Commit the upgrade first does: `git add --all -- {paths}`, then `git commit -- {paths}`. Name the changes in the subject, and add one body line per change only when the subject cannot name them all. A row a check vetoed stays out. When no upgrade commit exists, like after a first adoption, a row path that also holds uncommitted `init` output takes that output along: show the diff of that path before you commit it.
 

@@ -256,7 +256,7 @@ class FileInventory:
 
         Skips:
 
-        - files which does not exists
+        - files that do not exist
         - directories
         - broken symlinks
         - files matching patterns specified by `.gitignore` or the exclude file

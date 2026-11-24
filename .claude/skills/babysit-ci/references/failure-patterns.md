@@ -2,22 +2,6 @@
 
 Failure shapes the `babysit-ci` loop meets, and what each one needs. `SKILL.md` holds the loop itself.
 
-<a id="mypy-ruff-fix-oscillation"></a>
-
-## mypy/ruff fix oscillation
-
-mypy and ruff can enter a fix loop where each tool's fix breaks the other. Common triggers:
-
-- **Unused import**: ruff removes an import (`F401`), mypy then complains about a missing name; re-adding triggers ruff again.
-- **Type annotation style**: mypy requires an explicit annotation, ruff considers it redundant or wants a different form.
-- **`noqa` vs `type: ignore`**: `# noqa` silences ruff but not mypy; `# type: ignore` silences mypy but ruff flags the unused directive.
-
-When the same lines toggle between fixes across iterations, stop and apply a combined resolution: a `# type: ignore[code]` with a matching `# noqa: XXXX` on the same line, or a restructuring that satisfies both at once.
-
-## mypy scope mismatch (local vs CI)
-
-The classic false green: mypy passes locally over a subset of directories while CI checks **every tracked Python file** (`tests/` and `docs/` included). Run it as a bare `repomatic run mypy` and the runner resolves that same list, so an error in a test or docs file surfaces before the push rather than after it. A directory list is what reintroduces the gap.
-
 ## Platform-specific test skips
 
 Some tests are skipped on certain platforms. Before investigating missing results, check which cells the matrix excludes. `repomatic show-test-matrix` lists the computed matrix that the bundled `tests.yaml` runs, with the `[tool.repomatic] test-matrix.exclude` entries applied. A `tests.yaml` with a hand-written matrix carries its own `exclude` section. Then check the `skip_platforms` entries in the binary self-test plan (`tests/cli-test-suite.toml`): individual cases can opt out of platforms without affecting the CI matrix.
@@ -27,9 +11,6 @@ Some tests are skipped on certain platforms. Before investigating missing result
 When a test passes locally but fails in CI, check platform differences before changing logic:
 
 - **Path lengths**: `~/.config/...` is shorter on Linux than macOS/Windows equivalents, affecting text-wrapping assertions.
-- **Terminal width**: CI runners may default differently than local dev machines.
-- **Encoding**: Windows defaults to `cp1252`, not `utf-8`.
-- **Line endings**: `\r\n` vs `\n` breaks exact-match assertions.
 - **Untracked files**: tests that enumerate files (`python_files`, `doc_files` metadata) see untracked local files that CI's clean checkout lacks. When updating expected file lists, include only tracked files; run `git status` to spot the divergence.
 
 ## Workflow and infrastructure failures
@@ -40,8 +21,6 @@ Not all CI failures are code bugs:
 - **A runner that died mid-step**: the step runs far past its baseline, and a cancel does not stop it. A live runner kills a cancelled step within ten seconds and keeps its partial log. A cancel does not apply to a job whose `if:` holds `always()`, so read that condition first. Any other job still `in_progress` with no `conclusion` a minute after the cancel has lost its runner: the server closes it at the five-minute [cancellation timeout](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-cancellation), and no log survives, neither at the job's log endpoint (`BlobNotFound`) nor in the run's log archive. A 404 from a job that is still running proves nothing, since every running job returns one. Re-run with `--failed`: there is nothing to diagnose.
 - **A required job `cancelled` with no runner and no steps**: its check run carries the annotation `The job was not acquired by Runner of type hosted even after multiple attempts`, because the hosted pool for its label had no capacity, often macOS arm64. The run concludes `failure` with no failed job and no job log. Re-run with `--failed`.
 - **A required job `cancelled` at its `timeout-minutes`**: its check run carries the annotation `The job has exceeded the maximum execution time of 30m0s`, and the run concludes `cancelled`, like a run a newer push stopped. No newer push stopped a run on the tip, so `ci-status` reads it there as `1 required job(s) cancelled` and blocks. Compare the step's duration with the last green run: a step that ran far past it hung. Re-run with `--failed`.
-- **Action version mismatches**: `Unable to resolve action`, deprecated-runtime errors. Fix the workflow YAML, not the Python.
-- **Network/registry flakiness**: `uv`/`pip` timeouts, PyPI 503s, `ConnectionResetError`. Re-run.
 - **A wall-clock budget assertion** (`assert elapsed_ms < N`) failing on a shared runner: infrastructure is the *trigger*, but the defect is the test, which took one sample and so measured that runner's worst moment rather than the code. A re-run only re-rolls the dice, and the tell that it has been re-rolled before is a budget already ratcheted upward in an earlier cycle for the same runner class. Assert on the fastest of several samples instead: a real regression slows every sample, a scheduling stall slows one. Raising the budget again is the fix that stops working.
 - **A stable job that turns red with no change to the tree or to the runner image**: a setup step met a different outside world, like a package manager that started a cleanup or a migration because its upstream metadata moved. The failing test only shows the symptom. Compare the setup output of the last green job with the red one before you read the test output: a step that prints new lines, or runs in one log only, names the cause. Fix that step. A re-run changes nothing, and a tolerated exit code hides the defect.
 - **Many fixture `ERROR`s right after a `Sync uv.lock` commit**: a bump of a test tool broke an isolation that the suite relied on. With pytest `9.2.0` and pytest-xdist `3.8.0`, `--dist=loadgroup` ignores `xdist_group`. The fix is merged in [pytest-dev/pytest-xdist#1388](https://github.com/pytest-dev/pytest-xdist/pull/1388) but not released ([pytest-dev/pytest-xdist#1407](https://github.com/pytest-dev/pytest-xdist/issues/1407)). A group that kept a shared output directory on one worker, like a Sphinx build, then spreads over every worker and races. `pytest -v` shows it: the results of one group carry several `[gwN]` prefixes. Make the fixture safe whatever the scheduler does: hold an exclusive `fcntl.flock` on a file under `tmp_path_factory.getbasetemp().parent`, which all the workers of a session share. Verify the fix through `uv run --frozen`: a venv synced before the bump still runs the old pytest, and stays green.
@@ -70,13 +49,12 @@ Diagnose with `gh api rate_limit` **before** touching token settings: `remaining
 
 ## PR-merge permission wall
 
-`gh pr merge` — and other write-heavy verbs (force-push, `reset --hard`, repo or release delete) — is commonly hard-denied in the operator's own Claude Code `settings.json` as a standing guard against irreversible actions, independent of any conversation. This deny is structural, not a per-call prompt: it fires identically whether or not a maintainer just authorized the exact command in chat, because it blocks the tool call itself rather than asking. Signs you have hit it, not a normal prompt: the denial is immediate with nothing to answer, and it recurs identically after a fresh, explicit, real-time go-ahead. Do not retry it, and do not read a maintainer's chat-level "yes, merge it" as actionable — a deny rule cannot be cleared from inside the session. Report the wall once and ask the maintainer to run the merge themselves, fully outside this session (their terminal, or the GitHub web UI): that is the only path this deny shape leaves open. The same holds when a hardware-key signing refusal blocks a direct commit (step 7 of `SKILL.md`): with both remedies walled, the release advances only by a human acting outside the tool.
+`gh pr merge` — and other write-heavy verbs (force-push, `reset --hard`, repo or release delete) — is commonly hard-denied in the operator's own Claude Code `settings.json` as a standing guard against irreversible actions, independent of any conversation. Do not retry it, and do not read a maintainer's chat-level "yes, merge it" as actionable — a deny rule cannot be cleared from inside the session. Report the wall once and ask the maintainer to run the merge themselves, fully outside this session (their terminal, or the GitHub web UI): that is the only path this deny shape leaves open. The same holds when a hardware-key signing refusal blocks a direct commit (step 7 of `SKILL.md`): with both remedies walled, the release advances only by a human acting outside the tool.
 
 ## Nuitka binary build failures (release.yaml)
 
-This section only applies to projects that build binaries (`[tool.repomatic] nuitka.enabled` with a CLI entry point); on a Nuitka-disabled project the per-platform jobs skip on every push and there is no matrix to fail. When enabled, the engine runs Nuitka across a 6-way OS/arch matrix on release commits, on the weekly `schedule` and on `workflow_dispatch`, narrowing an ordinary push to the `[tool.repomatic] nuitka.dev-targets` canary subset (job names are templated per platform, like `✅ {os}, {sha} build`); catching a break while the version is still `.dev0` avoids shipping a release with missing or broken binaries, which the immutable-release wall makes unrecoverable. Triage by category:
+The engine runs Nuitka across a 6-way OS/arch matrix (job names are templated per platform, like `✅ {os}, {sha} build`). Triage by category:
 
-- **Infrastructure** (runner OOM, shutdown signal, macOS runner crash, registry timeout): re-run the failed job (`gh run rerun <RELEASE_RUN_ID> --failed`); binary builds are resource-heavy and macOS runners crash more than most.
 - **Nuitka configuration** (`Error, unsupported ...`, an unknown `--flag`, a missing data file): fix `[tool.nuitka]` in `pyproject.toml`, not the Python source; verify each key maps to a current Nuitka option.
 - **Real compile or runtime errors** (the binary builds but its smoke test fails, a `ModuleNotFoundError` at runtime): fix the code or the `include-package`/`include-data-files` configuration, then push and re-monitor.
 
@@ -90,10 +68,9 @@ The matrix is slow: let `tests.yaml` and `lint.yaml` set the loop cadence, but a
 
 ## Autofix job failures (autofix.yaml)
 
-`autofix.yaml`'s jobs normally commit their fixes; a job that *crashes* turns the workflow red without producing one. Fetch the failed log (`gh run view <AUTOFIX_RUN_ID> --log-failed`) and triage:
+`autofix.yaml`'s jobs normally commit their fixes; a job that *crashes* turns the workflow red without producing one. Read its log in the files that step 4 of `SKILL.md` writes with `ci-status --failed-logs`, and triage:
 
 - **Tool-runner checksum mismatch** (`SHA-256 mismatch for https://...`): the pinned binary's hash no longer matches the published artifact, usually an upstream re-publish. The hashes ship inside the tool registry of repomatic, so only `kdeldycke/repomatic` can fix them. There, regenerate them with `repomatic update-checksums`, then confirm with `repomatic run <tool>`. In any other repository, `update-checksums` rewrites only the installed copy of the registry. Report the mismatch upstream as a blocker: the job stays red until a repomatic release carries the new hashes.
 - **External-tool output parse error** (a `RuntimeError`/`KeyError` in a parser, like `fix-vulnerable-deps` reading `uv audit` JSON): the tool's output schema drifted. Fix the parser and update the test fixture encoding the old shape.
-- **Dependency fails to build on the runner** (`Failed to build <pkg>`, a `maturin`/`cargo`/native-compiler error during install): usually self-inflicted, not upstream: a `runs-on` change *this cycle* moved the job to an architecture with no published wheel, forcing a doomed source build. Check `git log <last-tag>..HEAD` for the runner swap and revert it; a genuinely broken upstream artifact (failing on *every* platform) is the rarer case.
-- **`Unknown exclude '{name}'`, `Unknown include '{name}'` or `Unknown component '{name}' in …` from `repomatic init`**: a `[tool.repomatic]` entry names a component that the pinned release dropped or renamed. Drop or rename the entry as that release's changelog says. A re-run changes nothing.
+- **`Unknown exclude '{name}'`, `Unknown include '{name}'`, `Unknown component '{name}' in …` or `Unknown file '{name}' in …` from `repomatic init`**: a `[tool.repomatic]` entry names a component or a file that the pinned release dropped or renamed. Drop or rename the entry as that release's changelog says. A re-run changes nothing.
 - **Genuine content the job fixes** (real typos, an actual vulnerability): the job commits the fix and goes green on its own; nothing to do.
