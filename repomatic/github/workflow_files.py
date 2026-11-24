@@ -171,7 +171,13 @@ def load_workflows(directory: Path = WORKFLOW_DIR) -> dict[Path, dict[str, Any]]
 
 
 def workflow_triggers(data: object) -> dict[str, Any]:
-    """Extract a parsed workflow's `on:` mapping.
+    """Extract a parsed workflow's triggers, as a mapping of event to settings.
+
+    GitHub accepts three shapes for `on:`: a single event (`on: push`), a list of
+    events (`on: [push, pull_request]`) and a mapping of each event to its
+    settings. The first two read as a mapping of each event to `None`. That is
+    also how the third shape parses an event with no settings, so every caller
+    reads the events the same way, whatever shape the file uses.
 
     ```{note}
     PyYAML follows YAML 1.1, where a bare `on` key parses as the boolean `True`
@@ -188,6 +194,10 @@ def workflow_triggers(data: object) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {}
     triggers = data.get(True, data.get("on"))
+    if isinstance(triggers, str):
+        return {triggers: None}
+    if isinstance(triggers, list):
+        return dict.fromkeys(event for event in triggers if isinstance(event, str))
     return triggers if isinstance(triggers, dict) else {}
 
 

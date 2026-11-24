@@ -3401,6 +3401,9 @@ def _caller(workflow: str, ref: str = "v5.8.0", extra: str = "") -> str:
             '---\n"on":\n  workflow_dispatch:\n  push:\n', True, "has", id="present"
         ),
         pytest.param('---\n"on":\n  push:\n', False, "missing", id="absent"),
+        pytest.param(
+            "---\non: [push, workflow_dispatch]\n", True, "has", id="present-in-list"
+        ),
     ],
 )
 def test_workflow_dispatch(body, passed, needle):
@@ -3414,6 +3417,7 @@ def test_workflow_dispatch(body, passed, needle):
     "body",
     (
         pytest.param('---\n"on":\n  workflow_call:\n', id="reusable"),
+        pytest.param("---\non: workflow_call\n", id="reusable-single-event"),
         pytest.param(
             '---\n"on":\n  pull_request:\n  workflow_call:\n', id="reusable-with-push"
         ),
@@ -3475,6 +3479,15 @@ def test_thin_caller_triggers_match():
     # lint.yaml has: workflow_dispatch, push, pull_request.
     body = _caller("lint.yaml").replace(
         "---\n", '---\n"on":\n  workflow_dispatch:\n  push:\n  pull_request:\n'
+    )
+    (result,) = check_thin_caller_triggers(_workflows(lint=body))
+    assert result.passed is True
+
+
+def test_thin_caller_triggers_match_an_event_list():
+    """A caller can list its triggers on one line."""
+    body = _caller("lint.yaml").replace(
+        "---\n", "---\non: [workflow_dispatch, push, pull_request]\n"
     )
     (result,) = check_thin_caller_triggers(_workflows(lint=body))
     assert result.passed is True

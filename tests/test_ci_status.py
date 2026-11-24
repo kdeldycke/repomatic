@@ -451,6 +451,19 @@ def test_monitored_workflows_reads_the_yaml_boolean_on_key(tmp_path):
     assert monitored_workflows(tmp_path) == ["lint.yaml"]
 
 
+def test_workflow_discovery_reads_a_single_event_and_an_event_list(tmp_path):
+    """`on:` can name one event, or list several, in place of a mapping."""
+    (tmp_path / "tests.yaml").write_text("name: Tests\non: push\n", encoding="UTF-8")
+    (tmp_path / "lint.yml").write_text(
+        "name: Lint\non: [pull_request, push]\n", encoding="UTF-8"
+    )
+    (tmp_path / "labels.yml").write_text(
+        "name: Labels\non: [pull_request]\n", encoding="UTF-8"
+    )
+    assert monitored_workflows(tmp_path) == ["lint.yml", "tests.yaml"]
+    assert workflow_files(tmp_path) == ("labels.yml", "lint.yml", "tests.yaml")
+
+
 def test_monitored_workflows_missing_directory(tmp_path):
     """A repo with no workflows reports none rather than raising."""
     assert monitored_workflows(tmp_path / "absent") == []

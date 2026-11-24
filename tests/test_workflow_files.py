@@ -140,12 +140,19 @@ def test_load_workflows_reads_the_directory(tmp_path):
     (
         pytest.param("on:\n  push:\n", {"push": None}, id="bare-on"),
         pytest.param('"on":\n  push:\n', {"push": None}, id="quoted-on"),
-        pytest.param("on: push\n", {}, id="scalar-trigger"),
+        pytest.param("on: push\n", {"push": None}, id="single-event"),
+        pytest.param(
+            "on: [push, pull_request]\n",
+            {"push": None, "pull_request": None},
+            id="event-list",
+        ),
+        pytest.param("on: [push, 42]\n", {"push": None}, id="non-string-event"),
+        pytest.param("on:\n", {}, id="empty-on"),
         pytest.param("name: fig\n", {}, id="no-trigger"),
     ),
 )
 def test_workflow_triggers(text, expected):
-    """Both spellings of `on` read the same, and a non-mapping reads empty."""
+    """Each `on:` shape GitHub accepts reads as a mapping of event to settings."""
     assert workflow_triggers(load_workflow(text)) == expected
 
 
