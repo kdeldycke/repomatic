@@ -10,6 +10,7 @@
 - Fix `ci-status` and the `workflow-dispatch` and `thin-caller-triggers` checks of `lint-repo` ignoring an `on:` key that is a list or a single event.
 - Fix `ci-status --wait` ending when GitHub keeps failing to serve one workflow's run: it now reports that workflow and waits on the others.
 - Fix the `pat-permissions` check of `lint-repo` failing on a private repository with a `REPOMATIC_PAT` that holds Workflows: the check no longer probes that permission.
+- Fix `sync-workflow-pins` stepping the uv pin back below the uv `required-version` of the project, which fails every job that installs it.
 
 ## [`8.4.0` (2026-11-24)](https://github.com/kdeldycke/repomatic/compare/v8.3.1...v8.4.0)
 

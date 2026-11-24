@@ -68,6 +68,8 @@ from functools import cached_property, partial
 from pathlib import Path
 
 from click_extra import OperationTrail, run_jobs
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
 
 from ..components import BUNDLED_VERBATIM_TARGETS
 from ..file_ops import write_if_changed
@@ -82,6 +84,7 @@ from ..humanize import format_countdown, utc_midnight
 from ..init.tool_config import init_config
 from ..init.upgrade import upgrade_invite
 from ..pypi import PYPI_PACKAGE_URL, get_source_url, is_pypi_url
+from ..pyproject import load_pyproject_doc, uv_table
 from ..templating import PrTemplate
 from ..tooling import registry as tool_registry
 from ..tooling.checksums import update_registry_checksums
@@ -212,6 +215,27 @@ def _pinnable_files() -> dict[Path, str]:
     }
 
 
+def _uv_required_version() -> str | None:
+    """Read the `required-version` that uv enforces on this project.
+
+    uv reads `uv.toml` in place of the `[tool.uv]` table of `pyproject.toml`
+    when a project holds both, so this reads the files in the same order.
+
+    :return: The specifier as written, or `None` when the file uv reads sets
+        none.
+    """
+    uv_toml = Path("uv.toml")
+    pyproject = Path("pyproject.toml")
+    if uv_toml.is_file():
+        table = load_pyproject_doc(uv_toml)
+    elif pyproject.is_file():
+        table = uv_table(load_pyproject_doc(pyproject))
+    else:
+        return None
+    required = table.get("required-version")
+    return str(required) if required else None
+
+
 def _sync_actionlint_matcher(version: str) -> None:
     """Refresh the bundled actionlint problem matcher from the tag of *version*.
 
@@ -311,6 +335,11 @@ class ResolveContext:
     def pinnable_files(self) -> dict[Path, str]:
         """The `.github/` files the two pin updaters scan, read once per run."""
         return _pinnable_files()
+
+    @cached_property
+    def uv_required_version(self) -> str | None:
+        """The uv `required-version` of the project, read once per run."""
+        return _uv_required_version()
 
 
 @dataclass
@@ -1202,6 +1231,61 @@ def _gate_uv_on_checksums(
     return gated, unverified
 
 
+def _gate_uv_on_required_version(
+    candidates: list[Candidate],
+    required: str | None,
+    min_age: timedelta,
+    today: date,
+) -> list[Candidate]:
+    """Drop uv releases that the `required-version` of the project refuses.
+
+    Every `uv run` checks `required-version` before it does anything, so a pin
+    outside it fails each job that installs it, with `Required uv version ...
+    does not match the running version`. The checksum gate can ask for such a
+    pin: when the newest release that the pinned `setup-uv` can verify is below
+    the floor, stepping back to it trades a missing hash for a broken job. The
+    pin then holds where it is, until `sync-action-pins` moves `setup-uv` to a
+    release whose table reaches the floor.
+
+    uv reads a bare version as an exact requirement, so this does too.
+
+    :param candidates: The uv releases left by {func}`_gate_uv_on_checksums`.
+    :param required: The `required-version` of the project, or `None` when unset.
+    :param min_age: The stabilization window, to name the release it withheld.
+    :param today: Reference date for the cooldown computation.
+    :return: The candidates the specifier accepts, or all of them when it is
+        unset or unreadable.
+    """
+    if not required:
+        return candidates
+    try:
+        accepted = SpecifierSet(required)
+    except InvalidSpecifier:
+        try:
+            accepted = SpecifierSet(f"=={Version(required)}")
+        except InvalidVersion:
+            logging.warning(
+                f"Ignoring the unreadable uv required-version {required!r}."
+            )
+            return candidates
+    kept = [
+        candidate
+        for candidate in candidates
+        if accepted.contains(candidate.version, prereleases=True)
+    ]
+    newest = select_latest(candidates, min_age, today)
+    newest_kept = select_latest(kept, min_age, today)
+    if newest is not None and (
+        newest_kept is None or newest_kept.version != newest.version
+    ):
+        logging.warning(
+            f"uv {newest.version} is outside the required-version {required} of"
+            " the project: holding the uv pin until setup-uv verifies a release"
+            " inside it."
+        )
+    return kept
+
+
 def _docs_marker(marker: str) -> str:
     """Link a `sync-workflow-pins` table marker to the job's documentation.
 
@@ -1287,6 +1371,9 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             candidates, unverified_uv_pin = _gate_uv_on_checksums(
                 candidates, current_version, file_data, min_age, today
             )
+            candidates = _gate_uv_on_required_version(
+                candidates, rc.uv_required_version, min_age, today
+            )
         latest = select_latest(candidates, min_age, today)
         # Audit the pin already on disk, not just the one about to replace it.
         # A pin inside the window resolves through `uvx` in CI, which can read
@@ -1310,7 +1397,8 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             continue
         # The one move a pin makes downwards: a uv the pinned action cannot
         # checksum is repaired by the newest release it can, which is older
-        # than what sits on disk. See _gate_uv_on_checksums.
+        # than what sits on disk, and never below `required-version`. See
+        # _gate_uv_on_checksums and _gate_uv_on_required_version.
         step_back = unverified_uv_pin and is_newer(current_version, latest.version)
         if step_back:
             logging.warning(

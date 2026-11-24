@@ -66,6 +66,7 @@ from repomatic.deps.sync import (
     _apply_tool_versions,
     _finish_uv_plan,
     _gate_uv_on_checksums,
+    _gate_uv_on_required_version,
     _pinned_with_packages,
     _plan_file_rewrites,
     _resolve_action_pins,
@@ -73,6 +74,7 @@ from repomatic.deps.sync import (
     _resolve_tool_versions,
     _resolve_workflow_pins,
     _sync_actionlint_matcher,
+    _uv_required_version,
     _widest_changes,
     render_plan_markdown,
     run_sync_operations,
@@ -1614,12 +1616,15 @@ def test_uv_gate_reports_a_release_it_withheld(caplog):
 
 
 def _resolve_uv_pin(
-    pinned: str, verified: frozenset[str] | None = frozenset({"0.12.3", "0.12.4"})
+    pinned: str,
+    verified: frozenset[str] | None = frozenset({"0.12.3", "0.12.4"}),
+    required: str | None = None,
 ) -> SyncPlan:
     """Resolve the workflow pins of a job installing uv *pinned* via `setup-uv`.
 
     The pinned action's checksum table covers `0.12.3` and `0.12.4`, unless
     *verified* stands in for another table, or for an unreadable one (`None`).
+    The project sets no uv `required-version`, unless *required* gives one.
     """
     workflow = {
         Path("tests.yaml"): (
@@ -1633,6 +1638,7 @@ def _resolve_uv_pin(
         patch("repomatic.deps.sync._pinnable_files", return_value=workflow),
         patch("repomatic.deps.pins.pypi_candidates", return_value=list(UV_CANDIDATES)),
         patch("repomatic.deps.sync.setup_uv_verified_versions", return_value=verified),
+        patch("repomatic.deps.sync._uv_required_version", return_value=required),
     ):
         return _resolve_workflow_pins(rc)
 
@@ -1680,6 +1686,68 @@ def test_workflow_pins_hold_the_uv_pin_on_an_unreadable_table():
     plan = _resolve_uv_pin("0.12.3", verified=None)
     assert not plan.changes
     assert not plan.file_writes
+
+
+def test_workflow_pins_never_step_uv_below_required_version(caplog):
+    """A step back stops at the floor every `uv run` enforces.
+
+    Below it, each job that installs the pin fails before it runs anything, so
+    an unverified pin that still runs beats a verified one that cannot.
+    """
+    with caplog.at_level(logging.WARNING):
+        plan = _resolve_uv_pin("0.12.5", required=">=0.12.5")
+    assert not plan.changes
+    assert not plan.file_writes
+    assert "outside the required-version >=0.12.5" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("required", "kept"),
+    (
+        pytest.param(None, ["0.12.2", "0.12.3", "0.12.4"], id="unset"),
+        pytest.param(">=0.12.3", ["0.12.3", "0.12.4"], id="floor"),
+        pytest.param("0.12.3", ["0.12.3"], id="bare-version"),
+        pytest.param("ripe", ["0.12.2", "0.12.3", "0.12.4"], id="unreadable"),
+    ),
+)
+def test_uv_floor_gate_keeps_what_required_version_accepts(required, kept):
+    """A uv release that `required-version` refuses is not a candidate."""
+    gated = _gate_uv_on_required_version(
+        list(UV_CANDIDATES), required, MIN_AGE, GATE_TODAY
+    )
+    assert [candidate.version for candidate in gated] == kept
+
+
+@pytest.mark.parametrize(
+    ("files", "expected"),
+    (
+        pytest.param({}, None, id="no-file"),
+        pytest.param(
+            {"pyproject.toml": "[project]\nname = 'orchard'\n"}, None, id="no-floor"
+        ),
+        pytest.param(
+            {"pyproject.toml": '[tool.uv]\nrequired-version = ">=0.12.22"\n'},
+            ">=0.12.22",
+            id="pyproject",
+        ),
+        pytest.param(
+            {
+                "pyproject.toml": '[tool.uv]\nrequired-version = ">=0.12.22"\n',
+                "uv.toml": 'required-version = ">=0.13.0"\n',
+            },
+            ">=0.13.0",
+            id="uv-toml-wins",
+        ),
+    ),
+)
+def test_uv_required_version_reads_the_file_uv_reads(
+    tmp_path, monkeypatch, files, expected
+):
+    """uv reads `uv.toml` in place of `[tool.uv]`, and so does the floor reader."""
+    for name, text in files.items():
+        (tmp_path / name).write_text(text, encoding="UTF-8")
+    monkeypatch.chdir(tmp_path)
+    assert _uv_required_version() == expected
 
 
 def _lockstep_workflow(inline_pin: str) -> dict[Path, str]:
