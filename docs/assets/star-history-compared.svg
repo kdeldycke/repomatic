@@ -6,7 +6,6 @@
     .tick{font-size:12px;fill:#52514e}
     .lbl{font-size:13px;font-weight:600;fill:currentColor}
     .grid{stroke:#0b0b0b;stroke-opacity:.10;stroke-width:1}
-    .axis{font-size:12px;fill:#52514e}
     .prior{stroke-dasharray:6 4;stroke-width:1.5;opacity:.65}
     text.prior{font-size:11px;font-weight:600;opacity:1}
     .s-all-repos{stroke:#2a78d6;color:#2a78d6}
@@ -20,7 +19,7 @@
     .s-tf-github{stroke:#5a7f10;color:#5a7f10}
     @media (prefers-color-scheme: dark) {
       text{fill:#fff}
-      .tick,.axis{fill:#c3c2b7}
+      .tick{fill:#c3c2b7}
       .grid{stroke:#fff;stroke-opacity:.14}
       .s-all-repos{stroke:#3987e5;color:#3987e5}
       .s-allstar{stroke:#d95926;color:#d95926}
@@ -93,5 +92,5 @@
   <text class="lbl s-safe-settings" x="762" y="178.9">safe-settings · 927</text>
   <text class="lbl s-all-repos" x="762" y="193.9">all-repos · 638</text>
   <text class="lbl s-repomatic" x="762" y="245.4">repomatic · 65</text>
-  <text class="axis" x="58" y="450">Stars, 2011-11-01 to 2026-10-27, logarithmic scale · sampled on 2026-10-27</text>
+  <text class="tick" x="58" y="450">Stars, 2011-11-01 to 2026-10-27, logarithmic scale · sampled on 2026-10-27</text>
 </svg>

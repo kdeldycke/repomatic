@@ -966,6 +966,28 @@ def test_render_chart_styles_curves_by_attribute(history):
         assert not selector.search(stylesheet.group(1)), f"{shape} selector"
 
 
+def test_render_chart_dark_rules_restyle_no_lone_element(history):
+    """Check no class the dark theme restyles is carried by one element only.
+
+    An SVG optimizer like SVGO moves a rule that selects a single element into
+    the `style` attribute of that element. That attribute outranks every
+    stylesheet rule, so the element keeps its light colours in dark mode.
+    """
+    grouped = series(history, SUBJECTS, "stars", PREDECESSORS)
+    data = build_chart_data(grouped, ChartSpec(output=Path("chart.svg")))
+    svg = render_chart(data, label="Stars", stamp="2026-08-16")
+    dark = svg.split("prefers-color-scheme: dark", 1)[1].split("</style>", 1)[0]
+    restyled = set(re.findall(r"\.([a-z_-][\w-]*)", dark))
+    assert restyled
+    carried = Counter(
+        name
+        for attribute in re.findall(r' class="([^"]+)"', svg)
+        for name in attribute.split()
+    )
+    for name in restyled:
+        assert carried[name] != 1, f"only one element carries .{name}"
+
+
 @pytest.mark.parametrize("peak", (0, 1))
 @pytest.mark.parametrize("logarithmic", (False, True))
 def test_render_chart_survives_a_flat_or_single_star_history(peak, logarithmic):

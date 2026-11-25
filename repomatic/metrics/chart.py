@@ -647,6 +647,11 @@ def _stylesheet(colors: Mapping[str, tuple[str, str]]) -> str:
 
     A forerunner draws in the hue of the series it precedes, through the class
     the two share, so it adds no rule of its own.
+
+    Each class the dark theme restyles is carried by more than one element. An
+    SVG optimizer like SVGO moves a rule that selects a single element into the
+    `style` attribute of that element, and that attribute outranks the
+    dark-mode rule.
     """
     live = [
         (css_class(name), light, dark)
@@ -664,13 +669,12 @@ def _stylesheet(colors: Mapping[str, tuple[str, str]]) -> str:
     .tick{{font-size:12px;fill:#52514e}}
     .lbl{{font-size:13px;font-weight:600;fill:currentColor}}
     .grid{{stroke:#0b0b0b;stroke-opacity:.10;stroke-width:1}}
-    .axis{{font-size:12px;fill:#52514e}}
     .prior{{stroke-dasharray:6 4;stroke-width:1.5;opacity:.65}}
     text.prior{{font-size:11px;font-weight:600;opacity:1}}
 {css_light}
     @media (prefers-color-scheme: dark) {{
       text{{fill:#fff}}
-      .tick,.axis{{fill:#c3c2b7}}
+      .tick{{fill:#c3c2b7}}
       .grid{{stroke:#fff;stroke-opacity:.14}}
 {css_dark}
     }}
@@ -724,12 +728,14 @@ def render_chart(
     axis += scale_note
     body = "\n  ".join(parts)
     width, height, left = CHART_WIDTH, CHART_HEIGHT, plot.left
+    # The caption uses the tick class, not a class of its own: `_stylesheet`
+    # says why.
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}"
      width="{width}" height="{height}" font-family="system-ui, sans-serif"
      role="img" aria-label="{escape(described, quote=True)}">
 {_stylesheet(data.colors)}
   {body}
-  <text class="axis" x="{left}" y="{height - 10}">{escape(axis)} · sampled on {stamp}</text>
+  <text class="tick" x="{left}" y="{height - 10}">{escape(axis)} · sampled on {stamp}</text>
 </svg>
 """  # noqa: E501
 
