@@ -20,6 +20,9 @@ paragraph of a docstring, stays as long as it was written
 ([astral-sh/ruff#7414](https://github.com/astral-sh/ruff/issues/7414)), and `E501`
 then fails `lint-python` on it.
 
+autopep8 `2.3.2` shortens a comment line only under `--aggressive`. Even then, it
+wraps only the last line of a comment block, to at most 72 characters of text.
+
 {func}`fix_long_lines` pushes words down. An overlong line keeps the words that
 fit, and the rest open the next line of its paragraph. That line can overflow in
 turn, so the push goes on down the paragraph, and its last line gets a new one
