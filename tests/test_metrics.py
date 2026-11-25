@@ -943,6 +943,29 @@ def test_render_chart_escapes_a_series_name():
     assert ">a & b" not in svg
 
 
+def test_render_chart_styles_curves_by_attribute(history):
+    """Check each curve stays unfilled without a rule naming its element.
+
+    An SVG optimizer like SVGO rewrites a `<polyline>` as a `<path>`, so a
+    stylesheet rule selecting the shape by its element name stops applying. A
+    curve with no fill of its own is then filled black, from its last point
+    straight back to its first.
+    """
+    grouped = series(history, SUBJECTS, "stars", PREDECESSORS)
+    data = build_chart_data(grouped, ChartSpec(output=Path("chart.svg")))
+    svg = render_chart(data, label="Stars", stamp="2026-08-16")
+    curves = re.findall(r"<polyline [^>]*>", svg)
+    assert curves
+    for curve in curves:
+        assert 'fill="none"' in curve, curve
+    stylesheet = re.search(r"<style>(.*?)</style>", svg, flags=re.DOTALL)
+    assert stylesheet
+    # The shapes that the default preset of SVGO turns into another element.
+    for shape in ("ellipse", "line", "polygon", "polyline", "rect"):
+        selector = re.compile(rf"(?<![\w.#-]){shape}(?![\w-])")
+        assert not selector.search(stylesheet.group(1)), f"{shape} selector"
+
+
 @pytest.mark.parametrize("peak", (0, 1))
 @pytest.mark.parametrize("logarithmic", (False, True))
 def test_render_chart_survives_a_flat_or_single_star_history(peak, logarithmic):

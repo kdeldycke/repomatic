@@ -597,7 +597,15 @@ def _series(plot: _Plot) -> tuple[list[str], list[tuple[float, str, str]]]:
         slug = css_class(name)
         coords = " ".join(f"{plot.x_of(x):.1f},{plot.y_of(s):.1f}" for x, s in shifted)
         css = f"s-{slug} prior" if prior else f"s-{slug}"
-        parts.append(f'<polyline class="{css}" points="{coords}"/>')
+        # Styled by attributes, not by a `polyline` rule in the stylesheet. An
+        # SVG optimizer like SVGO rewrites the shape as a `<path>`, which that
+        # rule no longer selects, and a curve with no fill of its own is filled
+        # black. A stylesheet rule still overrides an attribute, so `.prior`
+        # keeps its thinner stroke.
+        parts.append(
+            f'<polyline class="{css}" points="{coords}" fill="none" '
+            'stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
+        )
         end_offset, end_stars = shifted[-1]
         if prior:
             # Annotated where it stops rather than in the right margin: a
@@ -657,7 +665,6 @@ def _stylesheet(colors: Mapping[str, tuple[str, str]]) -> str:
     .lbl{{font-size:13px;font-weight:600;fill:currentColor}}
     .grid{{stroke:#0b0b0b;stroke-opacity:.10;stroke-width:1}}
     .axis{{font-size:12px;fill:#52514e}}
-    polyline{{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}}
     .prior{{stroke-dasharray:6 4;stroke-width:1.5;opacity:.65}}
     text.prior{{font-size:11px;font-weight:600;opacity:1}}
 {css_light}
