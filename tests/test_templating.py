@@ -541,7 +541,7 @@ def test_render_prepare_release_without_review_steps():
         ),
         pytest.param(
             "format-python",
-            ("[!TIP]", "[tool.ruff]", "[tool.autopep8]"),
+            ("[!TIP]", "[tool.ruff]", "line-length"),
             id="format-python",
         ),
     ],

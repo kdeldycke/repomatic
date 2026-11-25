@@ -109,7 +109,7 @@ Ten separate Python linters and formatters, two of them mdformat plugins, have b
 | `blacken-docs`   | Python formatting in Markdown code blocks                                              | Feb 2026 |
 | `mdformat-ruff`  | Same as `mdformat-black`, through a second ruff pinned inside the mdformat environment | Aug 2026 |
 
-`autopep8` is the only legacy formatter still in use: it handles long-line comment wrapping that ruff does not yet cover ([astral-sh/ruff#7414](https://github.com/astral-sh/ruff/issues/7414)).
+No legacy formatter is left in the pipeline. Ruff does not wrap long comments yet ([astral-sh/ruff#7414](https://github.com/astral-sh/ruff/issues/7414)): `repomatic fix-long-lines` wraps them, and the paragraphs of docstrings too.
 
 ### uv consolidation
 

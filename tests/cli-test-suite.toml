@@ -203,6 +203,12 @@ strip_ansi = true
 stdout_contains = "Usage: repomatic fix-awesome-toc"
 
 [[cases]]
+cli_parameters = "fix-long-lines --help"
+exit_code = 0
+strip_ansi = true
+stdout_contains = "Usage: repomatic fix-long-lines"
+
+[[cases]]
 cli_parameters = "format-images --help"
 exit_code = 0
 strip_ansi = true

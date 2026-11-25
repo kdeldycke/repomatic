@@ -76,6 +76,7 @@ from ..init.run import DeletionPolicy, ReportSection, run_init
 from ..init.upgrade import hand_off_upgrade, resolve_upgrade_target, upgrade_report
 from ..lint_repo.context import LintContext
 from ..lint_repo.roster import REPO_CHECK_HELP_LIST, run_repo_lint
+from ..long_lines import fix_long_lines
 from ..mailmap import MAILMAP_PATH, Mailmap
 from ..metadata.core import (
     METADATA_KEYS_HEADER_DEFS,
@@ -961,6 +962,44 @@ def fix_awesome_toc_cmd() -> None:
 
     for readme, removed in report.items():
         echo(f"{readme}: removed {', '.join(removed)}")
+
+
+@subcommand(
+    short_help="Wrap the comment and docstring lines past the line length",
+    examples=(
+        ("Wrap every Python source of the repository", "repomatic fix-long-lines"),
+        (
+            "Wrap one file at 100 columns",
+            "repomatic fix-long-lines --line-length 100 orchard.py",
+        ),
+    ),
+)
+@option(
+    "--line-length",
+    type=IntRange(1),
+    help="Longest width a line may take. Defaults to the line-length of the Ruff "
+    "configuration, then to 88.",
+)
+@argument("paths", nargs=-1, type=file_path(exists=True))
+def fix_long_lines_cmd(line_length: int | None, paths: tuple[Path, ...]) -> None:
+    """Wrap the comment and docstring lines that run past the line length.
+
+    Ruff's formatter wraps code, and keeps the line breaks of comments and
+    docstrings. This moves the words of an overlong line down into the next line
+    of its paragraph, and leaves every other line break in place.
+
+    \b
+    A line that it cannot shorten stays as it is, for a human to reword: a
+    string literal, a trailing or pragma comment, the summary line of a
+    docstring, and a code block, a doctest or a table in a docstring.
+    """
+    report = fix_long_lines(paths or None, line_length)
+    if not report:
+        echo("No comment or docstring line to wrap.")
+        return
+
+    for path, shortened in report.items():
+        echo(f"{path}: wrapped {shortened} line(s)")
 
 
 @subcommand(

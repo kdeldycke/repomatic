@@ -185,14 +185,6 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.6"
-      - name: Run autopep8
-        if: fromJSON(needs.metadata.outputs.metadata).python_files
-        # Ruff is not wrapping comments: https://github.com/astral-sh/ruff/issues/7414
-        # We use autopep8 to only wrap long-line comments.
-        # An explicit file list is required, as autopep8 cannot find files in the
-        # ".github" subdirectory on its own: the tool runner resolves it. See
-        # `ToolSpec.default_paths` in repomatic/tooling/registry.py.
-        run: uv --no-progress run --frozen -- repomatic run autopep8
       # XXX Ruff is planning to support linting and formatting in one unified command at one point.
       #     See: https://github.com/astral-sh/ruff/issues/8232
       - name: Run Ruff
@@ -206,6 +198,12 @@ jobs:
             check --output-format github --exit-zero
           uv --no-progress run --frozen -- repomatic run ruff -- \
             format --output-format github
+      # Ruff wraps code but not prose: https://github.com/astral-sh/ruff/issues/7414.
+      # Runs after the formatter, to wrap the lines as they end up. See
+      # repomatic/long_lines.py for what it leaves to a human.
+      - name: Wrap long comment and docstring lines
+        if: fromJSON(needs.metadata.outputs.metadata).python_files
+        run: uv --no-progress run --frozen -- repomatic fix-long-lines
       - name: Sync pull request
         env:
           GH_TOKEN: ${{ secrets.REPOMATIC_PAT || github.token }}

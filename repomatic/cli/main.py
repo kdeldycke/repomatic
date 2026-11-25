@@ -112,6 +112,9 @@ COMMANDS: dict[str, LazySubcommand] = {
     "fix-awesome-toc": LazySubcommand(
         "repomatic.cli.repo.fix_awesome_toc_cmd", section=_section_lint
     ),
+    "fix-long-lines": LazySubcommand(
+        "repomatic.cli.repo.fix_long_lines_cmd", section=_section_lint
+    ),
     "format-images": LazySubcommand(
         "repomatic.cli.repo.format_images", section=_section_lint
     ),

@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Add `fix-long-lines`, which wraps the comment and docstring lines past the line length. It replaces `autopep8` in the `format-python` job, which wrapped none of them.
 - The `repomatic-upgrade` skill now gives the hand bump of the pin with `init --no-cooldown`, and `brand-assets` warns about stale `qlmanage` thumbnails.
 - The bundled skills and agents drop the guidance that a check now enforces, repeated rules and incident stories, and their stale claims are fixed.
 - Fix `ci-status` and the `workflow-dispatch` and `thin-caller-triggers` checks of `lint-repo` ignoring an `on:` key that is a list or a single event.

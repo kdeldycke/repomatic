@@ -192,7 +192,7 @@ repomatic post-processes the output of `mdformat` to undo two `mdformat-myst` re
 
 ### Python formatting
 
-- [`ruff#7414` - Formatter: wrap comments (`E501`)](https://github.com/astral-sh/ruff/issues/7414): Ruff does not wrap long comments. The `format-python` job also runs `autopep8`, limited to that one fix.
+- [`ruff#7414` - Formatter: wrap comments (`E501`)](https://github.com/astral-sh/ruff/issues/7414): Ruff does not wrap long comments. The `format-python` job runs `repomatic fix-long-lines` for them, and for the paragraphs of docstrings.
 
 ### Shell formatting
 

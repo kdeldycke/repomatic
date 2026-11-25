@@ -6,4 +6,4 @@ labels: [🤖 ci]
 ---
 
 > [!TIP]
-> Customize formatting and linting rules via [`[tool.ruff]`](https://docs.astral.sh/ruff/configuration/) and [`[tool.autopep8]`](https://github.com/hhatto/autopep8#configuration) in your `pyproject.toml`.
+> Customize formatting and linting rules via [`[tool.ruff]`](https://docs.astral.sh/ruff/configuration/) in your `pyproject.toml`. Its `line-length` also sets where `fix-long-lines` wraps comments and docstrings.

@@ -122,14 +122,14 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 
 ### 🐍 Format Python (`format-python`)
 
-- Auto-formats Python code using [`autopep8`](https://github.com/hhatto/autopep8) (comment wrapping) and [`ruff`](https://github.com/astral-sh/ruff) (linting and formatting)
+- Auto-formats Python code using [`ruff`](https://github.com/astral-sh/ruff) (linting and formatting), then wraps the comment and docstring lines past the line length with `repomatic fix-long-lines`, which leaves every other line break in place
 - When the project has no `[tool.ruff]` section or `ruff.toml`, [repomatic's bundled defaults](https://github.com/kdeldycke/repomatic/blob/main/repomatic/data/ruff.toml) are applied at runtime
 - **Requires**:
   - Python files (`**/*.{py,pyi,pyw,pyx,ipynb}`) in the repository, or
   - documentation files (`**/*.{markdown,mdown,mkdn,mdwn,mkd,md,mdtxt,mdtext,mdx,rst,tex}`)
 
 ```{todo}
-Collapse the job's two Ruff steps, `check` then `format`, into one invocation once Ruff unifies linting and formatting behind a single command: [astral-sh/ruff#8232](https://github.com/astral-sh/ruff/issues/8232). The `autopep8` step goes the same way once Ruff wraps long comments: [astral-sh/ruff#7414](https://github.com/astral-sh/ruff/issues/7414).
+Collapse the job's two Ruff steps, `check` then `format`, into one invocation once Ruff unifies linting and formatting behind a single command: [astral-sh/ruff#8232](https://github.com/astral-sh/ruff/issues/8232). Drop the `fix-long-lines` step and its command once Ruff wraps long comments and docstrings: [astral-sh/ruff#7414](https://github.com/astral-sh/ruff/issues/7414).
 ```
 
 ### 📐 Format `pyproject.toml` (`format-pyproject`)

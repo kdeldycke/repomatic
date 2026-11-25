@@ -54,6 +54,7 @@
    repomatic.humanize
    repomatic.images
    repomatic.lint_changelog
+   repomatic.long_lines
    repomatic.mailmap
    repomatic.markdown
    repomatic.npm

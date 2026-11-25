@@ -59,6 +59,7 @@
    tests.test_labels
    tests.test_lint_changelog
    tests.test_lint_repo
+   tests.test_long_lines
    tests.test_mailmap
    tests.test_manpages
    tests.test_markdown

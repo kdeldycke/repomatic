@@ -321,8 +321,9 @@ format.docstring-code-format = true
 # D209: Multi-line docstring closing quotes should be on a separate line.
 #   See: https://docs.astral.sh/ruff/rules/new-line-after-last-paragraph/
 # E501: Line too long.
-#   The formatter wraps code and autopep8 wraps comments, but neither touches a
-#   docstring or a string literal, which is where overlong lines survive.
+#   The formatter wraps code, and `repomatic fix-long-lines` wraps comments and
+#   docstring paragraphs. Overlong lines survive in string literals, and in the
+#   docstring summaries and samples that a wrap would break.
 #   See: https://docs.astral.sh/ruff/rules/line-too-long/
 # PLC0415: `import` should be at the top-level of a file.
 #   A function-local import hides a dependency and escapes isort.
