@@ -484,6 +484,7 @@ addopts = [
 ]
 # https://docs.pytest.org/en/latest/customize.html#pyproject-toml
 markers = [
+  "network: Tests that require network access (excluded with -m 'not network').",
   "once: Tests that only need to run once, not across the full CI matrix.",
 ]
 # A config key pytest does not know, a marker this table does not declare, and

@@ -38,6 +38,7 @@
    tests.test_dep_sources
    tests.test_dev_release
    tests.test_docs
+   tests.test_docs_directives
    tests.test_docstrings
    tests.test_event
    tests.test_file_ops

@@ -438,7 +438,8 @@ _TEMPLATE_SUPERSET_KEYS: dict[str, frozenset[str]] = {
     "bumpversion": frozenset({"files"}),
     "coverage": frozenset(),
     "mypy": frozenset(),
-    "pytest": frozenset(),
+    # A project declares its own markers beside the `once` marker of the template.
+    "pytest": frozenset({"markers"}),
     # The flake8-copyright rule checks for the GPL header of this repository's
     # own copyright holder, so the rule and its pattern stay out of the template.
     "ruff": frozenset({"extend-select"}),

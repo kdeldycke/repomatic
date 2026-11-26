@@ -44,8 +44,13 @@ if sys.platform != "win32":
 # The docs dependency group requires Python >= 3.14 (see pyproject.toml
 # [tool.uv] dependency-groups.docs). Only build under the same conditions the
 # docs workflow uses: Linux, that Python floor, and uv available to provision
-# the docs environment.
+# the docs environment. The build takes minutes and gives the same answer on
+# every cell, so it is a run-once test, filtered out of the cross-platform
+# matrix. `uv` and the intersphinx inventories need the network, so the module
+# is a network test too, which a packager deselects.
 pytestmark = [
+    pytest.mark.network,
+    pytest.mark.once,
     pytest.mark.skipif(
         not sys.platform.startswith("linux"),
         reason="docs are built on Linux in CI",
