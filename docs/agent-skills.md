@@ -83,14 +83,14 @@ These steps take a downstream repository from a fresh checkout to its first rele
 
 ## Fully automated workflow
 
-Step 3 of the [walkthrough](#walkthrough-setup-to-first-release) is the same skill whether you drive it or not. Under `--dangerously-skip-permissions`, [`/repomatic-ship`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-ship/SKILL.md) runs the whole release prep hands-off: reconcile, commit, push, and babysit CI until the release PR is green, pausing for nothing. In normal use the permission prompts are the review gate; skipping permissions removes them.
+Step 3 of the [walkthrough](#walkthrough-setup-to-first-release) is the same skill whether you drive it or not. Under `--dangerously-skip-permissions`, [`/repomatic-ship`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/repomatic-ship/SKILL.md) runs the whole release prep hands-off: reconcile, commit, push, and babysit CI until the release PR is green. In normal use the permission prompts are the review gate; skipping permissions removes them.
 
 ```shell-session
 $ claude --dangerously-skip-permissions /repomatic-ship
 ```
 
 ```{warning}
-`--dangerously-skip-permissions` disables *every* permission prompt for the session: Claude Code commits, pushes, and runs shell commands without asking first. Only use it when you trust the repository state, ideally inside a sandbox or disposable checkout.
+`--dangerously-skip-permissions` removes the permission prompts and the auto-mode classifier for the session: Claude Code commits, pushes, and runs shell commands without asking first. Some checks stay on in Claude Code `2.1.326`: a deny rule blocks the call it matches, and an ask rule prompts. A few safety checks also prompt, like the one on a dangerous `rm`. Only use the flag when you trust the repository state, ideally inside a sandbox or disposable checkout.
 ```
 
 The judgment-heavy sweep (changelog consolidation, the version read) runs on Opus, while the mechanical CI-fixing loop is delegated to a Sonnet subagent running [`/babysit-ci`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/babysit-ci/SKILL.md). Its autonomous commits carry a `Co-Authored-By` trailer, and it stops at a green release PR: the final "Rebase and merge" stays yours.

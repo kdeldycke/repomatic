@@ -23,7 +23,7 @@ $ claude --dangerously-skip-permissions --model sonnet /babysit-ci
 ```
 
 > [!WARNING]
-> `--dangerously-skip-permissions` bypasses every permission prompt for the whole session: only use it in an environment you trust, ideally a sandbox or disposable checkout, never against an unfamiliar repository or untrusted input.
+> `--dangerously-skip-permissions` removes the permission prompts and the auto-mode classifier for the whole session. Some checks stay on in Claude Code `2.1.326`: a deny rule blocks the call it matches, and an ask rule prompts. A few safety checks also prompt. Only use the flag in an environment you trust, ideally a sandbox or disposable checkout, never against an unfamiliar repository or untrusted input.
 
 Because this loop runs autonomously without human review, **every commit carries a `Co-Authored-By: Claude <noreply@anthropic.com>` trailer by default** so unattended changes stay traceable, including where a project `AGENTS.md` or a global `~/.claude/CLAUDE.md` says nothing about commit attribution. The default yields to one thing: an explicit standing rule from the repository's maintainer against AI attribution, which outranks it because the trailer lands in their permanent history. A parent skill (like `/repomatic-ship`) spawning this loop does not by itself relax the requirement, but an exemption that skill passes down does, and it binds every commit made from that point on.
 
