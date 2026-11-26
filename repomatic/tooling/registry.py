@@ -1390,27 +1390,27 @@ CHECKSUMS: dict[str, dict[PlatformKey, str]] = {
         (
             LINUX,
             AARCH64,
-        ): "cb34cefc6f4e77b90731374a2b737516bb8f3033c6ca46aa949e5344f68069e3",
+        ): "b1278c75107423d818f1937fd92cafc9e5e9b606631568f68d7fb816f5885a02",
         (
             LINUX,
             X86_64,
-        ): "98cb101ad87dbbd3f6b2f2bfcbd43197ccd07643140121d8a9cfaa91eadbc24e",
+        ): "79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f",
         (
             MACOS,
             AARCH64,
-        ): "23b12706219b9892e44236f988444a24adcf29284e16b35e03ba5b863fb6eb8e",
+        ): "2a5d03103ae444927383b93d9ffd65579a26e2eb900ce1cf11f55258d5319ded",
         (
             MACOS,
             X86_64,
-        ): "a8c2a708dbae89dc7c05ba7b0beafc95bd8d09ab4a3505467b77d32ebf364dc6",
+        ): "23602cbccbbdc6285a8520745b714cb927ce2ca621779373c2a20cd8e33fda66",
         (
             WINDOWS,
             AARCH64,
-        ): "d56fbf5b9ad32e5985e3e7e1d8f4d28ae2994618986cd2cba9b50ac710dffe01",
+        ): "5282a09c7757210c6e2dfb11a56b11e14e646df9b3b6a49f155465f5f881c3b7",
         (
             WINDOWS,
             X86_64,
-        ): "08c06d10482f12c478018cd259f64acbd5f625712cadf331aad19ba973c879e5",
+        ): "8813a72c899900afaa10e3fec8fbc64b908c89dbfe837e95ed2fa500fc140627",
     },
     "gitleaks": {
         (
@@ -1586,7 +1586,7 @@ the registry, and so `VERSIONS` can anchor the offline staleness test.
 VERSIONS: dict[str, str] = {
     "actionlint": "1.7.12",
     "biome": "2.6.8",
-    "gh": "2.104.0",
+    "gh": "2.105.0",
     "gitleaks": "8.30.1",
     "labelmaker": "0.6.5",
     "lychee": "0.24.2",
@@ -1837,7 +1837,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "gh": ToolSpec(
         name="gh",
         display_name="GitHub CLI",
-        version="2.104.0",
+        version="2.105.0",
         source_url="https://github.com/cli/cli",
         cli_docs_url="https://cli.github.com/manual/",
         binary=BinarySpec(
@@ -2201,7 +2201,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "npm": ToolSpec(
         name="npm",
-        version="12.2.2",
+        version="12.2.3",
         npm=NpmSpec(),
         source_url="https://github.com/npm/cli",
         cli_docs_url="https://docs.npmjs.com/cli/",
@@ -2610,7 +2610,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "wrangler": ToolSpec(
         name="wrangler",
         display_name="Wrangler",
-        version="4.164.0",
+        version="4.165.0",
         npm=NpmSpec(),
         source_url="https://github.com/cloudflare/workers-sdk",
         # The monorepo tags each package of it, like `wrangler@4.150.0`: the
