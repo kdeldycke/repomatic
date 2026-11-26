@@ -14,11 +14,11 @@ flowchart LR
 
     pygments(["`pygments`"])
     requests(["`requests`"])
+    docutils(["`docutils`"])
     jinja2(["`jinja2`"])
     typing_extensions(["`typing-extensions`"])
     beautifulsoup4(["`beautifulsoup4`"])
     cloup(["`cloup`"])
-    docutils(["`docutils`"])
     markdown_it_py(["`markdown-it-py`"])
     accessible_pygments(["`accessible-pygments`"])
     click_0(["`click`"])
@@ -58,11 +58,11 @@ flowchart LR
         pytest{{"`pytest >=9.0.3`"}}
         myst_parser{{"`myst-parser >=5.2`"}}
         furo{{"`furo >=2025.12.19`"}}
+        sphinx_autodoc_typehints{{"`sphinx-autodoc-typehints >=3.14`"}}
         pytest_cov{{"`pytest-cov >=7.1`"}}
         pytest_xdist{{"`pytest-xdist >=3.7`"}}
         sphinx_datatables{{"`sphinx-datatables >=1`"}}
         sphinxcontrib_mermaid{{"`sphinxcontrib-mermaid >=2.1`"}}
-        sphinx_autodoc_typehints{{"`sphinx-autodoc-typehints >=3.14`"}}
         sphinxcontrib_jquery{{"`sphinxcontrib-jquery >=4`"}}
         coverage{{"`coverage >=7.16.2`"}}
         pytest_github_actions_annotate_failures{{"`pytest-github-actions-annotate-failures >=0.4.2`"}}
@@ -97,8 +97,8 @@ flowchart LR
     sphinx --> packaging
     sphinx --> pygments
     sphinx --> requests
-    sphinx --> jinja2
     sphinx --> docutils
+    sphinx --> jinja2
     sphinx --> colorama
     sphinx --> alabaster
     sphinx --> babel
@@ -115,8 +115,8 @@ flowchart LR
     click_extra --> myst_parser
     click_extra --> packaging
     click_extra --> pygments
-    click_extra --> cloup
     click_extra --> docutils
+    click_extra --> cloup
     click_extra --> wcmatch
     click_extra --> click_0
     click_extra --> extra_platforms
@@ -128,8 +128,8 @@ flowchart LR
     pytest --> pluggy
     pytest --> iniconfig
     myst_parser --> sphinx
-    myst_parser --> jinja2
     myst_parser --> docutils
+    myst_parser --> jinja2
     myst_parser --> markdown_it_py
     myst_parser --> pyyaml
     myst_parser --> mdit_py_plugins
@@ -138,6 +138,10 @@ flowchart LR
     furo --> beautifulsoup4
     furo --> accessible_pygments
     furo --> sphinx_basic_ng
+    sphinx_autodoc_typehints --> sphinx
+    sphinx_autodoc_typehints --> pygments
+    sphinx_autodoc_typehints --> docutils
+    sphinx_autodoc_typehints --> typing_extensions
     pytest_cov --> pytest
     pytest_cov --> coverage
     pytest_cov --> pluggy
@@ -150,8 +154,6 @@ flowchart LR
     sphinxcontrib_mermaid --> sphinx
     sphinxcontrib_mermaid --> jinja2
     sphinxcontrib_mermaid --> pyyaml
-    sphinx_autodoc_typehints --> sphinx
-    sphinx_autodoc_typehints --> typing_extensions
     sphinxcontrib_jquery --> sphinx
     wcmatch --> bracex
     py_walk --> sly
