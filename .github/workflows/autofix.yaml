@@ -48,9 +48,9 @@ concurrency:
 # any command in this workflow. Set here, not per command, so it also covers the
 # `metadata` bootstrap and any step added later; a workflow-level `env:` cannot
 # reference `needs`, so the window is a literal kept equal to `[tool.repomatic]
-# minimum-release-age`. repomatic's own test suite enforces that upstream; a
-# synced copy is kept in step by hand. Deliberate bypasses are per-package CLI
-# flags (`--exclude-newer-package`, `--min-release-age-exclude`).
+# minimum-release-age`. repomatic's own test suite enforces that upstream, and
+# `repomatic init` writes a synced copy from that key. Deliberate bypasses are
+# per-package CLI flags (`--exclude-newer-package`, `--min-release-age-exclude`).
 # See https://repomatic.net/workflows#install-time-cooldown for the rationale.
 env:
   NPM_CONFIG_MIN_RELEASE_AGE: 7
