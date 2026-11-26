@@ -83,6 +83,7 @@ from ..http import FetchError, get_json
 from ..humanize import format_countdown, utc_midnight
 from ..init.tool_config import init_config
 from ..init.upgrade import upgrade_invite
+from ..metadata.core import Metadata
 from ..pypi import PYPI_PACKAGE_URL, get_source_url, is_pypi_url
 from ..pyproject import load_pyproject_doc, uv_table
 from ..templating import PrTemplate
@@ -113,6 +114,7 @@ from .pins import (
     apply_workflow_literals,
     find_action_pins,
     find_upstream_ref_versions,
+    find_uv_run_packages,
     find_workflow_literals,
     format_cooldown_note,
     github_candidates,
@@ -236,6 +238,15 @@ def _uv_required_version() -> str | None:
     return str(required) if required else None
 
 
+def _python_floor() -> tuple[int, int] | None:
+    """Read the oldest Python that the project supports.
+
+    :return: The `requires-python` floor of the project, as `(major, minor)`, or
+        `None` when it declares none.
+    """
+    return Metadata().requires_python_floor
+
+
 def _sync_actionlint_matcher(version: str) -> None:
     """Refresh the bundled actionlint problem matcher from the tag of *version*.
 
@@ -340,6 +351,11 @@ class ResolveContext:
     def uv_required_version(self) -> str | None:
         """The uv `required-version` of the project, read once per run."""
         return _uv_required_version()
+
+    @cached_property
+    def python_floor(self) -> tuple[int, int] | None:
+        """The oldest Python of the project, read once per run."""
+        return _python_floor()
 
 
 @dataclass
@@ -1286,6 +1302,46 @@ def _gate_uv_on_required_version(
     return kept
 
 
+def _gate_on_python_floor(
+    package: str,
+    candidates: list[Candidate],
+    floor: tuple[int, int],
+    min_age: timedelta,
+    today: date,
+) -> list[Candidate]:
+    """Drop the releases of a `uv run --with` package that the oldest Python refuses.
+
+    `uv run --with` installs the package into the environment of the project, so
+    a project that tests on the oldest Python it supports installs it there. A
+    release whose `requires-python` leaves that Python out fails those jobs with
+    `No solution found`, while the jobs on a newer Python pass. The pin holds at
+    the newest release that the oldest Python can install, until the project
+    raises its floor.
+
+    That hold is the ordinary state of a package that drops a Python before the
+    project does, so it is announced at info level, like the uv checksum gate.
+
+    :param package: The PyPI package, to name it in the log.
+    :param candidates: The releases of the package.
+    :param floor: The oldest Python of the project, as `(major, minor)`.
+    :param min_age: The stabilization window, to name the release it withheld.
+    :param today: Reference date for the cooldown computation.
+    :return: The candidates that can install on *floor*.
+    """
+    kept = [candidate for candidate in candidates if candidate.supports_python(floor)]
+    newest = select_latest(candidates, min_age, today)
+    newest_kept = select_latest(kept, min_age, today)
+    if newest is not None and (
+        newest_kept is None or newest_kept.version != newest.version
+    ):
+        logging.info(
+            f"{package} {newest.version} requires Python {newest.requires_python},"
+            f" which leaves out Python {floor[0]}.{floor[1]}, the oldest one of the"
+            " project: holding its `uv run --with` pin."
+        )
+    return kept
+
+
 def _docs_marker(marker: str) -> str:
     """Link a `sync-workflow-pins` table marker to the job's documentation.
 
@@ -1311,6 +1367,9 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
     and in `_resolve_action_pins`. Re-judging their outcome against PyPI would
     leave `lint-repo`'s lockstep check red for a full cooldown window after
     every refs bump.
+
+    A package pinned in a `uv run --with` command moves only to a release that
+    the oldest Python of the project can install: see `_gate_on_python_floor`.
     """
     min_age, today = rc.min_age, rc.today
     plan = SyncPlan(
@@ -1337,6 +1396,11 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
                 lockstep_version = version
 
     ignored = frozenset(rc.config.workflow_pins_ignore)
+    # Every literal of a package moves to the one version resolved for it, so a
+    # single `uv run --with` pin holds the `uvx` pins of its package too.
+    uv_run_packages = {
+        package for text in file_data.values() for package in find_uv_run_packages(text)
+    }
     resolved: dict[tuple[str, str], str] = {}
     for (ecosystem, package), current_version in sorted(current.items()):
         if (
@@ -1373,6 +1437,14 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             )
             candidates = _gate_uv_on_required_version(
                 candidates, rc.uv_required_version, min_age, today
+            )
+        if (
+            ecosystem is Ecosystem.PYPI
+            and package in uv_run_packages
+            and rc.python_floor is not None
+        ):
+            candidates = _gate_on_python_floor(
+                package, candidates, rc.python_floor, min_age, today
             )
         latest = select_latest(candidates, min_age, today)
         # Audit the pin already on disk, not just the one about to replace it.

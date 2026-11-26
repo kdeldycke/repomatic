@@ -313,17 +313,24 @@ class PyPIRelease(NamedTuple):
     """Earliest upload instant across all files, where {attr}`date` keeps the
     day alone. `None` when PyPI records no upload time."""
 
+    requires_python: str = ""
+    """The `requires-python` of the release, empty when it declares none.
+
+    PyPI stores it per file, and the files of a release normally share it, so
+    this carries the first one any of them declares.
+    """
+
 
 def pypi_release_dates(
     package: str, *, force_refresh: bool = False
 ) -> dict[str, PyPIRelease]:
-    """Get upload dates and yanked status for all versions from PyPI.
+    """Get upload dates, yanked status and `requires-python` for all versions.
 
     Fetches the package metadata in a single API call. For each version,
     selects the **earliest** upload time across all distribution files as
     the canonical release date. A version is considered yanked only if
     **all** of its files are yanked, and carries the first yank reason any
-    of them records.
+    of them records, and the first `requires-python` any of them declares.
 
     :param package: The PyPI package name.
     :param force_refresh: Ignore any cached response and re-fetch.
@@ -355,12 +362,17 @@ def pypi_release_dates(
             for f in files
             if (instant := parse_iso_datetime(f.get("upload_time_iso_8601")))
         ]
+        requires_python = next(
+            (str(f["requires_python"]) for f in files if f.get("requires_python")),
+            "",
+        )
         result[version] = PyPIRelease(
             date=earliest_date,
             yanked=all_yanked,
             package=package,
             yanked_reason=reason,
             uploaded_at=min(instants, default=None),
+            requires_python=requires_python,
         )
 
     return result

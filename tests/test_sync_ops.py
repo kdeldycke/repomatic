@@ -65,6 +65,7 @@ from repomatic.deps.sync import (
     _apply_file_writes,
     _apply_tool_versions,
     _finish_uv_plan,
+    _gate_on_python_floor,
     _gate_uv_on_checksums,
     _gate_uv_on_required_version,
     _pinned_with_packages,
@@ -1748,6 +1749,90 @@ def test_uv_required_version_reads_the_file_uv_reads(
         (tmp_path / name).write_text(text, encoding="UTF-8")
     monkeypatch.chdir(tmp_path)
     assert _uv_required_version() == expected
+
+
+# ---------------------------------------------------------------------------
+# Python floor gate
+# ---------------------------------------------------------------------------
+
+FLOOR_CANDIDATES = [
+    Candidate("1.0.0", "2026-08-05", "1.0.0", ">=3.9"),
+    Candidate("1.1.0", "2026-08-07", "1.1.0", ">=3.11"),
+    Candidate("1.2.0", "2026-08-13", "1.2.0", ">=3.13"),
+]
+"""Three releases clear of the cooldown on `GATE_TODAY`, the last for Python 3.13 on."""
+
+
+@pytest.mark.parametrize(
+    ("floor", "kept"),
+    (
+        pytest.param((3, 11), ["1.0.0", "1.1.0"], id="below-the-newest"),
+        pytest.param((3, 13), ["1.0.0", "1.1.0", "1.2.0"], id="at-the-newest"),
+        pytest.param((3, 8), [], id="below-every-release"),
+    ),
+)
+def test_python_floor_gate_keeps_what_the_oldest_python_installs(floor, kept):
+    """A release whose `requires-python` leaves the floor out is not a candidate."""
+    gated = _gate_on_python_floor(
+        "apricot", list(FLOOR_CANDIDATES), floor, MIN_AGE, GATE_TODAY
+    )
+    assert [candidate.version for candidate in gated] == kept
+
+
+def test_python_floor_gate_reports_a_release_it_withheld(caplog):
+    """The withheld release is named at info level, with the Python it needs."""
+    with caplog.at_level(logging.INFO):
+        _gate_on_python_floor(
+            "apricot", list(FLOOR_CANDIDATES), (3, 11), MIN_AGE, GATE_TODAY
+        )
+    assert "apricot 1.2.0 requires Python >=3.13" in caplog.text
+    assert "holding its `uv run --with` pin" in caplog.text
+
+
+def _resolve_floor_pins(floor: tuple[int, int] | None) -> SyncPlan:
+    """Resolve a job pinning `apricot` in `uv run --with` and `banana` in `uvx`.
+
+    Both packages offer {data}`FLOOR_CANDIDATES`, and the oldest Python of the
+    project is *floor*.
+    """
+    workflow = {
+        Path("tests.yaml"): (
+            "jobs:\n  tests:\n    steps:\n"
+            "      - run: uv --no-progress run --frozen --with 'apricot==1.0.0'"
+            " -- papaya\n"
+            "      - run: uvx --with 'banana==1.0.0' cherry\n"
+        )
+    }
+    rc = ResolveContext(config=Config(), today=GATE_TODAY)
+    with (
+        patch("repomatic.deps.sync._pinnable_files", return_value=workflow),
+        patch(
+            "repomatic.deps.pins.pypi_candidates", return_value=list(FLOOR_CANDIDATES)
+        ),
+        patch("repomatic.deps.sync._python_floor", return_value=floor),
+    ):
+        return _resolve_workflow_pins(rc)
+
+
+@pytest.mark.parametrize(
+    ("floor", "apricot"),
+    (
+        pytest.param((3, 11), "1.1.0", id="held"),
+        pytest.param(None, "1.2.0", id="no-floor"),
+    ),
+)
+def test_workflow_pins_hold_a_uv_run_pin_to_the_oldest_python(floor, apricot):
+    """A `uv run --with` pin moves to the newest release the oldest Python installs.
+
+    The `uvx` pin moves to the newest release either way, since `uvx` makes an
+    environment of its own.
+    """
+    plan = _resolve_floor_pins(floor)
+    assert set(plan.changes) == {
+        ("apricot", "1.0.0", apricot),
+        ("banana", "1.0.0", "1.2.0"),
+    }
+    assert f"'apricot=={apricot}'" in plan.file_writes[Path("tests.yaml")]
 
 
 def _lockstep_workflow(inline_pin: str) -> dict[Path, str]:

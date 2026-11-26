@@ -42,6 +42,7 @@ from functools import cache
 from typing import NamedTuple
 
 from click_extra import parse_friendly_duration
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
 
 from ..github.gh import api_headers
 from ..github.releases import (
@@ -131,6 +132,20 @@ _PYPI_LITERAL_RE = re.compile(r"(?:uvx?|--with)" + _PYPI_ARGUMENTS + _PYPI_PIN)
 # `uv`, `uvx` or `--with`, so this one reads the pins after it on the same line:
 # `--with 'apricot==1.0' --from 'papaya==1.2'`.
 _PYPI_NEXT_LITERAL_RE = re.compile(_PYPI_ARGUMENTS + _PYPI_PIN)
+
+# A `uv` or `uvx` command word. The lookarounds leave out the `uv` of a longer
+# word (`setup-uv`, `uvloop`) and of a quoted package name (`'uv==0.9.0'`).
+_UV_COMMAND_RE = re.compile(r"(?<![\w.'-])uvx?(?![\w.-])")
+
+# A `uv run` command, from its `uv` to the `run`: `uv run`, `uv --no-progress
+# run`, `uv --directory docs run`. A global option can take the next word as its
+# value. `uv tool run` and `uvx` do not match.
+_UV_RUN_RE = re.compile(r"uv(?:\s+-\S+(?:\s+[^\s-]\S*)?)*?\s+run\s")
+
+# A line that opens with an option, like `--with 'apricot==1.0'`. In a folded
+# `run: >` block, such a line continues the command of the line above it. The
+# `- ` of a YAML sequence item is no option.
+_CONTINUATION_RE = re.compile(r"[^\S\n]*-\S")
 
 # Release assets fetched by tag: `gh release download v0.3.2 --repo owner/repo`.
 #
@@ -228,6 +243,12 @@ class Candidate:
     write the pin comment); identical to `version` for PyPI and npm.
     """
 
+    requires_python: str = ""
+    """The `requires-python` of a PyPI release, empty when it declares none.
+
+    Always empty for a GitHub or npm release.
+    """
+
     released: Day | None = field(init=False, repr=False, compare=False)
     """{attr}`date`, parsed. `None` when it is no `YYYY-MM-DD` date."""
 
@@ -241,6 +262,24 @@ class Candidate:
             released = None
         object.__setattr__(self, "released", released)
         object.__setattr__(self, "parsed", safe_version(self.version))
+
+    def supports_python(self, python: tuple[int, int]) -> bool:
+        """Whether the release can install on Python *python*.
+
+        The specifier reads the `.0` release of *python*, so a release that
+        needs a later patch of that Python reads as one that leaves it out.
+
+        :param python: The Python version, as `(major, minor)`.
+        :return: `False` only when {attr}`requires_python` parses and leaves
+            *python* out.
+        """
+        if not self.requires_python:
+            return True
+        try:
+            specifier = SpecifierSet(self.requires_python)
+        except InvalidSpecifier:
+            return True
+        return specifier.contains(f"{python[0]}.{python[1]}")
 
 
 class ActionPin(NamedTuple):
@@ -578,7 +617,12 @@ def pypi_candidates(package: str) -> list[Candidate]:
     :return: One {class}`Candidate` per non-yanked version.
     """
     return [
-        Candidate(version=version, date=release.date, ref=version)
+        Candidate(
+            version=version,
+            date=release.date,
+            ref=version,
+            requires_python=release.requires_python,
+        )
         for version, release in pypi_release_dates(package).items()
         if not release.yanked
     ]
@@ -843,6 +887,60 @@ def find_workflow_literals(
         for m in _SETUP_UV_VERSION_RE.finditer(content)
     )
     return literals
+
+
+def _command_text(content: str, position: int) -> str:
+    """Return the shell command that runs up to *position*, from its start.
+
+    The command starts on the line of *position*, or on a line above it when a
+    line continues the line before: a line that opens with an option, the way
+    a folded `run: >` block spreads one command, or a line after one that ends
+    in a `\\`.
+
+    :param content: The workflow file text.
+    :param position: An index into *content*.
+    :return: The text from the start of the command to *position*.
+    """
+    begin = content.rfind("\n", 0, position) + 1
+    while begin:
+        above = content.rfind("\n", 0, begin - 1) + 1
+        if not (
+            _CONTINUATION_RE.match(content, begin)
+            or content[above : begin - 1].rstrip().endswith("\\")
+        ):
+            break
+        begin = above
+    return content[begin:position]
+
+
+def _is_uv_run(command: str) -> bool:
+    """Whether the last `uv` or `uvx` command of *command* is a `uv run`.
+
+    :param command: Shell text, as {func}`_command_text` returns it.
+    :return: `False` too when *command* holds no `uv` or `uvx` command.
+    """
+    # The shell reads a `\` at the end of a line as a space.
+    flat = command.replace("\\\n", " \n")
+    words = list(_UV_COMMAND_RE.finditer(flat))
+    return bool(words) and _UV_RUN_RE.match(flat, words[-1].start()) is not None
+
+
+def find_uv_run_packages(content: str) -> frozenset[str]:
+    """Return the packages that a `uv run --with` pin of a workflow file installs.
+
+    `uv run --with` adds the package to the environment of the project, on the
+    Python of the job. A `uvx` or `uv tool` command makes an environment of its
+    own, so its pins are left out.
+
+    :param content: The workflow file text.
+    :return: The package names, spelled as {func}`find_workflow_literals` reads
+        them.
+    """
+    return frozenset(
+        match.group("package")
+        for match in _pypi_literal_matches(content)
+        if _is_uv_run(_command_text(content, match.start("package")))
+    )
 
 
 def _splice_group(match: re.Match[str], group: str, value: str) -> str:

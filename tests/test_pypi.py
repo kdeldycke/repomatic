@@ -243,6 +243,37 @@ def test_release_dates_capture_yank_reason():
     assert releases["0.9.0"].yanked_reason == ""
 
 
+def test_release_dates_capture_requires_python():
+    """The first `requires-python` a file declares rides along with the release."""
+    payload = {
+        "releases": {
+            "0.9.0": [
+                {
+                    "filename": "cherries-0.9.0-py3-none-any.whl",
+                    "upload_time": "2025-12-01T00:00:00",
+                },
+            ],
+            "1.0.0": [
+                {
+                    "filename": "cherries-1.0.0-py3-none-any.whl",
+                    "upload_time": "2026-01-01T00:00:00",
+                    "requires_python": None,
+                },
+                {
+                    "filename": "cherries-1.0.0.tar.gz",
+                    "upload_time": "2026-01-01T00:00:00",
+                    "requires_python": ">=3.13",
+                },
+            ],
+        },
+    }
+    with _patch_pypi_json(payload):
+        releases = pypi_release_dates("cherries")
+    assert releases["1.0.0"].requires_python == ">=3.13"
+    # A release whose files declare none records none.
+    assert releases["0.9.0"].requires_python == ""
+
+
 def test_get_trusted_publishers_match():
     """Parse a single GitHub publisher bundle into a TrustedPublisher tuple."""
     payload = {

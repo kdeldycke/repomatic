@@ -261,6 +261,23 @@ def test_candidate_parses_once(version, day, parsed, released):
     assert candidate == vs.Candidate(version, day, version)
 
 
+@pytest.mark.parametrize(
+    ("requires_python", "supported"),
+    (
+        pytest.param("", True, id="undeclared"),
+        pytest.param(">=3.9", True, id="below-the-python"),
+        pytest.param(">=3.11", True, id="at-the-python"),
+        pytest.param(">=3.13", False, id="above-the-python"),
+        pytest.param(">=3.11.4", False, id="later-patch"),
+        pytest.param(">=3.6.*", True, id="unreadable"),
+    ),
+)
+def test_candidate_supports_python(requires_python, supported):
+    """A release supports a Python that its `requires-python` accepts or cannot read."""
+    candidate = vs.Candidate("1.0.0", "2026-06-26", "1.0.0", requires_python)
+    assert candidate.supports_python((3, 11)) is supported
+
+
 def test_select_held_back_skips_unparsable():
     candidates = [
         vs.Candidate("bad", "2026-06-26", "x"),
@@ -438,6 +455,74 @@ def test_find_workflow_literals_next_pin_stays_on_its_line():
         for lit in vs.find_workflow_literals(content)
     }
     assert literals == {("pypi", "papaya-cli", "11.2.8")}
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    (
+        pytest.param(
+            "uv run --with 'apricot==1.0' -- papaya\n", {"apricot"}, id="uv-run"
+        ),
+        pytest.param(
+            "uv --no-progress run --frozen --with 'apricot==1.0' -- papaya\n",
+            {"apricot"},
+            id="global-option",
+        ),
+        pytest.param(
+            "uv --directory docs run --with 'apricot==1.0' -- papaya\n",
+            {"apricot"},
+            id="option-value",
+        ),
+        pytest.param(
+            "uv run --with 'apricot==1.0' --with 'banana==2.0' -- papaya\n",
+            {"apricot", "banana"},
+            id="two-pins",
+        ),
+        pytest.param(
+            "- run: uv run --with 'apricot==1.0' -- papaya\n",
+            {"apricot"},
+            id="inline-run",
+        ),
+        pytest.param(
+            "uv --no-progress run --frozen\n  --with 'apricot==1.0'\n  -- papaya\n",
+            {"apricot"},
+            id="folded-block",
+        ),
+        pytest.param(
+            "uv run --frozen \\\n  --with 'apricot==1.0' -- papaya\n",
+            {"apricot"},
+            id="backslash",
+        ),
+        pytest.param(
+            "uvx cherry && uv run --with 'apricot==1.0' -- papaya\n",
+            {"apricot"},
+            id="uv-run-after-uvx",
+        ),
+        pytest.param("uvx --with 'apricot==1.0' 'papaya==2.0'\n", set(), id="uvx"),
+        pytest.param(
+            "uv tool run --with 'apricot==1.0' papaya\n", set(), id="uv-tool-run"
+        ),
+        pytest.param("uv tool install 'apricot==1.0'\n", set(), id="uv-tool-install"),
+        pytest.param(
+            "uv run -- papaya && uvx --with 'apricot==1.0' cherry\n",
+            set(),
+            id="uvx-after-uv-run",
+        ),
+        pytest.param(
+            "uv run --frozen -- papaya\nuvx --with 'apricot==1.0' cherry\n",
+            set(),
+            id="next-line",
+        ),
+        pytest.param(
+            "uv run --with 'uv==0.9.0' --with 'apricot==1.0' -- papaya\n",
+            {"uv", "apricot"},
+            id="package-named-uv",
+        ),
+    ),
+)
+def test_find_uv_run_packages(content, expected):
+    """A pin counts when its own command is a `uv run`, wherever that command starts."""
+    assert vs.find_uv_run_packages(content) == expected
 
 
 @pytest.mark.parametrize(
@@ -1165,6 +1250,18 @@ def test_pypi_candidates_skips_yanked():
     with patch("repomatic.deps.pins.pypi_release_dates", return_value=fake):
         candidates = vs.pypi_candidates("p")
     assert {c.version for c in candidates} == {"1.0.0"}
+
+
+def test_pypi_candidates_carry_requires_python():
+    """Each PyPI candidate keeps the `requires-python` of its release."""
+    fake = {
+        "1.0.0": PyPIRelease(
+            date="2026-01-01", yanked=False, package="p", requires_python=">=3.13"
+        ),
+    }
+    with patch("repomatic.deps.pins.pypi_release_dates", return_value=fake):
+        (candidate,) = vs.pypi_candidates("p")
+    assert candidate.requires_python == ">=3.13"
 
 
 def test_npm_candidates():
