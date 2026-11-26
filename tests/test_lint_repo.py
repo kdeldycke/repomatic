@@ -116,6 +116,7 @@ from repomatic.lint_repo.site import (
     check_wrangler_config,
 )
 from repomatic.lint_repo.tool_config import (
+    GITIGNORE_DECLINED_PATH,
     RETIRED_TEMPLATE_EXCLUDES,
     anchored_exclude_core,
     check_bootstrap_config_drift,
@@ -1598,10 +1599,18 @@ DEFAULT_GITIGNORE_RULES = parse_rules(GitignoreConfig().extra_content)
 """The rules of the default `gitignore.extra-content`, comments left out."""
 
 
-def _gitignore(extra_content: str) -> LintContext:
-    """A context whose `gitignore.extra-content` is *extra_content*."""
+def _gitignore(
+    extra_content: str, lint_repo: LintRepoConfig | None = None
+) -> LintContext:
+    """A context whose `gitignore.extra-content` is *extra_content*.
+
+    *lint_repo* is its `lint-repo` record, empty by default.
+    """
     return LintContext(
-        config=Config(gitignore=GitignoreConfig(extra_content=extra_content))
+        config=Config(
+            gitignore=GitignoreConfig(extra_content=extra_content),
+            lint_repo=lint_repo or LintRepoConfig(),
+        )
     )
 
 
@@ -1625,17 +1634,110 @@ def _gitignore(extra_content: str) -> LintContext:
 )
 def test_gitignore_default_rules(extra_content, passed):
     """Only a value that keeps every rule of the default passes."""
-    result = check_gitignore_default_rules(_gitignore(extra_content))
-    assert result.passed is passed
+    results = tuple(check_gitignore_default_rules(_gitignore(extra_content)))
+    assert [result.passed for result in results] == [passed]
 
 
 def test_gitignore_default_rules_names_each_rule_left_out():
     """The finding names the rules left out, and no rule the value keeps."""
     *kept, dropped = DEFAULT_GITIGNORE_RULES
-    result = check_gitignore_default_rules(_gitignore("\n".join(kept)))
+    (result,) = check_gitignore_default_rules(_gitignore("\n".join(kept)))
     assert result.passed is False
     assert f"`{dropped}`" in result.message
     assert not [rule for rule in kept if f"`{rule}`" in result.message]
+
+
+@pytest.mark.parametrize("rule", DEFAULT_GITIGNORE_RULES)
+def test_gitignore_default_rules_declines_any_default_rule(rule):
+    """Every rule the value can leave out can be declined, keyed by the rule."""
+    kept = "\n".join(other for other in DEFAULT_GITIGNORE_RULES if other != rule)
+
+    # The control: without the record, the absence is a warning that names the
+    # key to write.
+    (warning,) = check_gitignore_default_rules(_gitignore(kept))
+    assert warning.passed is False
+    assert f"`gitignore.extra-content.{json.dumps(rule)}`" in warning.message
+
+    results = tuple(
+        check_gitignore_default_rules(
+            _gitignore(kept, _declining(*GITIGNORE_DECLINED_PATH, rule))
+        )
+    )
+    assert [result.passed for result in results] == [None, True]
+    assert results[0].message == (
+        f"[tool.repomatic] gitignore.extra-content declines `{rule}`: Orchard closed."
+    )
+    assert "every other default rule" in results[1].message
+
+
+def test_gitignore_default_rules_wants_a_reason():
+    """A rule mapped to no reason stays reported, and so does the entry."""
+    *kept, dropped = DEFAULT_GITIGNORE_RULES
+    lint_repo_table = LintRepoConfig(
+        declined={"gitignore": {"extra-content": {dropped: ""}}}
+    )
+    results = tuple(
+        check_gitignore_default_rules(_gitignore("\n".join(kept), lint_repo_table))
+    )
+    assert [result.passed for result in results] == [False, False]
+    assert f"`{dropped}`" in results[0].message
+    assert "gives no reason" in results[1].message
+
+
+@pytest.mark.parametrize(
+    ("leaf", "verdict"),
+    (
+        pytest.param(
+            (*GITIGNORE_DECLINED_PATH, DEFAULT_GITIGNORE_RULES[0]),
+            "`gitignore.extra-content` keeps the rule it names",
+            id="kept-rule",
+        ),
+        pytest.param(
+            (*GITIGNORE_DECLINED_PATH, "harvest/"),
+            "or the default does not carry it",
+            id="rule-the-default-lacks",
+        ),
+        pytest.param(
+            ("gitignore", "harvest/"),
+            "names one default rule",
+            id="rule-outside-the-value",
+        ),
+        pytest.param(GITIGNORE_DECLINED_PATH, "names one default rule", id="value"),
+    ),
+)
+def test_gitignore_default_rules_reports_an_entry_that_declines_nothing(leaf, verdict):
+    """A record that names no rule the value leaves out is reported in its turn."""
+    results = tuple(
+        check_gitignore_default_rules(
+            _gitignore(GitignoreConfig().extra_content, _declining(*leaf))
+        )
+    )
+    assert [result.passed for result in results] == [True, False]
+    assert "every default rule" in results[0].message
+    assert "declines nothing" in results[1].message
+    assert verdict in results[1].message
+
+
+def test_gitignore_default_rules_roster_entry_reads_the_declined_table():
+    """The roster hands the check the declined table, not only the value."""
+    check = _roster_check("gitignore-default-rules")
+    *kept, dropped = DEFAULT_GITIGNORE_RULES
+    ctx = _gitignore("\n".join(kept), _declining(*GITIGNORE_DECLINED_PATH, dropped))
+    assert [result.passed for result in check.results(ctx)] == [None, True]
+
+
+def test_bootstrap_config_drift_leaves_a_gitignore_rule_to_its_check():
+    """A declined `.gitignore` rule names no tool config, so it is no finding here."""
+    local = tomlrt.loads(get_data_content("pytest.toml"))
+    results = tuple(
+        check_bootstrap_config_drift(
+            _tools(
+                {"pytest": local},
+                _declining(*GITIGNORE_DECLINED_PATH, "docs/_linkcheck/"),
+            )
+        )
+    )
+    assert [result.passed for result in results] == [True]
 
 
 def test_gitignore_default_rules_applies_only_while_the_sync_runs():

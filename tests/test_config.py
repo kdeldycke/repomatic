@@ -336,6 +336,7 @@ def test_lint_repo_declined_keeps_its_keys_verbatim():
                         "ruff": {"lint": {"extend-select": {"PLW1514": "Orchard."}}},
                         "pytest": {"addopts": {"--numprocesses=logical": "Harvest."}},
                         "mypy": {"warn_unreachable": "Season."},
+                        "gitignore": {"extra-content": {"docs/_linkcheck/": "Rain."}},
                     }
                 }
             }
@@ -345,6 +346,7 @@ def test_lint_repo_declined_keeps_its_keys_verbatim():
         ("ruff", "lint", "extend-select", "PLW1514"): "Orchard.",
         ("pytest", "addopts", "--numprocesses=logical"): "Harvest.",
         ("mypy", "warn_unreachable"): "Season.",
+        ("gitignore", "extra-content", "docs/_linkcheck/"): "Rain.",
     }
 
 

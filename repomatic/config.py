@@ -272,7 +272,8 @@ class GitignoreConfig:
     rather than writing only the new lines. A rule the default gains after that
     copy is named by
     {func}`~repomatic.lint_repo.tool_config.check_gitignore_default_rules`, the
-    `gitignore-default-rules` check of `lint-repo`. Reach for
+    `gitignore-default-rules` check of `lint-repo`. Record a rule left out on
+    purpose in {attr}`~repomatic.config.LintRepoConfig.declined`. Reach for
     {attr}`~repomatic.config.GitignoreConfig.extra_categories` instead when adding
     whole gitignore.io templates: that one is additive.
 
@@ -458,13 +459,16 @@ class LintRepoConfig:
     """Nested schema for `[tool.repomatic.lint-repo]`."""
 
     declined: dict[str, dict[str, object]] = field(default_factory=dict)
-    """Bundled template entries a seeded tool config declines, and why.
+    """Bundled entries this repository leaves out on purpose, and why.
 
     `lint-repo` warns when a tool config that `init` seeded once (`[tool.ruff]`,
     `[tool.pytest]`, `[tool.coverage]`, `[tool.mypy]`, `[tool.mdformat]`) lacks
-    an entry its bundled template carries. Some of those absences are
-    decisions. Name each one here, at the path it has in the tool's own
-    section, mapped to the reason it stays out:
+    an entry its bundled template carries, and when
+    {attr}`~repomatic.config.GitignoreConfig.extra_content` leaves out a rule of
+    its default. Some of those absences are decisions. Name each one here,
+    mapped to the reason it stays out. A tool config entry goes at the path it
+    has in the tool's own section, and a `.gitignore` rule below
+    `gitignore.extra-content`:
 
     ```toml
     [tool.repomatic.lint-repo.declined]
@@ -474,6 +478,8 @@ class LintRepoConfig:
     mypy.warn_unreachable = "The harvest module branches on the season."
     # A table in a list: the path of the list, then the table as `lint-repo` prints it.
     mypy.overrides.'{ module = ["sphinx.*"], ignore_missing_imports = true, follow_imports = "skip" }' = "No orchard module imports Sphinx."
+    # A default `.gitignore` rule: the key of the value, then the rule.
+    gitignore.extra-content."docs/_linkcheck/" = "The orchard builds no Sphinx docs."
     ```
 
     A mapping rather than a list, following `lint-deps.allow`: the reason is

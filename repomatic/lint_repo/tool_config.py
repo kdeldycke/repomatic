@@ -121,6 +121,16 @@ def _template_entry(path: str, member: str | None) -> str:
     return f"`{path}`" if member is None else f'`{path}` member "{member}"'
 
 
+GITIGNORE_DECLINED_PATH: Final[tuple[str, ...]] = ("gitignore", "extra-content")
+"""The keys of a `lint-repo.declined` entry that declines a default `.gitignore` rule.
+
+The rule is the last key, like the member of a list:
+`gitignore.extra-content."docs/_linkcheck/"`. `gitignore` names no tool config,
+so {func}`check_bootstrap_config_drift` leaves every entry below it to
+{func}`check_gitignore_default_rules`.
+"""
+
+
 def check_bootstrap_config_drift(ctx: LintContext) -> Iterator[CheckResult]:
     """Report bundled knobs a seeded tool section never received.
 
@@ -141,7 +151,9 @@ def check_bootstrap_config_drift(ctx: LintContext) -> Iterator[CheckResult]:
     reported as skipped, with its reason: the decision stays in the report and
     the warning stops. The record is checked like the section it speaks for.
     An entry that declines nothing is reported, since the next gap at its path
-    would otherwise arrive already declined.
+    would otherwise arrive already declined. An entry below
+    {data}`GITIGNORE_DECLINED_PATH` declines a `.gitignore` rule instead, and
+    {func}`check_gitignore_default_rules` reports it.
 
     A section keeping its keys in the component's
     {attr}`~repomatic.components.ToolConfigComponent.legacy_table` is measured
@@ -235,6 +247,9 @@ def check_bootstrap_config_drift(ctx: LintContext) -> Iterator[CheckResult]:
     for entry in declined:
         tool = entry[0]
         if entry in applied or tool in unreadable:
+            continue
+        if tool == GITIGNORE_DECLINED_PATH[0]:
+            # A `.gitignore` rule, which check_gitignore_default_rules reports.
             continue
         named = (
             f"`[tool.repomatic] lint-repo.declined` entry `{_dotted_toml_key(entry)}`"
@@ -507,7 +522,7 @@ def check_gitleaks_default_rules(ctx: LintContext) -> CheckResult:
     )
 
 
-def check_gitignore_default_rules(ctx: LintContext) -> CheckResult:
+def check_gitignore_default_rules(ctx: LintContext) -> Iterator[CheckResult]:
     """Report a `gitignore.extra-content` value that leaves out a default rule.
 
     Setting {attr}`~repomatic.config.GitignoreConfig.extra_content` replaces the
@@ -521,20 +536,82 @@ def check_gitignore_default_rules(ctx: LintContext) -> CheckResult:
     Advisory, and deliberately so. A repository may leave a default rule out on
     purpose, and only its maintainer can tell that from a rule it never got.
 
-    :return: A `CheckResult`.
+    The maintainer records that answer in
+    {attr}`~repomatic.config.LintRepoConfig.declined`, below
+    {data}`GITIGNORE_DECLINED_PATH`. As in {func}`check_bootstrap_config_drift`,
+    a declined rule is reported as skipped with its reason, and an entry that
+    declines nothing is reported in its turn.
+
+    :return: One result per declined rule, one for the value, then one per
+        recorded entry that declines nothing.
     """
-    missing = orphaned_rules(
+    declined = {
+        entry: reason
+        for entry, reason in ctx.config.lint_repo.declined_entries().items()
+        if entry[0] == GITIGNORE_DECLINED_PATH[0]
+    }
+    # Entries that took a rule out of the report, and entries that only lack a
+    # reason to do so.
+    applied: set[tuple[str, ...]] = set()
+    unreasoned: set[tuple[str, ...]] = set()
+    missing: list[str] = []
+    for rule in orphaned_rules(
         GitignoreConfig().extra_content, ctx.config.gitignore.extra_content
-    )
-    if not missing:
-        return CheckResult(
-            True, "[tool.repomatic] gitignore.extra-content keeps every default rule."
+    ):
+        entry = (*GITIGNORE_DECLINED_PATH, rule)
+        reason = declined.get(entry)
+        if isinstance(reason, str) and reason.strip():
+            applied.add(entry)
+            yield CheckResult(
+                None,
+                f"[tool.repomatic] gitignore.extra-content declines `{rule}`:"
+                f" {reason.strip()}",
+            )
+            continue
+        if entry in declined:
+            unreasoned.add(entry)
+        missing.append(rule)
+
+    if missing:
+        listed = ", ".join(f"`{rule}`" for rule in missing)
+        keys = ", ".join(
+            f"`{_dotted_toml_key((*GITIGNORE_DECLINED_PATH, rule))}`"
+            for rule in missing
         )
-    listed = ", ".join(f"`{rule}`" for rule in missing)
-    return CheckResult(
-        False,
-        "[tool.repomatic] gitignore.extra-content replaces its default and"
-        f" leaves out {listed}, so `sync-gitignore` never writes"
-        f" {'it' if len(missing) == 1 else 'them'}. Copy what applies into the"
-        " value.",
-    )
+        yield CheckResult(
+            False,
+            "[tool.repomatic] gitignore.extra-content replaces its default and"
+            f" leaves out {listed}, so `sync-gitignore` never writes"
+            f" {'it' if len(missing) == 1 else 'them'}. Copy what applies into the"
+            " value, and decline what stays out with its reason under"
+            f" `[tool.repomatic] lint-repo.declined`, as {keys}.",
+        )
+    else:
+        scope = "every other default rule" if applied else "every default rule"
+        yield CheckResult(
+            True, f"[tool.repomatic] gitignore.extra-content keeps {scope}."
+        )
+
+    for entry in declined:
+        if entry in applied:
+            continue
+        named = (
+            f"`[tool.repomatic] lint-repo.declined` entry `{_dotted_toml_key(entry)}`"
+        )
+        if entry in unreasoned:
+            verdict = (
+                "gives no reason, so the rule it names stays reported. Map it to"
+                " the reason that rule stays out."
+            )
+        elif entry[:-1] != GITIGNORE_DECLINED_PATH:
+            verdict = (
+                "declines nothing: an entry below `gitignore` names one default"
+                " rule, as the key after `gitignore.extra-content`. Move the"
+                " reason to that key."
+            )
+        else:
+            verdict = (
+                "declines nothing: `gitignore.extra-content` keeps the rule it"
+                " names, or the default does not carry it. Remove the entry."
+            )
+        yield CheckResult(False, f"{named} {verdict}")

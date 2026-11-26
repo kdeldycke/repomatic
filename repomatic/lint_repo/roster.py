@@ -765,7 +765,10 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
     RepoCheck(
         "gitignore-default-rules",
         check_gitignore_default_rules,
-        summary="[tool.repomatic] gitignore.extra-content keeps every default rule",
+        summary=(
+            "[tool.repomatic] gitignore.extra-content keeps every default rule, or"
+            " declines it with a reason"
+        ),
         description=(
             "Warns when `[tool.repomatic] gitignore.extra-content` leaves out a rule"
             " of its default value. Setting the key replaces that default wholesale,"
@@ -773,7 +776,9 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
             " `sync-gitignore` cannot name it: that job only reports the rules a sync"
             " would remove from the file on disk. Comments and blank lines do not"
             " count. Advisory, since only the maintainer can tell a rule left out on"
-            " purpose from one the repository never got"
+            " purpose from one the repository never got. A rule named under"
+            " `[tool.repomatic] lint-repo.declined`, below `gitignore.extra-content`,"
+            " is reported with its reason in place of the warning"
         ),
         applies=lambda ctx: ctx.config.gitignore.sync,
     ),
