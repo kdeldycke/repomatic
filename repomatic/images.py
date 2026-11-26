@@ -115,8 +115,9 @@ def _check_tool(name: str) -> bool:
     is a problem to surface, not to work around.
 
     Everything else still has to be on `$PATH`. `jpegoptim` is the only such
-    tool today, because upstream publishes source tarballs rather than
-    prebuilt binaries, leaving the distro package as the sole way to get it.
+    tool today: upstream publishes binaries for x64 alone, so a registry entry
+    would leave arm64 runners and Apple Silicon machines with nothing to
+    download.
     """
     spec = TOOL_REGISTRY.get(name)
     if spec is not None and spec.backend is ToolBackend.BINARY:
@@ -130,8 +131,7 @@ def _optimize_png(path: Path) -> None:
     The binary comes from the `repomatic run` registry rather than `$PATH`, so
     it is the pinned version with its archive checksum verified, identical on
     every runner and every developer machine. `jpegoptim` below cannot follow:
-    upstream publishes source tarballs only, leaving the distro package as the
-    single way to get it.
+    see `_check_tool`.
 
     :raises repomatic.tooling.registry.BinaryInstallError: If `oxipng` cannot be
         installed.
