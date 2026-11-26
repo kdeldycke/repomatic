@@ -82,6 +82,7 @@ See the **[full documentation](https://repomatic.net/)** for:
 - [Agent skills](https://repomatic.net/agent-skills) and [subagents](https://repomatic.net/subagents), also installable as a [Claude Code plugin](https://repomatic.net/claude-code-plugin)
 - [API reference](https://repomatic.net/repomatic)
 - [Project history](https://repomatic.net/history)
+- [Contribution guide](https://repomatic.net/contributing), with the commands to run the tests and build the docs
 
 ## Used in
 

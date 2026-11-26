@@ -81,18 +81,10 @@ $ pipx install repomatic
 ````
 
 ````{tab-item} Arch Linux
-A `repomatic` package is [available on AUR](https://aur.archlinux.org/packages/python-repomatic) and can be installed with any AUR helper:
-
-```{code-block} shell-session
-$ yay -S python-repomatic
-```
+A `repomatic` package is [available on AUR](https://aur.archlinux.org/packages/python-repomatic), and installs with the AUR helper of your choice, like `paru`:
 
 ```{code-block} shell-session
 $ paru -S python-repomatic
-```
-
-```{code-block} shell-session
-$ pacaur -S python-repomatic
 ```
 ````
 

@@ -404,10 +404,13 @@ sitemap_url_scheme = "{link}"
 # The generated navigation pages hold no content a crawler should index.
 sitemap_excludes = ["genindex.html", "py-modindex.html", "search.html"]
 
-# Copy the commands of a shell-session block alone: `.gp` is the Pygments class
-# of the prompt, `.go` the one of the output lines. The default only skips line
-# numbers, so every `$ ` and every output line landed in the clipboard.
-copybutton_exclude = ".linenos, .gp, .go"
+# Copy only the commands of a session block, without their prompt: `$ ` for a
+# shell, `>>> ` and `... ` for Python. A block holding no prompt is copied whole.
+# Matching Pygments classes instead (`.gp`, `.go`) misses the output of a
+# `{click:run}` block: its ANSI lexer draws colored lines as `-Ansi-*` spans and
+# plain ones as bare text, so no output line carries `.go`.
+copybutton_prompt_text = r"\$ |>>> |\.\.\. "
+copybutton_prompt_is_regexp = True
 
 
 def prune_build_artifacts(app, exception):

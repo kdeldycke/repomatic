@@ -1,4 +1,4 @@
-# {octicon}`book` Man pages
+# {octicon}`repo` Man pages
 
 Every `repomatic` command carries a Unix manual page, walked out of the live command tree while this site builds. A manual therefore cannot describe a release other than the one it ships beside, which is the whole reason none of them is written by hand.
 
