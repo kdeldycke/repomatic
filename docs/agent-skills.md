@@ -90,7 +90,7 @@ $ claude --dangerously-skip-permissions /repomatic-ship
 ```
 
 ```{warning}
-`--dangerously-skip-permissions` removes the permission prompts and the auto-mode classifier for the session: Claude Code commits, pushes, and runs shell commands without asking first. Some checks stay on in Claude Code `2.1.326`: a deny rule blocks the call it matches, and an ask rule prompts. A few safety checks also prompt, like the one on a dangerous `rm`. Only use the flag when you trust the repository state, ideally inside a sandbox or disposable checkout.
+`--dangerously-skip-permissions` removes the permission prompts and the auto-mode classifier for the session: Claude Code commits, pushes, and runs shell commands without asking first. Some checks stay on in Claude Code `2.1.326`: a deny rule blocks the call it matches, and an ask rule prompts. A few safety checks also prompt, like the one on a dangerous `rm`. The flag also lets Claude Code run a command outside its own sandbox without asking. To keep every command inside the sandbox, set `sandbox.allowUnsandboxedCommands` to `false`. Only use the flag when you trust the repository state, ideally inside a sandbox or disposable checkout.
 ```
 
 The judgment-heavy sweep (changelog consolidation, the version read) runs on Opus, while the mechanical CI-fixing loop is delegated to a Sonnet subagent running [`/babysit-ci`](https://github.com/kdeldycke/repomatic/blob/main/.claude/skills/babysit-ci/SKILL.md). Its autonomous commits carry a `Co-Authored-By` trailer, and it stops at a green release PR: the final "Rebase and merge" stays yours.
