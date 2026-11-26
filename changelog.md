@@ -5,6 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- **Breaking:** Remove `autopep8` from `repomatic run`: `repomatic run autopep8` now fails, and `sync-tool-versions` stops bumping it.
 - Add `fix-long-lines`, which wraps the comment and docstring lines past the line length. It replaces `autopep8` in the `format-python` job, which wrapped none of them.
 - `lint-repo.declined` now also declines a default rule left out of `gitignore.extra-content`, as `gitignore.extra-content."{rule}"`: `lint-repo` reports the reason instead of a warning.
 - The `repomatic-upgrade` skill now gives the hand bump of the pin with `init --no-cooldown`, and `brand-assets` warns about stale `qlmanage` thumbnails.
@@ -23,6 +24,7 @@
 - Fix the `release-path` check of `lint-repo` listing release steps for a project with `[tool.uv] package = false`, which never releases: the check now skips it.
 - Fix the `sample-metrics` charts after an SVG optimizer like SVGO rewrites them: curves no longer fill black, and the caption follows the dark theme.
 - Fix `sync-workflow-pins` stepping the uv pin back below the uv `required-version` of the project, which fails every job that installs it.
+- Fix the `test-package-install` job of `tests.yaml` installing the newest `pipx` release: it now pins one that `sync-workflow-pins` bumps. Pin `pipx` by hand in an existing copy, which the sync keeps.
 
 ## [`8.4.0` (2026-11-24)](https://github.com/kdeldycke/repomatic/compare/v8.3.1...v8.4.0)
 

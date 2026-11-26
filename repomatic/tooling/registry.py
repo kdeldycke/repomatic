@@ -1713,33 +1713,6 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             it names.
             """),
     ),
-    "autopep8": ToolSpec(
-        name="autopep8",
-        default_paths="python_files",
-        version="2.3.2",
-        source_url="https://github.com/hhatto/autopep8",
-        cli_docs_url="https://pypi.org/project/autopep8/",
-        reads_pyproject=True,
-        default_flags=(
-            "--recursive",
-            "--in-place",
-            "--max-line-length",
-            "88",
-            "--select",
-            "E501",
-        ),
-        docs_notes=cleandoc(r"""
-            **Try it:**
-
-            ```shell-session
-            $ repomatic run autopep8 -- .
-            ```
-
-            autopep8 takes its configuration from CLI flags only. repomatic passes
-            `--recursive --in-place --max-line-length 88 --select E501` by default;
-            append more flags after `--`.
-            """),
-    ),
     "awesome-lint": ToolSpec(
         name="awesome-lint",
         version="2.3.0",

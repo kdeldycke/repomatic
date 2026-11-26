@@ -111,7 +111,6 @@ All tools that support `[tool.X]` sections in `pyproject.toml`, whether natively
 | Tool                                                                                | Customizes                          | Section                                                                                              | Support                                                                                                                                   |
 | :---------------------------------------------------------------------------------- | :---------------------------------- | :--------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------- |
 | [actionlint](https://github.com/rhysd/actionlint)                                   | Workflow linting rules              | [`[tool.actionlint]`](https://kdeldycke.github.io/click-extra/config-formats.html#pyproject-toml)    | [repomatic bridge](https://kdeldycke.github.io/click-extra/config-formats.html#pyproject-toml) → YAML                                     |
-| [autopep8](https://github.com/hhatto/autopep8)                                      | Python code formatting              | [`[tool.autopep8]`](https://pypi.org/project/autopep8/)                                              | Native                                                                                                                                    |
 | [biome](https://biomejs.dev)                                                        | JSON/JS formatting and linting      | [`[tool.biome]`](https://kdeldycke.github.io/click-extra/config-formats.html#pyproject-toml)         | [repomatic bridge](https://kdeldycke.github.io/click-extra/config-formats.html#pyproject-toml) → JSON                                     |
 | [bump-my-version](https://callowayproject.github.io/bump-my-version/)               | Version bump patterns and files     | [`[tool.bumpversion]`](https://callowayproject.github.io/bump-my-version/reference/configuration/)   | Native                                                                                                                                    |
 | [coverage.py](https://coverage.readthedocs.io/en/latest/config.html)                | Code coverage reporting             | [`[tool.coverage.*]`](https://coverage.readthedocs.io/en/latest/config.html#configuration-reference) | Native                                                                                                                                    |
@@ -142,7 +141,7 @@ A tool with no flag to name its config file, like mdformat or shfmt, gets its tr
 
 ### Level 4: bare invocation
 
-If none of the above applies (no config file, no `[tool.X]`, no bundled default), the tool runs with its own built-in defaults. Tools like autopep8 work this way: all behavior is controlled through CLI flags.
+If none of the above applies (no config file, no `[tool.X]`, no bundled default), the tool runs with its own built-in defaults. Tools like oxipng work this way: all behavior is controlled through CLI flags.
 
 ### Checking the active config source
 

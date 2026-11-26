@@ -2501,6 +2501,79 @@ def test_setup_uv_pins_agree() -> None:
     assert len(versions) == 1, f"setup-uv pins disagree: {sorted(versions)}"
 
 
+# ---------------------------------------------------------------------------
+# Pinned package installs
+# ---------------------------------------------------------------------------
+
+REGISTRY_INSTALL_RE = re.compile(
+    r"\buvx\b"
+    r"|\buv\b.*\b(?:tool|pip)\s+install\b"
+    r"|\buv\b.*\brun\b.*\s--with\b"
+    r"|\bnpm\s+(?:install|i|add)\b"
+    r"|\bnpx\b"
+    r"|\bpipx\s+(?:install|run)\b"
+    r"|\bpip\s+install\b"
+)
+"""A command that installs a package from PyPI or npm."""
+
+PACKAGE_UNDER_TEST_RE = re.compile(r'"\$(?:GIT_URL|PACKAGE|script)"')
+"""The freshly published package that a cooldown-exempt job installs on purpose."""
+
+
+def _unpinned_installs(name: str, content: str) -> list[str]:
+    """Return each install command of a workflow that carries no version literal.
+
+    Reads the `run:` steps of the jobs, and of `runs.steps` for a composite
+    action. A `\\` continuation joins its lines first, so a command split
+    across them reads whole.
+
+    :param name: File name, which selects the jobs of
+        {data}`COOLDOWN_EXEMPT_JOBS`.
+    :param content: The workflow or action file text.
+    :return: One `job: command` line per unpinned install.
+    """
+    doc = yaml.safe_load(content)
+    jobs = dict(doc.get("jobs") or {})
+    if "runs" in doc:
+        jobs["composite"] = doc["runs"]
+    exempt_jobs = COOLDOWN_EXEMPT_JOBS.get(name, frozenset())
+    unpinned = []
+    for job_id, job in jobs.items():
+        for step in (job or {}).get("steps") or []:
+            for line in step.get("run", "").replace("\\\n", " ").splitlines():
+                command = line.strip()
+                if command.startswith("#") or not REGISTRY_INSTALL_RE.search(command):
+                    continue
+                if find_workflow_literals(command):
+                    continue
+                if job_id in exempt_jobs and PACKAGE_UNDER_TEST_RE.search(command):
+                    continue
+                unpinned.append(f"{job_id}: {command}")
+    return unpinned
+
+
+@pytest.mark.parametrize("path", UV_PINNED_FILES, ids=lambda p: p.name)
+def test_every_package_install_is_pinned(path: Path) -> None:
+    """Every package that a `run:` step installs carries a version literal.
+
+    `repomatic run` pins the tools of its registry. A step that installs a
+    package by itself has to pin it in a shape that
+    {func}`~repomatic.deps.pins.find_workflow_literals` reads, which is the
+    shape `sync-workflow-pins` bumps. Without one, the package resolves to its
+    newest release on every run, and no job ever proposes a bump.
+
+    A line that holds one pinned and one unpinned package passes: the check
+    reads one literal per command line.
+    """
+    unpinned = _unpinned_installs(path.name, path.read_text(encoding="UTF-8"))
+    assert not unpinned, (
+        f"{path.name}: install(s) with no version literal:\n"
+        + "\n".join(unpinned)
+        + "\nPin each as `uvx 'pkg==X.Y.Z'`, `--with 'pkg==X.Y.Z'`, "
+        "`uv tool install 'pkg==X.Y.Z'` or `npm install pkg@X.Y.Z`."
+    )
+
+
 def test_report_step_outputs_are_consumed() -> None:
     """A report emitted to a step output must be read back somewhere.
 

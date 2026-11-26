@@ -2045,27 +2045,6 @@ def test_run_tool_reports_a_launcher_missing_from_path(
 
 @patch("repomatic.tooling.runner.subprocess.run")
 @patch("repomatic.tooling.runner.is_github_ci", return_value=False)
-def test_run_tool_autopep8_default_flags(mock_ci, mock_run, tmp_path, monkeypatch):
-    """autopep8 runs with all default flags via uvx."""
-    monkeypatch.chdir(tmp_path)
-    mock_run.return_value = MagicMock(returncode=0)
-
-    run_tool("autopep8", extra_args=("file.py",))
-
-    cmd = mock_run.call_args[0][0]
-    assert cmd[0] == "uvx"
-    assert f"autopep8=={TOOL_REGISTRY['autopep8'].version}" in " ".join(cmd)
-    assert "--recursive" in cmd
-    assert "--in-place" in cmd
-    assert "--max-line-length" in cmd
-    assert "88" in cmd
-    assert "--select" in cmd
-    assert "E501" in cmd
-    assert "file.py" in cmd
-
-
-@patch("repomatic.tooling.runner.subprocess.run")
-@patch("repomatic.tooling.runner.is_github_ci", return_value=False)
 def test_run_tool_pyproject_fmt(mock_ci, mock_run, tmp_path, monkeypatch):
     """pyproject-fmt runs bare via uvx, with no forced --expand-tables flag."""
     monkeypatch.chdir(tmp_path)
