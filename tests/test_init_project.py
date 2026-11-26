@@ -549,6 +549,8 @@ def _lookup(parsed: dict, key: str):
         # an installed copy of the package.
         ("pytest.toml", "testpaths", ["tests"]),
         ("pytest.toml", "xfail_strict", True),
+        # A hung test dumps its tracebacks long before the job times out.
+        ("pytest.toml", "faulthandler_timeout", "300"),
         # Coverage measurement and reporting, moved out of the pytest addopts
         # so they sit where coverage.py itself reads them.
         ("coverage.toml", "run.branch", True),

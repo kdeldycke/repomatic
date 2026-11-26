@@ -482,6 +482,11 @@ addopts = [
   # copy of the package coexists with the source tree, as in distro builds.
   "--import-mode=importlib",
 ]
+# Dump the traceback of every thread when one test runs longer than this many
+# seconds, so a hang (a blocking call with no timeout) shows where it blocks
+# instead of running until the time limit of the job. The dump fails nothing,
+# and the test keeps running. Set it above the slowest test.
+faulthandler_timeout = "300"
 # https://docs.pytest.org/en/latest/customize.html#pyproject-toml
 markers = [
   "network: Tests that require network access (excluded with -m 'not network').",

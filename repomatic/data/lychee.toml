@@ -39,6 +39,11 @@ exclude = [
   "^https://(www\\.)?medium\\.com(/.*)?$",
   # npmjs.com returns 403 to bots.
   "^https://www\\.npmjs\\.com/package/.*$",
+  # crates.io answers 404 to a request that does not accept `text/html`.
+  "^https://crates\\.io/crates/.*$",
+  # gnu.org answers CI runners with 429 Too Many Requests, often from the first
+  # request, for longer than lychee keeps retrying.
+  "^https://www\\.gnu\\.org/.*$",
   # githubstatus.com returns 405 to HEAD requests from bots.
   "githubstatus\\.com",
   # claude.ai sits behind a Cloudflare challenge that answers 403 to some

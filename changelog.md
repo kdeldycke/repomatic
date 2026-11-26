@@ -9,6 +9,8 @@
 - `lint-repo.declined` now also declines a default rule left out of `gitignore.extra-content`, as `gitignore.extra-content."{rule}"`: `lint-repo` reports the reason instead of a warning.
 - The `repomatic-upgrade` skill now gives the hand bump of the pin with `init --no-cooldown`, and `brand-assets` warns about stale `qlmanage` thumbnails.
 - The bundled skills and agents drop the guidance that a check now enforces, repeated rules and incident stories, and their stale claims are fixed.
+- The bundled `lychee.toml` now excludes crates.io crate pages and gnu.org, which answer a link checker with `404` and `429`.
+- The bundled `pytest.toml` now sets `faulthandler_timeout` to 5 minutes, so a hung test prints the traceback of every thread to the log.
 - The octicon registry now gives the `repo` icon to a `man.md` page, as one family with `man-page.md`. `lint-repo` warns on a `man.md` title that keeps the `book` icon.
 - The release freeze now pins the versioned CLI examples of every docs page beside `install.md`, `{package} == X.Y.Z` included, and skips the changelog pages.
 - The binaries page that `sync-binaries` creates now carries the `desktop-download` octicon in its title, as `lint-repo` expects.
