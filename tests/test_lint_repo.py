@@ -4124,6 +4124,18 @@ def test_release_path_reads_the_condition_of_each_gated_step(condition, needle):
     assert gated[1].message == "`📎 Extra release assets` gates on `release_assets`."
 
 
+def test_release_path_skips_a_project_that_builds_no_package(tmp_path, monkeypatch):
+    """A uv virtual project never releases, so no release step is reported."""
+    metadata_from_pyproject(
+        tmp_path,
+        monkeypatch,
+        '[project]\nname = "basket"\nversion = "1.0.0"\n\n[tool.uv]\npackage = false\n',
+    )
+    results = check_release_path(_workflows())
+    assert [result.passed for result in results] == [None]
+    assert "`[tool.uv] package = false`" in results[0].message
+
+
 def test_release_path_flags_a_gate_on_a_retired_metadata_key():
     """A gate naming a key the metadata no longer carries never opens."""
     gate = ReleaseGate("🍈 Melon", "_release-engine.yaml", "papaya_key", "a papaya")

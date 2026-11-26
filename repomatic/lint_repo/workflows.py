@@ -799,11 +799,11 @@ def check_release_path(ctx: LintContext) -> list[CheckResult]:
 
     Two arms, because the two failure modes live in different repositories.
 
-    The first runs everywhere, including downstream. It resolves each entry of
-    {data}`RELEASE_ONLY_GATES` against the local project and reports which
-    release-only steps a release commit would actually run. That turns a surface
-    nothing exercises until release day into a line of output on every push, so
-    the answer is known long before it is expensive.
+    The first runs in every Python package, downstream included. It resolves
+    each entry of {data}`RELEASE_ONLY_GATES` against the local project and
+    reports which release-only steps a release commit would actually run. That
+    turns a surface nothing exercises until release day into a line of output
+    on every push, so the answer is known long before it is expensive.
 
     The second runs only where the reusable workflows live, since a downstream
     repository holds a thin caller and not the steps themselves. It asserts each
@@ -819,6 +819,16 @@ def check_release_path(ctx: LintContext) -> list[CheckResult]:
     if not metadata.is_python_project:
         return [
             CheckResult(None, "Release path check: skipped (not a Python project).")
+        ]
+    # A uv virtual project builds nothing to release, and `init` deploys it no
+    # `release.yaml`, so no commit of it ever takes the release path.
+    if not metadata.is_python_package:
+        return [
+            CheckResult(
+                None,
+                "Release path check: skipped (`[tool.uv] package = false`: the"
+                " project builds no package to release).",
+            )
         ]
 
     # Resolved through `dump`, not `getattr`: several of these keys are assembled

@@ -678,7 +678,7 @@ REPO_CHECKS: tuple[RepoCheck, ...] = (
         ),
         description=(
             "Reports which release-only steps a release commit would run or skip for"
-            " a Python project, so a missing capability shows on an ordinary push"
+            " a Python package, so a missing capability shows on an ordinary push"
             " instead of on release day. Where the reusable workflows live, warns when"
             " a step's `if:` never tests the capability it needs"
         ),
