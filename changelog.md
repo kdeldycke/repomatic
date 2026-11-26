@@ -9,6 +9,8 @@
 - `lint-repo.declined` now also declines a default rule left out of `gitignore.extra-content`, as `gitignore.extra-content."{rule}"`: `lint-repo` reports the reason instead of a warning.
 - The `repomatic-upgrade` skill now gives the hand bump of the pin with `init --no-cooldown`, and `brand-assets` warns about stale `qlmanage` thumbnails.
 - The bundled skills and agents drop the guidance that a check now enforces, repeated rules and incident stories, and their stale claims are fixed.
+- The release freeze now pins the versioned CLI examples of every docs page beside `install.md`, `{package} == X.Y.Z` included, and skips the changelog pages.
+- The binaries page that `sync-binaries` creates now carries the `desktop-download` octicon in its title, as `lint-repo` expects.
 - Fix `ci-status` and the `workflow-dispatch` and `thin-caller-triggers` checks of `lint-repo` ignoring an `on:` key that is a list or a single event.
 - Fix `ci-status --wait` ending when GitHub keeps failing to serve one workflow's run: it now reports that workflow and waits on the others.
 - Fix the cooldown comment of every workflow, which said a synced copy keeps its window by hand: `repomatic init` writes it from `minimum-release-age`.

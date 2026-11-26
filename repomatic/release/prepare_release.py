@@ -27,7 +27,7 @@ A release cycle produces exactly two commits that **must** be merged via
    - Freezes CLI invocations: `uv run --frozen -- repomatic` (from the
      lockfile) → `uvx 'repomatic==X.Y.Z'` (from PyPI, for downstream repos).
    - Freezes the install guide's binary download URLs to versioned release paths.
-   - Pins the install guide's versioned CLI examples to the release.
+   - Pins the versioned CLI examples of the docs pages to the release.
    - Sets the release date in `citation.cff`.
 
 2. **Unfreeze commit** (`[changelog] Post-release bump vX.Y.Z → vX.Y.(Z+1)`):
@@ -87,6 +87,13 @@ if TYPE_CHECKING:
 
 CITATION_PATH = Path("citation.cff")
 """Citation file whose `date-released` the freeze sets, relative to the root."""
+
+CHANGELOG_PAGE_PREFIX = "changelog"
+"""Name prefix of the docs pages the CLI version freeze leaves alone.
+
+A changelog page, like `changelog.md` or `changelog-archive.md`, records the
+version of each past release, and a pin there is history rather than an example.
+"""
 
 MARKETPLACE_REF_RE = re.compile(r'("ref":\s*")[^"]*(")')
 """The git ref the plugin marketplace entry reads its plugin directory from.
@@ -502,12 +509,17 @@ class PrepareRelease:
         )
 
     def freeze_install_cli_version(self, version: str) -> bool:
-        """Pin the install guide's versioned CLI examples to the release.
+        """Pin the versioned CLI examples of the docs pages to the release.
 
         This is part of the **freeze** step: the install guide's `Specific
         version` tab demonstrates a pinned invocation (`uvx {package}@X.Y.Z`
         or a `{package}==X.Y.Z` requirement), which must always showcase the
-        latest release. Without this pass the pinned example silently rots.
+        latest release. Other pages beside the install guide carry the same kind
+        of example, like the inline script metadata of a tutorial
+        (`dependencies = ["{package} == X.Y.Z"]`), so every Markdown page of
+        that directory is rewritten too, except the changelog pages named by
+        {data}`CHANGELOG_PAGE_PREFIX`. Without this pass the pinned examples
+        silently rot.
 
         ```{note}
         Like {meth}`freeze_install_download_urls`, this ratchets forward with
@@ -516,7 +528,7 @@ class PrepareRelease:
         ```
 
         :param version: The release version to pin the examples to.
-        :return: True if the file was modified.
+        :return: True if a page was modified.
         """
         if not self.package_name:
             logging.warning(
@@ -526,19 +538,26 @@ class PrepareRelease:
             return False
 
         # Match `{package}@X.Y.Z` (uvx pin) and `{package}==X.Y.Z` (PEP 508
-        # pin), leaving `@main`, git refs, and other packages' pins untouched.
-        # The leading boundary keeps distro-prefixed names (python-{package})
-        # out of scope; the optional `.devN` tail absorbs development pins.
+        # pin, with or without spaces around the operator), leaving `@main`,
+        # git refs, and other packages' pins untouched. The leading boundary
+        # keeps distro-prefixed names (python-{package}) out of scope; the
+        # optional `.devN` tail absorbs development pins.
         pattern = re.compile(
-            rf"(?<![\w-])({re.escape(self.package_name)}(?:@|==))"
+            rf"(?<![\w-])({re.escape(self.package_name)}(?:@| *== *))"
             rf"\d+(?:\.\d+)*(?:\.dev\d+)?",
         )
-
-        return self._rewrite_file(
-            self.install_path,
-            "Install guide",
-            (pattern, rf"\g<1>{version}"),
+        pages = [self.install_path] + sorted(
+            page
+            for page in self.install_path.parent.glob("*.md")
+            if page != self.install_path
+            and not page.name.startswith(CHANGELOG_PAGE_PREFIX)
         )
+
+        modified = False
+        for page in pages:
+            if self._rewrite_file(page, "Docs page", (pattern, rf"\g<1>{version}")):
+                modified = True
+        return modified
 
     def freeze_cli_version(self, version: str) -> int:
         """Replace local source CLI invocations with a frozen PyPI version.

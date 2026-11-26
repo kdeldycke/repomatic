@@ -1036,6 +1036,36 @@ def test_freeze_install_cli_version_missing_file(tmp_path: Path) -> None:
     assert result is False
 
 
+def test_freeze_install_cli_version_other_pages(temp_install_pinned: Path) -> None:
+    """A pin on another page beside the install guide moves to the release too.
+
+    The spaced `==` form is the one inline script metadata of a tutorial holds.
+    """
+    tutorial = temp_install_pinned.parent / "tutorial.md"
+    tutorial.write_text(
+        '# dependencies = ["test-project == 1.2.2"]\n', encoding="UTF-8"
+    )
+    prep = PrepareRelease(install_path=temp_install_pinned)
+
+    assert prep.freeze_install_cli_version("1.2.3") is True
+    assert tutorial.read_text(encoding="UTF-8") == (
+        '# dependencies = ["test-project == 1.2.3"]\n'
+    )
+    assert tutorial in prep.modified_files
+
+
+def test_freeze_install_cli_version_skips_changelog_pages(
+    temp_install_pinned: Path,
+) -> None:
+    """A changelog page records past releases, so its pins stay as written."""
+    archive = temp_install_pinned.parent / "changelog-archive.md"
+    archive.write_text("Pin `test-project==1.0.0` to keep it.\n", encoding="UTF-8")
+    prep = PrepareRelease(install_path=temp_install_pinned)
+    prep.freeze_install_cli_version("1.2.3")
+
+    assert "test-project==1.0.0" in archive.read_text(encoding="UTF-8")
+
+
 def test_prepare_release_pins_install_cli(
     temp_changelog: Path,
     temp_citation: Path,

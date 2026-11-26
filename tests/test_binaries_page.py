@@ -412,7 +412,7 @@ def test_update_binaries_page_creates_from_template(tmp_path):
     assert update_binaries_page(page, "chart content", REPO) is True
     text = page.read_text(encoding="UTF-8")
     assert text.startswith("---\norphan: true\n---\n")
-    assert "# Binaries" in text
+    assert "# {octicon}`desktop-download` Binaries" in text
     assert f"https://github.com/{REPO}/actions/workflows/release.yaml" in text
     # Extensionless: Cloudflare Pages serves the docs and strips `.html`.
     assert "binaries#minimum-os-requirements" in text
