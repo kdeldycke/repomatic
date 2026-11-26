@@ -364,12 +364,3 @@ On top of the built-in `3.15t` flavor smoke test (stable, on `ubuntu-26.04-arm` 
 | `main` acme (dev-branch early warning) | `ubuntu-26.04-arm` × every base Python     | yes                 |
 
 The shipped configuration is exercised everywhere a regression would reach a user; the floor and the one regression-prone release are verified cheaply on the fastest runner; and the development branch gives a heads-up without the power to redden the build. The PR matrix stays the curated reduced set for fast feedback, since `variations` and `unstable` apply to the full matrix only. The same shape extends to a prerelease Python (add it as a `python-version` variation, pin it to one runner with `exclude`, and mark it `unstable`) or to a released free-threaded flavor (the same, but stable: leave it out of `unstable`, as [§ Smoke-test released build flavors on one runner](#smoke-test-released-build-flavors-on-one-runner) explains).
-
-## `Metadata` class hierarchy
-
-```{eval-rst}
-.. autoclasstree:: repomatic.metadata.core
-   :strict:
-```
-
-The constants this page describes are documented on the [`repomatic.matrix.axes`](repomatic.matrix.axes.md) page, and the class itself on [`repomatic.metadata.core`](repomatic.metadata.core.md).

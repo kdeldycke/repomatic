@@ -621,15 +621,15 @@ Auto-generated API pages (`<package>.md`, `tests.md`, and other autodoc module p
 
 ## Guide pages carry the prose, API pages carry the API
 
-A guide page teaches one subject: what a feature does, how to invoke it, what its output means. The generated API reference answers a different question for a different reader. Repeating it at the foot of the guide serves neither, so **no narrative page carries an `automodule` block**. Each module is documented once, on the page `sphinx-apidoc` writes for it.
+A guide page teaches one subject: what a feature does, how to invoke it, what its output means. The generated API reference answers a different question for a different reader. Repeating it at the foot of the guide serves neither, so **no narrative page carries an `automodule` or `autoclasstree` block**. Each module is documented once, on the page `sphinx-apidoc` writes for it, with its class tree above its members.
 
 Applying it:
 
-- **Delete the section outright** when its body is nothing but `{eval-rst}` autodoc fences. Leave no "see the API" pointer: the sidebar already lists the API tree, and a stub section is one more thing to keep true.
-- **Keep the diagram, drop the dump** where a section holds both. An `autoclasstree` is authored content showing the shape of a hierarchy, so retitle the section for what survives (`## Command hierarchy`, `` ## `Metadata` class hierarchy ``) instead of leaving it named after a module it no longer documents.
+- **Move the diagram to the API page.** An `autoclasstree` shows the shape of a hierarchy, which is API documentation too, so it goes on the page of its module, in an `{eval-rst}` fence of its own above the `automodule` fence. All the API documentation of a module then stays together. A tree that spans several modules goes on the page of the package that holds them. `repomatic update-docs` keeps a page that already exists, so the fence survives its next run.
+- **Delete the section outright** once its autodoc fences are gone. Leave no "see the API" pointer: the sidebar already lists the API tree, and a stub section is one more thing to keep true.
 - **Check the cross-references first.** Under `nitpicky = True` a `{class}` or `{func}` ref resolves against whichever page registered the target, so dropping the guide's copy is harmless while the API page carries one. What breaks is a ref naming a module `sphinx-apidoc` skips: a private, `_`-prefixed one it writes no page for. Every project here leaves those undocumented, so downgrade the ref to a code span rather than widen the API surface to rescue it.
 - **Give each module its own page** with `[tool.repomatic] docs.apidoc-extra-args = [ "--separate" ]`. Page length then follows the module rather than the package, which is what makes the reference readable enough to be the only home.
-- **Watch for the section creeping back.** A new module lands with a guide page and the appendix habit returns, so grep `docs/*.md` for `automodule` on every pass: outside the generated `<package>.*.md` and `tests.*.md` stubs, every hit is a finding.
+- **Watch for the section creeping back.** A new module lands with a guide page and the appendix habit returns, so grep `docs/*.md` for `automodule` and `autoclasstree` on every pass: outside the generated `<package>.*.md` and `tests.*.md` stubs, every hit is a finding.
 
 Module anchors move with the content: `/sbom/#module-package.sbom.base` becomes `/package.sbom.base/`. Nothing recovers the old form, a fragment never reaching the server, so an inbound link lands at the top of the guide instead. That is the accepted cost, paid once.
 

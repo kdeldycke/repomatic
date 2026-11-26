@@ -15,6 +15,7 @@
 - The release freeze now pins the versioned CLI examples of every docs page beside `install.md`, `{package} == X.Y.Z` included, and skips the changelog pages.
 - The binaries page that `sync-binaries` creates now carries the `desktop-download` octicon in its title, as `lint-repo` expects.
 - The bundled `sphinx-docs` agent now copies a session command with a prompt pattern, which leaves out the output of a `{click:run}` block too.
+- The bundled `sphinx-docs` agent now puts the class tree of a module on its API page, above its members: a guide page carries no `autoclasstree`.
 - Fix `ci-status` and the `workflow-dispatch` and `thin-caller-triggers` checks of `lint-repo` ignoring an `on:` key that is a list or a single event.
 - Fix `ci-status --wait` ending when GitHub keeps failing to serve one workflow's run: it now reports that workflow and waits on the others.
 - Fix the cooldown comment of every workflow, which said a synced copy keeps its window by hand: `repomatic init` writes it from `minimum-release-age`.

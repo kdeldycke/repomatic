@@ -1,6 +1,11 @@
 # `repomatic.cli` package
 
 ```{eval-rst}
+.. autoclasstree:: repomatic.cli.main repomatic.cli.ci repomatic.cli.deps repomatic.cli.repo
+   :strict:
+```
+
+```{eval-rst}
 .. automodule:: repomatic.cli
    :members:
    :show-inheritance:
