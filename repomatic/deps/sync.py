@@ -114,7 +114,7 @@ from .pins import (
     apply_workflow_literals,
     find_action_pins,
     find_upstream_ref_versions,
-    find_uv_run_packages,
+    find_venv_packages,
     find_workflow_literals,
     format_cooldown_note,
     github_candidates,
@@ -1309,14 +1309,14 @@ def _gate_on_python_floor(
     min_age: timedelta,
     today: date,
 ) -> list[Candidate]:
-    """Drop the releases of a `uv run --with` package that the oldest Python refuses.
+    """Drop the releases of a venv package that the oldest Python refuses.
 
-    `uv run --with` installs the package into the environment of the project, so
-    a project that tests on the oldest Python it supports installs it there. A
-    release whose `requires-python` leaves that Python out fails those jobs with
-    `No solution found`, while the jobs on a newer Python pass. The pin holds at
-    the newest release that the oldest Python can install, until the project
-    raises its floor.
+    `uv run --with` and `uv pip install` install the package into the virtual
+    environment of the job, so a project that tests on the oldest Python it
+    supports installs it there. A release whose `requires-python` leaves that
+    Python out fails those jobs with `No solution found`, while the jobs on a
+    newer Python pass. The pin holds at the newest release that the oldest
+    Python can install, until the project raises its floor.
 
     That hold is the ordinary state of a package that drops a Python before the
     project does, so it is announced at info level, like the uv checksum gate.
@@ -1337,7 +1337,7 @@ def _gate_on_python_floor(
         logging.info(
             f"{package} {newest.version} requires Python {newest.requires_python},"
             f" which leaves out Python {floor[0]}.{floor[1]}, the oldest one of the"
-            " project: holding its `uv run --with` pin."
+            " project: holding its pin."
         )
     return kept
 
@@ -1368,8 +1368,9 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
     leave `lint-repo`'s lockstep check red for a full cooldown window after
     every refs bump.
 
-    A package pinned in a `uv run --with` command moves only to a release that
-    the oldest Python of the project can install: see `_gate_on_python_floor`.
+    A package pinned in a `uv run --with` or `uv pip install` command moves only
+    to a release that the oldest Python of the project can install: see
+    `_gate_on_python_floor`.
     """
     min_age, today = rc.min_age, rc.today
     plan = SyncPlan(
@@ -1397,9 +1398,9 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
 
     ignored = frozenset(rc.config.workflow_pins_ignore)
     # Every literal of a package moves to the one version resolved for it, so a
-    # single `uv run --with` pin holds the `uvx` pins of its package too.
-    uv_run_packages = {
-        package for text in file_data.values() for package in find_uv_run_packages(text)
+    # single pin into the venv holds the `uvx` pins of its package too.
+    venv_packages = {
+        package for text in file_data.values() for package in find_venv_packages(text)
     }
     resolved: dict[tuple[str, str], str] = {}
     for (ecosystem, package), current_version in sorted(current.items()):
@@ -1440,7 +1441,7 @@ def _resolve_workflow_pins(rc: ResolveContext) -> SyncPlan:
             )
         if (
             ecosystem is Ecosystem.PYPI
-            and package in uv_run_packages
+            and package in venv_packages
             and rc.python_floor is not None
         ):
             candidates = _gate_on_python_floor(

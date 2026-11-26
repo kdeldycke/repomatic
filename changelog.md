@@ -24,7 +24,7 @@
 - Fix the `release-path` check of `lint-repo` listing release steps for a project with `[tool.uv] package = false`, which never releases: the check now skips it.
 - Fix the `sample-metrics` charts after an SVG optimizer like SVGO rewrites them: curves no longer fill black, and the caption follows the dark theme.
 - Fix `sync-workflow-pins` stepping the uv pin back below the uv `required-version` of the project, which fails every job that installs it.
-- Fix `sync-workflow-pins` bumping a `uv run --with` pin to a release whose `requires-python` leaves out the oldest Python of the project.
+- Fix `sync-workflow-pins` bumping a `uv run --with` or `uv pip install` pin to a release whose `requires-python` leaves out the oldest Python of the project.
 - Fix the `test-package-install` job of `tests.yaml` installing the newest `pipx` release: it now pins one that `sync-workflow-pins` bumps. Pin `pipx` by hand in an existing copy, which the sync keeps.
 
 ## [`8.4.0` (2026-11-24)](https://github.com/kdeldycke/repomatic/compare/v8.3.1...v8.4.0)

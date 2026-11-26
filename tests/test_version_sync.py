@@ -498,6 +498,12 @@ def test_find_workflow_literals_next_pin_stays_on_its_line():
             {"apricot"},
             id="uv-run-after-uvx",
         ),
+        pytest.param("uv pip install 'apricot==1.0'\n", {"apricot"}, id="uv-pip"),
+        pytest.param(
+            "uv --no-progress pip install --system 'apricot==1.0' 'banana==2.0'\n",
+            {"apricot", "banana"},
+            id="uv-pip-two-pins",
+        ),
         pytest.param("uvx --with 'apricot==1.0' 'papaya==2.0'\n", set(), id="uvx"),
         pytest.param(
             "uv tool run --with 'apricot==1.0' papaya\n", set(), id="uv-tool-run"
@@ -520,9 +526,9 @@ def test_find_workflow_literals_next_pin_stays_on_its_line():
         ),
     ),
 )
-def test_find_uv_run_packages(content, expected):
-    """A pin counts when its own command is a `uv run`, wherever that command starts."""
-    assert vs.find_uv_run_packages(content) == expected
+def test_find_venv_packages(content, expected):
+    """A pin counts when its own command installs into the venv, wherever it starts."""
+    assert vs.find_venv_packages(content) == expected
 
 
 @pytest.mark.parametrize(

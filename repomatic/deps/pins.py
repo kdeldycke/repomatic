@@ -137,10 +137,13 @@ _PYPI_NEXT_LITERAL_RE = re.compile(_PYPI_ARGUMENTS + _PYPI_PIN)
 # word (`setup-uv`, `uvloop`) and of a quoted package name (`'uv==0.9.0'`).
 _UV_COMMAND_RE = re.compile(r"(?<![\w.'-])uvx?(?![\w.-])")
 
-# A `uv run` command, from its `uv` to the `run`: `uv run`, `uv --no-progress
-# run`, `uv --directory docs run`. A global option can take the next word as its
-# value. `uv tool run` and `uvx` do not match.
-_UV_RUN_RE = re.compile(r"uv(?:\s+-\S+(?:\s+[^\s-]\S*)?)*?\s+run\s")
+# A uv command that installs into the virtual environment of the job, from its
+# `uv` to its subcommand: `uv run`, `uv --directory docs run`, `uv --no-progress
+# pip install`. A global option can take the next word as its value. `uv tool
+# run`, `uv tool install` and `uvx` do not match.
+_UV_VENV_COMMAND_RE = re.compile(
+    r"uv(?:\s+-\S+(?:\s+[^\s-]\S*)?)*?\s+(?:run|pip\s+install)\s"
+)
 
 # A line that opens with an option, like `--with 'apricot==1.0'`. In a folded
 # `run: >` block, such a line continues the command of the line above it. The
@@ -913,8 +916,8 @@ def _command_text(content: str, position: int) -> str:
     return content[begin:position]
 
 
-def _is_uv_run(command: str) -> bool:
-    """Whether the last `uv` or `uvx` command of *command* is a `uv run`.
+def _is_venv_command(command: str) -> bool:
+    """Whether the last `uv` or `uvx` command of *command* installs into the venv.
 
     :param command: Shell text, as {func}`_command_text` returns it.
     :return: `False` too when *command* holds no `uv` or `uvx` command.
@@ -922,15 +925,18 @@ def _is_uv_run(command: str) -> bool:
     # The shell reads a `\` at the end of a line as a space.
     flat = command.replace("\\\n", " \n")
     words = list(_UV_COMMAND_RE.finditer(flat))
-    return bool(words) and _UV_RUN_RE.match(flat, words[-1].start()) is not None
+    return (
+        bool(words) and _UV_VENV_COMMAND_RE.match(flat, words[-1].start()) is not None
+    )
 
 
-def find_uv_run_packages(content: str) -> frozenset[str]:
-    """Return the packages that a `uv run --with` pin of a workflow file installs.
+def find_venv_packages(content: str) -> frozenset[str]:
+    """Return the packages that a pin of a workflow file installs into the venv.
 
-    `uv run --with` adds the package to the environment of the project, on the
-    Python of the job. A `uvx` or `uv tool` command makes an environment of its
-    own, so its pins are left out.
+    `uv run --with` adds the package to the environment of the project, and
+    `uv pip install` installs it into the virtual environment of the job. Both
+    run on the Python of the job. A `uvx` or `uv tool` command makes an
+    environment of its own, so its pins are left out.
 
     :param content: The workflow file text.
     :return: The package names, spelled as {func}`find_workflow_literals` reads
@@ -939,7 +945,7 @@ def find_uv_run_packages(content: str) -> frozenset[str]:
     return frozenset(
         match.group("package")
         for match in _pypi_literal_matches(content)
-        if _is_uv_run(_command_text(content, match.start("package")))
+        if _is_venv_command(_command_text(content, match.start("package")))
     )
 
 

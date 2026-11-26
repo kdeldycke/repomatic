@@ -1786,13 +1786,13 @@ def test_python_floor_gate_reports_a_release_it_withheld(caplog):
             "apricot", list(FLOOR_CANDIDATES), (3, 11), MIN_AGE, GATE_TODAY
         )
     assert "apricot 1.2.0 requires Python >=3.13" in caplog.text
-    assert "holding its `uv run --with` pin" in caplog.text
+    assert "holding its pin" in caplog.text
 
 
 def _resolve_floor_pins(floor: tuple[int, int] | None) -> SyncPlan:
-    """Resolve a job pinning `apricot` in `uv run --with` and `banana` in `uvx`.
+    """Resolve a job pinning `apricot` and `damson` into the venv, `banana` in `uvx`.
 
-    Both packages offer {data}`FLOOR_CANDIDATES`, and the oldest Python of the
+    Every package offers {data}`FLOOR_CANDIDATES`, and the oldest Python of the
     project is *floor*.
     """
     workflow = {
@@ -1801,6 +1801,7 @@ def _resolve_floor_pins(floor: tuple[int, int] | None) -> SyncPlan:
             "      - run: uv --no-progress run --frozen --with 'apricot==1.0.0'"
             " -- papaya\n"
             "      - run: uvx --with 'banana==1.0.0' cherry\n"
+            "      - run: uv --no-progress pip install 'damson==1.0.0'\n"
         )
     }
     rc = ResolveContext(config=Config(), today=GATE_TODAY)
@@ -1815,24 +1816,27 @@ def _resolve_floor_pins(floor: tuple[int, int] | None) -> SyncPlan:
 
 
 @pytest.mark.parametrize(
-    ("floor", "apricot"),
+    ("floor", "held"),
     (
         pytest.param((3, 11), "1.1.0", id="held"),
         pytest.param(None, "1.2.0", id="no-floor"),
     ),
 )
-def test_workflow_pins_hold_a_uv_run_pin_to_the_oldest_python(floor, apricot):
-    """A `uv run --with` pin moves to the newest release the oldest Python installs.
+def test_workflow_pins_hold_a_venv_pin_to_the_oldest_python(floor, held):
+    """A pin into the venv moves to the newest release the oldest Python installs.
 
     The `uvx` pin moves to the newest release either way, since `uvx` makes an
     environment of its own.
     """
     plan = _resolve_floor_pins(floor)
     assert set(plan.changes) == {
-        ("apricot", "1.0.0", apricot),
+        ("apricot", "1.0.0", held),
         ("banana", "1.0.0", "1.2.0"),
+        ("damson", "1.0.0", held),
     }
-    assert f"'apricot=={apricot}'" in plan.file_writes[Path("tests.yaml")]
+    written = plan.file_writes[Path("tests.yaml")]
+    assert f"'apricot=={held}'" in written
+    assert f"'damson=={held}'" in written
 
 
 def _lockstep_workflow(inline_pin: str) -> dict[Path, str]:
