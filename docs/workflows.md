@@ -122,7 +122,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 
 ### 🐍 Format Python (`format-python`)
 
-- Auto-formats Python code using [`ruff`](https://github.com/astral-sh/ruff) (linting and formatting), then wraps the comment and docstring lines past the line length with `repomatic fix-long-lines`, which leaves every other line break in place
+- Auto-formats Python code using [`ruff`](https://github.com/astral-sh/ruff) (linting and formatting), then runs `repomatic fix-long-lines` on the comment and docstring lines that Ruff's `E501` or `W505` reports: the words past the limit open a new comment line, or move into the next line of the docstring paragraph
 - When the project has no `[tool.ruff]` section or `ruff.toml`, [repomatic's bundled defaults](https://github.com/kdeldycke/repomatic/blob/main/repomatic/data/ruff.toml) are applied at runtime
 - **Requires**:
   - Python files (`**/*.{py,pyi,pyw,pyx,ipynb}`) in the repository, or

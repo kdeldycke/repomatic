@@ -6,7 +6,7 @@
 > This version is **not released yet** and is under active development.
 
 - **Breaking:** Remove `autopep8` from `repomatic run`: `repomatic run autopep8` now fails, and `sync-tool-versions` stops bumping it. Run `repomatic fix-long-lines` in its place.
-- Add `fix-long-lines`, which wraps the comment and docstring lines past the Ruff `line-length`, and run it in the `format-python` job in place of `autopep8`.
+- Add `fix-long-lines`, which wraps the comment and docstring lines that Ruff's `E501` or `W505` reports, and run it in the `format-python` job in place of `autopep8`.
 - `lint-repo.declined` now also declines a default rule left out of `gitignore.extra-content`, as `gitignore.extra-content."{rule}"`: `lint-repo` reports the reason instead of a warning.
 - The bundled `repomatic-upgrade` skill now moves the pin by hand with `init --no-cooldown`, for a release still inside the cooldown.
 - The bundled `brand-assets` skill now warns that `qlmanage` can render a stale thumbnail of a rewritten SVG.

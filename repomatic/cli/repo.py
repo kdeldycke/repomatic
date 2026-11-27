@@ -76,7 +76,7 @@ from ..init.run import DeletionPolicy, ReportSection, run_init
 from ..init.upgrade import hand_off_upgrade, resolve_upgrade_target, upgrade_report
 from ..lint_repo.context import LintContext
 from ..lint_repo.roster import REPO_CHECK_HELP_LIST, run_repo_lint
-from ..long_lines import fix_long_lines
+from ..long_lines import RuffError, fix_long_lines
 from ..mailmap import MAILMAP_PATH, Mailmap
 from ..metadata.core import (
     METADATA_KEYS_HEADER_DEFS,
@@ -94,7 +94,7 @@ from ..metrics.store import (
     sample_subject,
 )
 from ..skills import SKILL_LIST_HEADER_DEFS, skill_catalog
-from ..tooling.registry import BinaryInstallError
+from ..tooling.registry import BinaryInstallError, ToolInstallError
 from ..upstream import DEFAULT_REPO
 from .main import (
     carry_from_option,
@@ -965,7 +965,7 @@ def fix_awesome_toc_cmd() -> None:
 
 
 @subcommand(
-    short_help="Wrap the comment and docstring lines past the line length",
+    short_help="Wrap the comment and docstring lines that Ruff reports as too long",
     examples=(
         ("Wrap every Python source of the repository", "repomatic fix-long-lines"),
         (
@@ -977,23 +977,35 @@ def fix_awesome_toc_cmd() -> None:
 @option(
     "--line-length",
     type=IntRange(1),
-    help="Longest width a line may take. Defaults to the line-length of the Ruff "
-    "configuration, then to 88.",
+    help="Check E501 at this width, even when the Ruff configuration leaves it "
+    "out. Defaults to the rules and limits of the Ruff configuration.",
 )
 @argument("paths", nargs=-1, type=file_path(exists=True))
 def fix_long_lines_cmd(line_length: int | None, paths: tuple[Path, ...]) -> None:
-    """Wrap the comment and docstring lines that run past the line length.
+    """Wrap the comment and docstring lines that Ruff reports as too long.
 
     Ruff's formatter wraps code, and keeps the line breaks of comments and
-    docstrings. This moves the words of an overlong line down into the next line
-    of its paragraph, and leaves every other line break in place.
+    docstrings. This runs the pinned Ruff, and wraps each comment and docstring
+    line that E501 or W505 reports, to the limit of its message. In a comment,
+    the words past the limit open a new line below. In a docstring, they move
+    into the next line of the paragraph.
+
+    \b
+    Ruff then checks each changed file again. A comment block or a docstring
+    that gets a new finding goes back to how it was, with a warning.
 
     \b
     A line that it cannot shorten stays as it is, for a human to reword: a
-    string literal, a trailing or pragma comment, the summary line of a
-    docstring, and a code block, a doctest or a table in a docstring.
+    string literal, a trailing or pragma comment, a machine-read comment,
+    commented-out code, the summary line of a docstring, and a code block, a
+    doctest or a table in a docstring.
+
+    Run it from the root of the project.
     """
-    report = fix_long_lines(paths or None, line_length)
+    try:
+        report = fix_long_lines(paths or None, line_length)
+    except (RuffError, ToolInstallError) as error:
+        raise ClickException(str(error)) from error
     if not report:
         echo("No comment or docstring line to wrap.")
         return

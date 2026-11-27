@@ -70,7 +70,7 @@ Every `format-*` and `fix-*` operation rewrites files, with a pinned external to
 
 Two operations have no job, branch or template of their own. `fix-awesome-toc` corrects the table of contents that `format-markdown` has just regenerated, so the two have to share a working tree: given its own job, they would land in separate PRs and undo each other on every push, `format-markdown` re-adding the entries `fix-awesome-toc` had removed. It therefore runs as a step of `format-markdown`, gated on an `awesome-*` repository name, and its changes ship in that job's PR.
 
-`fix-long-lines` wraps the comment and docstring lines that `format-python` leaves past the line length. Their width depends on the layout that Ruff's formatter has just written, which can indent a comment deeper. It therefore runs as a step of `format-python`, after the formatter, and its changes ship in that job's PR.
+`fix-long-lines` wraps the comment and docstring lines that Ruff's `E501` or `W505` still reports once `format-python` has formatted the code. Their width depends on the layout that Ruff's formatter has just written, which can indent a comment deeper. It therefore runs as a step of `format-python`, after the formatter, and its changes ship in that job's PR.
 
 Reach for this shape only when a correction is inseparable from the operation that produced the content. A fix that merely runs *after* another one, without contending for the same lines, gets a job.
 
