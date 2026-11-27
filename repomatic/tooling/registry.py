@@ -2335,7 +2335,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "pyproject-fmt": ToolSpec(
         name="pyproject-fmt",
         default_paths="pyproject_files",
-        version="2.31.1",
+        version="2.31.2",
         source_url="https://github.com/tox-dev/pyproject-fmt",
         config_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
         cli_docs_url="https://pyproject-fmt.readthedocs.io/en/latest/",
@@ -2365,7 +2365,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "ruff": ToolSpec(
         name="ruff",
         display_name="Ruff",
-        version="0.17.5",
+        version="0.17.6",
         source_url="https://github.com/astral-sh/ruff",
         config_docs_url="https://docs.astral.sh/ruff/configuration/",
         cli_docs_url="https://docs.astral.sh/ruff/configuration/#command-line-interface",
