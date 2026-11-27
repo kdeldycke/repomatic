@@ -1223,6 +1223,7 @@ def verify_via_write_path(
                     shutil.copytree(source, copy)
                 else:
                     shutil.copy2(source, copy)
+                _copy_package_markers(relative, scratch)
             except OSError as error:
                 # A partial copy measures nothing: the tool would format half a
                 # tree, and the comparison would report the rest as clean.
@@ -1275,6 +1276,29 @@ def verify_via_write_path(
         shutil.rmtree(scratch, ignore_errors=True)
 
     return (1 if diffs else 0), diffs
+
+
+def _copy_package_markers(relative: Path, scratch: Path) -> None:
+    """Copy into `scratch` the `__init__.py` of each folder above `relative`.
+
+    A Python tool reads the package of a file from these markers: with
+    `detect-same-package`, ruff sorts an import of the file's own top-level
+    package as first-party. Without the markers above it, a copied subpackage
+    becomes a top-level package of its own, and ruff sorts the imports of the
+    copy otherwise than those of the original. The markers are never passed to
+    the tool, so it neither rewrites nor reports them.
+
+    :param relative: The path of a copied target, relative to the working
+        directory.
+    :param scratch: The root the target was copied under.
+    """
+    for folder in relative.parents:
+        if folder == Path():
+            break
+        marker = folder / "__init__.py"
+        copy = scratch / marker
+        if marker.is_file() and not copy.exists():
+            shutil.copy2(marker, copy)
 
 
 def _walk_pair(original: Path, copy: Path) -> Iterator[tuple[Path, Path]]:

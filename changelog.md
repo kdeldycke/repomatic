@@ -23,8 +23,10 @@
 - Fix `ci-status` reporting a blocking workflow-level failure when GitHub cancels an allowed-failure probe, like one no runner picked up: it now warns about the probe.
 - Fix the binaries page that `sync-binaries` creates failing the `title-octicons` check of `lint-repo`: its title now carries the `desktop-download` octicon. Add the icon to an existing page by hand.
 - Fix the cooldown comment of every workflow, which said a synced copy keeps its window by hand: `repomatic init` writes it from `minimum-release-age`.
+- Fix the `deploy-docs` job of `docs.yaml` failing when `deploy-pages` looks up the Pages artifact before GitHub lists it: it now retries twice.
 - Fix the `pat-permissions` check of `lint-repo` failing, and the setup guide never closing, on a private repository whose `REPOMATIC_PAT` holds Workflows: neither probes that permission.
 - Fix the `release-path` check of `lint-repo` listing release steps for a project with `[tool.uv] package = false`, which never releases: the check now skips it.
+- Fix `repomatic run --verify` reporting import-sorting drift in a Python file whose copy lacked the `__init__.py` of a parent folder.
 - Fix the `sample-metrics` charts after an SVG optimizer like SVGO rewrites them: curves no longer fill black, and the caption follows the dark theme.
 - Fix `sync-workflow-pins` stepping the uv pin back below the uv `required-version` of the project, which fails every job that installs it.
 - Fix `sync-workflow-pins` bumping a `uv run --with` or `uv pip install` pin to a release whose `requires-python` leaves out the oldest Python of the project.

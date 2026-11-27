@@ -3498,6 +3498,46 @@ def test_verify_via_write_path_copies_a_directory_and_an_outside_file(
     assert not list(inside.glob(".repomatic-verify-*"))
 
 
+def test_verify_via_write_path_copies_the_package_markers_above_a_target(
+    tmp_path, monkeypatch
+):
+    """Each `__init__.py` above a copied file is copied with it, and not passed on.
+
+    Without the marker of its parent, a copied subpackage is a top-level package,
+    and ruff then sorts the imports of the copy otherwise than those of the file.
+    """
+    pears = tmp_path / "orchard" / "pears"
+    pears.mkdir(parents=True)
+    (tmp_path / "orchard" / "__init__.py").write_bytes(b"")
+    (pears / "__init__.py").write_bytes(b"")
+    (pears / "ripen.py").write_bytes(b"import os\n")
+    monkeypatch.chdir(tmp_path)
+    seen = {}
+
+    def record_markers(name, extra_args):
+        """Note the markers that sit above the copy the tool receives."""
+        scratch = Path(extra_args[-1]).parents[2]
+        seen["markers"] = sorted(
+            marker.relative_to(scratch).as_posix()
+            for marker in scratch.rglob("__init__.py")
+        )
+        seen["args"] = list(extra_args)
+        return 0
+
+    with patch("repomatic.tooling.runner.run_tool", side_effect=record_markers):
+        outcome = verify_via_write_path(
+            "ruff", extra_args=("check", str(Path("orchard", "pears", "ripen.py")))
+        )
+
+    assert outcome == (0, {})
+    assert seen["markers"] == ["orchard/__init__.py", "orchard/pears/__init__.py"]
+    # The tool gets the subcommand and the copy of the target, no marker.
+    assert seen["args"][0] == "check"
+    assert Path(seen["args"][1]).name == "ripen.py"
+    assert len(seen["args"]) == 2
+    assert not list(tmp_path.glob(".repomatic-verify-*"))
+
+
 @pytest.mark.parametrize(
     ("before", "after", "expected"),
     (
