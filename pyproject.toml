@@ -291,18 +291,13 @@ include-data-files = [
 # names its package in a constant: Nuitka follows neither string, so both
 # packages are compiled in.
 include-package = [ "repomatic.cli", "repomatic.templates" ]
-# click-extra ships themes.toml as package data loaded via importlib.resources;
-# Nuitka does not auto-bundle non-Python data files, so the binary crashes on
-# startup unless it is declared here.
-include-package-data = [ "click_extra" ]
-# Each platform points at its native icon format (all rendered from
-# favicon.svg). Passing a non-native image (like a PNG to
-# --windows-icon-from-ico) makes Nuitka require the imageio package to convert
-# it, which fails the build. Per-OS flags not matching the build host are ignored.
-linux-icon = "docs/assets/icon.png"
-macos-app-icon = "docs/assets/icon.icns"
 product-name = "Repomatic"
 product-version = "8.5.0"
+# The Windows binary embeds this icon, rendered from favicon.svg, and the Linux
+# and macOS builds ignore the flag. A PNG in its place makes Nuitka require the
+# imageio package to convert it, which fails the build. The onefile binaries of
+# Linux and macOS take no icon: Nuitka applies a Linux icon only with --mode=app
+# or app-dist, and a macOS icon only to an app bundle or a DMG.
 windows-icon-from-ico = "docs/assets/icon.ico"
 
 [tool.ruff]
