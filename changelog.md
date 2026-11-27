@@ -1,9 +1,6 @@
 # Changelog
 
-## [`8.5.0.dev0` (unreleased)](https://github.com/kdeldycke/repomatic/compare/v8.4.0...main)
-
-> [!WARNING]
-> This version is **not released yet** and is under active development.
+## [`8.5.0` (2026-11-27)](https://github.com/kdeldycke/repomatic/compare/v8.4.0...v8.5.0)
 
 - **Breaking:** Remove `autopep8` from `repomatic run`: `repomatic run autopep8` now fails, and `sync-tool-versions` stops bumping it. Run `repomatic fix-long-lines` in its place.
 - Add `fix-long-lines`, which wraps the comment and docstring lines that Ruff's `E501` or `W505` reports, and run it in the `format-python` job in place of `autopep8`.
