@@ -107,7 +107,7 @@ jobs:
           uv --no-progress run --frozen -- repomatic show-metadata
           --output-format github-json --output "$GITHUB_OUTPUT"
           build_targets cli_scripts main_cli_script import_name package_name
-          test_matrix test_matrix_pr latest_stable_python
+          test_matrix test_matrix_pr latest_stable_python npm_min_release_age_days
 
   tests:
     needs:
@@ -372,8 +372,12 @@ jobs:
           done
           uv --no-progress pip uninstall "$PACKAGE"
       - name: Run CLI via pipx
+        env:
+          # pipx is a tool of this job, not its subject, so its install keeps the cooldown that the job lifts. The
+          # `pipx run` calls below go through uv, and keep the zero window of the job.
+          COOLDOWN_DAYS: ${{ fromJSON(needs.metadata.outputs.metadata).npm_min_release_age_days }}
         run: |
-          uv --no-progress tool install 'pipx==1.18.19'
+          uv --no-progress tool install --exclude-newer "P${COOLDOWN_DAYS}D" 'pipx==1.18.19'
           for script in $CLI_SCRIPTS; do
             # A bare `pipx run <script>` resolves the script name as a PyPI
             # package, which only exists when the package is named after its

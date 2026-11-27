@@ -24,6 +24,7 @@ from click_extra.testing import CliRunner
 from repomatic.cli.main import repomatic
 from repomatic.long_lines import (
     DEFAULT_LINE_LENGTH,
+    WrapError,
     fix_long_lines,
     is_overlong,
     ruff_line_length,
@@ -213,6 +214,22 @@ def test_string_statement_of_one_line_literals_is_left_alone():
     assert wrap_source(source, LIMIT) == (source, 0)
 
 
+@pytest.mark.parametrize(
+    "paragraph",
+    (
+        pytest.param(
+            "Apple pear plum fig \\N{LATIN SMALL LETTER A} kiwi.\n", id="named-escape"
+        ),
+        pytest.param("Apple pear plum fig kiwi lime \\\nmango.\n", id="joined-line"),
+    ),
+)
+def test_wrap_that_would_change_the_code_raises(paragraph):
+    """A split escape stops the parse, and a moved backslash changes the string."""
+    source = f"'''Summary line.\n\n{paragraph}'''\n"
+    with pytest.raises(WrapError):
+        wrap_source(source, LIMIT)
+
+
 def test_fenced_block_closes_only_on_its_own_fence():
     """A shorter fence inside a block opens no prose: only the outer one closes it."""
     source = (
@@ -307,6 +324,23 @@ def test_fix_long_lines_leaves_a_file_with_windows_line_endings(tmp_path, caplog
         assert fix_long_lines([orchard], line_length=LIMIT) == {}
     assert orchard.read_bytes() == windows
     assert "Windows line endings" in caplog.text
+
+
+def test_fix_long_lines_leaves_a_file_whose_wrap_would_change_its_code(
+    tmp_path, caplog
+):
+    """A docstring line that the wrap would split inside an escape stays whole."""
+    source = (
+        b"'''Summary line.\n\n"
+        b"Apple pear plum fig \\N{LATIN SMALL LETTER A} kiwi.\n"
+        b"'''\n"
+    )
+    orchard = tmp_path / "orchard.py"
+    orchard.write_bytes(source)
+    with caplog.at_level(logging.WARNING):
+        assert fix_long_lines([orchard], line_length=LIMIT) == {}
+    assert orchard.read_bytes() == source
+    assert "would change its code" in caplog.text
 
 
 def test_fix_long_lines_command_names_each_file(tmp_path, monkeypatch):

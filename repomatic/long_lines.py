@@ -29,6 +29,10 @@ turn, so the push goes on down the paragraph, and its last line gets a new one
 below it. The lines above stay as they are and no other line break moves, so the
 diff holds only the lines that had to change.
 
+Only words move. When a wrap would change the code of a file, like a named
+character escape that it splits in a docstring, {func}`fix_long_lines` leaves the
+file as it is.
+
 ```{note}
 A line that this cannot shorten is left for a human to reword: a code line, a
 string literal, a trailing comment, a comment that holds a pragma, the summary
@@ -47,6 +51,7 @@ import logging
 import re
 import tokenize
 import unicodedata
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -100,6 +105,16 @@ FIELD_HANG = 4
 
 _STOP = ('"""', "'''", ">>>", "...", "|")
 """Text that no paragraph runs into: closing quotes, a doctest and a table row."""
+
+
+class WrapError(Exception):
+    """The wrap of a source would change its code, not only its prose.
+
+    A wrap moves words across the line breaks of comments and docstrings, and
+    nothing else. A docstring line that it splits inside a named character
+    escape stops the source from parsing, and one that it splits after a
+    backslash that joins two lines changes the string.
+    """
 
 
 @dataclass
@@ -220,8 +235,8 @@ def _mark_comments(source: str, lines: list[_Line]) -> None:
             _mark(line, group, hang, hang, hang)
 
 
-def _docstring_spans(tree: ast.AST) -> Iterator[tuple[int, int]]:
-    """Yield the first and last row of each string statement: the docstrings."""
+def _string_statements(tree: ast.AST) -> Iterator[tuple[ast.Expr, ast.Constant]]:
+    """Yield each string statement of *tree* with its string: the docstrings."""
     for node in ast.walk(tree):
         body = getattr(node, "body", None)
         if not isinstance(body, list):
@@ -231,9 +246,40 @@ def _docstring_spans(tree: ast.AST) -> Iterator[tuple[int, int]]:
                 isinstance(statement, ast.Expr)
                 and isinstance(statement.value, ast.Constant)
                 and isinstance(statement.value.value, str)
-                and statement.end_lineno is not None
             ):
-                yield statement.lineno - 1, statement.end_lineno - 1
+                yield statement, statement.value
+
+
+def _docstring_spans(tree: ast.AST) -> Iterator[tuple[int, int]]:
+    """Yield the first and last row of each string statement: the docstrings."""
+    for statement, _ in _string_statements(tree):
+        if statement.end_lineno is not None:
+            yield statement.lineno - 1, statement.end_lineno - 1
+
+
+def _code(tree: ast.AST) -> str:
+    """Dump *tree* with the whitespace of each docstring collapsed.
+
+    A comment is no node of the tree, and a wrap moves words only across the
+    line breaks of a docstring. So the dumps of a source before and after its
+    wrap are equal, unless the wrap changed the code.
+    """
+    for _, string in _string_statements(tree):
+        if isinstance(string.value, str):
+            string.value = " ".join(string.value.split())
+    return ast.dump(tree)
+
+
+def _keeps_code(tree: ast.AST, wrapped: str) -> bool:
+    """Tell whether *wrapped* holds the code of *tree*, with only its prose moved."""
+    try:
+        with warnings.catch_warnings():
+            # A backslash that the wrap moved can raise a SyntaxWarning first.
+            warnings.simplefilter("ignore")
+            new_tree = ast.parse(wrapped)
+    except (SyntaxError, ValueError):
+        return False
+    return _code(new_tree) == _code(tree)
 
 
 def _mark_docstring(lines: list[_Line], first: int, last: int) -> None:
@@ -344,17 +390,23 @@ def wrap_source(source: str, limit: int) -> tuple[str, int]:
     :param limit: The longest width a line may take.
     :return: The new text, and how many lines got shorter.
     :raises SyntaxError: when *source* does not parse as Python.
+    :raises WrapError: when the new text would not hold the code of *source*.
     """
     lines = [_Line(text) for text in source.split("\n")]
     _mark_comments(source, lines)
-    for first, last in _docstring_spans(ast.parse(source)):
+    tree = ast.parse(source)
+    for first, last in _docstring_spans(tree):
         _mark_docstring(lines, first, last)
     shortened = 0
     # Bottom up: a push only ever inserts a line below the row it starts from.
     for row in reversed(range(len(lines))):
         if lines[row].group is not None and is_overlong(lines[row].text, limit):
             shortened += _push_down(lines, row, limit)
-    return "\n".join(line.text for line in lines), shortened
+    wrapped = "\n".join(line.text for line in lines)
+    if wrapped != source and not _keeps_code(tree, wrapped):
+        msg = "wrapping its long lines would change its code"
+        raise WrapError(msg)
+    return wrapped, shortened
 
 
 def ruff_line_length(project_root: Path | None = None) -> int:
@@ -381,8 +433,8 @@ def fix_long_lines(
 ) -> dict[Path, int]:
     """Wrap the overlong comment and docstring lines of *paths*.
 
-    A file that does not parse as Python, or that has Windows line endings, is
-    left as it is, with a warning.
+    A file that does not parse as Python, that has Windows line endings, or whose
+    wrap would change its code, is left as it is, with a warning.
 
     :param paths: The files to rewrite. Defaults to the Python sources of the
         repository.
@@ -407,6 +459,9 @@ def fix_long_lines(
             continue
         try:
             wrapped, shortened = wrap_source(source, limit)
+        except WrapError as exc:
+            logging.warning(f"Leaving {path} as it is: {exc}. Shorten them by hand.")
+            continue
         except (SyntaxError, ValueError, tokenize.TokenError) as exc:
             logging.warning(f"Leaving {path} as it is: it does not parse ({exc}).")
             continue
