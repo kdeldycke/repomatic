@@ -192,13 +192,6 @@ datatables_options = r"""
 # and the live blocks render empty.
 click_extra_enable_exec_directives = True
 
-# Capture the output of the CLI blocks through `sys.stdout`, in place of the
-# stdout file descriptor that the runner defaults to. The stream that `prep_path`
-# opens for `--output -` sits on that descriptor and writes past the fd capture,
-# so its output never reaches the page.
-# XXX Drop it with the `{todo}` of `repomatic.github.outputs.write_text_output`.
-click_extra_run_capture = "sys"
-
 # Emit roff man pages for repomatic's own CLI into <outdir>/man/ on every
 # HTML build. See click-extra's click_extra/sphinx/manpages.py. The same
 # script target is mirrored in `[tool.repomatic] manpages.script` so the

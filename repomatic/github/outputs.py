@@ -269,11 +269,9 @@ def write_text_output(content: str, output: Path) -> None:
     closing the live one would end every later write of the run.
 
     ```{todo}
-    Once the `docs` group requires a click-extra release newer than `10.2.0`, one
-    whose `prep_path` returns a replaced `sys.stdout` as-is, drop
-    `click_extra_run_capture` from `docs/conf.py`. Once the runtime floor reaches
-    that release too, reword the paragraph above: `-` then returns the live
-    `sys.stdout` whenever something replaced it.
+    Once the runtime floor of click-extra reaches `10.3.0`, whose `prep_path`
+    returns a replaced `sys.stdout` as-is, reword the paragraph above: `-` then
+    returns the live `sys.stdout` whenever something replaced it.
     ```
 
     :param content: The text to write. A trailing newline is added.

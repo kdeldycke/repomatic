@@ -156,10 +156,10 @@ test = [
   "pytest-xdist[psutil]>=3.7",
 ]
 docs = [
-  # click-extra 10.2 ships `click_extra.sphinx.announcement`, which docs/conf.py
-  # imports, and the build hooks conf.py no longer copies: below it, the build
-  # stops at that import. The [sphinx] extra pulls docutils, pygments and sphinx.
-  "click-extra[sphinx]>=10.2",
+  # click-extra 10.3 makes `prep_path` return a replaced `sys.stdout` as it is, so
+  # a `{click:run}` block captures what `--output -` writes: below it, that output
+  # never reaches the page. The [sphinx] extra pulls docutils, pygments and sphinx.
+  "click-extra[sphinx]>=10.3",
   # furo 2025.12.19 is the first release that accepts Sphinx 9 (`sphinx<10`);
   # 2025.09.25 caps it below 9, which the lock cannot satisfy.
   "furo>=2025.12.19",
