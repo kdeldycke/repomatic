@@ -77,6 +77,8 @@ A release materializes the **net state since the last tag**, not the path taken 
 
 **A `cancelled` verdict of `ci-status` is no result, and never a green.** Settle it with a dispatch (`gh workflow run <workflow> --ref main`, no commit, no PR churn) or by waiting out `HEAD`'s own run, never by recording "no reds".
 
+**A run still going holds no inventory yet.** Spawn the lanes anyway, run `<cmd> ci-status --branch main --wait` in the background, and send each repo-fixable red to the code lane.
+
 The three substance passes own disjoint lanes (code owns Python including docstrings, docs owns prose under `docs/` and `readme.md`, bundled assets owns `.claude/`), so spawn every lane that has work as **one `Agent` call each, all in a single tool-call block**: sequential spawns waste the wall-clock of whichever finishes first.
 
 **On a cycle whose diff spans hundreds of files, split the code lane into disjoint halves by package area.** Each half owns its modules and the tests that target them. Every split lane runs focused tests with `--no-cov`, so concurrent runs never share coverage data files, and step 2 runs the full suite. The docs build then moves to the orchestrator. Build `HEAD` and the last tag in throwaway worktrees at spawn time. Route each warning that only the `HEAD` build reports to the lane that owns its file.
@@ -217,6 +219,8 @@ Commit the reconciled tree with a message describing the net reconciliation (plu
 **A gate command you ran yourself re-creates the mutations you already reverted.** The step-2 revert is not final. Any later step that builds the documentation regenerates the committed artifacts that build owns, and a test selection can build them without announcing it. So re-read `git status` after the *last* command that touched the tree, not after the sweep agents joined, and stage by explicit path so a resurrected artifact cannot enter the commit.
 
 **A parallel session can edit the files your sweep edited.** The maintainer may drive a second session in the same checkout, and its hunks can land beside yours in one file. Staging that file by path then commits its unfinished work under your message. Stage each shared file as a blob without its hunks: `git hash-object -w` on a copy outside the tree, then `git update-index --cacheinfo`. Gate that exact tree in a throwaway `git worktree`, not in the shared tree. The worktree also keeps an untracked file out of the file inventories some tests check. List the other session's hunks in the step-7 report.
+
+**Read `git log origin/main..HEAD` before the push.** A commit that another session made goes out with yours: ask the maintainer before you push it.
 
 **Signed commits may need the sandbox off.** With SSH signing (`gpg.format = ssh`), the harness sandbox blocks the signing agent's socket and any key file under a `denyRead` path (`Operation not permitted`). Signing runs sandboxed once the settings allow the socket in `sandbox.network.allowUnixSockets`, and the public key, allowed-signers file and `gpg.ssh.program` wrapper in `sandbox.filesystem.allowRead`, with `~/.ssh` a real directory rather than a symlink. Otherwise, disable the sandbox for the `git commit` and `git push` calls only. The network proxy can still break an SSH push after a sandboxed signing succeeds, with `ssh_dispatch_run_fatal`: push that remote with the sandbox off.
 

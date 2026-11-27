@@ -17,7 +17,7 @@
 - The release freeze now pins the versioned CLI examples of every docs page beside `install.md`, `{package} == X.Y.Z` included, and skips the changelog pages.
 - The bundled `sphinx-docs` agent now sets the copy button to a prompt pattern, which also leaves the output of a `{click:run}` block out of the copy.
 - The bundled `sphinx-docs` agent now puts the class tree of a module on its API page, above its members, and says how to move a site to one API page per module.
-- Bump the `repomatic run` pins of `pyproject-fmt` to `2.31.1` and `wrangler` to `4.164.0`.
+- Bump the `repomatic run` pins of `gh` to `2.105.0`, `npm` to `12.2.3`, `pyproject-fmt` to `2.31.1` and `wrangler` to `4.165.0`.
 - Fix `ci-status` and the `workflow-dispatch` and `thin-caller-triggers` checks of `lint-repo` ignoring an `on:` key that is a list or a single event.
 - Fix `ci-status` failing, and `ci-status --wait` ending, when GitHub cannot serve the run of one workflow: it now warns about it and reads the others.
 - Fix `ci-status` reporting a blocking workflow-level failure when GitHub cancels an allowed-failure probe, like one no runner picked up: it now warns about the probe.
