@@ -123,7 +123,7 @@ jobs:
       pages: write
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deploy.outputs.page_url || steps.deploy-2.outputs.page_url || steps.deploy-3.outputs.page_url }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -185,8 +185,32 @@ jobs:
           # run holding two artifacts of the same name.
           name: github-pages-${{ github.run_attempt }}
           path: ./docs/_build
+      # The artifact listing that deploy-pages reads can lag the upload above by seconds, and an attempt that finds no
+      # artifact fails. Two retries, 15 then 45 seconds later, cover the delays measured in the upstream report, and
+      # cost nothing on a run whose first attempt deploys.
+      # XXX Drop the retries once deploy-pages retries its lookup: https://github.com/actions/deploy-pages/issues/451
       - name: Deploy to GitHub Pages
         id: deploy
+        continue-on-error: true
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
+      - name: Wait for the artifact listing
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 15
+      - name: Retry the deployment to GitHub Pages
+        id: deploy-2
+        if: steps.deploy.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
+      - name: Wait longer for the artifact listing
+        if: steps.deploy-2.outcome == 'failure'
+        run: sleep 45
+      - name: Retry the deployment to GitHub Pages a last time
+        id: deploy-3
+        if: steps.deploy-2.outcome == 'failure'
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
         with:
           artifact_name: github-pages-${{ github.run_attempt }}
