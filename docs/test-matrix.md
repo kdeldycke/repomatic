@@ -52,7 +52,7 @@ result = invoke(repomatic, args=['show-test-matrix', 'pr', '--grid'])
 assert result.exit_code == 0
 ```
 
-Because a grid has two axes and a matrix may vary on more, a repository testing several dependency versions per job (a `click-version` axis, say) lands all of them on the same Python-by-runner intersection. Such a cell states how many jobs it stands for, `✅ stable ×5`, so it never reads as a single job. This repository's own grid has two such cells: `✅ stable ×2` on `ubuntu-26.04-arm`, at the floor Python and at the newest stable one, where the `resolution` row and the `source` row each share the intersection of their twin. To break them apart, pivot onto the axis that separates them. A job with no value on a grid axis has no cell there, so pivoting the columns onto `resolution` shows the `lowest-direct` job alone:
+Because a grid has two axes and a matrix may vary on more, a repository testing several dependency versions per job (a `click-version` axis, say) lands all of them on the same Python-by-runner intersection. Such a cell states how many jobs it stands for, `✅ stable ×5`, so it never reads as a single job. The screenshot above shows the full matrix of this repository, whose grid has two such cells: `✅ stable ×2` on `ubuntu-26.04-arm`, at the floor Python and at the newest stable one, where the `resolution` row and the `source` row each share the intersection of their twin. To break them apart, pivot onto the axis that separates them. A job with no value on a grid axis has no cell there, so pivoting the columns onto `resolution` shows the `lowest-direct` job alone:
 
 ```{click:run}
 result = invoke(repomatic, args=['show-test-matrix', '--grid', '--col-axis', 'resolution'])

@@ -247,6 +247,41 @@ def test_a_required_job_github_cancelled_still_gates_the_merge():
     assert status.verdict == "1 required job(s) cancelled"
 
 
+@pytest.mark.parametrize(
+    ("conclusion", "on_tip"),
+    (
+        pytest.param("failure", False, id="never-picked-up"),
+        pytest.param("cancelled", True, id="cancelled-on-the-tip"),
+    ),
+)
+def test_a_probe_github_cancelled_gates_no_merge(conclusion, on_tip):
+    """A probe that no runner picked up fails its run with no failed job.
+
+    It is no workflow error, and like a failed probe it holds nothing up: the
+    finding names it as a warning.
+    """
+    probe = job("⁉️ macos-26 / py3.16-dev", "cancelled")
+    status = run(job("✅ a"), probe, conclusion=conclusion, on_tip=on_tip)
+    assert status.workflow_level_failure is False
+    assert status.blocking is False
+    assert status.inconclusive is False
+    assert status.verdict == "green (1 probe(s) cancelled)"
+    assert list(status.findings()) == [
+        (
+            AnnotationLevel.WARNING,
+            "🔬 Tests: allowed-failure probe cancelled: ⁉️ macos-26 / py3.16-dev",
+        )
+    ]
+    assert status.stopped_probes == (probe,)
+
+
+def test_a_failure_with_no_failed_and_no_cancelled_job_is_workflow_level():
+    """Only a failed or a cancelled job explains a failed run: a skip does not."""
+    status = run(job("✅ a"), job("⁉️ b", "skipped"), conclusion="failure")
+    assert status.workflow_level_failure is True
+    assert status.blocking is True
+
+
 def test_a_cancelled_run_is_not_a_stopped_one():
     """A newer push cancels the whole run: its conclusion is `cancelled`."""
     status = run(job("✅ a"), job("✅ b", "cancelled"), conclusion="cancelled")
@@ -1519,6 +1554,39 @@ def test_watch_counts_only_the_failed_reads_of_a_run_in_a_row(caplog):
     assert "Stop reading" not in caplog.text
 
 
+def test_watch_ends_once_it_stops_reading_the_only_run_on_the_tip():
+    """The run it stops reading can be the run of the tip, so it waits no more.
+
+    The run left reads on an earlier commit, as a `paths:` filter leaves it.
+    """
+    slept: list[float] = []
+
+    def poll(names, branch):
+        return CIStatus(
+            branch=branch,
+            tip_sha=TIP_SHA,
+            runs=[_tests_run("success", sha=PARENT_SHA)],
+            unreadable={"docs.yaml": BAD_GATEWAY} if "docs.yaml" in names else {},
+        )
+
+    def sleep(delay):
+        slept.append(delay)
+        assert len(slept) < 2 * FAILED_POLL_LIMIT, "the watch never ended"
+
+    with patch("repomatic.github.ci_status.read_ci_status", side_effect=poll):
+        seen = list(
+            watch_ci_status(
+                ["tests.yaml", "docs.yaml"],
+                "main",
+                state=WatchState(),
+                interval=30,
+                sleep=sleep,
+            )
+        )
+    assert len(seen) == FAILED_POLL_LIMIT
+    assert seen[-1][0].unreadable == {"docs.yaml": BAD_GATEWAY}
+
+
 @pytest.mark.parametrize(
     "stderr",
     (
@@ -1672,7 +1740,11 @@ def test_ci_status_command_waits_through_a_server_error():
     ),
 )
 def test_ci_status_command_reports_a_run_it_cannot_read(runs):
-    """An unreadable run gets a warning line, and alone it is not fatal."""
+    """An unreadable run gets a warning line, and alone it is not fatal.
+
+    No run is listed when it is alone, so no line says that every run listed
+    belongs to an earlier commit.
+    """
     status = CIStatus(
         branch="main",
         tip_sha=TIP_SHA,
@@ -1690,6 +1762,7 @@ def test_ci_status_command_reports_a_run_it_cannot_read(runs):
     assert result.exit_code == 0, result.output
     assert f"⚠ lint.yaml: cannot read its run: {BAD_GATEWAY}" in result.output
     assert "No run found" not in result.output
+    assert "no run on the tip" not in result.output
 
 
 def test_ci_status_command_writes_the_failed_logs(tmp_path):

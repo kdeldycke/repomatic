@@ -52,7 +52,7 @@ Measured on hosted `ubuntu-26.04` runners and `alpine:edge` containers, 2026-08.
 ## The iteration loop
 
 1. Push. The `paths:` trigger starts the run.
-2. Watch with `repomatic ci-status --branch <branch> --workflow <subject>-probe.yaml --wait`. It polls in-process, and returns when a required job fails or when the run settles on the pushed commit.
+2. Watch with `repomatic ci-status --branch <branch> --workflow <subject>-probe.yaml --wait`. It polls in-process, and returns when a required job fails or when the run settles on the pushed commit. It also returns when GitHub keeps failing to serve the run, with a `cannot read its run` warning in place of a verdict.
 3. Read the logs with the same command and `--failed-logs <directory>`: it writes one file per failed required job.
 4. Diagnose from measurement, fix exactly one thing, commit with a subject naming the lesson, push again.
 5. A failing gate can indict the probe's staging *or* the code under test. When raw commands succeed where the code fails, the probe has found a real bug: fix it in the codebase with its own tests and changelog entry, and let the probe re-validate.

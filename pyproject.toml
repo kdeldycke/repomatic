@@ -174,9 +174,9 @@ docs = [
   # class the `repomatic/cli/` modules import, like `UsageError`: below it each
   # import logs a `forward_reference` warning.
   "sphinx-autodoc-typehints>=3.14",
-  # sphinx-copybutton 0.5.2 stopped excluding the `.gp` prompt class by default,
-  # which broke the prompt pattern that docs/conf.py sets to copy a command
-  # without its prompt and output lines.
+  # sphinx-copybutton 0.5.1 excludes the `.gp` prompt class by default, so the
+  # prompt pattern of docs/conf.py finds no prompt and a copy keeps the output
+  # lines. 0.5.2 dropped that default.
   "sphinx-copybutton>=0.5.2",
   # sphinx-datatables 1.0.0 is the first stable release; makes the binaries
   # catalog table searchable and sortable client-side (pulls sphinxcontrib-jquery).

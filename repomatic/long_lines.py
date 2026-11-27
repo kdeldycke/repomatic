@@ -31,10 +31,11 @@ diff holds only the lines that had to change.
 
 ```{note}
 A line that this cannot shorten is left for a human to reword: a code line, a
-string literal, a trailing comment, a pragma comment, the summary line of a
-docstring, which `D205` holds to one line, and a line of a code block, a doctest
-or a table in a docstring. So are the two kinds of line `E501` itself ignores: a
-single word, and a line that ends with a URL starting inside the limit.
+string literal, a trailing comment, a comment that holds a pragma, the summary
+line of a docstring, which `D205` holds to one line, and a line of a code block,
+a doctest or a table in a docstring. So are the three kinds of line `E501` itself
+ignores: a single word, an SPDX header, and a line that ends with a URL starting
+inside the limit.
 ```
 """
 
@@ -49,9 +50,12 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
+from click_extra.markdown.blocks import fence_spans
+
 from .file_inventory import FileInventory
 from .file_ops import write_if_changed
 from .pyproject import cached_toml, read_pyproject_toml
+from .tooling.registry import TOOL_REGISTRY
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -63,9 +67,6 @@ DEFAULT_LINE_LENGTH = 88
 PYTHON_SUFFIXES = frozenset({".py", ".pyi", ".pyw"})
 """The sources this rewrites: notebooks and Cython files do not parse as Python."""
 
-RUFF_CONFIG_FILES = (".ruff.toml", "ruff.toml")
-"""The Ruff configuration files that win over `[tool.ruff]`, in Ruff's order."""
-
 _COMMENT_HEAD = re.compile(r" *#+ ")
 """The indentation and hash marks of a comment line, with the space after them.
 
@@ -73,10 +74,20 @@ A comment with no space after its hash marks, like `#:` or `#!`, never matches.
 """
 
 _PRAGMA = re.compile(
-    r"#+ *(?:noqa|type:|pragma|fmt:|isort:|pyright:|mypy:|ruff:|-\*-)",
+    r"#+ *(?:noqa|nosec|type:|pragma|fmt:|isort:|pylint:|flake8:|pyright:|pyrefly:"
+    r"|mypy:|ruff:|ty:|-\*-)",
     re.IGNORECASE,
 )
-"""A comment that a tool reads, whose words must stay on their line."""
+"""A pragma that a tool reads, whose words must stay on their line.
+
+It matches each pragma that `E501` leaves out when it measures a line, the
+comments that coverage, the formatter and mypy read, and the encoding
+declaration. As in `E501`, a pragma counts after the text of a comment too, like
+a `# noqa` behind it.
+"""
+
+_SPDX_TAGS = ("SPDX-License-Identifier:", "SPDX-FileCopyrightText:")
+"""The tags of an SPDX header, a comment line that `E501` never reports."""
 
 _LIST_ITEM = re.compile(r"(?:[-*+]|\d+[.)]) +")
 """The marker of a list item, which opens a paragraph of its own."""
@@ -86,9 +97,6 @@ _FIELD = re.compile(r":[^:\s][^:]*: +")
 
 FIELD_HANG = 4
 """How far the next lines of a reST field indent past the field name."""
-
-_FENCE = re.compile(r"`{3,}|~{3,}")
-"""The line that opens or closes a fenced block."""
 
 _STOP = ('"""', "'''", ">>>", "...", "|")
 """Text that no paragraph runs into: closing quotes, a doctest and a table row."""
@@ -129,11 +137,11 @@ def _width(text: str) -> int:
 
 
 def is_overlong(line: str, limit: int) -> bool:
-    """Tell whether `E501` reports *line* at *limit*.
+    """Tell whether `E501` reports *line* at *limit*, and a wrap can shorten it.
 
-    `E501` skips a line that no wrap can shorten: one that holds a single word,
-    a `#` before it included, and one that ends with a URL starting inside the
-    limit.
+    `E501` skips a line that holds a single word, an SPDX header, and a line that
+    ends with a URL starting inside the limit. It reports a comment of a single
+    word, but no wrap can shorten that line, so this skips it too.
 
     :param line: The line, without its line ending.
     :param limit: The longest width a line may take.
@@ -143,7 +151,9 @@ def is_overlong(line: str, limit: int) -> bool:
     if width <= limit:
         return False
     chunks = line.split()
-    if len(chunks) < 2 or (chunks[0] == "#" and len(chunks) == 2):
+    if len(chunks) < 2:
+        return False
+    if chunks[0] == "#" and (len(chunks) == 2 or chunks[1] in _SPDX_TAGS):
         return False
     return not ("://" in chunks[-1] and width - _width(chunks[-1]) <= limit)
 
@@ -172,10 +182,10 @@ def _hangs_at(text: str, start: int, hang: int) -> bool:
 def _mark_comments(source: str, lines: list[_Line]) -> None:
     """Mark the full-line comments, block by block.
 
-    A trailing comment shares its line with code, and a pragma comment holds words
-    that a tool reads: neither is rewritten. Inside a block, a line indented past
-    its hash marks is rewritten only as the next line of a list item. Any other
-    such line is a sample, like a command or a table.
+    A trailing comment shares its line with code, and a comment that holds a
+    pragma holds words that a tool reads: neither is rewritten. Inside a block, a
+    line indented past its hash marks is rewritten only as the next line of a list
+    item. Any other such line is a sample, like a command or a table.
     """
     columns: dict[int, int] = {}
     for token in tokenize.generate_tokens(io.StringIO(source).readline):
@@ -185,7 +195,7 @@ def _mark_comments(source: str, lines: list[_Line]) -> None:
         before = lines[row - 1].text[:column]
         if before.strip() or "\t" in before or token.string.startswith("#!"):
             continue
-        if not _PRAGMA.match(token.string):
+        if not _PRAGMA.search(token.string):
             columns[row - 1] = column
 
     group: tuple[str, int] = ("comment", 0)
@@ -233,8 +243,14 @@ def _mark_docstring(lines: list[_Line], first: int, last: int) -> None:
     fenced block, a block indented after a blank line, a doctest and a table. A
     line indented past the text is rewritten only as the next line of a list item
     or of a reST field, which indents {data}`FIELD_HANG` columns past its name.
+
+    A docstring that does not open on a triple quote is left out whole, like
+    literals that a pair of parentheses joins: a line break inside a
+    single-quoted literal is a syntax error.
     """
     opening = lines[first].text.strip().lstrip("rRbBuUfF")
+    if not opening.startswith(('"""', "'''")):
+        return
     summary = first if opening.strip("\"'") else first + 1
     rows = range(summary + 1, last + 1)
     indents = [
@@ -246,7 +262,11 @@ def _mark_docstring(lines: list[_Line], first: int, last: int) -> None:
         return
     base = min(indents)
     group = ("docstring", first)
-    fenced = blocked = False
+    # Only a bare fence of its own character, at least as long, closes a block:
+    # a shorter fence inside it is one more line of that block.
+    spans = fence_spans([lines[row].text for row in rows], chars="`~")
+    fenced = {rows[i] for span in spans.values() for i in range(span.start, span.end)}
+    blocked = False
     blank_before = True
     hang: int | None = None
     for row in rows:
@@ -257,14 +277,13 @@ def _mark_docstring(lines: list[_Line], first: int, last: int) -> None:
             continue
         indent = len(line.text) - len(line.text.lstrip(" "))
         after_blank, blank_before = blank_before, False
-        if _FENCE.match(text):
-            fenced = not fenced
+        if row in fenced:
             continue
         if indent > base and after_blank:
             blocked = True
         elif indent == base:
             blocked = False
-        if fenced or blocked or text.startswith(_STOP) or "\t" in line.text:
+        if blocked or text.startswith(_STOP) or "\t" in line.text:
             continue
         item = _LIST_ITEM.match(line.text, indent)
         field = _FIELD.match(line.text, indent)
@@ -293,19 +312,22 @@ def _push_down(lines: list[_Line], row: int, limit: int) -> int:
         moved: list[str] = []
         while len(words) > 1 and _width(line.lead + " ".join(words)) > limit:
             moved.insert(0, words.pop())
-        if not moved:
+        # The spaces at the break go with it, so neither line ends or opens on
+        # one: a run of them splits into empty words.
+        carried = " ".join(moved).strip(" ")
+        if not carried:
             break
-        line.text = line.lead + " ".join(words)
+        line.text = line.lead + " ".join(words).rstrip(" ")
         shortened += 1
         following = lines[row + 1] if row + 1 < len(lines) else None
         if following is not None and following.continues(line):
             rest = following.text[len(line.hang) :]
-            following.text = f"{line.hang}{' '.join(moved)} {rest}"
+            following.text = f"{line.hang}{carried} {rest}"
         else:
             lines.insert(
                 row + 1,
                 _Line(
-                    f"{line.hang}{' '.join(moved)}",
+                    f"{line.hang}{carried}",
                     group=line.group,
                     lead=line.hang,
                     hang=line.hang,
@@ -346,12 +368,12 @@ def ruff_line_length(project_root: Path | None = None) -> int:
         {data}`DEFAULT_LINE_LENGTH`.
     """
     root = Path() if project_root is None else project_root
-    for name in RUFF_CONFIG_FILES:
-        path = root / name
-        if path.is_file():
-            return int(cached_toml(path).get("line-length", DEFAULT_LINE_LENGTH))
-    ruff = read_pyproject_toml(root).get("tool", {}).get("ruff", {})
-    return int(ruff.get("line-length", DEFAULT_LINE_LENGTH))
+    native = TOOL_REGISTRY["ruff"].find_native_config(root)
+    if native is None:
+        settings = read_pyproject_toml(root).get("tool", {}).get("ruff", {})
+    else:
+        settings = cached_toml(native)
+    return int(settings.get("line-length", DEFAULT_LINE_LENGTH))
 
 
 def fix_long_lines(

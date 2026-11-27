@@ -436,7 +436,7 @@ Hand-written, but with a strict structure that downstream projects should mirror
 Sync rules:
 
 - Download URLs in repomatic's own `install.md` are generated, not hand-maintained, so a version number in one is expected rather than drift. The single manual intervention there is the documented repair: when a release's binary lane failed, re-point the table at the last release that actually carries binaries, since the freeze pins the version optimistically before the binaries exist (`lint-repo` reports the gap but never repairs it; see the `repomatic-ship` skill's § Repairing a short ship). In a downstream repo nothing rewrites the `latest/download/` URLs, and `lint-repo` checks them against the latest release.
-- The Try it now tab-set's `Specific version` tab does carry a pinned version as an example — that's intentional (it teaches the syntax). From repomatic `v7.4.0` on, the prepare-release freeze step bumps it automatically (`freeze_install_cli_version` rewrites `{package}@X.Y.Z` and `{package}==X.Y.Z` pins in `docs/install.md`).
+- The Try it now tab-set's `Specific version` tab does carry a pinned version as an example — that's intentional (it teaches the syntax). From repomatic `v7.4.0` on, the prepare-release freeze step bumps it automatically (`freeze_install_cli_version` rewrites `{package}@X.Y.Z` and `{package}==X.Y.Z` pins in `docs/install.md`). It rewrites the same pins in every other top-level page of `docs/` but the changelog pages, spaces around `==` included, so a pinned example on a tutorial page tracks the release too.
 
 ### `packaging.md`: distribution and dependency reference
 

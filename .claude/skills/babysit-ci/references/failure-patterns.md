@@ -41,7 +41,7 @@ For infrastructure, re-run the failed jobs (`gh run rerun <RUN_ID> --failed`) an
 Heavy polling from this loop spends the same REST quota (5,000 requests/hour) as every workflow authenticating as the same user (`REPOMATIC_PAT`). Exhaustion produces two failure shapes that look unrelated to quotas:
 
 - Local `gh` calls fail with `HTTP 403: API rate limit exceeded`.
-- Workflows fail with *permission-shaped* errors: `lint-repo` reports the PAT lacks `Contents`/`Dependabot`/`Workflows` scopes, or a `Sync pull request` step (`repomatic pr-sync`) stalls on the GitHub API until `repomatic` stops the `gh` call after five minutes, or the concurrency group kills the run.
+- Workflows fail with *permission-shaped* errors: `lint-repo` reports the PAT lacks `Contents`/`Dependabot` scopes, or a `Sync pull request` step (`repomatic pr-sync`) stalls on the GitHub API until `repomatic` stops the `gh` call after five minutes, or the concurrency group kills the run.
 
 Diagnose with `gh api rate_limit` **before** touching token settings: `remaining: 0` on the `core` bucket confirms it. Recovery: wait for the printed `reset` epoch, then re-run the failed workflows unchanged (`gh run rerun <RUN_ID> --failed`); they go green with no commit. While waiting, degrade to the channels that stay live: the GraphQL bucket is metered separately (`gh api graphql` for a commit's check suites, refs, and releases; `gh pr list` / `gh pr view`), and `git fetch` over SSH covers branch and commit verification.
 

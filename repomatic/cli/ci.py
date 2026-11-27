@@ -617,7 +617,7 @@ def ci_status(
             f" {', '.join(status.skipped_on_tip)}. Each one is read on an earlier"
             " commit."
         )
-    elif status.tip_sha and not status.runs_on_tip:
+    elif status.tip_sha and status.runs and not status.runs_on_tip:
         echo(
             f"… no run on the tip of {branch!r} ({status.tip_sha[:8]}) yet: every"
             " run above belongs to an earlier commit."

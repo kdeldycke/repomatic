@@ -51,18 +51,18 @@ Every `update-*` operation computes derived artifacts from project state (lockfi
 
 ## Format and fix job contract
 
-Every `format-*` and `fix-*` operation rewrites files using a pinned external tool. `format-*` enforces canonical style (semantics-preserving); `fix-*` corrects content errors such as typos (semantics-altering). The naming convention table in `AGENTS.md` § Naming conventions for automated operations defines when to use each prefix.
+Every `format-*` and `fix-*` operation rewrites files, with a pinned external tool or with logic of its own. `format-*` enforces canonical style (semantics-preserving); `fix-*` corrects content errors such as typos (semantics-altering). The naming convention table in `AGENTS.md` § Naming conventions for automated operations defines when to use each prefix.
 
 **Required properties:**
 
-1. **CLI command.** A `repomatic format-*` or `repomatic fix-*` command that wraps a pinned external tool (e.g., ruff, mdformat, jq, typos).
+1. **CLI command.** A `repomatic format-*` or `repomatic fix-*` command that wraps a pinned external tool (like ruff, mdformat, Biome or typos). A correction that no tool makes lives in the command itself, like `fix-awesome-toc` and `fix-long-lines`.
 2. **Workflow job.** A job in the appropriate workflow file (usually `autofix.yaml`) with PR creation via `repomatic pr-sync --template verb-noun` (branch, body, labels and commit message all derive from the template and its frontmatter).
 3. **Documentation.** Job description in `docs/workflows.md`. Changelog entry.
 
 **Invariants:**
 
 - No config toggle. Format jobs gate on metadata file-detection outputs (e.g., `python_files`, `markdown_files`, `json_files`) making them self-skipping when irrelevant. Fix jobs may run unconditionally when the tool applies to all file types.
-- The external tool version must be pinned in the CLI command for reproducibility.
+- A command that wraps an external tool pins that tool's version in the CLI command for reproducibility.
 
 (fix-steps-inside-another-job)=
 

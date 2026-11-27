@@ -48,10 +48,20 @@ LIMIT = 30
             True,
             id="url-past",
         ),
+        pytest.param(
+            "# SPDX-License-Identifier: GPL-2.0-or-later OR MIT",
+            False,
+            id="spdx-license",
+        ),
+        pytest.param(
+            "# SPDX-FileCopyrightText: 2026 Orchard Growers",
+            False,
+            id="spdx-copyright",
+        ),
     ),
 )
 def test_is_overlong_skips_what_e501_skips(line, overlong):
-    """A line that no wrap can shorten is not reported, as in `E501`."""
+    """A line that `E501` skips, or that no wrap can shorten, is not reported."""
     assert is_overlong(line, LIMIT) is overlong
 
 
@@ -167,6 +177,73 @@ def test_lines_no_wrap_can_shorten_are_left_alone():
         "    return count\n"
     )
     assert wrap_source(source, LIMIT) == (source, 0)
+
+
+@pytest.mark.parametrize(
+    "comment",
+    (
+        pytest.param(
+            "# pylint: disable=too-many-arguments, too-many-locals", id="pylint"
+        ),
+        pytest.param("# flake8: noqa: E501, W291, W293, E203, E231", id="flake8"),
+        pytest.param("# nosec B602, B607, B603, B604, B605, B606", id="nosec"),
+        pytest.param("# pyrefly: ignore[missing-attribute, bad-return]", id="pyrefly"),
+        pytest.param("# ty: ignore[unresolved-attribute, invalid-return]", id="ty"),
+        pytest.param(
+            "# Apples ripen in the late summer sun.  # noqa: E501", id="trailing-noqa"
+        ),
+    ),
+)
+def test_pragma_comments_keep_their_words(comment):
+    """A comment that holds a pragma stays whole, at its start or after its text.
+
+    These are the pragmas that `E501` leaves out when it measures a line.
+    """
+    source = f"{comment}\nx = 1\n"
+    assert wrap_source(source, LIMIT) == (source, 0)
+
+
+def test_string_statement_of_one_line_literals_is_left_alone():
+    """A line break inside a single-quoted literal is a syntax error."""
+    source = (
+        "def ripen():\n"
+        '    ("Apples ripen in the late sun "\n'
+        '     "and pears follow them in the autumn")\n'
+    )
+    assert wrap_source(source, LIMIT) == (source, 0)
+
+
+def test_fenced_block_closes_only_on_its_own_fence():
+    """A shorter fence inside a block opens no prose: only the outer one closes it."""
+    source = (
+        "def store():\n"
+        '    """Store the crates.\n'
+        "\n"
+        "    ````{note}\n"
+        "    ```toml\n"
+        '    cellar = "apples pears plums cherries"\n'
+        "    ```\n"
+        "    ````\n"
+        "\n"
+        "    The cellar keeps the crates of apples cool.\n"
+        '    """\n'
+    )
+    wrapped, shortened = wrap_source(source, LIMIT)
+    assert wrapped == source.replace(
+        "    The cellar keeps the crates of apples cool.\n",
+        "    The cellar keeps the\n    crates of apples cool.\n",
+    )
+    assert shortened == 1
+
+
+@pytest.mark.parametrize("limit", (29, 30))
+def test_spaces_at_the_break_stay_on_neither_line(limit):
+    """A run of spaces where the line breaks ends no line, and opens none."""
+    source = "# Apples ripen in the summer.  Pears follow them.\nx = 1\n"
+    assert wrap_source(source, limit) == (
+        "# Apples ripen in the summer.\n# Pears follow them.\nx = 1\n",
+        1,
+    )
 
 
 def test_wrap_is_idempotent():

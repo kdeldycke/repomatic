@@ -85,7 +85,7 @@ from ..init.tool_config import init_config
 from ..init.upgrade import upgrade_invite
 from ..metadata.core import Metadata
 from ..pypi import PYPI_PACKAGE_URL, get_source_url, is_pypi_url
-from ..pyproject import load_pyproject_doc, uv_table
+from ..pyproject import cached_toml, read_pyproject_toml, uv_table
 from ..templating import PrTemplate
 from ..tooling import registry as tool_registry
 from ..tooling.checksums import update_registry_checksums
@@ -227,13 +227,10 @@ def _uv_required_version() -> str | None:
         none.
     """
     uv_toml = Path("uv.toml")
-    pyproject = Path("pyproject.toml")
     if uv_toml.is_file():
-        table = load_pyproject_doc(uv_toml)
-    elif pyproject.is_file():
-        table = uv_table(load_pyproject_doc(pyproject))
+        table = cached_toml(uv_toml)
     else:
-        return None
+        table = uv_table(read_pyproject_toml())
     required = table.get("required-version")
     return str(required) if required else None
 
@@ -1162,6 +1159,30 @@ def _resolve_action_pins(rc: ResolveContext) -> SyncPlan:
     return plan
 
 
+def _withheld(
+    candidates: list[Candidate],
+    kept: list[Candidate],
+    min_age: timedelta,
+    today: date,
+) -> Candidate | None:
+    """Return the release that a gate withheld, for the gate to name in its log.
+
+    :param candidates: The releases offered to the gate.
+    :param kept: The releases the gate let through.
+    :param min_age: The stabilization window.
+    :param today: Reference date for the cooldown computation.
+    :return: The newest of *candidates* past the window, when it is newer than
+        the newest of *kept*, or `None`.
+    """
+    newest = select_latest(candidates, min_age, today)
+    newest_kept = select_latest(kept, min_age, today)
+    if newest is None or (
+        newest_kept is not None and not is_newer(newest.version, newest_kept.version)
+    ):
+        return None
+    return newest
+
+
 def _gate_uv_on_checksums(
     candidates: list[Candidate],
     pinned: str,
@@ -1234,13 +1255,10 @@ def _gate_uv_on_checksums(
         )
 
     gated = [candidate for candidate in candidates if candidate.version in verified]
-    ungated_latest = select_latest(candidates, min_age, today)
-    gated_latest = select_latest(gated, min_age, today)
-    if ungated_latest is not None and (
-        gated_latest is None or is_newer(ungated_latest.version, gated_latest.version)
-    ):
+    withheld = _withheld(candidates, gated, min_age, today)
+    if withheld is not None:
         logging.info(
-            f"uv {ungated_latest.version} cleared the cooldown but carries no"
+            f"uv {withheld.version} cleared the cooldown but carries no"
             f" checksum in the pinned {SETUP_UV_SLUG}: holding the pin until"
             " the action pin catches up."
         )
@@ -1289,13 +1307,10 @@ def _gate_uv_on_required_version(
         for candidate in candidates
         if accepted.contains(candidate.version, prereleases=True)
     ]
-    newest = select_latest(candidates, min_age, today)
-    newest_kept = select_latest(kept, min_age, today)
-    if newest is not None and (
-        newest_kept is None or newest_kept.version != newest.version
-    ):
+    withheld = _withheld(candidates, kept, min_age, today)
+    if withheld is not None:
         logging.warning(
-            f"uv {newest.version} is outside the required-version {required} of"
+            f"uv {withheld.version} is outside the required-version {required} of"
             " the project: holding the uv pin until setup-uv verifies a release"
             " inside it."
         )
@@ -1329,15 +1344,13 @@ def _gate_on_python_floor(
     :return: The candidates that can install on *floor*.
     """
     kept = [candidate for candidate in candidates if candidate.supports_python(floor)]
-    newest = select_latest(candidates, min_age, today)
-    newest_kept = select_latest(kept, min_age, today)
-    if newest is not None and (
-        newest_kept is None or newest_kept.version != newest.version
-    ):
+    withheld = _withheld(candidates, kept, min_age, today)
+    if withheld is not None:
         logging.info(
-            f"{package} {newest.version} requires Python {newest.requires_python},"
-            f" which leaves out Python {floor[0]}.{floor[1]}, the oldest one of the"
-            " project: holding its pin."
+            f"{package} {withheld.version} requires Python"
+            f" {withheld.requires_python}, which leaves out Python"
+            f" {floor[0]}.{floor[1]}, the oldest one of the project: holding its"
+            " pin."
         )
     return kept
 

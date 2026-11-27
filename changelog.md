@@ -5,27 +5,30 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- **Breaking:** Remove `autopep8` from `repomatic run`: `repomatic run autopep8` now fails, and `sync-tool-versions` stops bumping it.
-- Add `fix-long-lines`, which wraps the comment and docstring lines past the line length. It replaces `autopep8` in the `format-python` job, which wrapped none of them.
+- **Breaking:** Remove `autopep8` from `repomatic run`: `repomatic run autopep8` now fails, and `sync-tool-versions` stops bumping it. Run `repomatic fix-long-lines` in its place.
+- Add `fix-long-lines`, which wraps the comment and docstring lines past the Ruff `line-length`, and run it in the `format-python` job in place of `autopep8`.
 - `lint-repo.declined` now also declines a default rule left out of `gitignore.extra-content`, as `gitignore.extra-content."{rule}"`: `lint-repo` reports the reason instead of a warning.
-- The `repomatic-upgrade` skill now gives the hand bump of the pin with `init --no-cooldown`, and `brand-assets` warns about stale `qlmanage` thumbnails.
-- The bundled skills and agents drop the guidance that a check now enforces, repeated rules and incident stories, and their stale claims are fixed.
-- The bundled `lychee.toml` now excludes crates.io crate pages and gnu.org, which answer a link checker with `404` and `429`.
-- The bundled `pytest.toml` now sets `faulthandler_timeout` to 5 minutes, so a hung test prints the traceback of every thread to the log.
+- The bundled `repomatic-upgrade` skill now moves the pin by hand with `init --no-cooldown`, for a release still inside the cooldown.
+- The bundled `brand-assets` skill now warns that `qlmanage` can render a stale thumbnail of a rewritten SVG.
+- The bundled skills and agents drop the rules that a check enforces, the repeated rules and the incident stories, and fix their stale claims.
+- The bundled `lychee.toml` now excludes crates.io crate pages and `www.gnu.org`, which answer a link checker with `404` and `429`.
+- The bundled `pytest.toml` now sets `faulthandler_timeout` to 5 minutes, so a hung test prints the traceback of every thread. `lint-repo` warns on a seeded `[tool.pytest]` that lacks the key: add it, or decline it.
 - The octicon registry now gives the `repo` icon to a `man.md` page, as one family with `man-page.md`. `lint-repo` warns on a `man.md` title that keeps the `book` icon.
 - The release freeze now pins the versioned CLI examples of every docs page beside `install.md`, `{package} == X.Y.Z` included, and skips the changelog pages.
-- The binaries page that `sync-binaries` creates now carries the `desktop-download` octicon in its title, as `lint-repo` expects.
-- The bundled `sphinx-docs` agent now copies a session command with a prompt pattern, which leaves out the output of a `{click:run}` block too.
-- The bundled `sphinx-docs` agent now puts the class tree of a module on its API page, above its members: a guide page carries no `autoclasstree`.
+- The bundled `sphinx-docs` agent now sets the copy button to a prompt pattern, which also leaves the output of a `{click:run}` block out of the copy.
+- The bundled `sphinx-docs` agent now puts the class tree of a module on its API page, above its members, and says how to move a site to one API page per module.
+- Bump the `repomatic run` pins of `pyproject-fmt` to `2.31.1` and `wrangler` to `4.164.0`.
 - Fix `ci-status` and the `workflow-dispatch` and `thin-caller-triggers` checks of `lint-repo` ignoring an `on:` key that is a list or a single event.
-- Fix `ci-status --wait` ending when GitHub keeps failing to serve one workflow's run: it now reports that workflow and waits on the others.
+- Fix `ci-status` failing, and `ci-status --wait` ending, when GitHub cannot serve the run of one workflow: it now warns about it and reads the others.
+- Fix `ci-status` reporting a blocking workflow-level failure when GitHub cancels an allowed-failure probe, like one no runner picked up: it now warns about the probe.
+- Fix the binaries page that `sync-binaries` creates failing the `title-octicons` check of `lint-repo`: its title now carries the `desktop-download` octicon. Add the icon to an existing page by hand.
 - Fix the cooldown comment of every workflow, which said a synced copy keeps its window by hand: `repomatic init` writes it from `minimum-release-age`.
-- Fix the `pat-permissions` check of `lint-repo` failing on a private repository with a `REPOMATIC_PAT` that holds Workflows: the check no longer probes that permission.
+- Fix the `pat-permissions` check of `lint-repo` failing, and the setup guide never closing, on a private repository whose `REPOMATIC_PAT` holds Workflows: neither probes that permission.
 - Fix the `release-path` check of `lint-repo` listing release steps for a project with `[tool.uv] package = false`, which never releases: the check now skips it.
 - Fix the `sample-metrics` charts after an SVG optimizer like SVGO rewrites them: curves no longer fill black, and the caption follows the dark theme.
 - Fix `sync-workflow-pins` stepping the uv pin back below the uv `required-version` of the project, which fails every job that installs it.
 - Fix `sync-workflow-pins` bumping a `uv run --with` or `uv pip install` pin to a release whose `requires-python` leaves out the oldest Python of the project.
-- Fix the `test-package-install` job of `tests.yaml` installing the newest `pipx` release: it now pins one that `sync-workflow-pins` bumps. Pin `pipx` by hand in an existing copy, which the sync keeps.
+- Fix the `test-package-install` job of `tests.yaml` installing the newest `pipx` release: it now pins one that `sync-workflow-pins` bumps. Pin `pipx` by hand in an existing copy: `repomatic init` leaves the job body in place.
 
 ## [`8.4.0` (2026-11-24)](https://github.com/kdeldycke/repomatic/compare/v8.3.1...v8.4.0)
 

@@ -17,7 +17,7 @@ on:
 
 jobs:
   lint:
-    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v8.3.1
+    uses: kdeldycke/repomatic/.github/workflows/lint.yaml@v8.4.0
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
@@ -84,7 +84,7 @@ This workflow runs on every push to `main` and on a **weekly schedule** so quiet
 ### 📖 Setup guide (`setup-guide`)
 
 - Detects missing `REPOMATIC_PAT` secret and opens an issue with step-by-step setup instructions
-- When the PAT is present, validates all required permissions (administration, contents, issues, pull requests, Dependabot alerts, workflows) using the same checks as `lint-repo`
+- When the PAT is present, validates its administration, contents, issues, pull requests and Dependabot alerts permissions using the same checks as `lint-repo`. It cannot validate Workflows: GitHub lists only write endpoints for that permission, so no read-only call can tell whether the token holds it
 - Keeps the issue open with a diagnostic table when the PAT exists but permissions are incomplete
 - Keeps the issue open while the PAT also has access to another repository of the same owner, and names that repository in the token step, using the same check as `lint-repo`
 - For projects published to PyPI, probes the latest release's PEP 740 provenance and keeps the issue open until a successful OIDC-attested upload confirms the [Trusted Publisher entry](https://docs.pypi.org/trusted-publishers/adding-a-publisher/) is registered for this repo's own `release.yaml`
@@ -208,7 +208,7 @@ Collapse the job's two Ruff steps, `check` then `format`, into one invocation on
 ### 🔄 Sync repomatic (`sync-repomatic`)
 
 - Runs [`repomatic init --upgrade --delete-unmodified --delete-excluded`](https://github.com/kdeldycke/repomatic/blob/main/repomatic/init/run.py) to sync all repomatic-managed files: thin-caller workflows, configuration files, and skill definitions
-- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v8.3.1`
+- Upgrades the repository once a newer `repomatic` release clears the [`minimum-release-age`](configuration.md#minimum-release-age) cooldown. The job hands off to that release through `uvx`, so the upstream `uses:` refs, the inline `repomatic==` pins and every managed file move in one pull request titled after that release, like `Upgrade repomatic to v8.4.0`
 - The upgrade pull request opens on the version move and the release notes of every release it crosses, then lists their `**Breaking:**` and `**Deprecated:**` entries when there are any. The review command follows, then the warnings the new release printed (like a `[tool.repomatic]` key it no longer knows, or a skill copy whose local edits it overwrote) above the collapsed output of `repomatic init`. The newest release the cooldown still holds back comes last
 - Never moves the upstream pin back: a release pinned by hand inside the cooldown stays, and the job only regenerates its files. Set `upstream-pin.sync = false` in `[tool.repomatic]` to keep syncing at the pinned release
 - Removes unmodified config files identical to bundled defaults and cleans up excluded or stale files (disabled opt-in workflows, auto-excluded skills)
@@ -1097,7 +1097,7 @@ The [`prepare-release`](#github-workflows-changelog-yaml-jobs) job creates a PR 
 1. **Freeze commit** (`[changelog] Release vX.Y.Z`): finalizes the changelog date and comparison URL, removes the "unreleased" warning, freezes workflow action references to `@vX.Y.Z`, freezes CLI invocations to a PyPI version, and re-locks `uv.lock` so the tag carries a lock entry matching its own version.
 2. **Unfreeze commit** (`[changelog] Post-release bump`): reverts action references back to `@main`, reverts CLI invocations to local source, adds a new unreleased changelog section, bumps the version to the next patch, and re-locks again.
 
-Not everything the freeze pins is reverted. Four release pins **ratchet forward** instead: the binary download URLs and the `Specific version` CLI example in `docs/install.md`, the plugin marketplace entry's `version` in `.claude-plugin/marketplace.json`, and the `version` of the plugin manifest in `.claude/.claude-plugin/plugin.json`. The freeze moves them to the new tag and the unfreeze leaves them there, so `main` names the newest published release rather than a tag that does not exist yet. That marketplace entry's `ref` beside it round-trips like a workflow reference, since a tag pin would freeze the plugin's content for a whole cycle.
+Not everything the freeze pins is reverted. Four release pins **ratchet forward** instead: the binary download URLs in `docs/install.md`, the versioned CLI examples of every top-level page of `docs/` but the changelog pages (like the `Specific version` tab of `docs/install.md`), the plugin marketplace entry's `version` in `.claude-plugin/marketplace.json`, and the `version` of the plugin manifest in `.claude/.claude-plugin/plugin.json`. The freeze moves them to the new tag and the unfreeze leaves them there, so `main` names the newest published release rather than a tag that does not exist yet. That marketplace entry's `ref` beside it round-trips like a workflow reference, since a tag pin would freeze the plugin's content for a whole cycle.
 
 The auto-tagging job depends on these being **separate commits**: it uses `release_commits_matrix` to identify and tag only the freeze commit. Squashing would merge both into one, breaking the tagging logic.
 

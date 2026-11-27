@@ -470,6 +470,7 @@ def prepare_release(
     - Set release date in citation.cff.
     - Update changelog comparison URL from "...main" to "...v{version}".
     - Remove the "[!WARNING]" development warning block from changelog.
+    - Pin versioned CLI examples in docs/*.md to the release, except changelog pages.
     - Optionally update workflow URLs to use versioned tag.
 
     \b

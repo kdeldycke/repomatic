@@ -32,12 +32,12 @@ specific ways this module exists to settle:
   `queued` while a dozen of its jobs have already finished. Neither answers
   "is anything broken".
 - **A run that failed around its jobs.** A `failure` conclusion with no
-  failed job is a workflow-level error: an invalid `strategy.matrix`
-  expression, malformed YAML, a missing secret. There is no job log to read,
-  and treating it as benign is how a persistently red workflow gets written
-  off as a known artifact. A required job that GitHub cancelled, like one no
-  runner picked up, fails its run the same way: that job is named instead,
-  and it still gates the merge.
+  failed and no cancelled job is a workflow-level error: an invalid
+  `strategy.matrix` expression, malformed YAML, a missing secret. There is no
+  job log to read, and treating it as benign is how a persistently red
+  workflow gets written off as a known artifact. A job that GitHub cancelled,
+  like one no runner picked up, fails its run the same way: that job is named
+  instead. A required one still gates the merge, and a probe still does not.
 - **A run that settled without a result.** A newer push cancels the run of
   the commit under it, and a job-level `if:` skips every job of a run: the
   bundled `tests.yaml` does that for a version-bump commit. Neither run has a
@@ -251,13 +251,12 @@ class RunStatus:
         """Whether the run failed around its jobs rather than inside one.
 
         No job log explains this one: read the run's error annotations and
-        fix the workflow itself. A run that failed on a required job GitHub
-        cancelled is not one: see {attr}`stopped_required`.
+        fix the workflow itself. A run that failed on a job GitHub cancelled is
+        not one, whether that job is required or a probe: see
+        {attr}`stopped_required` and {attr}`stopped_probes`.
         """
-        return (
-            self.conclusion == "failure"
-            and not any(job.failed for job in self.jobs)
-            and not self.cancelled_required
+        return self.conclusion == "failure" and not any(
+            job.failed or job.cancelled for job in self.jobs
         )
 
     @property
@@ -296,6 +295,18 @@ class RunStatus:
         """
         if self.conclusion == "failure" or self.on_tip:
             return self.cancelled_required
+        return ()
+
+    @property
+    def stopped_probes(self) -> tuple[JobStatus, ...]:
+        """Probes cancelled in a run that no newer run replaces.
+
+        The probe counterpart of {attr}`stopped_required`. Like a failed probe,
+        none of them gates a merge. GitHub cancels a probe that no runner picked
+        up, and concludes its run `failure` all the same.
+        """
+        if self.conclusion == "failure" or self.on_tip:
+            return tuple(job for job in self.jobs if job.cancelled and not job.required)
         return ()
 
     @property
@@ -353,9 +364,15 @@ class RunStatus:
             return "cancelled (no job ran)"
         if self.skipped:
             return "skipped (no job ran)"
-        if self.failed_probes:
-            return f"green ({len(self.failed_probes)} probe(s) failed)"
-        return "green"
+        probes = [
+            f"{len(jobs)} probe(s) {outcome}"
+            for jobs, outcome in (
+                (self.failed_probes, "failed"),
+                (self.stopped_probes, "cancelled"),
+            )
+            if jobs
+        ]
+        return f"green ({', '.join(probes)})" if probes else "green"
 
     def cells(self) -> tuple[str, str, str, str]:
         """The row of the `ci-status` table, in {data}`CI_STATUS_HEADER_DEFS` order."""
@@ -366,10 +383,10 @@ class RunStatus:
 
         An error gates a merge: a workflow-level failure, a failed required job,
         or a required job that GitHub cancelled in a run no newer run replaces.
-        A warning does not: a failed probe, or a run with no result for its
-        commit. A notice asks for nothing: a matrix whose `if:` skipped it
-        before it evaluated, like a release-only stage on an ordinary push or
-        the binary stages of a project that compiles none.
+        A warning does not: a failed probe, a probe cancelled the same way, or a
+        run with no result for its commit. A notice asks for nothing: a matrix
+        whose `if:` skipped it before it evaluated, like a release-only stage on
+        an ordinary push or the binary stages of a project that compiles none.
 
         :yields: `(level, message)` pairs, errors first.
         """
@@ -400,6 +417,11 @@ class RunStatus:
             yield (
                 AnnotationLevel.WARNING,
                 f"{self.workflow}: allowed-failure probe failed: {job.name}",
+            )
+        for job in self.stopped_probes:
+            yield (
+                AnnotationLevel.WARNING,
+                f"{self.workflow}: allowed-failure probe cancelled: {job.name}",
             )
         for job in self.unexpanded_jobs:
             if job.skipped:
@@ -921,7 +943,8 @@ def watch_ci_status(
     {data}`FAILED_POLL_LIMIT` failed polls of it in a row, the watch logs its
     error, reads it no more, and keeps the error in the
     {attr}`CIStatus.unreadable` of each later status: the watch then ends on
-    the other workflows.
+    the other workflows. It no longer waits for a run on the tip, since the run
+    it dropped can be the one the tip has.
 
     :param workflows: Workflow filenames to read.
     :param branch: Branch to read runs from.
@@ -991,7 +1014,7 @@ def watch_ci_status(
             if (
                 status.settled
                 and not retrying
-                and (status.runs_on_tip or not status.tip_sha)
+                and (status.runs_on_tip or not status.tip_sha or dropped)
             ):
                 return
         if deadline is None:
