@@ -12,7 +12,7 @@ requires = [ "uv-build>=0.8" ]
 [project]
 # Docs: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
 name = "repomatic"
-version = "8.5.1"
+version = "8.5.2.dev0"
 description = "🏭 Automate repository maintenance, releases, and CI/CD workflows"
 readme = "readme.md"
 keywords = [
@@ -114,7 +114,7 @@ dependencies = [
 ]
 urls.Changelog = "https://github.com/kdeldycke/repomatic/blob/main/changelog.md"
 urls.Documentation = "https://repomatic.net"
-urls.Download = "https://github.com/kdeldycke/repomatic/releases/tag/v8.5.1"
+urls.Download = "https://github.com/kdeldycke/repomatic/releases/tag/v8.5.2.dev0"
 urls.Funding = "https://github.com/sponsors/kdeldycke"
 urls.Homepage = "https://github.com/kdeldycke/repomatic"
 urls.Issues = "https://github.com/kdeldycke/repomatic/issues"
@@ -278,7 +278,7 @@ copyright = "Kevin Deldycke <kevin@deldycke.com> and contributors. Distributed u
 file-description = "🏭 Automate repository maintenance, releases, and CI/CD workflows"
 # Numeric only: Nuitka rejects PEP 440 .devN suffixes. Kept in sync with the
 # package version by the dedicated [tool.bumpversion] rule that strips the suffix.
-file-version = "8.5.1"
+file-version = "8.5.2"
 include-data-dir = [
   "repomatic/data/awesome_template=repomatic/data/awesome_template",
   "repomatic/data/skills=repomatic/data/skills",
@@ -292,7 +292,7 @@ include-data-files = [
 # packages are compiled in.
 include-package = [ "repomatic.cli", "repomatic.templates" ]
 product-name = "Repomatic"
-product-version = "8.5.1"
+product-version = "8.5.2"
 # The Windows binary embeds this icon, rendered from favicon.svg, and the Linux
 # and macOS builds ignore the flag. A PNG in its place makes Nuitka require the
 # imageio package to convert it, which fails the build. The onefile binaries of
@@ -516,7 +516,7 @@ report.fail_under = 96
 report.precision = 2
 
 [tool.bumpversion]
-current_version = "8.5.1"
+current_version = "8.5.2.dev0"
 # Parse versions with an optional .devN suffix (PEP 440).
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)(\\.dev(?P<dev>\\d+))?"
 serialize = [
