@@ -2230,9 +2230,6 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         config_docs_url="https://nuitka.net/doc/user-manual.html",
         cli_docs_url="https://nuitka.net/doc/user-manual.html",
         needs_venv=True,
-        # Nuitka's install path ends in its compile cache keys: see
-        # ToolSpec.install_into_venv.
-        install_into_venv=True,
         module="nuitka",
         native_format=NativeFormat.FLAGS,
         # Nuitka looks up its newest release on PyPI and warns when the running

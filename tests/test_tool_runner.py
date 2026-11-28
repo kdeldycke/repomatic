@@ -2306,19 +2306,16 @@ def test_run_tool_nuitka_uses_module_invocation(
     """nuitka runs via `python -m nuitka` to avoid Windows script resolution issues."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "uv.lock").touch()
-    mock_run.return_value = MagicMock(returncode=0, stdout="/orchard/.venv\n")
+    mock_run.return_value = MagicMock(returncode=0)
 
     run_tool("nuitka", extra_args=("repomatic",))
 
-    # Nuitka is installed into the project venv first, then runs from it.
-    locate, install, cmd = (call.args[0] for call in mock_run.call_args_list)
-    assert locate[-1] == "import sys; print(sys.prefix)"
-    assert install[2:6] == ["pip", "install", "--python", "/orchard/.venv"]
+    # Nuitka is layered over the project venv, in the one command that runs it.
+    (cmd,) = (call.args[0] for call in mock_run.call_args_list)
     assert cmd[0] == "uv"
     assert "run" in cmd
     assert "--frozen" in cmd
-    assert "--no-sync" in cmd
-    assert "--with" not in cmd
+    assert cmd[cmd.index("--with") + 1] == TOOL_REGISTRY["nuitka"].pypi_pin
     python_idx = cmd.index("python")
     assert cmd[python_idx + 1] == "-m"
     assert cmd[python_idx + 2] == "nuitka"
