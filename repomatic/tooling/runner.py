@@ -614,18 +614,9 @@ def _build_install_args(spec: ToolSpec, exclude_newer: str | None = None) -> lis
     (`--no-project`), the same guarantee the `uvx` path provides: the tool
     still runs, it just cannot import the project's dependencies.
     ```
-
-    A tool declaring
-    {attr}`~repomatic.tooling.registry.ToolSpec.install_into_venv` is
-    already in that virtualenv when a `uv.lock` exists, so its command carries
-    no `--with` layer: see {func}`_install_into_venv`.
     """
     if spec.needs_venv:
-        if _installs_into_venv(spec):
-            # The project virtualenv already holds the tool, and was synced by
-            # the install: see _install_into_venv.
-            cmd = [*uv_cmd("run", frozen=True), "--no-sync"]
-        elif Path("uv.lock").is_file():
+        if Path("uv.lock").is_file():
             cmd = [*uv_cmd("run", frozen=True), "--with", spec.pypi_pin]
         else:
             cmd = uv_cmd("run", no_project=True, exclude_newer=exclude_newer)
@@ -641,69 +632,6 @@ def _build_install_args(spec: ToolSpec, exclude_newer: str | None = None) -> lis
         cmd.extend(["--from", spec.pypi_pin, spec.name])
 
     return cmd
-
-
-def _installs_into_venv(spec: ToolSpec) -> bool:
-    """Tell whether this run installs *spec* into the project virtualenv.
-
-    Only a `uv.lock` gives the tool a project virtualenv to install into: see
-    the note of {func}`_build_install_args`.
-    """
-    return spec.install_into_venv and Path("uv.lock").is_file()
-
-
-def _venv_install_args(spec: ToolSpec, venv: str) -> list[str]:
-    """Build the command that installs the pinned tool into *venv*.
-
-    The command carries no cooldown flag of its own. Like the `uv run --frozen
-    --with` form of the other `needs_venv` tools, it takes the window and its
-    exemptions from the project's `[tool.uv]` section and from
-    `UV_EXCLUDE_NEWER`.
-    """
-    return [*uv_cmd("pip"), "install", "--python", venv, spec.pypi_pin]
-
-
-def _install_into_venv(spec: ToolSpec) -> None:
-    """Install the pinned tool into the project virtualenv.
-
-    `uv run --frozen` creates the virtualenv from the lockfile when it is
-    missing, syncs it, and reports where it is. `uv pip install` then adds
-    the tool to it. See
-    {attr}`~repomatic.tooling.registry.ToolSpec.install_into_venv` for
-    the reason.
-
-    :raises ToolInstallError: uv cannot locate the virtualenv, or cannot
-        install the tool into it.
-    """
-    locate = [
-        *uv_cmd("run", frozen=True),
-        "--",
-        "python",
-        "-c",
-        "import sys; print(sys.prefix)",
-    ]
-    logging.info(f"Running: {' '.join(locate)}")
-    # Only stdout is captured: what uv says about the sync stays in the log.
-    located = subprocess.run(
-        locate, stdout=subprocess.PIPE, text=True, encoding="UTF-8", check=False
-    )
-    venv = located.stdout.strip()
-    if located.returncode != 0 or not venv:
-        msg = (
-            f"Cannot locate the project virtualenv to install {spec.name} into: "
-            f"`{' '.join(locate)}` exited with code {located.returncode}."
-        )
-        raise ToolInstallError(msg)
-
-    install = _venv_install_args(spec, venv)
-    logging.info(f"Running: {' '.join(install)}")
-    result = subprocess.run(install, check=False)
-    if result.returncode != 0:
-        msg = (
-            f"Cannot install {spec.name} into {venv}: `{' '.join(install)}` "
-            f"exited with code {result.returncode}."
-        )
-        raise ToolInstallError(msg)
 
 
 def _path_tools_env(
@@ -802,8 +730,6 @@ def _command_prefix(
         cutoff = exclude_newer_cutoff(
             load_repomatic_config().minimum_release_age, today_utc()
         )
-        if _installs_into_venv(spec):
-            _install_into_venv(spec)
         cmd = _build_install_args(spec, exclude_newer=cutoff)
 
     cmd.extend(spec.default_flags)

@@ -94,14 +94,11 @@ from repomatic.tooling.runner import (
     ConfigSource,
     _build_install_args,
     _digest_targets,
-    _install_into_venv,
     _install_npm,
-    _installs_into_venv,
     _npm_supports_cooldown,
     _path_tools_env,
     _prepare,
     _store_config_to_cache,
-    _venv_install_args,
     find_unmodified_configs,
     resolve_config,
     resolve_default_args,
@@ -232,10 +229,6 @@ def test_tool_spec_integrity(name, spec):
     # module requires needs_venv (module invocation uses the venv's Python).
     if spec.module is not None:
         assert spec.needs_venv, f"{name}: module requires needs_venv=True"
-
-    # install_into_venv installs into the venv that needs_venv provides.
-    if spec.install_into_venv:
-        assert spec.needs_venv, f"{name}: install_into_venv requires needs_venv=True"
 
     # NativeFormat.FLAGS is mutually exclusive with file-based config: such tools
     # accept no config file and do not read [tool.X] natively.
@@ -441,17 +434,13 @@ def test_uv_exemptions_follow_the_install_command(
 
     `lint-repo` asks `ToolBackend.reads_uv_exemptions` whether a project entry
     can admit a pin inside the window. `uvx` reads no project configuration,
-    while `uv run` and `uv pip install` read it, so the answer must follow the
-    command the runner builds.
+    while `uv run` reads it, so the answer must follow the command the runner
+    builds.
     """
     monkeypatch.chdir(tmp_path)
     if locked:
         (tmp_path / "uv.lock").touch()
-    command = (
-        _venv_install_args(spec, ".venv")
-        if _installs_into_venv(spec)
-        else _build_install_args(spec)
-    )
+    command = _build_install_args(spec)
     assert spec.backend.reads_uv_exemptions == (command[0] != "uvx"), name
 
 
@@ -468,104 +457,16 @@ def test_uvx_tool_pins_registry_version(name, spec, tmp_path, monkeypatch):
     silently goes stale on the next bump (a missed `pyproject-fmt` literal once
     reddened every Tests cell), so version-pinning is asserted here once,
     generically, against the shared builder rather than restated per tool.
-
-    The pin sits in the command that installs the tool. With a `uv.lock`, a
-    tool declaring `install_into_venv` is installed by its own command.
     """
     pin = spec.pypi_pin
     monkeypatch.chdir(tmp_path)
     for locked in (False, True):
         if locked:
             (tmp_path / "uv.lock").touch()
-        command = (
-            _venv_install_args(spec, ".venv")
-            if _installs_into_venv(spec)
-            else _build_install_args(spec)
-        )
+        command = _build_install_args(spec)
         assert pin in command, (
             f"{name}: missing registry pin {pin!r} (uv.lock: {locked})"
         )
-
-
-@pytest.mark.parametrize(
-    ("name", "spec"),
-    [(n, s) for n, s in TOOL_REGISTRY.items() if s.install_into_venv],
-)
-def test_build_install_args_install_into_venv(name, spec, tmp_path, monkeypatch):
-    """A tool installed into the project venv runs from it, with no layer."""
-    monkeypatch.chdir(tmp_path)
-    pin = spec.pypi_pin
-
-    # Without a uv.lock there is no project venv to install into: the tool is
-    # layered over an isolated environment, like any other needs_venv tool.
-    assert not _installs_into_venv(spec)
-    unlocked = _build_install_args(spec)
-    assert unlocked[unlocked.index("--with") + 1] == pin
-
-    (tmp_path / "uv.lock").touch()
-    assert _installs_into_venv(spec)
-    locked = _build_install_args(spec)
-    assert "--with" not in locked
-    assert pin not in locked
-    # The install has synced the venv already.
-    assert locked[: locked.index("--")] == [
-        "uv",
-        "--no-progress",
-        "run",
-        "--frozen",
-        "--no-sync",
-    ]
-
-
-@pytest.mark.parametrize(
-    ("name", "spec"),
-    [(n, s) for n, s in TOOL_REGISTRY.items() if s.install_into_venv],
-)
-@patch("repomatic.tooling.runner.subprocess.run")
-def test_install_into_venv_installs_the_pin(mock_run, name, spec):
-    """The pinned tool goes into the venv that `uv run --frozen` reports."""
-    mock_run.side_effect = [
-        MagicMock(returncode=0, stdout="/orchard/.venv\n"),
-        MagicMock(returncode=0),
-    ]
-
-    _install_into_venv(spec)
-
-    locate, install = (call.args[0] for call in mock_run.call_args_list)
-    assert locate[:4] == ["uv", "--no-progress", "run", "--frozen"]
-    assert install == [
-        "uv",
-        "--no-progress",
-        "pip",
-        "install",
-        "--python",
-        "/orchard/.venv",
-        spec.pypi_pin,
-    ]
-
-
-@pytest.mark.parametrize(
-    ("results", "message"),
-    [
-        # uv fails before it can report the venv.
-        ([(2, "")], "Cannot locate the project virtualenv"),
-        # uv succeeds and reports nothing.
-        ([(0, "\n")], "Cannot locate the project virtualenv"),
-        # The venv is found, and the install into it fails.
-        ([(0, "/orchard/.venv\n"), (1, "")], "Cannot install nuitka"),
-    ],
-)
-@patch("repomatic.tooling.runner.subprocess.run")
-def test_install_into_venv_reports_a_uv_failure(mock_run, results, message):
-    """A uv failure stops the run before the tool starts."""
-    mock_run.side_effect = [
-        MagicMock(returncode=code, stdout=stdout) for code, stdout in results
-    ]
-
-    with pytest.raises(ToolInstallError, match=message):
-        _install_into_venv(TOOL_REGISTRY["nuitka"])
-
-    assert mock_run.call_count == len(results)
 
 
 def test_datasource_url_by_backend():

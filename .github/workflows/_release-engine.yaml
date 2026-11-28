@@ -174,10 +174,11 @@ jobs:
       - name: Build binary
         id: build-binary
         continue-on-error: true
-        # `repomatic run nuitka` installs the pinned Nuitka into the project
-        # venv with the `nuitka.extras` of [tool.repomatic], prepares the
-        # compile cache, translates the [tool.nuitka] section to CLI flags and
-        # adds what the target needs (see repomatic/tooling/nuitka.py). The
+        # `repomatic run nuitka` installs the `nuitka.extras` of
+        # [tool.repomatic] into the project venv, runs the pinned Nuitka in a
+        # `uv run --with` layer over it, prepares the compile cache, translates
+        # the [tool.nuitka] section to CLI flags and adds what the target needs
+        # (see repomatic/tooling/nuitka.py). The
         # matrix supplies the entry point to compile: Nuitka generates the
         # launcher for it, as an installer does for a console script. User flags
         # with spaces belong in [tool.nuitka], which the tool runner passes as a

@@ -321,14 +321,13 @@ class ToolBackend(Enum):
         """Whether the install reads the project's `[tool.uv] exclude-newer-package`.
 
         Only the virtualenv backend installs through uv commands that read the
-        project configuration: `uv run --with`, `uv run --no-project --with`
-        and `uv pip install`. An entry there admits a pin still inside the
-        window. `uvx` reads no project configuration, and npm installs into a
-        scratch prefix with no exemption flag.
+        project configuration: `uv run --with` and `uv run --no-project
+        --with`. An entry there admits a pin still inside the window. `uvx`
+        reads no project configuration, and npm installs into a scratch prefix
+        with no exemption flag.
 
-        Probed with uv `0.13.1` on 2026-10-20: each of the three commands
-        honored an entry, with and without `UV_EXCLUDE_NEWER` set, and `uvx`
-        ignored it.
+        Probed with uv `0.13.1` on 2026-10-20: both commands honored an entry,
+        with and without `UV_EXCLUDE_NEWER` set, and `uvx` ignored it.
         """
         return self is ToolBackend.VENV
 
@@ -877,28 +876,6 @@ class ToolSpec:
     venv materializes from the frozen `uv.lock`; in a repository without one
     the runner degrades to an isolated, cooldown-gated environment
     (`uv run --no-project`), see `_build_install_args` in `tooling/runner.py`.
-    """
-
-    install_into_venv: bool = False
-    """If `True`, install the tool into the project venv before it runs.
-
-    Requires `needs_venv=True`. Without it, a `needs_venv` tool is layered over
-    the project venv with `uv run --with`, and uv keeps that layer in a
-    directory of its cache that it names at random.
-
-    ```{note}
-    Nuitka `4.4` links most of its include directories into the build
-    directory under stable names. MSVC builds and the `inline_copy/libbacktrace`
-    directory still carry its install location in the `-I` flags, which a
-    compile cache can hash. Under `uv run --with`, each layer that uv builds
-    again moves that location. The project venv sits at the same path on every
-    runner, so a tool installed there keeps the same flags. `docs/nuitka.md`
-    holds the measurements.
-    ```
-
-    The install stays in the venv after the run. `uv sync` removes it. In a
-    repository without a `uv.lock` the field has no effect, because the tool
-    then runs isolated from the project.
     """
 
     computed_params: Callable[[Metadata], list[str]] | None = None
@@ -2274,9 +2251,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             setting of [`[tool.repomatic]`](configuration.md): set it to `[]` to bundle
             Tcl/Tk in a GUI project.
 
-            In a project with a `uv.lock`, repomatic installs Nuitka into the project
-            virtualenv before the build, and Nuitka stays there until the next `uv
-            sync`. The compile cache depends on that fixed path: see [Compile
+            In a project with a `uv.lock`, Nuitka runs in a `uv run --with` layer over
+            the project virtualenv, and never lands in it. uv moves the layer on each
+            build, which costs no compile cache hit: see [Compile
             caching](nuitka.md#compile-caching).
             """),
     ),
