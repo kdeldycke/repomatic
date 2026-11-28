@@ -11,6 +11,9 @@
 
 ## [`8.5.0` (2026-11-27)](https://github.com/kdeldycke/repomatic/compare/v8.4.0...v8.5.0)
 
+> [!NOTE]
+> `8.5.0` is available on [🐍 PyPI](https://pypi.org/project/repomatic/8.5.0/) and [🐙 GitHub](https://github.com/kdeldycke/repomatic/releases/tag/v8.5.0).
+
 - **Breaking:** Remove `autopep8` from `repomatic run`: `repomatic run autopep8` now fails, and `sync-tool-versions` stops bumping it. Run `repomatic fix-long-lines` in its place.
 - Add `fix-long-lines`, which wraps the comment and docstring lines that Ruff's `E501` or `W505` reports, and run it in the `format-python` job in place of `autopep8`.
 - `lint-repo.declined` now also declines a default rule left out of `gitignore.extra-content`, as `gitignore.extra-content."{rule}"`: `lint-repo` reports the reason instead of a warning.
