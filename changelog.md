@@ -5,6 +5,8 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
+- Bump Nuitka from `4.3.5` to `4.4`.
+
 ## [`8.5.0` (2026-11-27)](https://github.com/kdeldycke/repomatic/compare/v8.4.0...v8.5.0)
 
 - **Breaking:** Remove `autopep8` from `repomatic run`: `repomatic run autopep8` now fails, and `sync-tool-versions` stops bumping it. Run `repomatic fix-long-lines` in its place.
