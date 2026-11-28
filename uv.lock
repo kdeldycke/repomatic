@@ -13,6 +13,7 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P1W"
 
 [options.exclude-newer-package]
+nuitka = "2026-11-28T00:00:00Z"
 repomatic = { timestamp = "0001-01-01T00:00:00Z", span = "PT0S" }
 
 [[package]]
@@ -897,7 +898,7 @@ wheels = [
 
 [[package]]
 name = "repomatic"
-version = "8.5.1.dev0"
+version = "9.0.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "click-extra" },
