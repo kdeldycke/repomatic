@@ -22,7 +22,7 @@ two hooks from here:
 - {func}`nuitka_params`, its computed parameters: the modules the binary
   leaves out, and the options of the build target this machine compiles for.
 - {func}`prepare_nuitka_build`, its preparation: the extras to install, the
-  compile cache to trim and configure, and the environment of the target.
+  compile cache to trim, and the environment of the target.
 
 Each of them reads the machine it runs on, so the release workflow hands a
 compile job nothing but the entry point to build.
@@ -55,9 +55,6 @@ Nuitka's internal clcache prunes by age alone and has no size cap (ccache
 prunes itself at 5 GiB), so a restore-then-save cycle can still grow the
 cache. Past this size, the cache starts a fresh lineage.
 """
-
-CCACHE_CONFIG: Final[str] = "ccache.conf"
-"""The file ccache reads its settings from, inside its cache directory."""
 
 
 def nuitka_params(metadata: Metadata) -> list[str]:
@@ -106,37 +103,24 @@ def _directory_size(directory: Path) -> int:
     return sum(path.stat().st_size for path in directory.rglob("*") if path.is_file())
 
 
-def prepare_compile_cache(cache_dir: Path, ccache_dir: Path) -> None:
-    """Trim the Nuitka compile cache, then write the settings of ccache.
-
-    Two duties. The trim resets a cache past {data}`COMPILE_CACHE_CAP`. The
-    settings land in the {data}`CCACHE_CONFIG` file of *ccache_dir*, which
-    ccache always reads, and which the cache step of the workflow saves with
-    the objects. The one setting, `compiler_check = content`, hashes the
-    compiler binary's content. The default check reads its modification time
-    and size, which runner VMs do not keep stable.
+def prepare_compile_cache(cache_dir: Path) -> None:
+    """Reset the Nuitka compile cache once it grew past {data}`COMPILE_CACHE_CAP`.
 
     :param cache_dir: The directory `NUITKA_CACHE_DIR` names.
-    :param ccache_dir: The directory `CCACHE_DIR` names.
     """
-    if cache_dir.is_dir():
-        size = _directory_size(cache_dir)
-        logging.info(f"Nuitka cache restored at {size // MEBIBYTE} MiB.")
-        if size > COMPILE_CACHE_CAP:
-            logging.info(
-                f"Cache exceeds {COMPILE_CACHE_CAP // MEBIBYTE} MiB, resetting."
-            )
-            shutil.rmtree(cache_dir)
-    ccache_dir.mkdir(parents=True, exist_ok=True)
-    (ccache_dir / CCACHE_CONFIG).write_text(
-        "compiler_check = content\n", encoding="UTF-8"
-    )
+    if not cache_dir.is_dir():
+        return
+    size = _directory_size(cache_dir)
+    logging.info(f"Nuitka cache restored at {size // MEBIBYTE} MiB.")
+    if size > COMPILE_CACHE_CAP:
+        logging.info(f"Cache exceeds {COMPILE_CACHE_CAP // MEBIBYTE} MiB, resetting.")
+        shutil.rmtree(cache_dir)
 
 
 def prepare_nuitka_build(metadata: Metadata) -> dict[str, str]:
     """Ready this machine for the Nuitka build `repomatic run nuitka` starts.
 
-    Installs the `[tool.repomatic] nuitka.extras`, then prepares the compile
+    Installs the `[tool.repomatic] nuitka.extras`, then trims the compile
     cache when the job relocated it under `NUITKA_CACHE_DIR` and the target
     keeps one (see
     {attr}`~repomatic.release.binary.BuildTarget.compile_cache`). Outside CI
@@ -151,9 +135,6 @@ def prepare_nuitka_build(metadata: Metadata) -> dict[str, str]:
     target = current_build_target()
     cache_dir = os.environ.get("NUITKA_CACHE_DIR")
     if cache_dir and (target is None or target.compile_cache):
-        prepare_compile_cache(
-            Path(cache_dir),
-            Path(os.environ.get("CCACHE_DIR") or Path(cache_dir) / "ccache"),
-        )
+        prepare_compile_cache(Path(cache_dir))
 
     return dict(target.build_env) if target is not None else {}

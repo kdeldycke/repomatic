@@ -7,6 +7,7 @@
 
 - Bump Nuitka from `4.3.5` to `4.4`, which gives its include directories stable paths, and stop writing `base_dir` into `ccache.conf`.
 - `repomatic run nuitka` runs Nuitka from a `uv run --with` layer again, and no longer installs it into the project virtualenv.
+- `repomatic run nuitka` no longer writes `ccache.conf`, whose one setting the release workflow already exports as `CCACHE_COMPILERCHECK`.
 
 ## [`8.5.0` (2026-11-27)](https://github.com/kdeldycke/repomatic/compare/v8.4.0...v8.5.0)
 

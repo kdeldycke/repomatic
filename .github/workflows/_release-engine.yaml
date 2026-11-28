@@ -89,16 +89,13 @@ jobs:
       # bytecode) under the workspace, so the cache step below and Nuitka
       # agree on one path both on VM jobs and inside the manylinux containers.
       NUITKA_CACHE_DIR: ${{ github.workspace }}/.nuitka-cache
-      # Name the ccache directory outright. Left to Nuitka, it gains one
-      # subdirectory per Python ABI, and ccache then looks for its
-      # `ccache.conf` there, not where `repomatic run nuitka` writes it.
+      # Name the ccache directory outright, where the saved caches hold their
+      # objects. Left to Nuitka, it gains one subdirectory per Python ABI.
       CCACHE_DIR: ${{ github.workspace }}/.nuitka-cache/ccache
       # Cross-VM hits depend on hashing the compiler binary's content: the
       # default mtime+size check trips on runner VMs, which do not keep
-      # stable file timestamps. `repomatic run nuitka` also writes the
-      # setting into $CCACHE_DIR/ccache.conf, so whichever channel reaches
-      # the wrapper carries the same value. Nuitka's internal clcache on MSVC
-      # ignores it.
+      # stable file timestamps. Nuitka hands ccache the job's environment.
+      # Its internal clcache on MSVC ignores the setting.
       CCACHE_COMPILERCHECK: content
       # Inside the manylinux container, every `git` call after the checkout hits "dubious ownership": `prebake all`
       # then bakes no git field, and the self-tested binary crashes. See the test-binaries job for why the

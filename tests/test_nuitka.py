@@ -28,7 +28,6 @@ from repomatic.config import Config
 from repomatic.release.binary import NUITKA_BUILD_TARGETS
 from repomatic.tooling import nuitka
 from repomatic.tooling.nuitka import (
-    CCACHE_CONFIG,
     install_extras,
     nuitka_params,
     prepare_compile_cache,
@@ -115,34 +114,32 @@ def test_install_extras_without_extras_runs_nothing():
     run_uv.assert_not_called()
 
 
-def test_prepare_compile_cache_writes_the_ccache_settings(tmp_path):
+def test_prepare_compile_cache_without_a_cache(tmp_path):
+    """A first build has no cache to trim, and gets none created."""
     cache_dir = tmp_path / ".nuitka-cache"
-    prepare_compile_cache(cache_dir, cache_dir / "ccache")
-    config = (cache_dir / "ccache" / CCACHE_CONFIG).read_text(encoding="UTF-8")
-    assert config == "compiler_check = content\n"
+    prepare_compile_cache(cache_dir)
+    assert not cache_dir.exists()
 
 
 @pytest.mark.parametrize(("size", "kept"), ((100, True), (101, False)))
 def test_prepare_compile_cache_resets_an_oversized_cache(
     tmp_path, monkeypatch, size, kept
 ):
-    """A cache past the cap starts a fresh lineage, settings rewritten."""
+    """A cache past the cap starts a fresh lineage."""
     monkeypatch.setattr(nuitka, "COMPILE_CACHE_CAP", 100)
     cache_dir = tmp_path / ".nuitka-cache"
     (cache_dir / "clcache").mkdir(parents=True)
     (cache_dir / "clcache" / "object.o").write_bytes(b"\0" * size)
 
-    prepare_compile_cache(cache_dir, cache_dir / "ccache")
+    prepare_compile_cache(cache_dir)
 
     assert (cache_dir / "clcache" / "object.o").exists() is kept
-    assert (cache_dir / "ccache" / CCACHE_CONFIG).is_file()
 
 
 def test_prepare_nuitka_build_on_a_runner(tmp_path, monkeypatch, on_target):
     """A CI compile job gets its cache prepared and its target's environment."""
     on_target(MACOS_ARM)
     monkeypatch.setenv("NUITKA_CACHE_DIR", str(tmp_path / ".nuitka-cache"))
-    monkeypatch.delenv("CCACHE_DIR", raising=False)
     with patch.object(nuitka, "prepare_compile_cache") as prepare:
         env = prepare_nuitka_build(_metadata())
     # macOS keeps no compile cache.
@@ -150,10 +147,9 @@ def test_prepare_nuitka_build_on_a_runner(tmp_path, monkeypatch, on_target):
     assert env == {"MACOSX_DEPLOYMENT_TARGET": MACOS_ARM.floor}
 
     on_target(LINUX_ARM)
-    monkeypatch.setenv("CCACHE_DIR", str(tmp_path / "ccache"))
     with patch.object(nuitka, "prepare_compile_cache") as prepare:
         env = prepare_nuitka_build(_metadata())
-    prepare.assert_called_once_with(tmp_path / ".nuitka-cache", tmp_path / "ccache")
+    prepare.assert_called_once_with(tmp_path / ".nuitka-cache")
     assert env == {}
 
 
