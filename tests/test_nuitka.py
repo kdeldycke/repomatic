@@ -117,15 +117,8 @@ def test_install_extras_without_extras_runs_nothing():
 
 def test_prepare_compile_cache_writes_the_ccache_settings(tmp_path):
     cache_dir = tmp_path / ".nuitka-cache"
-    work_root = tmp_path / "work"
-    prepare_compile_cache(cache_dir, cache_dir / "ccache", work_root)
+    prepare_compile_cache(cache_dir, cache_dir / "ccache")
     config = (cache_dir / "ccache" / CCACHE_CONFIG).read_text(encoding="UTF-8")
-    assert config == f"compiler_check = content\nbase_dir = {work_root}\n"
-
-
-def test_prepare_compile_cache_leaves_base_dir_unset_outside_a_runner(tmp_path):
-    prepare_compile_cache(tmp_path / "cache", tmp_path / "cache" / "ccache", None)
-    config = (tmp_path / "cache" / "ccache" / CCACHE_CONFIG).read_text(encoding="UTF-8")
     assert config == "compiler_check = content\n"
 
 
@@ -139,7 +132,7 @@ def test_prepare_compile_cache_resets_an_oversized_cache(
     (cache_dir / "clcache").mkdir(parents=True)
     (cache_dir / "clcache" / "object.o").write_bytes(b"\0" * size)
 
-    prepare_compile_cache(cache_dir, cache_dir / "ccache", None)
+    prepare_compile_cache(cache_dir, cache_dir / "ccache")
 
     assert (cache_dir / "clcache" / "object.o").exists() is kept
     assert (cache_dir / "ccache" / CCACHE_CONFIG).is_file()
@@ -150,7 +143,6 @@ def test_prepare_nuitka_build_on_a_runner(tmp_path, monkeypatch, on_target):
     on_target(MACOS_ARM)
     monkeypatch.setenv("NUITKA_CACHE_DIR", str(tmp_path / ".nuitka-cache"))
     monkeypatch.delenv("CCACHE_DIR", raising=False)
-    monkeypatch.setenv("RUNNER_WORKSPACE", str(tmp_path / "work" / "papaya"))
     with patch.object(nuitka, "prepare_compile_cache") as prepare:
         env = prepare_nuitka_build(_metadata())
     # macOS keeps no compile cache.
@@ -161,9 +153,7 @@ def test_prepare_nuitka_build_on_a_runner(tmp_path, monkeypatch, on_target):
     monkeypatch.setenv("CCACHE_DIR", str(tmp_path / "ccache"))
     with patch.object(nuitka, "prepare_compile_cache") as prepare:
         env = prepare_nuitka_build(_metadata())
-    prepare.assert_called_once_with(
-        tmp_path / ".nuitka-cache", tmp_path / "ccache", tmp_path / "work"
-    )
+    prepare.assert_called_once_with(tmp_path / ".nuitka-cache", tmp_path / "ccache")
     assert env == {}
 
 

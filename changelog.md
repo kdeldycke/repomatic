@@ -5,7 +5,7 @@
 > [!WARNING]
 > This version is **not released yet** and is under active development.
 
-- Bump Nuitka from `4.3.5` to `4.4`.
+- Bump Nuitka from `4.3.5` to `4.4`, which gives its include directories stable paths, and stop writing `base_dir` into `ccache.conf`.
 
 ## [`8.5.0` (2026-11-27)](https://github.com/kdeldycke/repomatic/compare/v8.4.0...v8.5.0)
 

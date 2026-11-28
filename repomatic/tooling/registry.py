@@ -887,11 +887,13 @@ class ToolSpec:
     directory of its cache that it names at random.
 
     ```{note}
-    Nuitka turns its own location into the `-I` flags of every C compilation,
-    and the compile cache keys on those flags. Under `uv run --with`, each
-    layer that uv builds again makes the next build miss every file. The
-    project venv sits at the same path on every runner, so a tool installed
-    there keeps its cache. `docs/nuitka.md` holds the measurements.
+    Nuitka `4.4` links most of its include directories into the build
+    directory under stable names. MSVC builds and the `inline_copy/libbacktrace`
+    directory still carry its install location in the `-I` flags, which a
+    compile cache can hash. Under `uv run --with`, each layer that uv builds
+    again moves that location. The project venv sits at the same path on every
+    runner, so a tool installed there keeps the same flags. `docs/nuitka.md`
+    holds the measurements.
     ```
 
     The install stays in the venv after the run. `uv sync` removes it. In a

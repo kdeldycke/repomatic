@@ -111,6 +111,7 @@ Issues found while building repomatic and resolved upstream. Where repomatic car
 - [`MyST-Parser#1210`](https://github.com/executablebooks/MyST-Parser/issues/1210) / [`MyST-Parser#1211`](https://github.com/executablebooks/MyST-Parser/pull/1211) - Image `alt` text lost its backslash escapes in a page that Sphinx builds. `5.2.0` carries the fix.
 - [`Nuitka#3879`](https://github.com/Nuitka/Nuitka/issues/3879) / [`Nuitka#4024`](https://github.com/Nuitka/Nuitka/issues/4024) - `--main-entry-point` crashed without a positional main program, then built a binary that failed at startup when the entry point carried the name of its package. repomatic compiled each entry point from its file path, with `--python-flag=-m` for a `__main__.py`, and skipped every src-layout project, until `4.3` fixed both.
 - [`Nuitka#3994`](https://github.com/Nuitka/Nuitka/issues/3994) - A symlink inside an `--include-data-dir` tree shipped dangling, and crashed the macOS code signing. The tool runner staged a copy of the directory with no symlinks until `4.3`, which ships the content of such a link.
+- [`Nuitka#3996`](https://github.com/Nuitka/Nuitka/issues/3996) - Nuitka passed its own install location to the compiler as absolute `-I` paths, so ccache missed every file once that location moved. `repomatic run nuitka` wrote `base_dir` into `ccache.conf` until `4.4`, which links the include directories into the build directory under stable names ([Nuitka/Nuitka@381a18f17](https://github.com/Nuitka/Nuitka/commit/381a18f17ecef962c05cbf5d456ec84f04cb78e6)). The tool runner still installs Nuitka into the project virtualenv, for the paths `4.4` leaves absolute.
 - [`Nuitka#3998`](https://github.com/Nuitka/Nuitka/issues/3998) - `enableCcache` replaced a user-set `CCACHE_SLOPPINESS` with its own value. Since `4.3` Nuitka adds its value to the user's.
 - [`Nuitka#4025`](https://github.com/Nuitka/Nuitka/issues/4025) - `--project` refused to build over a `py.typed` and over a dependency's package data, until `4.3`.
 - [`Nuitka#4087`](https://github.com/Nuitka/Nuitka/issues/4087) - In `4.3`, a commit that added or removed one kind of local variable made every C file miss `ccache`. repomatic had no workaround, and `4.3.1` fixed it.
@@ -207,12 +208,6 @@ repomatic post-processes the output of `mdformat` to undo two `mdformat-myst` re
 [Nuitka integration](nuitka.md) details the workaround for each of these:
 
 - [`Nuitka#3909` - With `--project` the `[tool.nuitka]` section of `pyproject.toml` is ignored](https://github.com/Nuitka/Nuitka/issues/3909): since `4.2` Nuitka reads `[tool.nuitka]`, but only under `--project`, a mode repomatic cannot use, so the tool runner turns the section into command-line flags. [`Nuitka#2136`](https://github.com/Nuitka/Nuitka/issues/2136) asked for the same support earlier.
-
-- [`Nuitka#3996` - `ccache` never hits across CI machines](https://github.com/Nuitka/Nuitka/issues/3996): the tool runner installs Nuitka into the project virtualenv, whose path is the same on every runner. `repomatic run nuitka` also writes `base_dir` into `ccache.conf`. The fix, [Nuitka/Nuitka@381a18f17](https://github.com/Nuitka/Nuitka/commit/381a18f17ecef962c05cbf5d456ec84f04cb78e6), ships in `4.4` and keeps the original paths on Windows.
-
-  ```{todo}
-  Once the Nuitka pin moves to a release carrying [Nuitka/Nuitka@381a18f17](https://github.com/Nuitka/Nuitka/commit/381a18f17ecef962c05cbf5d456ec84f04cb78e6), delete the `ccache.conf` `base_dir` write of {func}`~repomatic.tooling.nuitka.prepare_compile_cache`, then move this entry to [](#upstreamed-from-repomatic). Keep the install into the project virtualenv: the fix keeps the original include paths on Windows.
-  ```
 
 - [`Nuitka#3997` - Tool downloads are fetched and executed without integrity verification](https://github.com/Nuitka/Nuitka/issues/3997): the macOS builds turn ccache off, which keeps its unverified download out of the build.
 
